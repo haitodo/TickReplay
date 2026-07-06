@@ -1,0 +1,982 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ロゴアイコン カラーカスタマイザー</title>
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f0f2f5;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            display: flex;
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            width: 1080px;
+            max-width: 95%;
+            margin: 20px;
+            overflow: hidden;
+        }
+
+        /* プレビューエリア */
+        .preview-area {
+            flex: 1.2;
+            background-color: #e4e7eb;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 40px;
+            position: relative;
+        }
+
+        .preview-box {
+            width: 100%;
+            max-width: 450px;
+            aspect-ratio: 1;
+            background-color: #ffffff;
+            border-radius: 20px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            transition: background-color 0.2s;
+            position: relative;
+        }
+
+        /* 透明背景パターンの表現 */
+        .preview-box.transparent-bg {
+            background-image:
+                linear-gradient(45deg, #ccc 25%, transparent 25%),
+                linear-gradient(-45deg, #ccc 25%, transparent 25%),
+                linear-gradient(45deg, transparent 75%, #ccc 75%),
+                linear-gradient(-45deg, transparent 75%, #ccc 75%);
+            background-size: 20px 20px;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+        }
+
+        .preview-box.transparent-bg svg {
+            background-color: transparent;
+        }
+
+        .preview-box svg {
+            width: 84%;
+            /* margin_ratio 約8%に相当 */
+            height: 84%;
+            transition: all 0.2s;
+        }
+
+        /* コントロールエリア */
+        .control-area {
+            flex: 1.2;
+            padding: 40px;
+            border-left: 1px solid #eee;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        h2 {
+            margin-top: 0;
+            font-size: 24px;
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+
+        .section-title {
+            font-size: 14px;
+            font-weight: bold;
+            color: #7f8c8d;
+            margin-top: 20px;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+            gap: 10px;
+        }
+
+        .control-group label {
+            width: 140px;
+            font-size: 14px;
+            color: #34495e;
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+
+        .color-picker-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: nowrap;
+        }
+
+        .picker-pair {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .gradient-arrow {
+            color: #95a5a6;
+            font-size: 14px;
+            user-select: none;
+        }
+
+        input[type="color"] {
+            -webkit-appearance: none;
+            appearance: none;
+            /* 標準プロパティ（Firefox等との互換性のため） */
+            border: none;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
+            padding: 0;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+
+        input[type="color"]::-webkit-color-swatch-wrapper {
+            padding: 0;
+        }
+
+        input[type="color"]::-webkit-color-swatch {
+            border: none;
+            border-radius: 50%;
+        }
+
+        /* カラーコード直接入力用のインプット */
+        .color-input-text {
+            font-family: monospace;
+            font-size: 13px;
+            color: #333;
+            width: 68px;
+            padding: 5px 8px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            outline: none;
+            transition: border-color 0.2s;
+            text-transform: lowercase;
+        }
+
+        .color-input-text:focus {
+            border-color: #3498db;
+            box-shadow: 0 0 5px rgba(52, 152, 219, 0.2);
+        }
+
+        /* トグルスイッチ */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 46px;
+            height: 24px;
+            flex-shrink: 0;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .3s;
+            border-radius: 24px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .3s;
+            border-radius: 50%;
+        }
+
+        input:checked+.slider {
+            background-color: #3498db;
+        }
+
+        input:checked+.slider:before {
+            transform: translateX(22px);
+        }
+
+        /* スライダー（余白調整など） */
+        .range-slider {
+            width: 100%;
+            margin: 5px 0 15px 0;
+        }
+
+        .select-input {
+            width: 100%;
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            background-color: #fff;
+            font-size: 14px;
+            color: #333;
+            outline: none;
+        }
+
+        .select-input-sm {
+            padding: 5px 8px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            background-color: #fff;
+            font-size: 12px;
+            color: #333;
+            outline: none;
+            cursor: pointer;
+            height: 32px;
+            box-sizing: border-box;
+        }
+
+        /* プリセット・リセットボタン */
+        .presets-container {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .btn-preset {
+            flex: 1;
+            min-width: 90px;
+            padding: 8px;
+            font-size: 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background-color: #fff;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-weight: bold;
+            color: #555;
+        }
+
+        .btn-preset:hover {
+            background-color: #f5f6f7;
+            border-color: #bbb;
+        }
+
+        .btn-reset {
+            border-color: #e74c3c;
+            color: #e74c3c;
+        }
+
+        .btn-reset:hover {
+            background-color: #fdf2f0;
+            border-color: #c0392b;
+            color: #c0392b;
+        }
+
+        /* 保存ボタン */
+        .action-buttons {
+            display: flex;
+            gap: 15px;
+            margin-top: 25px;
+        }
+
+        .btn-action {
+            flex: 1;
+            padding: 12px;
+            font-size: 15px;
+            font-weight: bold;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-download-png {
+            background-color: #27ae60;
+            color: white;
+        }
+
+        .btn-download-png:hover {
+            background-color: #219653;
+        }
+
+        .btn-download-svg {
+            background-color: #34495e;
+            color: white;
+        }
+
+        .btn-download-svg:hover {
+            background-color: #2c3e50;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                flex-direction: column;
+                width: 100%;
+            }
+
+            .control-area {
+                border-left: none;
+                border-top: 1px solid #eee;
+                padding: 20px;
+            }
+
+            .preview-area {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <!-- プレビューエリア -->
+        <div class="preview-area">
+            <div id="previewBox" class="preview-box">
+                <!-- SVG グラフィック -->
+                <svg id="logoSvg" viewBox="0 0 2000 2000" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                        <!-- 分割クリッピング -->
+                        <clipPath id="clip-green">
+                            <rect x="0" y="1000" width="890" height="1000" />
+                        </clipPath>
+                        <clipPath id="clip-cyan">
+                            <rect x="0" y="0" width="1066" height="1000" />
+                        </clipPath>
+                        <clipPath id="clip-magenta">
+                            <rect x="890" y="1000" width="1110" height="1000" />
+                        </clipPath>
+                        <clipPath id="clip-yellow">
+                            <rect x="1066" y="0" width="934" height="1000" />
+                        </clipPath>
+
+                        <!-- 矢印と余白のくり抜き用マスク -->
+                        <mask id="arrow-mask">
+                            <rect x="0" y="0" width="2000" height="2000" fill="white" />
+                            <polygon
+                                points="414,1000 654,843 639,941 1361,941 1346,843 1586,1000 1346,1157 1361,1059 639,1059 654,1157"
+                                fill="black" stroke="black" stroke-width="92" stroke-linejoin="round" />
+                        </mask>
+
+                        <!-- 線形グラデーション定義 (縦方向) -->
+                        <linearGradient id="grad-green" x1="0" y1="1237" x2="0" y2="1496"
+                            gradientUnits="userSpaceOnUse">
+                            <stop id="stop-green-start" offset="0%" stop-color="#9dc938" />
+                            <stop id="stop-green-end" offset="100%" stop-color="#7da820" />
+                        </linearGradient>
+
+                        <linearGradient id="grad-cyan" x1="0" y1="720" x2="0" y2="1000" gradientUnits="userSpaceOnUse">
+                            <stop id="stop-cyan-start" offset="0%" stop-color="#3cb9c7" />
+                            <stop id="stop-cyan-end" offset="100%" stop-color="#2a939e" />
+                        </linearGradient>
+
+                        <linearGradient id="grad-magenta" x1="0" y1="1000" x2="0" y2="1252"
+                            gradientUnits="userSpaceOnUse">
+                            <stop id="stop-magenta-start" offset="0%" stop-color="#b91f7a" />
+                            <stop id="stop-magenta-end" offset="100%" stop-color="#8a1156" />
+                        </linearGradient>
+
+                        <linearGradient id="grad-yellow" x1="0" y1="447" x2="0" y2="1000"
+                            gradientUnits="userSpaceOnUse">
+                            <stop id="stop-yellow-start" offset="0%" stop-color="#fccb1a" />
+                            <stop id="stop-yellow-end" offset="100%" stop-color="#d6ab0e" />
+                        </linearGradient>
+
+                        <!-- 中央矢印用グラデーション (x1, y1, x2, y2 はJavaScriptから動的に制御可能) -->
+                        <linearGradient id="grad-arrow" x1="0" y1="843" x2="0" y2="1157" gradientUnits="userSpaceOnUse">
+                            <stop id="stop-arrow-start" offset="0%" stop-color="#182f72" />
+                            <stop id="stop-arrow-end" offset="100%" stop-color="#0f1e4a" />
+                        </linearGradient>
+                    </defs>
+
+                    <!-- マスクがかかった波形グループ -->
+                    <g mask="url(#arrow-mask)">
+                        <path id="path-green" class="wave-path"
+                            d="M 473,1496 L 473,1420 C 473,1353 475,1237 571,1237 C 654,1237 638,1430 716,1430 C 821,1430 789,720 905,720 C 985,720 966,1252 1046,1252 C 1126,1252 1187,807 1187,727 L 1324,727 L 1324,615 L 1461,615 L 1461,447"
+                            clip-path="url(#clip-green)" stroke="url(#grad-green)" stroke-width="107"
+                            stroke-linecap="round" stroke-linejoin="round" fill="none" />
+
+                        <path id="path-cyan" class="wave-path"
+                            d="M 473,1496 L 473,1420 C 473,1353 475,1237 571,1237 C 654,1237 638,1430 716,1430 C 821,1430 789,720 905,720 C 985,720 966,1252 1046,1252 C 1126,1252 1187,807 1187,727 L 1324,727 L 1324,615 L 1461,615 L 1461,447"
+                            clip-path="url(#clip-cyan)" stroke="url(#grad-cyan)" stroke-width="107"
+                            stroke-linecap="round" stroke-linejoin="round" fill="none" />
+
+                        <path id="path-magenta" class="wave-path"
+                            d="M 473,1496 L 473,1420 C 473,1353 475,1237 571,1237 C 654,1237 638,1430 716,1430 C 821,1430 789,720 905,720 C 985,720 966,1252 1046,1252 C 1126,1252 1187,807 1187,727 L 1324,727 L 1324,615 L 1461,615 L 1461,447"
+                            clip-path="url(#clip-magenta)" stroke="url(#grad-magenta)" stroke-width="107"
+                            stroke-linecap="round" stroke-linejoin="round" fill="none" />
+
+                        <path id="path-yellow" class="wave-path"
+                            d="M 473,1496 L 473,1420 C 473,1353 475,1237 571,1237 C 654,1237 638,1430 716,1430 C 821,1430 789,720 905,720 C 985,720 966,1252 1046,1252 C 1126,1252 1187,807 1187,727 L 1324,727 L 1324,615 L 1461,615 L 1461,447"
+                            clip-path="url(#clip-yellow)" stroke="url(#grad-yellow)" stroke-width="107"
+                            stroke-linecap="round" stroke-linejoin="round" fill="none" />
+                    </g>
+
+                    <!-- 矢印本体 -->
+                    <polygon id="svg-arrow"
+                        points="414,1000 654,843 639,941 1361,941 1346,843 1586,1000 1346,1157 1361,1059 639,1059 654,1157"
+                        fill="url(#grad-arrow)" stroke="url(#grad-arrow)" stroke-width="1" stroke-linejoin="round" />
+                </svg>
+            </div>
+        </div>
+
+        <!-- コントロールエリア -->
+        <div class="control-area">
+            <div>
+                <h2>カラーカスタマイザー</h2>
+
+                <div class="section-title">プリセット</div>
+                <div class="presets-container">
+                    <button class="btn-preset" onclick="applyPreset('default')">デフォルト</button>
+                    <button class="btn-preset" onclick="applyPreset('orange')">オレンジ (添付風)</button>
+                    <button class="btn-preset" onclick="applyPreset('cool')">クール (青系)</button>
+                    <button class="btn-preset btn-reset" onclick="resetAll()">リセット</button>
+                </div>
+
+                <div class="section-title">色設定（開始色 ➔ 終了色）</div>
+
+                <div class="control-group">
+                    <label>うねうね左下 (緑)</label>
+                    <div class="color-picker-wrapper">
+                        <div class="picker-pair">
+                            <input type="text" id="text-green-start" class="color-input-text" value="#9dc938"
+                                oninput="updateColorFromText('green', 'start', this.value)">
+                            <input type="color" id="picker-green-start" value="#9dc938"
+                                oninput="updateColorFromPicker('green', 'start', this.value)">
+                        </div>
+                        <span class="gradient-arrow">➔</span>
+                        <div class="picker-pair">
+                            <input type="text" id="text-green-end" class="color-input-text" value="#7da820"
+                                oninput="updateColorFromText('green', 'end', this.value)">
+                            <input type="color" id="picker-green-end" value="#7da820"
+                                oninput="updateColorFromPicker('green', 'end', this.value)">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label>うねうね中央上 (水色)</label>
+                    <div class="color-picker-wrapper">
+                        <div class="picker-pair">
+                            <input type="text" id="text-cyan-start" class="color-input-text" value="#3cb9c7"
+                                oninput="updateColorFromText('cyan', 'start', this.value)">
+                            <input type="color" id="picker-cyan-start" value="#3cb9c7"
+                                oninput="updateColorFromPicker('cyan', 'start', this.value)">
+                        </div>
+                        <span class="gradient-arrow">➔</span>
+                        <div class="picker-pair">
+                            <input type="text" id="text-cyan-end" class="color-input-text" value="#2a939e"
+                                oninput="updateColorFromText('cyan', 'end', this.value)">
+                            <input type="color" id="picker-cyan-end" value="#2a939e"
+                                oninput="updateColorFromPicker('cyan', 'end', this.value)">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label>うねうね中央下 (桃)</label>
+                    <div class="color-picker-wrapper">
+                        <div class="picker-pair">
+                            <input type="text" id="text-magenta-start" class="color-input-text" value="#b91f7a"
+                                oninput="updateColorFromText('magenta', 'start', this.value)">
+                            <input type="color" id="picker-magenta-start" value="#b91f7a"
+                                oninput="updateColorFromPicker('magenta', 'start', this.value)">
+                        </div>
+                        <span class="gradient-arrow">➔</span>
+                        <div class="picker-pair">
+                            <input type="text" id="text-magenta-end" class="color-input-text" value="#8a1156"
+                                oninput="updateColorFromText('magenta', 'end', this.value)">
+                            <input type="color" id="picker-magenta-end" value="#8a1156"
+                                oninput="updateColorFromPicker('magenta', 'end', this.value)">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label>うねうね右上 (黄)</label>
+                    <div class="color-picker-wrapper">
+                        <div class="picker-pair">
+                            <input type="text" id="text-yellow-start" class="color-input-text" value="#fccb1a"
+                                oninput="updateColorFromText('yellow', 'start', this.value)">
+                            <input type="color" id="picker-yellow-start" value="#fccb1a"
+                                oninput="updateColorFromPicker('yellow', 'start', this.value)">
+                        </div>
+                        <span class="gradient-arrow">➔</span>
+                        <div class="picker-pair">
+                            <input type="text" id="text-yellow-end" class="color-input-text" value="#d6ab0e"
+                                oninput="updateColorFromText('yellow', 'end', this.value)">
+                            <input type="color" id="picker-yellow-end" value="#d6ab0e"
+                                oninput="updateColorFromPicker('yellow', 'end', this.value)">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label>中央矢印</label>
+                    <div class="color-picker-wrapper">
+                        <div class="picker-pair">
+                            <input type="text" id="text-arrow-start" class="color-input-text" value="#182f72"
+                                oninput="updateColorFromText('arrow', 'start', this.value)">
+                            <input type="color" id="picker-arrow-start" value="#182f72"
+                                oninput="updateColorFromPicker('arrow', 'start', this.value)">
+                        </div>
+                        <span class="gradient-arrow">➔</span>
+                        <div class="picker-pair">
+                            <input type="text" id="text-arrow-end" class="color-input-text" value="#0f1e4a"
+                                oninput="updateColorFromText('arrow', 'end', this.value)">
+                            <input type="color" id="picker-arrow-end" value="#0f1e4a"
+                                oninput="updateColorFromPicker('arrow', 'end', this.value)">
+                        </div>
+                        <!-- 矢印限定のグラデーション方向切り替えセレクター -->
+                        <select id="select-arrow-dir" class="select-input-sm"
+                            onchange="updateArrowDirection(this.value)" title="グラデーションの向き">
+                            <option value="vertical" selected>縦グラデ</option>
+                            <option value="horizontal">横グラデ</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label for="picker-bg">背景色 (単色)</label>
+                    <div class="color-picker-wrapper" style="gap: 15px;">
+                        <div class="picker-pair">
+                            <input type="text" id="text-bg" class="color-input-text" value="#ffffff"
+                                oninput="updateColorFromText('bg', null, this.value)">
+                            <input type="color" id="picker-bg" value="#ffffff"
+                                oninput="updateColorFromPicker('bg', null, this.value)">
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 5px;">
+                            <span style="font-size: 12px; color: #7f8c8d;">透過</span>
+                            <label class="switch">
+                                <input type="checkbox" id="toggle-transparent"
+                                    onchange="toggleTransparent(this.checked)">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section-title">書き出し設定</div>
+                <div style="display: flex; gap: 15px; margin-bottom: 10px;">
+                    <div style="flex: 1;">
+                        <label style="font-size: 13px; color: #7f8c8d; display: block; margin-bottom: 5px;">余白比率
+                            (片側)</label>
+                        <input type="range" id="input-margin" class="range-slider" min="0" max="0.25" step="0.01"
+                            value="0.08" oninput="updateMargin(this.value)">
+                        <span id="label-margin" style="font-size: 12px; color: #34495e; font-weight: bold;">8.0%</span>
+                    </div>
+                    <div style="width: 120px;">
+                        <label
+                            style="font-size: 13px; color: #7f8c8d; display: block; margin-bottom: 5px;">書き出しサイズ</label>
+                        <select id="select-size" class="select-input">
+                            <option value="1024" selected>1024 x 1024</option>
+                            <option value="512">512 x 512</option>
+                            <option value="256">256 x 256</option>
+                            <option value="2000">2000 x 2000</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ダウンロードボタン -->
+            <div class="action-buttons">
+                <button class="btn-action btn-download-svg" onclick="downloadSvg()">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    SVG保存
+                </button>
+                <button class="btn-action btn-download-png" onclick="downloadPng()">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    PNG保存
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const colors = {
+            green: { start: '#9dc938', end: '#7da820' },
+            cyan: { start: '#3cb9c7', end: '#2a939e' },
+            magenta: { start: '#b91f7a', end: '#8a1156' },
+            yellow: { start: '#fccb1a', end: '#d6ab0e' },
+            arrow: { start: '#182f72', end: '#0f1e4a' },
+            bg: '#ffffff'
+        };
+
+        let isTransparent = false;
+        let marginRatio = 0.08;
+        let arrowDirection = 'vertical'; // 'vertical' または 'horizontal'
+
+        // 1. カラーピッカーから更新された場合
+        function updateColorFromPicker(part, type, value) {
+            if (part === 'bg') {
+                colors.bg = value;
+                const textInput = document.getElementById('text-bg');
+                if (textInput) textInput.value = value.toLowerCase();
+                applyColorToSvg('bg', null, value);
+                return;
+            }
+
+            colors[part][type] = value;
+            const textInput = document.getElementById(`text-${part}-${type}`);
+            if (textInput) {
+                textInput.value = value.toLowerCase();
+            }
+            applyColorToSvg(part, type, value);
+        }
+
+        // 2. テキストボックスから直接編集・コピペされた場合
+        function updateColorFromText(part, type, value) {
+            let cleanValue = value.trim();
+
+            if (cleanValue.length > 0 && !cleanValue.startsWith('#')) {
+                cleanValue = '#' + cleanValue;
+            }
+
+            const hexRegex = /^#[0-9a-fA-F]{6}$|^#[0-9a-fA-F]{3}$/;
+            if (hexRegex.test(cleanValue)) {
+                if (cleanValue.length === 4) {
+                    cleanValue = '#' + cleanValue[1] + cleanValue[1] + cleanValue[2] + cleanValue[2] + cleanValue[3] + cleanValue[3];
+                }
+
+                if (part === 'bg') {
+                    colors.bg = cleanValue;
+                    const picker = document.getElementById('picker-bg');
+                    if (picker) picker.value = cleanValue;
+                    applyColorToSvg('bg', null, cleanValue);
+                    if (isTransparent) {
+                        document.getElementById('toggle-transparent').checked = false;
+                        toggleTransparent(false);
+                    }
+                    return;
+                }
+
+                colors[part][type] = cleanValue;
+                const picker = document.getElementById(`picker-${part}-${type}`);
+                if (picker) {
+                    picker.value = cleanValue;
+                }
+                applyColorToSvg(part, type, cleanValue);
+            }
+        }
+
+        // 3. SVGへのリアルタイム描画適用処理
+        function applyColorToSvg(part, type, value) {
+            if (part === 'bg') {
+                if (!isTransparent) {
+                    document.getElementById('previewBox').style.backgroundColor = value;
+                }
+                return;
+            }
+
+            const stopId = `stop-${part}-${type}`;
+            const stopEl = document.getElementById(stopId);
+            if (stopEl) {
+                stopEl.setAttribute('stop-color', value);
+            }
+        }
+
+        // 矢印のグラデーション方向を変更・適用する処理
+        function updateArrowDirection(dir) {
+            arrowDirection = dir;
+            applyArrowDirection();
+        }
+
+        function applyArrowDirection() {
+            const gradArrow = document.getElementById('grad-arrow');
+            if (gradArrow) {
+                if (arrowDirection === 'horizontal') {
+                    // 左右方向：矢印の左端（414）から右端（1586）まで
+                    gradArrow.setAttribute('x1', '414');
+                    gradArrow.setAttribute('y1', '0');
+                    gradArrow.setAttribute('x2', '1586');
+                    gradArrow.setAttribute('y2', '0');
+                } else {
+                    // 上下方向：矢印の上端（843）から下端（1157）まで
+                    gradArrow.setAttribute('x1', '0');
+                    gradArrow.setAttribute('y1', '843');
+                    gradArrow.setAttribute('x2', '0');
+                    gradArrow.setAttribute('y2', '1157');
+                }
+            }
+        }
+
+        // 透過トグルの処理
+        function toggleTransparent(checked) {
+            isTransparent = checked;
+            const box = document.getElementById('previewBox');
+            if (checked) {
+                box.classList.add('transparent-bg');
+                box.style.backgroundColor = 'transparent';
+            } else {
+                box.classList.remove('transparent-bg');
+                box.style.backgroundColor = colors.bg;
+            }
+        }
+
+        // 余白比率の変更
+        function updateMargin(value) {
+            marginRatio = parseFloat(value);
+            document.getElementById('label-margin').textContent = (marginRatio * 100).toFixed(1) + '%';
+            const svg = document.getElementById('logoSvg');
+            const percentage = (1.0 - marginRatio * 2) * 100;
+            svg.style.width = percentage + '%';
+            svg.style.height = percentage + '%';
+        }
+
+        // プリセット適用
+        function applyPreset(presetName) {
+            let presetColors = {};
+            if (presetName === 'default') {
+                presetColors = {
+                    green: { start: '#9dc938', end: '#7da820' },
+                    cyan: { start: '#3cb9c7', end: '#2a939e' },
+                    magenta: { start: '#b91f7a', end: '#8a1156' },
+                    yellow: { start: '#fccb1a', end: '#d6ab0e' },
+                    arrow: { start: '#182f72', end: '#0f1e4a' },
+                    bg: '#ffffff'
+                };
+            } else if (presetName === 'orange') {
+                presetColors = {
+                    green: { start: '#fe6f06', end: '#fda65e' },
+                    cyan: { start: '#fccc43', end: '#ffac04' },
+                    magenta: { start: '#fe8c04', end: '#fd7720' },
+                    yellow: { start: '#fdcf4c', end: '#fea102' },
+                    arrow: { start: '#fcae48', end: '#fc8224' },
+                    bg: '#ffffff'
+                };
+            } else if (presetName === 'cool') {
+                presetColors = {
+                    green: { start: '#2ecc71', end: '#27ae60' },
+                    cyan: { start: '#3498db', end: '#2980b9' },
+                    magenta: { start: '#9b59b6', end: '#8e44ad' },
+                    yellow: { start: '#1abc9c', end: '#16a085' },
+                    arrow: { start: '#2c3e50', end: '#1a252f' },
+                    bg: '#ffffff'
+                };
+            }
+
+            // 矢印方向をデフォルトの「縦」に初期化
+            const selectArrowDir = document.getElementById('select-arrow-dir');
+            if (selectArrowDir) {
+                selectArrowDir.value = 'vertical';
+            }
+            arrowDirection = 'vertical';
+            applyArrowDirection();
+
+            for (const [part, val] of Object.entries(presetColors)) {
+                if (part === 'bg') {
+                    colors.bg = val;
+                    const picker = document.getElementById('picker-bg');
+                    if (picker) picker.value = val;
+                    const textInput = document.getElementById('text-bg');
+                    if (textInput) textInput.value = val;
+                    applyColorToSvg('bg', null, val);
+                    continue;
+                }
+
+                for (const type of ['start', 'end']) {
+                    const colorVal = val[type];
+                    colors[part][type] = colorVal;
+
+                    const picker = document.getElementById(`picker-${part}-${type}`);
+                    if (picker) {
+                        picker.value = colorVal;
+                    }
+                    const textInput = document.getElementById(`text-${part}-${type}`);
+                    if (textInput) {
+                        textInput.value = colorVal;
+                    }
+                    applyColorToSvg(part, type, colorVal);
+                }
+            }
+        }
+
+        // 初期値リセット機能
+        function resetAll() {
+            applyPreset('default');
+
+            // 透過の解除
+            document.getElementById('toggle-transparent').checked = false;
+            toggleTransparent(false);
+
+            // 余白の初期化 (8.0%)
+            const slider = document.getElementById('input-margin');
+            if (slider) {
+                slider.value = 0.08;
+                updateMargin(0.08);
+            }
+
+            // サイズ選択の初期化
+            const sizeSelect = document.getElementById('select-size');
+            if (sizeSelect) {
+                sizeSelect.value = '1024';
+            }
+        }
+
+        // SVGダウンロード処理
+        function downloadSvg() {
+            const svgElement = document.getElementById('logoSvg').cloneNode(true);
+            svgElement.style.backgroundColor = isTransparent ? 'transparent' : colors.bg;
+
+            svgElement.setAttribute('width', '2000');
+            svgElement.setAttribute('height', '2000');
+
+            const serializer = new XMLSerializer();
+            let source = serializer.serializeToString(svgElement);
+            source = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>' + source;
+
+            const blob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = "app_logo.svg";
+            document.body.appendChild(link);
+            link.click();
+
+            setTimeout(() => {
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+            }, 100);
+        }
+
+        // PNGダウンロード処理
+        function downloadPng() {
+            const svgElement = document.getElementById('logoSvg').cloneNode(true);
+
+            svgElement.setAttribute('width', '2000');
+            svgElement.setAttribute('height', '2000');
+
+            const serializer = new XMLSerializer();
+            let source = serializer.serializeToString(svgElement);
+            source = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>' + source;
+
+            const base64Svg = btoa(unescape(encodeURIComponent(source)));
+            const url = "data:image/svg+xml;base64," + base64Svg;
+
+            const img = new Image();
+            img.onload = function () {
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = 2000;
+                tempCanvas.height = 2000;
+                const tempCtx = tempCanvas.getContext('2d');
+                tempCtx.drawImage(img, 0, 0, 2000, 2000);
+
+                const imgData = tempCtx.getImageData(0, 0, 2000, 2000);
+                const data = imgData.data;
+                let minX = 2000, minY = 2000, maxX = 0, maxY = 0;
+                let hasContent = false;
+
+                for (let y = 0; y < 2000; y++) {
+                    for (let x = 0; x < 2000; x++) {
+                        const idx = (y * 2000 + x) * 4;
+                        const alpha = data[idx + 3];
+                        if (alpha > 5) {
+                            if (x < minX) minX = x;
+                            if (x > maxX) maxX = x;
+                            if (y < minY) minY = y;
+                            if (y > maxY) maxY = y;
+                            hasContent = true;
+                        }
+                    }
+                }
+
+                if (!hasContent) {
+                    minX = 0; minY = 0; maxX = 2000; maxY = 2000;
+                }
+
+                const w = maxX - minX + 1;
+                const h = maxY - minY + 1;
+
+                const targetSize = parseInt(document.getElementById('select-size').value);
+                const outCanvas = document.createElement('canvas');
+                outCanvas.width = targetSize;
+                outCanvas.height = targetSize;
+                const outCtx = outCanvas.getContext('2d');
+
+                if (!isTransparent) {
+                    outCtx.fillStyle = colors.bg;
+                    outCtx.fillRect(0, 0, targetSize, targetSize);
+                }
+
+                const contentRatio = 1.0 - (marginRatio * 2);
+                const scale = (targetSize * contentRatio) / Math.max(w, h);
+                const newW = w * scale;
+                const newH = h * scale;
+
+                const startX = (targetSize - newW) / 2;
+                const startY = (targetSize - newH) / 2;
+
+                outCtx.imageSmoothingEnabled = true;
+                outCtx.imageSmoothingQuality = 'high';
+                outCtx.drawImage(tempCanvas, minX, minY, w, h, startX, startY, newW, newH);
+
+                try {
+                    const pngUrl = outCanvas.toDataURL("image/png");
+                    const link = document.createElement("a");
+                    link.href = pngUrl;
+                    link.download = `app_icon_${targetSize}.png`;
+                    document.body.appendChild(link);
+                    link.click();
+
+                    setTimeout(() => {
+                        document.body.removeChild(link);
+                    }, 100);
+                } catch (err) {
+                    alert("セキュリティ上の制約により、ローカルでの画像生成に失敗しました。Webサーバー経由、またはPythonスクリプトをご利用いただくか、SVG形式にて一度書き出してください。");
+                    console.error(err);
+                }
+            };
+
+            img.onerror = function (err) {
+                console.error("SVG画像の読み込みに失敗しました:", err);
+                alert("画像の解析中にエラーが発生しました。");
+            };
+
+            img.src = url;
+        }
+    </script>
+
+</body>
+
+</html>

@@ -1,0 +1,1 @@
+uv run --with opencv-python --with numpy python ai_studio_code.py 

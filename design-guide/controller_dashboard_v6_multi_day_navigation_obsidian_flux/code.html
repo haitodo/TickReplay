@@ -1,0 +1,505 @@
+<!DOCTYPE html><html class="dark" lang="en"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>Pro Trading Controller</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Outfit:wght@600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "on-error-container": "#ffdad6",
+                      "background": "#0D0F14",
+                      "surface-dim": "#111318",
+                      "on-secondary-fixed-variant": "#00497e",
+                      "surface-variant": "#1A1B21",
+                      "surface-tint": "#46dcc5",
+                      "on-primary": "#003730",
+                      "primary": "#4adfc8",
+                      "session-ldn": "#3182CE",
+                      "session-tyo": "#1DB954",
+                      "primary-fixed": "#69f9e1",
+                      "outline-variant": "#282A2F",
+                      "secondary-fixed-dim": "#9fcaff",
+                      "inverse-primary": "#006b5e",
+                      "tertiary-container": "#adaeb1",
+                      "tertiary": "#c9c9cc",
+                      "inverse-surface": "#e2e2e9",
+                      "on-primary-fixed": "#00201b",
+                      "surface-container-high": "#282a2f",
+                      "on-tertiary-fixed": "#1a1c1e",
+                      "surface-container-highest": "#33353a",
+                      "session-ny": "#E53E3E",
+                      "outline": "#33353a",
+                      "surface-charcoal": "#16181E",
+                      "secondary-fixed": "#d2e4ff",
+                      "surface-bright": "#37393f",
+                      "tertiary-fixed-dim": "#c6c6c9",
+                      "surface-container-low": "#111318",
+                      "surface-container-lowest": "#0c0e13",
+                      "status-danger": "#EE3F4D",
+                      "inverse-on-surface": "#2e3036",
+                      "on-background": "#e2e2e9",
+                      "error-container": "#93000a",
+                      "on-surface": "#e2e2e9",
+                      "on-secondary-container": "#002d52",
+                      "surface": "#16181E",
+                      "on-surface-variant": "#859490",
+                      "error": "#ffb4ab",
+                      "on-error": "#690005",
+                      "status-warning": "#F59E0B",
+                      "surface-obsidian": "#0D0F14",
+                      "primary-fixed-dim": "#46dcc5",
+                      "on-secondary-fixed": "#001c37",
+                      "on-secondary": "#003259",
+                      "secondary-container": "#0397fd",
+                      "primary-container": "#19c3ad",
+                      "on-tertiary-fixed-variant": "#454749",
+                      "on-tertiary": "#2f3133",
+                      "surface-container": "#1A1B21",
+                      "secondary": "#9fcaff",
+                      "on-tertiary-container": "#404244",
+                      "on-primary-container": "#004b41",
+                      "status-success": "#22C55E",
+                      "tertiary-fixed": "#e2e2e5",
+                      "on-primary-fixed-variant": "#005046"
+              },
+              "borderRadius": {
+                      "DEFAULT": "4px",
+                      "lg": "6px",
+                      "xl": "8px",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "base": "8px",
+                      "container-padding-desktop": "24px",
+                      "component-padding": "12px",
+                      "section-gap": "24px",
+                      "grid-gap": "16px",
+                      "compact-padding": "8px"
+              },
+              "fontFamily": {
+                      "data-mono-sm": [
+                              "JetBrains Mono"
+                      ],
+                      "label-xs": [
+                              "Inter"
+                      ],
+                      "body-md": [
+                              "Inter"
+                      ],
+                      "label-sm": [
+                              "Inter"
+                      ],
+                      "heading-md": [
+                              "Inter"
+                      ],
+                      "display-lg": [
+                              "Inter"
+                      ],
+                      "data-mono": [
+                              "JetBrains Mono"
+                      ]
+              },
+              "fontSize": {
+                      "data-mono-sm": [
+                              "11px",
+                              {
+                                      "lineHeight": "1.0",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "label-xs": [
+                              "10px",
+                              {
+                                      "lineHeight": "1.2",
+                                      "fontWeight": "500",
+                                      "letterSpacing": "0.02em"
+                              }
+                      ],
+                      "body-md": [
+                              "13px",
+                              {
+                                      "lineHeight": "1.4",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "label-sm": [
+                              "12px",
+                              {
+                                      "lineHeight": "1.2",
+                                      "letterSpacing": "0.01em",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "heading-md": [
+                              "14px",
+                              {
+                                      "lineHeight": "1.2",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "display-lg": [
+                              "20px",
+                              {
+                                      "lineHeight": "1.2",
+                                      "letterSpacing": "-0.01em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "data-mono": [
+                              "12px",
+                              {
+                                      "lineHeight": "1.4",
+                                      "fontWeight": "500"
+                              }
+                      ]
+              }
+      },
+          },
+        }
+      </script>
+<style>
+        body {
+            background-color: theme('colors.background');
+            color: theme('colors.on-surface');
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        .pro-panel {
+            background: linear-gradient(180deg, rgba(30, 31, 37, 0.95) 0%, rgba(26, 27, 33, 0.95) 100%);
+            border: 1px solid theme('colors.outline-variant');
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        }
+        .pro-panel-header {
+            background: rgba(13, 15, 20, 0.5);
+            border-bottom: 1px solid theme('colors.outline-variant');
+        }
+        .pro-btn {
+            background: linear-gradient(180deg, rgba(51, 53, 58, 0.8) 0%, rgba(38, 40, 47, 0.8) 100%);
+            border: 1px solid theme('colors.outline-variant');
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 1px 2px rgba(0,0,0,0.2);
+            transition: all 0.15s ease;
+        }
+        .pro-btn:hover {
+            background: linear-gradient(180deg, rgba(60, 62, 68, 0.8) 0%, rgba(45, 47, 54, 0.8) 100%);
+            border-color: theme('colors.outline');
+        }
+        .pro-btn:active {
+            background: rgba(13, 15, 20, 0.8);
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.3);
+            transform: translateY(1px);
+        }
+        .pro-glow {
+            box-shadow: 0 0 12px theme('colors.primary/0.2'), inset 0 0 4px theme('colors.primary/0.4');
+            border-color: theme('colors.primary/0.5');
+        }
+        .timeline-track {
+            background: repeating-linear-gradient(90deg, 
+                theme('colors.outline-variant') 0px, 
+                theme('colors.outline-variant') 1px, 
+                transparent 1px, 
+                transparent 10%);
+        }
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: theme('colors.background');
+        }
+        ::-webkit-scrollbar-thumb {
+            background: theme('colors.surface-variant');
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: theme('colors.outline');
+        }
+    </style>
+</head>
+<body class="h-screen w-screen overflow-hidden flex flex-col text-sm selection:bg-primary/30 selection:text-primary">
+<!-- TopNavBar (Logic Pro Style) -->
+<nav class="bg-surface-obsidian flex justify-between items-center w-full px-4 h-10 border-b border-outline-variant z-50 shrink-0">
+<div class="flex items-center gap-4">
+<div class="font-display-lg text-display-lg font-bold tracking-tight text-on-surface">TRADER_CTRL</div>
+<div class="h-4 w-px bg-outline-variant mx-2"></div>
+<div class="flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-status-success animate-pulse shadow-[0_0_6px_theme('colors.status-success')]"></span>
+<span class="font-label-xs text-label-xs text-on-surface-variant uppercase tracking-widest">Connected</span>
+</div>
+</div>
+<!-- Central HUD -->
+<div class="hidden md:flex items-center justify-center flex-1 mx-8 max-w-xl">
+<div class="flex items-center gap-6 px-4 py-1 bg-surface-container rounded-sm border border-outline-variant w-full justify-between">
+<div class="flex gap-4 font-data-mono text-data-mono">
+<div class="flex items-center gap-2">
+<span class="text-on-surface-variant text-label-xs">SRV</span>
+<span class="text-primary font-bold">14:05:22</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-on-surface-variant text-label-xs">LCL</span>
+<span class="text-on-surface">09:05:22</span>
+</div>
+</div>
+<div class="flex gap-4 font-data-mono text-data-mono">
+<div class="flex items-center gap-2">
+<span class="text-on-surface-variant text-label-xs">SYM</span>
+<span class="text-on-surface font-bold">EURUSD</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-on-surface-variant text-label-xs">TF</span>
+<span class="text-on-surface">M15</span>
+</div>
+</div>
+</div>
+</div>
+<button class="pro-btn px-3 h-7 flex items-center gap-2 rounded-sm border-status-danger/30 hover:border-status-danger/60 bg-status-danger/5 group">
+  <span class="material-symbols-outlined text-[16px] text-status-danger group-hover:scale-110 transition-transform" data-icon="power_settings_new">power_settings_new</span>
+  <span class="font-data-mono-sm text-[10px] text-status-danger font-bold tracking-wider">TERMINATE</span>
+</button><div class="flex items-center gap-2">
+<button class="pro-btn w-7 h-7 rounded flex items-center justify-center text-on-surface-variant hover:text-on-surface">
+<span class="material-symbols-outlined text-[18px]" data-icon="account_circle">account_circle</span>
+</button>
+<button class="pro-btn w-7 h-7 rounded flex items-center justify-center text-on-surface-variant hover:text-on-surface">
+<span class="material-symbols-outlined text-[18px]" data-icon="settings">settings</span>
+</button>
+</div>
+</nav>
+<div class="flex flex-1 overflow-hidden bg-background">
+<!-- SideNavBar (Dense Tools Palette) -->
+<aside class="bg-surface border-r border-outline-variant w-[200px] flex flex-col z-40 shrink-0">
+<div class="p-2 space-y-1">
+<div class="text-label-xs text-on-surface-variant uppercase tracking-wider px-2 py-1 mb-1">Inspector</div>
+<button class="w-full flex items-center gap-2 px-2 py-1.5 rounded-sm hover:bg-surface-variant text-on-surface-variant transition-colors text-left group">
+<span class="material-symbols-outlined text-[16px] group-hover:text-on-surface" data-icon="settings_input_component">settings_input_component</span>
+<span class="font-label-sm text-label-sm group-hover:text-on-surface">Setup Parameters</span>
+</button>
+<button class="w-full flex items-center gap-2 px-2 py-1.5 rounded-sm bg-primary/10 border-l-2 border-primary text-primary text-left">
+<span class="material-symbols-outlined text-[16px]" data-icon="dashboard_customize">dashboard_customize</span>
+<span class="font-label-sm text-label-sm font-semibold">Playback Control</span>
+</button>
+<button class="w-full flex items-center gap-2 px-2 py-1.5 rounded-sm hover:bg-surface-variant text-on-surface-variant transition-colors text-left group">
+<span class="material-symbols-outlined text-[16px] group-hover:text-on-surface" data-icon="settings_remote">settings_remote</span>
+<span class="font-label-sm text-label-sm group-hover:text-on-surface">Remote Host</span>
+</button>
+</div>
+<div class="mt-auto border-t border-outline-variant p-2 space-y-1">
+<div class="text-label-xs text-on-surface-variant uppercase tracking-wider px-2 py-1 mb-1">Global</div>
+<button class="w-full flex items-center gap-2 px-2 py-1.5 rounded-sm hover:bg-surface-variant text-on-surface-variant transition-colors text-left group">
+<span class="material-symbols-outlined text-[16px] group-hover:text-on-surface" data-icon="keyboard">keyboard</span>
+<span class="font-label-sm text-label-sm group-hover:text-on-surface">Hotkeys Active</span>
+<span class="ml-auto w-2 h-2 rounded-full bg-status-success"></span>
+</button>
+<button class="w-full flex items-center gap-2 px-2 py-1.5 rounded-sm hover:bg-surface-variant text-on-surface-variant transition-colors text-left group">
+<span class="material-symbols-outlined text-[16px] group-hover:text-on-surface" data-icon="push_pin">push_pin</span>
+<span class="font-label-sm text-label-sm group-hover:text-on-surface">Always on Top</span>
+</button>
+</div>
+</aside>
+<!-- Main Workspace Grid -->
+<main class="flex-1 p-4 overflow-y-auto overflow-x-hidden flex flex-col gap-4">
+<!-- Timeline Section -->
+<div class="pro-panel rounded-lg flex flex-col shrink-0">
+<div class="pro-panel-header px-4 py-2 flex justify-between items-center rounded-t-lg">
+<h3 class="font-label-sm text-label-sm text-on-surface font-semibold flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-primary" data-icon="timeline">timeline</span>
+Market Timeline Overview
+</h3>
+<span class="font-data-mono-sm text-data-mono-sm text-on-surface-variant">24H CYCLE</span>
+</div>
+<div class="p-4 flex flex-col gap-3">
+<div class="relative h-12 w-full bg-surface-obsidian rounded-sm border border-outline-variant overflow-hidden timeline-track shadow-inner">
+<!-- Playhead Current Position indicator -->
+<div class="absolute inset-y-0 left-[42%] w-px bg-primary z-20 shadow-[0_0_8px_theme('colors.primary')]"></div>
+<div class="absolute top-0 left-[42%] -translate-x-1/2 w-3 h-3 bg-primary polygon-[50%_100%,0_0,100%_0] z-20"></div>
+<!-- Session Blocks -->
+<div class="absolute inset-y-1 left-0 w-1/4 bg-session-tyo/20 border-l-2 border-session-tyo rounded-r-sm z-10 flex items-center px-2">
+<span class="text-[9px] font-bold text-session-tyo uppercase opacity-70">TYO</span>
+</div>
+<div class="absolute inset-y-1 left-1/4 w-1/3 bg-session-ldn/20 border-l-2 border-session-ldn rounded-sm z-10 flex items-center px-2">
+<span class="text-[9px] font-bold text-session-ldn uppercase opacity-70">LDN</span>
+</div>
+<div class="absolute inset-y-1 left-1/2 w-1/3 bg-session-ny/20 border-l-2 border-session-ny rounded-l-sm z-10 flex justify-end items-center px-2">
+<span class="text-[9px] font-bold text-session-ny uppercase opacity-70">NY</span>
+</div>
+<!-- Played area -->
+<div class="absolute inset-y-0 left-0 w-[42%] bg-white/5 z-0"></div>
+</div>
+<div class="flex justify-between font-data-mono-sm text-[10px] text-on-surface-variant">
+<span class="">00:00</span>
+<span class="">06:00</span>
+<span class="">12:00</span>
+<span class="">18:00</span>
+<span class="">24:00</span>
+</div>
+</div>
+</div>
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-0">
+<!-- Left Column: Transport & Jump Matrix -->
+<div class="lg:col-span-7 flex flex-col gap-4">
+<!-- Transport Controls -->
+<div class="pro-panel rounded-lg flex flex-col">
+<div class="pro-panel-header px-4 py-2 flex justify-between items-center rounded-t-lg">
+<h3 class="font-label-sm text-label-sm text-on-surface font-semibold flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-primary" data-icon="play_circle">play_circle</span>
+Transport
+</h3>
+</div>
+<div class="p-4 flex items-center justify-between gap-6">
+<!-- Core Transport -->
+<div class="flex items-center gap-2">
+<button class="pro-btn w-10 h-10 rounded-sm flex items-center justify-center text-on-surface-variant hover:text-on-surface">
+<span class="material-symbols-outlined text-[24px]" data-icon="skip_previous">skip_previous</span>
+</button>
+<button class="w-14 h-14 rounded-sm bg-surface-obsidian border border-primary/50 text-primary flex items-center justify-center pro-glow transition-all active:scale-95">
+<span class="material-symbols-outlined text-[36px]" data-icon="play_arrow">play_arrow</span>
+</button>
+<button class="pro-btn w-10 h-10 rounded-sm flex items-center justify-center text-on-surface-variant hover:text-on-surface">
+<span class="material-symbols-outlined text-[24px]" data-icon="skip_next">skip_next</span>
+</button>
+</div>
+<div class="h-10 w-px bg-outline-variant"></div>
+<!-- Speed & Loop -->
+<div class="flex-1 flex items-center justify-between gap-4">
+<div class="flex flex-col gap-1 bg-surface-obsidian px-3 py-2 rounded-sm border border-outline-variant flex-1">
+<div class="flex justify-between items-center">
+<span class="text-[10px] text-on-surface-variant uppercase">Rate</span>
+<span class="font-data-mono text-primary font-bold text-sm">1.0x</span>
+</div>
+<input class="w-full accent-primary h-1 bg-outline-variant rounded-full appearance-none cursor-pointer mt-1" max="10" min="0.1" step="0.1" type="range" value="1.0">
+</div>
+<div class="flex flex-col gap-1 bg-surface-obsidian p-1 rounded-sm border border-outline-variant">
+<div class="flex items-center gap-1">
+<button class="w-8 h-6 rounded-sm bg-surface text-[10px] font-bold text-on-surface-variant hover:text-on-surface hover:bg-surface-variant border border-outline-variant transition-colors">A</button>
+<button class="w-6 h-6 flex items-center justify-center text-primary bg-primary/10 rounded-sm">
+<span class="material-symbols-outlined text-[14px]" data-icon="sync">sync</span>
+</button>
+<button class="w-8 h-6 rounded-sm bg-surface text-[10px] font-bold text-on-surface-variant hover:text-on-surface hover:bg-surface-variant border border-outline-variant transition-colors">B</button>
+</div>
+<div class="text-center text-[9px] text-on-surface-variant uppercase tracking-wider">Loop</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Navigation Matrix -->
+<div class="pro-panel rounded-lg flex flex-col flex-1">
+<div class="pro-panel-header px-4 py-2 flex justify-between items-center rounded-t-lg">
+<h3 class="font-label-sm text-label-sm text-on-surface font-semibold flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-primary" data-icon="grid_view">grid_view</span>
+Navigation Matrix
+</h3>
+</div>
+<div class="p-4 grid grid-cols-2 gap-6 h-full">
+<!-- Time Steppers -->
+<div class="space-y-3">
+<div class="text-[10px] text-on-surface-variant uppercase tracking-widest border-b border-outline-variant pb-1">Time Steps</div>
+<div class="grid grid-cols-1 gap-2">
+<div class="flex items-center bg-surface-obsidian border border-outline-variant rounded-sm p-1">
+<button class="pro-btn w-8 h-8 rounded-sm flex items-center justify-center text-on-surface hover:text-primary">
+<span class="material-symbols-outlined text-[18px]" data-icon="remove">remove</span>
+</button>
+<div class="flex-1 text-center font-data-mono font-bold text-on-surface">1M</div>
+<button class="pro-btn w-8 h-8 rounded-sm flex items-center justify-center text-on-surface hover:text-primary">
+<span class="material-symbols-outlined text-[18px]" data-icon="add">add</span>
+</button>
+</div>
+<div class="flex items-center bg-surface-obsidian border border-outline-variant rounded-sm p-1">
+<button class="pro-btn w-8 h-8 rounded-sm flex items-center justify-center text-on-surface hover:text-primary">
+<span class="material-symbols-outlined text-[18px]" data-icon="remove">remove</span>
+</button>
+<div class="flex-1 text-center font-data-mono font-bold text-on-surface">10M</div>
+<button class="pro-btn w-8 h-8 rounded-sm flex items-center justify-center text-on-surface hover:text-primary">
+<span class="material-symbols-outlined text-[18px]" data-icon="add">add</span>
+</button>
+</div>
+<div class="flex items-center bg-surface-obsidian border border-outline-variant rounded-sm p-1">
+<button class="pro-btn w-8 h-8 rounded-sm flex items-center justify-center text-on-surface hover:text-primary">
+<span class="material-symbols-outlined text-[18px]" data-icon="remove">remove</span>
+</button>
+<div class="flex-1 text-center font-data-mono font-bold text-on-surface">1H</div>
+<button class="pro-btn w-8 h-8 rounded-sm flex items-center justify-center text-on-surface hover:text-primary">
+<span class="material-symbols-outlined text-[18px]" data-icon="add">add</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Session Jumps -->
+<div class="space-y-3"><div class="text-[10px] text-on-surface-variant uppercase tracking-widest border-b border-outline-variant pb-1 flex justify-between items-center"><span class="">Session Jump</span><div class="flex items-center gap-1.5"><button class="hover:text-primary transition-colors"><span class="material-symbols-outlined text-[14px]" data-icon="chevron_left">chevron_left</span></button><span class="font-data-mono-sm text-[9px] text-primary bg-primary/10 px-1 rounded-sm">T+0</span><button class="hover:text-primary transition-colors"><span class="material-symbols-outlined text-[14px]" data-icon="chevron_right">chevron_right</span></button></div></div><div class="grid grid-cols-1 gap-2"><div class="flex items-center gap-1"><button class="pro-btn h-10 flex-1 rounded-sm flex items-center px-3 border-l-2 border-l-session-tyo group"><div class="w-2 h-2 rounded-full bg-session-tyo mr-3"></div><div class="flex flex-col items-start"><span class="font-data-mono text-xs text-on-surface group-hover:text-white">Tokyo</span><span class="text-[9px] text-on-surface-variant font-data-mono-sm">09:00 - 18:00</span></div><span class="ml-auto text-[9px] text-primary/70 font-data-mono-sm">T+0</span></button><div class="flex flex-col gap-0.5"><button class="pro-btn w-5 h-[19px] flex items-center justify-center rounded-sm hover:text-primary"><span class="material-symbols-outlined text-[12px]" data-icon="add">add</span></button><button class="pro-btn w-5 h-[19px] flex items-center justify-center rounded-sm hover:text-primary"><span class="material-symbols-outlined text-[12px]" data-icon="remove">remove</span></button></div></div><div class="flex items-center gap-1"><button class="pro-btn h-10 flex-1 rounded-sm flex items-center px-3 border-l-2 border-l-session-ldn group"><div class="w-2 h-2 rounded-full bg-session-ldn mr-3"></div><div class="flex flex-col items-start"><span class="font-data-mono text-xs text-on-surface group-hover:text-white">London</span><span class="text-[9px] text-on-surface-variant font-data-mono-sm">16:00 - 01:00</span></div><span class="ml-auto text-[9px] text-primary/70 font-data-mono-sm">T+0</span></button><div class="flex flex-col gap-0.5"><button class="pro-btn w-5 h-[19px] flex items-center justify-center rounded-sm hover:text-primary"><span class="material-symbols-outlined text-[12px]" data-icon="add">add</span></button><button class="pro-btn w-5 h-[19px] flex items-center justify-center rounded-sm hover:text-primary"><span class="material-symbols-outlined text-[12px]" data-icon="remove">remove</span></button></div></div><div class="flex items-center gap-1"><button class="pro-btn h-10 flex-1 rounded-sm flex items-center px-3 border-l-2 border-l-session-ny group"><div class="w-2 h-2 rounded-full bg-session-ny mr-3"></div><div class="flex flex-col items-start"><span class="font-data-mono text-xs text-on-surface group-hover:text-white">New York</span><span class="text-[9px] text-on-surface-variant font-data-mono-sm">21:00 - 07:00</span></div><span class="ml-auto text-[9px] text-primary/70 font-data-mono-sm">T+0</span></button><div class="flex flex-col gap-0.5"><button class="pro-btn w-5 h-[19px] flex items-center justify-center rounded-sm hover:text-primary"><span class="material-symbols-outlined text-[12px]" data-icon="add">add</span></button><button class="pro-btn w-5 h-[19px] flex items-center justify-center rounded-sm hover:text-primary"><span class="material-symbols-outlined text-[12px]" data-icon="remove">remove</span></button></div></div></div></div>
+</div>
+</div>
+</div>
+<!-- Right Column: Economic Impact -->
+<div class="lg:col-span-5 flex flex-col h-full min-h-0">
+<div class="pro-panel rounded-lg flex flex-col flex-1">
+<div class="pro-panel-header px-4 py-2 flex justify-between items-center rounded-t-lg">
+<h3 class="font-label-sm text-label-sm text-on-surface font-semibold flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-primary" data-icon="monitoring">monitoring</span>
+News Impact List
+</h3>
+<span class="text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded-sm font-data-mono-sm">SYNCED</span>
+</div>
+<div class="p-2 overflow-y-auto flex-1">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="text-[10px] text-on-surface-variant uppercase tracking-wider border-b border-outline-variant">
+<th class="pb-2 px-2 font-normal w-12">Time</th>
+<th class="pb-2 px-2 font-normal w-8">Imp</th>
+<th class="pb-2 px-2 font-normal">Event</th>
+<th class="pb-2 px-2 font-normal text-right w-16">Act</th>
+</tr>
+</thead>
+<tbody class="font-data-mono text-xs divide-y divide-outline-variant/50">
+<tr class="hover:bg-surface-variant/50 transition-colors group opacity-40">
+<td class="py-2 px-2 text-on-surface-variant">08:00</td>
+<td class="py-2 px-2"><div class="w-1.5 h-1.5 rounded-full bg-session-ldn"></div></td>
+<td class="py-2 px-2 text-on-surface truncate max-w-[120px]">UK GDP</td>
+<td class="py-2 px-2 text-right">0.1%</td>
+</tr>
+<tr class="hover:bg-surface-variant/50 transition-colors group">
+<td class="py-2 px-2 text-primary font-bold">14:30</td>
+<td class="py-2 px-2"><div class="w-1.5 h-1.5 rounded-full bg-session-ny shadow-[0_0_4px_theme('colors.session-ny')]"></div></td>
+<td class="py-2 px-2 text-white font-semibold truncate max-w-[120px]">US CPI (YoY)</td>
+<td class="py-2 px-2 text-right text-status-danger font-bold">3.2%</td>
+</tr>
+<tr class="hover:bg-surface-variant/50 transition-colors group">
+<td class="py-2 px-2 text-on-surface-variant">15:00</td>
+<td class="py-2 px-2"><div class="w-1.5 h-1.5 rounded-full bg-session-ny"></div></td>
+<td class="py-2 px-2 text-on-surface truncate max-w-[120px]">US Initial Jobless</td>
+<td class="py-2 px-2 text-right text-on-surface-variant">-</td>
+</tr>
+<tr class="hover:bg-surface-variant/50 transition-colors group">
+<td class="py-2 px-2 text-on-surface-variant">19:00</td>
+<td class="py-2 px-2"><div class="w-1.5 h-1.5 rounded-full bg-status-warning"></div></td>
+<td class="py-2 px-2 text-on-surface truncate max-w-[120px]">FOMC Member Speaks</td>
+<td class="py-2 px-2 text-right text-on-surface-variant">-</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+<!-- Status Bar -->
+<footer class="bg-surface-obsidian flex justify-between items-center px-4 h-6 border-t border-outline-variant z-50 shrink-0">
+<div class="font-data-mono-sm text-[10px] text-on-surface-variant uppercase tracking-widest">
+        SYSTEM_ACTIVE_V2.4 // OBSIDIAN FLUX
+    </div>
+<div class="flex gap-4 font-data-mono-sm text-[10px] uppercase">
+<span class="text-on-surface-variant flex items-center gap-1">
+<span class="w-1.5 h-1.5 bg-surface-variant border border-outline rounded-full"></span>
+Mode: Desktop
+</span>
+<span class="text-on-surface-variant flex items-center gap-1">
+<span class="w-1.5 h-1.5 bg-status-success rounded-full animate-pulse shadow-[0_0_4px_theme('colors.status-success')]"></span>
+Engine: Active
+</span>
+</div>
+</footer>
+
+
+</body></html>

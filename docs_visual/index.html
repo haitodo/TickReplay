@@ -1,0 +1,1675 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="MT5 ティックリプレイ コントローラーの機能およびデザイン紹介資料です。デスクトップ検証リモコンアプリのデザインや直感的な操作方法を体感できます。">
+  <title>MT5 Tick Replay Controller - 機能・デザイン紹介</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  
+  <style>
+    /* CSS Variables & Theme Setup */
+    :root {
+      --bg-color: hsl(220, 14%, 6%);
+      --sidebar-bg: rgba(13, 15, 20, 0.9);
+      --card-bg: rgba(22, 24, 30, 0.7);
+      --panel-bg: rgba(22, 24, 30, 0.85);
+      --border-color: rgba(255, 255, 255, 0.08);
+      --border-hover: rgba(255, 255, 255, 0.15);
+      --text-primary: hsl(210, 20%, 95%);
+      --text-secondary: hsl(210, 12%, 75%);
+      --text-muted: hsl(210, 8%, 50%);
+      
+      --primary-color: hsl(174, 60%, 45%);
+      --primary-hover: hsl(174, 60%, 40%);
+      --accent-color: hsl(200, 95%, 45%);
+      --danger-color: hsl(354, 70%, 54%);
+      --danger-hover: hsl(354, 70%, 48%);
+      --success-color: hsl(142, 60%, 45%);
+      --warning-color: hsl(35, 90%, 50%);
+
+      --session-tyo: hsl(142, 70%, 45%);
+      --session-ldn: hsl(210, 85%, 55%);
+      --session-ny: hsl(354, 80%, 55%);
+
+      --shadow-premium: 0 20px 50px rgba(0, 0, 0, 0.5);
+      --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+      overflow-x: hidden;
+    }
+
+    /* Layout Structure */
+    .container {
+      display: flex;
+      width: 100%;
+      min-height: 100vh;
+    }
+
+    /* Sidebar Styling */
+    aside {
+      width: 280px;
+      background: var(--sidebar-bg);
+      border-right: 1px solid var(--border-color);
+      padding: 32px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 32px;
+      flex-shrink: 0;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      z-index: 10;
+    }
+
+    .brand {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .brand h1 {
+      font-family: 'Outfit', sans-serif;
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      background: linear-gradient(135deg, #ffffff 0%, var(--primary-color) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .brand p {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    nav {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .nav-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-secondary);
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-align: left;
+      transition: var(--transition-smooth);
+    }
+
+    .nav-btn:hover {
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text-primary);
+    }
+
+    .nav-btn.active {
+      background: rgba(56, 161, 105, 0.1);
+      border-color: rgba(56, 161, 105, 0.2);
+      color: var(--primary-color);
+      font-weight: 600;
+    }
+
+    .nav-btn svg {
+      width: 18px;
+      height: 18px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+    }
+
+    .sidebar-footer {
+      margin-top: auto;
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* Main Content Styling */
+    main {
+      flex-grow: 1;
+      padding: 48px 64px;
+      overflow-y: auto;
+      max-width: 1400px;
+      margin: 0 auto;
+      width: calc(100% - 280px);
+    }
+
+    .content-section {
+      display: none;
+      animation: fadeIn 0.4s ease-out forwards;
+    }
+
+    .content-section.active {
+      display: block;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Typography & Headers */
+    .section-title {
+      font-family: 'Outfit', sans-serif;
+      font-size: 32px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      color: #fff;
+      letter-spacing: -0.5px;
+    }
+
+    .section-desc {
+      font-size: 16px;
+      color: var(--text-secondary);
+      margin-bottom: 40px;
+      line-height: 1.6;
+    }
+
+    h3 {
+      font-family: 'Outfit', sans-serif;
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      color: #fff;
+    }
+
+    /* Info Cards & Grid */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 24px;
+      margin-bottom: 48px;
+    }
+
+    .feature-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 24px;
+      transition: var(--transition-smooth);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .feature-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 4px;
+      height: 100%;
+      background: var(--primary-color);
+      opacity: 0;
+      transition: var(--transition-smooth);
+    }
+
+    .feature-card:hover {
+      transform: translateY(-4px);
+      border-color: var(--border-hover);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    }
+
+    .feature-card:hover::before {
+      opacity: 1;
+    }
+
+    .feature-icon-wrapper {
+      width: 48px;
+      height: 48px;
+      border-radius: 8px;
+      background: rgba(56, 161, 105, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 20px;
+      color: var(--primary-color);
+    }
+
+    .feature-icon-wrapper svg {
+      width: 24px;
+      height: 24px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+    }
+
+    .feature-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 10px;
+      color: #fff;
+    }
+
+    .feature-desc {
+      font-size: 13.5px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
+    /* Gallery / Image Showcase */
+    .gallery-container {
+      display: flex;
+      flex-direction: column;
+      gap: 40px;
+    }
+
+    .gallery-item {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 24px;
+    }
+
+    .gallery-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .gallery-title {
+      font-family: 'Outfit', sans-serif;
+      font-size: 18px;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .gallery-tag {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-secondary);
+    }
+
+    .gallery-img-wrapper {
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--border-color);
+      background: #000;
+      aspect-ratio: 16/10;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .gallery-img-wrapper img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      transition: var(--transition-smooth);
+    }
+
+    .gallery-img-wrapper:hover img {
+      transform: scale(1.02);
+    }
+
+    .gallery-desc {
+      font-size: 14px;
+      color: var(--text-secondary);
+      margin-top: 16px;
+      line-height: 1.6;
+    }
+
+    /* --------------------- Live App Simulation Sandbox --------------------- */
+    .sandbox-container {
+      display: flex;
+      gap: 32px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+
+    .sandbox-info {
+      flex: 1;
+      min-width: 300px;
+    }
+
+    .sandbox-info ul {
+      margin-left: 20px;
+      margin-top: 12px;
+      margin-bottom: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    .sandbox-info strong {
+      color: var(--primary-color);
+    }
+
+    /* Replicating Tauri App CSS within Sandbox */
+    .simulated-app-window {
+      background: #111317;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 12px;
+      box-shadow: 0 30px 70px rgba(0, 0, 0, 0.8);
+      width: 520px;
+      overflow: hidden;
+      flex-shrink: 0;
+      font-family: 'Inter', sans-serif;
+      transition: var(--transition-smooth);
+    }
+
+    /* simulated OS window header */
+    .app-window-header {
+      background: #181b22;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .window-controls {
+      display: flex;
+      gap: 8px;
+    }
+
+    .win-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+
+    .win-dot.red { background-color: #ff5f56; }
+    .win-dot.yellow { background-color: #ffbd2e; }
+    .win-dot.green { background-color: #27c93f; }
+
+    .window-title {
+      font-size: 11.5px;
+      font-weight: 500;
+      color: var(--text-muted);
+      margin: 0 auto;
+      transform: translateX(-16px); /* offsets window dots slightly for centering */
+    }
+
+    /* App container mockup */
+    .app-sim-body {
+      padding: 18px;
+      background: var(--bg-color);
+      min-height: 240px;
+    }
+
+    .sim-glass-panel {
+      background: var(--panel-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 18px;
+      box-shadow: var(--shadow-premium);
+      transition: var(--transition-smooth);
+    }
+
+    .sim-status-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 10px;
+    }
+
+    .sim-status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    .sim-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background-color: var(--text-muted);
+      box-shadow: none;
+    }
+
+    .sim-dot.disconnected { background-color: var(--danger-color); box-shadow: 0 0 8px var(--danger-color); }
+    .sim-dot.connected { background-color: var(--success-color); box-shadow: 0 0 8px var(--success-color); }
+    .sim-dot.ready { background-color: var(--accent-color); box-shadow: 0 0 8px var(--accent-color); }
+    .sim-dot.active { background-color: var(--primary-color); box-shadow: 0 0 8px var(--primary-color); animation: pulse-dot 1.5s ease-in-out infinite; }
+
+    /* Setup Screen Elements */
+    .sim-setup-layout {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .sim-setup-title {
+      font-family: 'Outfit', sans-serif;
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 14px;
+      background: linear-gradient(135deg, #ffffff 0%, hsl(210, 15%, 80%) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .sim-form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .sim-form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .sim-form-group.full-width {
+      grid-column: span 2;
+    }
+
+    .sim-form-label {
+      font-size: 9.5px;
+      font-weight: 600;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      letter-spacing: 0.5px;
+    }
+
+    .sim-form-input, .sim-form-select {
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--border-color);
+      border-radius: 5px;
+      padding: 6px 10px;
+      color: var(--text-primary);
+      font-size: 11.5px;
+      outline: none;
+      width: 100%;
+    }
+
+    .sim-checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      margin-top: 4px;
+    }
+
+    .sim-checkbox-group input {
+      cursor: pointer;
+    }
+
+    .sim-btn {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border-color);
+      color: var(--text-primary);
+      padding: 7px 12px;
+      border-radius: 5px;
+      font-size: 11.5px;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      transition: var(--transition-smooth);
+      outline: none;
+    }
+
+    .sim-btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(255, 255, 255, 0.18);
+    }
+
+    .sim-btn-primary {
+      background: var(--primary-color);
+      border: none;
+      color: #121316;
+      font-weight: 600;
+    }
+
+    .sim-btn-primary:hover {
+      background: var(--primary-hover);
+    }
+
+    .sim-btn-danger {
+      background: var(--danger-color);
+      border: none;
+      color: #fff;
+    }
+
+    .sim-btn-danger:hover {
+      background: var(--danger-hover);
+    }
+
+    .sim-btn-large {
+      width: 100%;
+      padding: 10px;
+      font-size: 12.5px;
+    }
+
+    .sim-setup-hint {
+      margin-top: 12px;
+      padding: 10px;
+      background: rgba(56, 161, 105, 0.06);
+      border: 1px solid rgba(56, 161, 105, 0.15);
+      border-radius: 6px;
+      font-size: 10.5px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    .sim-setup-hint p {
+      margin: 2px 0;
+    }
+
+    .sim-setup-hint strong {
+      color: var(--primary-color);
+    }
+
+    /* Controller Screen Elements */
+    .sim-controller-layout {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .sim-time-display {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 10px;
+      gap: 10px;
+    }
+
+    .sim-time-item {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .sim-time-val {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--accent-color);
+    }
+
+    /* Interactive Timeline SVG simulation */
+    .sim-timeline-wrapper {
+      position: relative;
+      width: 100%;
+    }
+
+    .sim-timeline-svg {
+      width: 100%;
+      height: 38px;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .sim-timeline-svg svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    .sim-timeline-ticks-info {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      color: var(--text-secondary);
+      margin-top: 4px;
+    }
+
+    .sim-controls-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .sim-btn-group {
+      display: flex;
+      gap: 6px;
+      width: 100%;
+    }
+
+    .sim-btn-group .sim-btn {
+      flex: 1;
+      font-size: 10.5px;
+      padding: 6px 4px;
+      white-space: nowrap;
+    }
+
+    .sim-speed-panel {
+      background: rgba(0, 0, 0, 0.15);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 10px;
+    }
+
+    .sim-speed-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .sim-speed-info {
+      font-size: 13.5px;
+      font-weight: 700;
+      color: var(--primary-color);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .sim-speed-btn-row {
+      display: flex;
+      gap: 6px;
+    }
+
+    .sim-speed-btn-row .sim-btn {
+      flex: 1;
+      padding: 5px;
+      font-size: 10px;
+    }
+
+    .sim-footer-options {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .sim-toggle-btn {
+      background: transparent;
+      border: 1px solid var(--border-color);
+      border-radius: 5px;
+      padding: 4px 8px;
+      font-size: 10px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: var(--transition-smooth);
+      outline: none;
+    }
+
+    .sim-toggle-btn.active {
+      background: rgba(56, 161, 105, 0.12);
+      border-color: var(--primary-color);
+      color: var(--primary-color);
+    }
+
+    /* Minimal Remote Mode mockup style */
+    .sim-app-window-remote {
+      width: 480px;
+    }
+
+    .sim-app-window-remote .sim-glass-panel {
+      padding: 8px 12px;
+      border-radius: 6px;
+    }
+
+    .sim-remote-layout {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .sim-remote-time {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--accent-color);
+      min-width: 60px;
+    }
+
+    .sim-remote-timeline {
+      flex-grow: 1;
+      height: 20px;
+      position: relative;
+    }
+
+    .sim-remote-controls {
+      display: flex;
+      gap: 4px;
+    }
+
+    .sim-remote-controls .sim-btn {
+      padding: 4px 8px;
+      font-size: 11px;
+    }
+
+    /* Shortcuts list table styling */
+    .shortcut-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 24px;
+      font-size: 14px;
+    }
+
+    .shortcut-table th, .shortcut-table td {
+      padding: 12px 16px;
+      text-align: left;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .shortcut-table th {
+      font-weight: 600;
+      color: #fff;
+      background: rgba(255, 255, 255, 0.02);
+      font-family: 'Outfit', sans-serif;
+    }
+
+    .shortcut-table td {
+      color: var(--text-secondary);
+    }
+
+    .shortcut-key {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      background: rgba(255, 255, 255, 0.08);
+      padding: 3px 8px;
+      border-radius: 4px;
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      box-shadow: 0 2px 0 rgba(0,0,0,0.5);
+    }
+
+    /* Custom CSS tooltips for Sandbox */
+    .sim-tooltip {
+      position: relative;
+    }
+    
+    .sim-tooltip::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      bottom: 125%;
+      left: 50%;
+      transform: translateX(-50%) translateY(4px);
+      background: #000;
+      border: 1px solid var(--border-color);
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 9px;
+      color: #fff;
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+      transition: var(--transition-smooth);
+      box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+      z-index: 20;
+    }
+
+    .sim-tooltip:hover::after {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <!-- Sidebar Navigation -->
+    <aside>
+      <div class="brand">
+        <h1>MT5 Tick Replay</h1>
+        <p>Tauri App Overview</p>
+      </div>
+
+      <nav>
+        <button class="nav-btn active" onclick="switchSection('overview', this)">
+          <svg viewBox="0 0 24 24"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+          概要・目的
+        </button>
+        <button class="nav-btn" onclick="switchSection('sandbox', this)">
+          <svg viewBox="0 0 24 24"><path d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          動くUIサンドボックス
+        </button>
+        <button class="nav-btn" onclick="switchSection('gallery', this)">
+          <svg viewBox="0 0 24 24"><path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+          デザインモックアップ
+        </button>
+        <button class="nav-btn" onclick="switchSection('shortcuts', this)">
+          <svg viewBox="0 0 24 24"><path d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
+          キー操作・ショートカット
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        MT5 Tick Replay System<br>
+        Tauri + React Controller UI<br>
+        Visual Overview Document v3.0
+      </div>
+    </aside>
+
+    <!-- Main Workspace -->
+    <main>
+      
+      <!-- ================= SECTION: OVERVIEW ================= -->
+      <section id="overview" class="content-section active">
+        <h2 class="section-title">MT5 ティックリプレイ システムとは</h2>
+        <p class="section-desc">過去の相場データ（1ミリ秒単位のティック）を動画プレイヤーのように再生・巻き戻ししながら、裁量トレードの練習やカスタムインジケーターのバックテストをリアルタイムに行うための高機能デスクトップ操作パネルです。</p>
+
+        <h3>コア・アドバンテージ</h3>
+        <div class="features-grid">
+          
+          <div class="feature-card">
+            <div class="feature-icon-wrapper">
+              <svg viewBox="0 0 24 24"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            </div>
+            <h4 class="feature-title">ミリ秒・ティック単位の超高精度再現</h4>
+            <p class="feature-desc">MT5上のローソク足は、蓄積された実際のティックデータに基づいて下位時間軸から順番に生成されます。1ミリ秒の遅延もなく、極めて精緻なプライスアクションを再現可能です。</p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon-wrapper">
+              <svg viewBox="0 0 24 24"><path d="M8.684 10.742l1.98 1.185a1 1 0 001.072-.012l5.638-3.774M12 21V11.5L4 7.5L12 3.5L20 7.5L12 11.5"/></svg>
+            </div>
+            <h4 class="feature-title">ちらつきのない瞬間巻き戻し (シーク)</h4>
+            <p class="feature-desc">タイムライン上のドラッグ操作で、過去の任意のポイントに瞬間移動できます。未来のローソク足は瞬時に消去され、MT5側の描画も綺麗に同期・再計算されます。</p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon-wrapper">
+              <svg viewBox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.27 15C20.33 18.48 17.2 21 13.5 21a8 8 0 01-8-8c0-3.3 2-6.2 5-7.3"/></svg>
+            </div>
+            <h4 class="feature-title">A-Bループで特定の局面を集中検証</h4>
+            <p class="feature-desc">チャートパターンの突破や重要な経済指標時の値動きなど、見直したいポイントに「開始点A」「終了点B」をセットすれば、その区間内を何回でも自動リピート再生して確認できます。</p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon-wrapper">
+              <svg viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            </div>
+            <h4 class="feature-title">2つの再生速度調整アプローチ</h4>
+            <p class="feature-desc">時間の流れをN倍にする「時間比率モード」（1倍〜1万倍速）と、一瞬の描写ティック数を指定する「ティック枚数モード」（1周期1〜1000枚）を使い分けられます。</p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon-wrapper">
+              <svg viewBox="0 0 24 24"><path d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+            </div>
+            <h4 class="feature-title">主要市場セッションの可視化とジャンプ</h4>
+            <p class="feature-desc">タイムライン背景には東京(TYO)・ロンドン(LDN)・ニューヨーク(NY)の稼働帯が自動着色されます。また、セッション開始地点へワンクリックでジャンプできます。</p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon-wrapper">
+              <svg viewBox="0 0 24 24"><path d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
+            </div>
+            <h4 class="feature-title">操作を邪魔しない極小リモコンモード</h4>
+            <p class="feature-desc">「Remote」ボタンを押すと、UIが細長いミニマルバーに切り替わります。最前面固定機能（Pin）と併用することで、MT5のチャートスペースを広く使った検証が可能です。</p>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ================= SECTION: SANDBOX (Interactive Simulation) ================= -->
+      <section id="sandbox" class="content-section">
+        <h2 class="section-title">動くUIサンドボックス</h2>
+        <p class="section-desc">本物に近い動作を体感できるHTMLベースのインタラクティブなUIプレビューです。ボタンのクリック、モード変更、再生時のタイムラインの進行などをご確認ください。</p>
+
+        <div class="sandbox-container">
+          
+          <div class="sandbox-info">
+            <h3>シミュレーターの操作ガイド</h3>
+            <p>このシミュレーターは実際のTauriアプリのUI配置・機能デザインを忠実に模しています。以下のインタラクションをお試しください：</p>
+            <ul>
+              <li><strong>接続状態の遷移:</strong> 画面は最初は初期設定画面です。<strong>「Initialize Replay」</strong> ボタンを押すと、再生コントロール用のコントローラー画面に切り替わります。</li>
+              <li><strong>再生・一時停止 (PLAY / PAUSE):</strong> コントローラー画面のPLAYボタンを押すと、仮想時刻（Server Time/JST Time）とタイムラインが自動で進み始めます。もう一度押すと一時停止します。</li>
+              <li><strong>タイムラインクリック:</strong> タイムラインのバー上をクリックすることで、任意の再生位置（進捗率）にシークできます。</li>
+              <li><strong>A-Bループの設定:</strong> 再生中に <strong>「SET A」</strong> を押すとその位置にループ開始点を、<strong>「SET B」</strong> を押すと終了点を設定します。設定完了後はその区間を繰り返し再生します。<strong>「CLEAR LOOP」</strong> で解除できます。</li>
+              <li><strong>リモコン切り替え (Remote):</strong> 下部の「Remote」ボタンを押すと、超極細のミニマル配置（リモコンモード）に変化します。</li>
+              <li><strong>Pin / Hotkeysトグル:</strong> 下部のトグルボタンを押すと、状態が切り替わります。</li>
+              <li><strong>Terminate（終了）:</strong> 終了ボタンを押すと初期設定画面に戻ります。</li>
+            </ul>
+          </div>
+
+          <!-- The Simulated Tauri App Container -->
+          <div class="simulated-app-window" id="appWindow">
+            <div class="app-window-header">
+              <div class="window-controls">
+                <div class="win-dot red"></div>
+                <div class="win-dot yellow"></div>
+                <div class="win-dot green"></div>
+              </div>
+              <div class="window-title" id="appWindowTitle">Tick Replay Controller</div>
+            </div>
+            
+            <div class="app-sim-body">
+              <div class="sim-glass-panel" id="appPanel">
+                
+                <!-- Header (Only in normal modes) -->
+                <div class="sim-status-header" id="simHeader">
+                  <h2 class="sim-setup-title" style="margin: 0; font-size: 13px;">Tick Replay Controller</h2>
+                  <div class="sim-status-indicator">
+                    <span class="sim-dot disconnected" id="statusDot"></span>
+                    <span style="font-size: 10px; color: var(--text-secondary);" id="statusText">EA Connected (Idle)</span>
+                  </div>
+                </div>
+
+                <!-- SCREEN 1: Setup Layout -->
+                <div class="sim-setup-layout" id="screenSetup">
+                  <h3 class="sim-setup-title">Setup Replay Environment</h3>
+                  
+                  <div class="sim-form-grid">
+                    <div class="sim-form-group">
+                      <label class="sim-form-label">MT5 Terminal</label>
+                      <select class="sim-form-select">
+                        <option>MetaQuotes MT5 (Term. 1)</option>
+                        <option>Broker A MT5 (Term. 2)</option>
+                      </select>
+                    </div>
+
+                    <div class="sim-form-group">
+                      <label class="sim-form-label">Chart Profile</label>
+                      <select class="sim-form-select">
+                        <option>replay-chart-usd</option>
+                        <option>multi-pair-profile</option>
+                      </select>
+                    </div>
+
+                    <div class="sim-form-group">
+                      <label class="sim-form-label">Source Symbol</label>
+                      <input type="text" class="sim-form-input" value="USDJPY">
+                    </div>
+
+                    <div class="sim-form-group">
+                      <label class="sim-form-label">Preloaded Bars</label>
+                      <input type="number" class="sim-form-input" value="300">
+                    </div>
+
+                    <div class="sim-form-group">
+                      <label class="sim-form-label">Start Time (JST)</label>
+                      <input type="text" class="sim-form-input" value="2026-05-01 00:00:00">
+                    </div>
+
+                    <div class="sim-form-group">
+                      <label class="sim-form-label">End Time (JST)</label>
+                      <input type="text" class="sim-form-input" value="2026-05-02 00:00:00">
+                    </div>
+
+                    <div class="sim-form-group full-width">
+                      <label class="sim-checkbox-group">
+                        <input type="checkbox" checked>
+                        <span class="sim-form-label" style="text-transform: none; margin-top: 0;">Sync charts auto-scroll</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <button class="sim-btn sim-btn-primary sim-btn-large" onclick="initReplaySim()">
+                    Initialize Replay
+                  </button>
+                  
+                  <div class="sim-setup-hint">
+                    <p>MT5チャートに <strong>TickReplayControllerEA</strong> を適用し、</p>
+                    <p>チャート上の「Start Replay Sync」ボタンをクリックしてください。</p>
+                  </div>
+                </div>
+
+                <!-- SCREEN 2: Controller Layout -->
+                <div class="sim-controller-layout" id="screenController" style="display: none;">
+                  
+                  <!-- Time Display -->
+                  <div class="sim-time-display">
+                    <div class="sim-time-item">
+                      <span class="sim-form-label">Server Time</span>
+                      <span class="sim-time-val" id="serverTimeVal">2026-05-01 08:45:00</span>
+                    </div>
+                    <div class="sim-time-item">
+                      <span class="sim-form-label">JST Time</span>
+                      <span class="sim-time-val" id="jstTimeVal">2026-05-01 14:45:00</span>
+                    </div>
+                  </div>
+
+                  <!-- Timeline Slider SVG simulation -->
+                  <div class="sim-timeline-wrapper">
+                    <div class="sim-timeline-svg" onclick="seekSim(event)">
+                      <svg id="simTimelineSvg">
+                        <!-- Tokyo session -->
+                        <rect x="0%" y="0" width="30%" height="100%" fill="var(--session-tyo)" opacity="0.2"></rect>
+                        <!-- London session -->
+                        <rect x="30%" y="0" width="35%" height="100%" fill="var(--session-ldn)" opacity="0.2"></rect>
+                        <!-- NY session -->
+                        <rect x="65%" y="0" width="35%" height="100%" fill="var(--session-ny)" opacity="0.2"></rect>
+
+                        <!-- A-B Repeat highlight (dynamic) -->
+                        <rect id="simLoopArea" x="0%" y="0" width="0%" height="100%" fill="var(--primary-color)" opacity="0.15" style="display: none;"></rect>
+                        <line id="simLoopALine" x1="0%" y1="0" x2="0%" y2="100%" stroke="var(--primary-color)" stroke-width="2" stroke-dasharray="3,3" style="display: none;"></line>
+                        <line id="simLoopBLine" x1="0%" y1="0" x2="0%" y2="100%" stroke="var(--primary-color)" stroke-width="2" stroke-dasharray="3,3" style="display: none;"></line>
+
+                        <!-- Current Pos indicator line -->
+                        <line id="simPlayhead" x1="0%" y1="0" x2="0%" y2="100%" stroke="#ffffff" stroke-width="2"></line>
+                      </svg>
+                    </div>
+                    <div class="sim-timeline-ticks-info">
+                      <span id="simTicksText">Tick: 0 / 189112</span>
+                      <span id="simPercentText">0.0%</span>
+                    </div>
+                  </div>
+
+                  <!-- Controls Grid -->
+                  <div class="sim-controls-grid">
+                    <div class="sim-btn-group">
+                      <button class="sim-btn sim-btn-primary" id="simPlayBtn" onclick="togglePlaySim()">PLAY (Space)</button>
+                      <button class="sim-btn" onclick="resetSim()">RESET (R)</button>
+                      <button class="sim-btn" onclick="stepSim(-100)">STEP REW (←)</button>
+                      <button class="sim-btn" onclick="stepSim(100)">STEP FWD (→)</button>
+                    </div>
+
+                    <!-- Session Jump -->
+                    <div class="sim-btn-group">
+                      <button class="sim-btn sim-tooltip" data-tooltip="東京セッション開始前へ" onclick="jumpToSessionSim('TYO', 'PREV')">-TYO</button>
+                      <button class="sim-btn sim-tooltip" data-tooltip="東京セッション開始へ" onclick="jumpToSessionSim('TYO', 'NEXT')">+TYO</button>
+                      <button class="sim-btn sim-tooltip" data-tooltip="ロンドンセッション開始前へ" onclick="jumpToSessionSim('LDN', 'PREV')">-LDN</button>
+                      <button class="sim-btn sim-tooltip" data-tooltip="ロンドンセッション開始へ" onclick="jumpToSessionSim('LDN', 'NEXT')">+LDN</button>
+                      <button class="sim-btn sim-tooltip" data-tooltip="NYセッション開始前へ" onclick="jumpToSessionSim('NY', 'PREV')">-NY</button>
+                      <button class="sim-btn sim-tooltip" data-tooltip="NYセッション開始へ" onclick="jumpToSessionSim('NY', 'NEXT')">+NY</button>
+                    </div>
+
+                    <!-- Time Jump -->
+                    <div class="sim-btn-group">
+                      <button class="sim-btn" onclick="timeJumpSim(-3600)">-1H</button>
+                      <button class="sim-btn" onclick="timeJumpSim(3600)">+1H</button>
+                      <button class="sim-btn" onclick="timeJumpSim(-600)">-10M</button>
+                      <button class="sim-btn" onclick="timeJumpSim(600)">+10M</button>
+                      <button class="sim-btn" onclick="timeJumpSim(-60)">-1M</button>
+                      <button class="sim-btn" onclick="timeJumpSim(60)">+1M</button>
+                    </div>
+
+                    <!-- A-B Repeat -->
+                    <div class="sim-btn-group">
+                      <button class="sim-btn" id="simSetABtn" onclick="setLoopASim()">SET A (A)</button>
+                      <button class="sim-btn" id="simSetBBtn" onclick="setLoopBSim()">SET B (B)</button>
+                      <button class="sim-btn" onclick="clearLoopSim()">CLEAR LOOP (C)</button>
+                    </div>
+
+                    <!-- Speed Control Panel -->
+                    <div class="sim-speed-panel">
+                      <div class="sim-speed-header">
+                        <button class="sim-toggle-btn" id="simSpeedModeBtn" style="font-size: 9px; padding: 2px 6px;" onclick="toggleSpeedModeSim()">
+                          Mode: Time Ratio
+                        </button>
+                        <span class="sim-speed-info" id="simSpeedValText">10.0x</span>
+                      </div>
+                      <div class="sim-speed-btn-row">
+                        <button class="sim-btn" onclick="changeSpeedSim(-5)">&lt;&lt;</button>
+                        <button class="sim-btn" onclick="changeSpeedSim(-0.5)">&lt;</button>
+                        <button class="sim-btn" onclick="changeSpeedSim(0.5)">&gt;</button>
+                        <button class="sim-btn" onclick="changeSpeedSim(5)">&gt;&gt;</button>
+                      </div>
+                    </div>
+
+                  </div>
+
+                </div>
+
+                <!-- SCREEN 3: Remote minimal Layout -->
+                <div class="sim-remote-layout" id="screenRemote" style="display: none;">
+                  <span class="sim-remote-time" id="simRemoteTimeVal">14:45:00</span>
+                  
+                  <div class="sim-remote-timeline" onclick="seekSim(event)">
+                    <svg style="width: 100%; height: 100%; background: rgba(0,0,0,0.4); border-radius: 3px; border: 1px solid var(--border-color);">
+                      <rect x="0%" y="0" width="30%" height="100%" fill="var(--session-tyo)" opacity="0.2"></rect>
+                      <rect x="30%" y="0" width="35%" height="100%" fill="var(--session-ldn)" opacity="0.2"></rect>
+                      <rect x="65%" y="0" width="35%" height="100%" fill="var(--session-ny)" opacity="0.2"></rect>
+                      <line id="simRemotePlayhead" x1="0%" y1="0" x2="0%" y2="100%" stroke="#ffffff" stroke-width="2"></line>
+                    </svg>
+                  </div>
+
+                  <div class="sim-remote-controls">
+                    <button class="sim-btn sim-btn-primary" id="simRemotePlayBtn" onclick="togglePlaySim()" style="padding: 3px 6px;">▶</button>
+                    <button class="sim-btn" onclick="stepSim(-100)" style="padding: 3px 6px;">←</button>
+                    <button class="sim-btn" onclick="stepSim(100)" style="padding: 3px 6px;">→</button>
+                  </div>
+                </div>
+
+                <!-- Footer Options -->
+                <div class="sim-footer-options" id="simFooter">
+                  <button class="sim-btn sim-btn-danger" onclick="terminateSim()" style="padding: 3px 6px; font-size: 10px;">
+                    Terminate
+                  </button>
+                  
+                  <div style="display: flex; gap: 4px;">
+                    <button class="sim-toggle-btn" id="simPinBtn" onclick="toggleOptionSim('pin')">Pin</button>
+                    <button class="sim-toggle-btn" id="simHotkeysBtn" onclick="toggleOptionSim('hotkeys')">Hotkeys</button>
+                    <button class="sim-toggle-btn" id="simRemoteBtn" onclick="toggleRemoteModeSim()">Remote</button>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ================= SECTION: GALLERY ================= -->
+      <section id="gallery" class="content-section">
+        <h2 class="section-title">デザインモックアップ</h2>
+        <p class="section-desc">デスクトップアプリケーションとしての視覚的レイアウトとプレミアムな質感を定義した画像モックアップです。</p>
+
+        <div class="gallery-container">
+          
+          <div class="gallery-item">
+            <div class="gallery-header">
+              <span class="gallery-title">1. 初期設定画面 (Setup Mode)</span>
+              <span class="gallery-tag">起動初期状態</span>
+            </div>
+            <div class="gallery-img-wrapper">
+              <img src="assets/setup_screen.png" alt="初期設定画面のモックアップ" loading="lazy">
+            </div>
+            <p class="gallery-desc">MT5の接続先や複製する対象の通貨ペア、検証期間などを指定する画面です。PC上にインストールされたMT5ターミナルは自動でスキャンされ、簡単に選択可能です。プロファイルやヒント表示など、スムーズに検証を開始できる設計になっています。</p>
+          </div>
+
+          <div class="gallery-item">
+            <div class="gallery-header">
+              <span class="gallery-title">2. メイン操作パネル (Controller Mode)</span>
+              <span class="gallery-tag">検証実行状態</span>
+            </div>
+            <div class="gallery-img-wrapper">
+              <img src="assets/controller_screen.png" alt="メイン操作パネルのモックアップ" loading="lazy">
+            </div>
+            <p class="gallery-desc">検証中の状態をコントロールするメイン画面です。東京、ロンドン、ニューヨーク各市場の稼働時間が色分けされたタイムライン、A-Bループ範囲のマーキング、詳細な速度変更パネル、ワンタッチで主要時間へ跳ぶセッションジャンプボタンなどが人間工学に基づきコンパクトに配置されています。</p>
+          </div>
+
+          <div class="gallery-item">
+            <div class="gallery-header">
+              <span class="gallery-title">3. リモコンモード (Remote Mode)</span>
+              <span class="gallery-tag">極小サイズ状態</span>
+            </div>
+            <div class="gallery-img-wrapper">
+              <img src="assets/remote_screen.png" alt="リモコンモード画面のモックアップ" loading="lazy">
+            </div>
+            <p class="gallery-desc">「Remote」を押すことで極めてスリムな状態に変形します。幅が細くなり、MT5のチャートエリアを遮ることなく常に最前面に配置（Pin機能）できます。時間の経過確認や、再生・ステップ送りなどの必須操作のみを素早く行えます。</p>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ================= SECTION: SHORTCUTS ================= -->
+      <section id="shortcuts" class="content-section">
+        <h2 class="section-title">キー操作とショートカット仕様</h2>
+        <p class="section-desc">本システムには、リモコンアプリ側がアクティブな際のキー操作に加え、<strong>MT5チャートを操作している際にも機能する「グローバルショートカット」</strong>が搭載されています。これにより、リモコン画面とMT5画面を交互にクリックし直す手間がありません。</p>
+
+        <h3>ショートカットキー一覧</h3>
+        <table class="shortcut-table">
+          <thead>
+            <tr>
+              <th style="width: 250px;">キーボード操作</th>
+              <th>機能動作</th>
+              <th>補足条件</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="shortcut-key">Space</span></td>
+              <td>再生 / 一時停止 (PLAY / PAUSE)</td>
+              <td>共通で動作します</td>
+            </tr>
+            <tr>
+              <td><span class="shortcut-key">→</span> (右矢印)</td>
+              <td>1ティック進む (STEP FWD)</td>
+              <td>一時停止中のみ動作します</td>
+            </tr>
+            <tr>
+              <td><span class="shortcut-key">←</span> (左矢印)</td>
+              <td>1ティック戻る (STEP REW)</td>
+              <td>一時停止中のみ動作します</td>
+            </tr>
+            <tr>
+              <td><span class="shortcut-key">Shift</span> + <span class="shortcut-key">→</span></td>
+              <td>次の市場セッション開始地点へジャンプ</td>
+              <td>直近の東京・ロンドン・NYへ移動</td>
+            </tr>
+            <tr>
+              <td><span class="shortcut-key">Shift</span> + <span class="shortcut-key">←</span></td>
+              <td>前の市場セッション開始地点へジャンプ</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td><span class="shortcut-key">Ctrl</span> + <span class="shortcut-key">→</span></td>
+              <td>+1時間スキップ</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td><span class="shortcut-key">Ctrl</span> + <span class="shortcut-key">←</span></td>
+              <td>-1時間巻き戻し</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td><span class="shortcut-key">]</span></td>
+              <td>再生速度の粗調整（アップ）</td>
+              <td>プリセット値（1倍, 5倍, 10倍, 60倍...）を移動</td>
+            </tr>
+            <tr>
+              <td><span class="shortcut-key">[</span></td>
+              <td>再生速度の粗調整（ダウン）</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td><span class="shortcut-key">=</span></td>
+              <td>再生速度の微調整（アップ）</td>
+              <td>現在の速度を少しずつ細かく変更</td>
+            </tr>
+            <tr>
+              <td><span class="shortcut-key">-</span></td>
+              <td>再生速度の微調整（ダウン）</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td><span class="shortcut-key">A</span></td>
+              <td>A-Bループの開始点 A を設定</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td><span class="shortcut-key">B</span></td>
+              <td>A-Bループの終了点 B を設定</td>
+              <td>セット完了後、自動的に A に戻ってループ開始</td>
+            </tr>
+            <tr>
+              <td><span class="shortcut-key">C</span></td>
+              <td>A-Bループ設定をクリア</td>
+              <td>通常再生状態に戻ります</td>
+            </tr>
+            <tr>
+              <td><span class="shortcut-key">R</span></td>
+              <td>リプレイのリセット</td>
+              <td>検証開始時点（進捗0%）に戻ります</td>
+            </tr>
+          </tbody>
+        </table>
+        
+        <div class="sim-setup-hint" style="margin-top: 24px; background: rgba(229, 62, 62, 0.05); border: 1px solid rgba(229, 62, 62, 0.15); color: hsl(354, 70%, 75%);">
+          <p><strong>注意:</strong> グローバルショートカットは「Hotkeys」トグルがONの時のみ有効になります。MT5や他のアプリでテキスト入力を行う際は、誤入力を防ぐため「Hotkeys」トグルを一時的にOFFにしてください。</p>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Sandbox Simulation Javascript logic -->
+  <script>
+    // Tab Navigation Logic
+    function switchSection(sectionId, element) {
+      // Toggle nav button active state
+      document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
+      element.classList.add('active');
+
+      // Toggle sections
+      document.querySelectorAll('.content-section').forEach(sec => sec.classList.remove('active'));
+      document.getElementById(sectionId).classList.add('active');
+    }
+
+    // --- Sandbox Simulation State ---
+    let simState = {
+      status: "CONNECTED", // CONNECTED -> READY -> ACTIVE
+      isRemote: false,
+      isPlaying: false,
+      currentIdx: 0,
+      totalTicks: 189112,
+      virtualTime: 1777598230000, // Unix epoch milliseconds (May 1, 2026 08:45:00 server time)
+      speedMode: "TEMPORAL", // TEMPORAL or COUNT
+      multiplier: 10.0,
+      tickStep: 100,
+      loopA: -1,
+      loopB: -1,
+      options: {
+        pin: false,
+        hotkeys: true
+      }
+    };
+
+    let timerInterval = null;
+
+    // Dom Elements
+    const appWindow = document.getElementById('appWindow');
+    const appPanel = document.getElementById('appPanel');
+    const simHeader = document.getElementById('simHeader');
+    const statusDot = document.getElementById('statusDot');
+    const statusText = document.getElementById('statusText');
+    const screenSetup = document.getElementById('screenSetup');
+    const screenController = document.getElementById('screenController');
+    const screenRemote = document.getElementById('screenRemote');
+    const appWindowTitle = document.getElementById('appWindowTitle');
+    
+    const serverTimeVal = document.getElementById('serverTimeVal');
+    const jstTimeVal = document.getElementById('jstTimeVal');
+    const simRemoteTimeVal = document.getElementById('simRemoteTimeVal');
+    const simTicksText = document.getElementById('simTicksText');
+    const simPercentText = document.getElementById('simPercentText');
+    const simPlayhead = document.getElementById('simPlayhead');
+    const simRemotePlayhead = document.getElementById('simRemotePlayhead');
+    const simPlayBtn = document.getElementById('simPlayBtn');
+    const simRemotePlayBtn = document.getElementById('simRemotePlayBtn');
+    const simSetABtn = document.getElementById('simSetABtn');
+    const simSetBBtn = document.getElementById('simSetBBtn');
+    const simLoopArea = document.getElementById('simLoopArea');
+    const simLoopALine = document.getElementById('simLoopALine');
+    const simLoopBLine = document.getElementById('simLoopBLine');
+    const simSpeedModeBtn = document.getElementById('simSpeedModeBtn');
+    const simSpeedValText = document.getElementById('simSpeedValText');
+    const simPinBtn = document.getElementById('simPinBtn');
+    const simHotkeysBtn = document.getElementById('simHotkeysBtn');
+    const simRemoteBtn = document.getElementById('simRemoteBtn');
+
+    // Init Simulation
+    function updateSimUI() {
+      // 1. Status header
+      statusDot.className = "sim-dot " + simState.status.toLowerCase();
+      if (simState.status === "CONNECTED") {
+        statusText.innerText = "EA Connected (Idle)";
+      } else if (simState.status === "READY") {
+        statusText.innerText = "Replay Ready";
+      } else if (simState.status === "ACTIVE") {
+        statusText.innerText = "Replay Active";
+      }
+
+      // 2. Playback state
+      if (simState.isPlaying) {
+        simPlayBtn.innerText = "PAUSE (Space)";
+        simPlayBtn.style.backgroundColor = "var(--danger-color)";
+        simRemotePlayBtn.innerText = "||";
+        simRemotePlayBtn.style.backgroundColor = "var(--danger-color)";
+      } else {
+        simPlayBtn.innerText = "PLAY (Space)";
+        simPlayBtn.style.backgroundColor = "var(--primary-color)";
+        simRemotePlayBtn.innerText = "▶";
+        simRemotePlayBtn.style.backgroundColor = "var(--primary-color)";
+      }
+
+      // 3. Current Index & Percent
+      let pct = (simState.currentIdx / simState.totalTicks) * 100;
+      simPercentText.innerText = pct.toFixed(1) + "%";
+      simTicksText.innerText = `Tick: ${simState.currentIdx} / ${simState.totalTicks}`;
+      simPlayhead.setAttribute('x1', pct + '%');
+      simPlayhead.setAttribute('x2', pct + '%');
+      simRemotePlayhead.setAttribute('x1', pct + '%');
+      simRemotePlayhead.setAttribute('x2', pct + '%');
+
+      // 4. Time fields
+      let serverDate = new Date(simState.virtualTime);
+      // Simulating simple JST offset (+6 hours for server GMT+3 DST to JST GMT+9)
+      let jstDate = new Date(simState.virtualTime + 6 * 3600 * 1000);
+      
+      serverTimeVal.innerText = serverDate.toISOString().replace('T', ' ').substring(0, 19);
+      jstTimeVal.innerText = jstDate.toISOString().replace('T', ' ').substring(0, 19);
+      simRemoteTimeVal.innerText = jstDate.toISOString().substring(11, 19);
+
+      // 5. Loop lines rendering
+      if (simState.loopA !== -1) {
+        let pctA = (simState.loopA / simState.totalTicks) * 100;
+        simLoopALine.setAttribute('x1', pctA + '%');
+        simLoopALine.setAttribute('x2', pctA + '%');
+        simLoopALine.style.display = 'block';
+        simSetABtn.style.backgroundColor = "var(--accent-color)";
+        simSetABtn.style.color = "#fff";
+      } else {
+        simLoopALine.style.display = 'none';
+        simSetABtn.style.backgroundColor = "";
+        simSetABtn.style.color = "";
+      }
+
+      if (simState.loopB !== -1) {
+        let pctB = (simState.loopB / simState.totalTicks) * 100;
+        simLoopBLine.setAttribute('x1', pctB + '%');
+        simLoopBLine.setAttribute('x2', pctB + '%');
+        simLoopBLine.style.display = 'block';
+        simSetBBtn.style.backgroundColor = "var(--accent-color)";
+        simSetBBtn.style.color = "#fff";
+
+        // Draw area
+        let pctA = (simState.loopA / simState.totalTicks) * 100;
+        simLoopArea.setAttribute('x', pctA + '%');
+        simLoopArea.setAttribute('width', (pctB - pctA) + '%');
+        simLoopArea.style.display = 'block';
+      } else {
+        simLoopBLine.style.display = 'none';
+        simLoopArea.style.display = 'none';
+        simSetBBtn.style.backgroundColor = "";
+        simSetBBtn.style.color = "";
+      }
+
+      // 6. Option Buttons toggle classes
+      if (simState.options.pin) simPinBtn.classList.add('active');
+      else simPinBtn.classList.remove('active');
+
+      if (simState.options.hotkeys) simHotkeysBtn.classList.add('active');
+      else simHotkeysBtn.classList.remove('active');
+
+      if (simState.isRemote) simRemoteBtn.classList.add('active');
+      else simRemoteBtn.classList.remove('active');
+    }
+
+    function initReplaySim() {
+      simState.status = "ACTIVE";
+      screenSetup.style.display = "none";
+      screenController.style.display = "flex";
+      screenRemote.style.display = "none";
+      updateSimUI();
+    }
+
+    function terminateSim() {
+      stopTimer();
+      simState.status = "CONNECTED";
+      simState.isPlaying = false;
+      simState.currentIdx = 0;
+      simState.loopA = -1;
+      simState.loopB = -1;
+      screenSetup.style.display = "flex";
+      screenController.style.display = "none";
+      screenRemote.style.display = "none";
+      simHeader.style.display = "flex";
+      appWindow.classList.remove('sim-app-window-remote');
+      simState.isRemote = false;
+      updateSimUI();
+    }
+
+    function togglePlaySim() {
+      if (simState.status !== "ACTIVE") return;
+      simState.isPlaying = !simState.isPlaying;
+      if (simState.isPlaying) {
+        startTimer();
+      } else {
+        stopTimer();
+      }
+      updateSimUI();
+    }
+
+    function resetSim() {
+      simState.currentIdx = 0;
+      simState.virtualTime = 1777598230000;
+      updateSimUI();
+    }
+
+    function stepSim(delta) {
+      if (simState.isPlaying) togglePlaySim();
+      simState.currentIdx += delta;
+      if (simState.currentIdx < 0) simState.currentIdx = 0;
+      if (simState.currentIdx > simState.totalTicks) simState.currentIdx = simState.totalTicks;
+      
+      // Update time proportionally
+      simState.virtualTime = 1777598230000 + (simState.currentIdx / simState.totalTicks) * 24 * 3600 * 1000;
+      updateSimUI();
+    }
+
+    function timeJumpSim(seconds) {
+      simState.virtualTime += seconds * 1000;
+      // boundary check
+      let startLimit = 1777598230000;
+      let endLimit = startLimit + 24 * 3600 * 1000;
+      if (simState.virtualTime < startLimit) simState.virtualTime = startLimit;
+      if (simState.virtualTime > endLimit) simState.virtualTime = endLimit;
+
+      // Update current index proportionally
+      let pct = (simState.virtualTime - startLimit) / (24 * 3600 * 1000);
+      simState.currentIdx = Math.round(pct * simState.totalTicks);
+      updateSimUI();
+    }
+
+    function jumpToSessionSim(session, direction) {
+      let targetPct = 0;
+      if (session === 'TYO') targetPct = direction === 'NEXT' ? 0.05 : 0.0;
+      else if (session === 'LDN') targetPct = direction === 'NEXT' ? 0.35 : 0.30;
+      else if (session === 'NY') targetPct = direction === 'NEXT' ? 0.70 : 0.65;
+
+      simState.currentIdx = Math.round(targetPct * simState.totalTicks);
+      simState.virtualTime = 1777598230000 + targetPct * 24 * 3600 * 1000;
+      updateSimUI();
+    }
+
+    function seekSim(event) {
+      let rect = event.currentTarget.getBoundingClientRect();
+      let clickX = event.clientX - rect.left;
+      let pct = clickX / rect.width;
+      if (pct < 0) pct = 0;
+      if (pct > 1) pct = 1;
+
+      simState.currentIdx = Math.round(pct * simState.totalTicks);
+      simState.virtualTime = 1777598230000 + pct * 24 * 3600 * 1000;
+      updateSimUI();
+    }
+
+    function setLoopASim() {
+      simState.loopA = simState.currentIdx;
+      updateSimUI();
+    }
+
+    function setLoopBSim() {
+      if (simState.loopA === -1) return;
+      if (simState.currentIdx <= simState.loopA) return;
+      simState.loopB = simState.currentIdx;
+      // Immediately jump to A
+      simState.currentIdx = simState.loopA;
+      simState.virtualTime = 1777598230000 + (simState.currentIdx / simState.totalTicks) * 24 * 3600 * 1000;
+      updateSimUI();
+    }
+
+    function clearLoopSim() {
+      simState.loopA = -1;
+      simState.loopB = -1;
+      updateSimUI();
+    }
+
+    function toggleSpeedModeSim() {
+      simState.speedMode = simState.speedMode === "TEMPORAL" ? "COUNT" : "TEMPORAL";
+      if (simState.speedMode === "TEMPORAL") {
+        simSpeedModeBtn.innerText = "Mode: Time Ratio";
+        simSpeedValText.innerText = simState.multiplier.toFixed(1) + "x";
+      } else {
+        simSpeedModeBtn.innerText = "Mode: Tick Count";
+        simSpeedValText.innerText = simState.tickStep + " Ticks";
+      }
+    }
+
+    function changeSpeedSim(delta) {
+      if (simState.speedMode === "TEMPORAL") {
+        simState.multiplier += delta;
+        if (simState.multiplier < 0.5) simState.multiplier = 0.5;
+        if (simState.multiplier > 500) simState.multiplier = 500;
+        simSpeedValText.innerText = simState.multiplier.toFixed(1) + "x";
+      } else {
+        simState.tickStep += Math.round(delta * 10);
+        if (simState.tickStep < 10) simState.tickStep = 10;
+        if (simState.tickStep > 1000) simState.tickStep = 1000;
+        simSpeedValText.innerText = simState.tickStep + " Ticks";
+      }
+    }
+
+    function toggleOptionSim(opt) {
+      simState.options[opt] = !simState.options[opt];
+      updateSimUI();
+    }
+
+    function toggleRemoteModeSim() {
+      simState.isRemote = !simState.isRemote;
+      if (simState.isRemote) {
+        simHeader.style.display = "none";
+        screenController.style.display = "none";
+        screenRemote.style.display = "flex";
+        appWindow.classList.add('sim-app-window-remote');
+        appWindowTitle.innerText = "Remote Replay";
+      } else {
+        simHeader.style.display = "flex";
+        screenController.style.display = "flex";
+        screenRemote.style.display = "none";
+        appWindow.classList.remove('sim-app-window-remote');
+        appWindowTitle.innerText = "Tick Replay Controller";
+      }
+      updateSimUI();
+    }
+
+    // Simulated playback loop
+    function startTimer() {
+      if (timerInterval) clearInterval(timerInterval);
+      timerInterval = setInterval(() => {
+        // Increment logic based on selected mode
+        let ticksToAdd = 300; // base tick increment per 40ms frame
+        if (simState.speedMode === "TEMPORAL") {
+          // speed factor
+          ticksToAdd = Math.round(300 * (simState.multiplier / 10));
+        } else {
+          ticksToAdd = simState.tickStep;
+        }
+
+        simState.currentIdx += ticksToAdd;
+        
+        // Loop boundary check
+        if (simState.loopA !== -1 && simState.loopB !== -1) {
+          if (simState.currentIdx >= simState.loopB) {
+            simState.currentIdx = simState.loopA;
+          }
+        } else {
+          if (simState.currentIdx >= simState.totalTicks) {
+            simState.currentIdx = 0;
+          }
+        }
+
+        simState.virtualTime = 1777598230000 + (simState.currentIdx / simState.totalTicks) * 24 * 3600 * 1000;
+        updateSimUI();
+      }, 40);
+    }
+
+    function stopTimer() {
+      if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+      }
+    }
+
+    // Document Ready initialization
+    updateSimUI();
+  </script>
+</body>
+</html>

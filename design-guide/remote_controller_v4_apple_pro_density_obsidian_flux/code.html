@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>TRADER_CTRL - Remote Bar</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Outfit:wght@600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-bright": "#37393f",
+                        "secondary": "#9fcaff",
+                        "on-secondary-fixed-variant": "#00497e",
+                        "error-container": "#93000a",
+                        "surface-container-high": "#282a2f",
+                        "status-warning": "#F59E0B",
+                        "primary-fixed-dim": "#46dcc5",
+                        "surface-tint": "#46dcc5",
+                        "surface-charcoal": "#16181E",
+                        "on-error-container": "#ffdad6",
+                        "secondary-container": "#0397fd",
+                        "surface-dim": "#111318",
+                        "surface-container-lowest": "#0c0e13",
+                        "inverse-on-surface": "#2e3036",
+                        "on-secondary": "#003259",
+                        "on-surface": "#e2e2e9",
+                        "outline": "#859490",
+                        "tertiary-fixed-dim": "#c6c6c9",
+                        "on-tertiary": "#2f3133",
+                        "session-tyo": "#1DB954",
+                        "inverse-surface": "#e2e2e9",
+                        "on-secondary-fixed": "#001c37",
+                        "secondary-fixed": "#d2e4ff",
+                        "error": "#ffb4ab",
+                        "inverse-primary": "#006b5e",
+                        "status-danger": "#EE3F4D",
+                        "primary": "#4adfc8",
+                        "surface-obsidian": "#0D0F14",
+                        "tertiary-fixed": "#e2e2e5",
+                        "on-error": "#690005",
+                        "tertiary-container": "#adaeb1",
+                        "primary-container": "#19c3ad",
+                        "on-primary-fixed": "#00201b",
+                        "on-tertiary-container": "#404244",
+                        "on-primary-fixed-variant": "#005046",
+                        "session-ny": "#E53E3E",
+                        "surface-variant": "#33353a",
+                        "status-success": "#22C55E",
+                        "outline-variant": "#3c4a46",
+                        "session-ldn": "#3182CE",
+                        "on-tertiary-fixed": "#1a1c1e",
+                        "surface-container-low": "#1a1b21",
+                        "surface-container": "#1e1f25",
+                        "on-primary-container": "#004b41",
+                        "background": "#111318",
+                        "surface": "#111318",
+                        "on-surface-variant": "#bbcac5",
+                        "on-primary": "#003730",
+                        "secondary-fixed-dim": "#9fcaff",
+                        "on-tertiary-fixed-variant": "#454749",
+                        "tertiary": "#c9c9cc",
+                        "surface-container-highest": "#33353a",
+                        "primary-fixed": "#69f9e1",
+                        "on-secondary-container": "#002d52",
+                        "on-background": "#e2e2e9"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "component-padding": "12px",
+                        "grid-gap": "24px",
+                        "section-gap": "48px",
+                        "container-padding-desktop": "64px",
+                        "compact-padding": "8px",
+                        "base": "8px"
+                    },
+                    "fontFamily": {
+                        "label-xs": ["Inter"],
+                        "data-mono-sm": ["JetBrains Mono"],
+                        "body-md": ["Inter"],
+                        "display-lg": ["Outfit"],
+                        "data-mono": ["JetBrains Mono"],
+                        "label-sm": ["Inter"],
+                        "heading-md": ["Outfit"]
+                    },
+                    "fontSize": {
+                        "label-xs": ["11px", {"lineHeight": "1.2", "fontWeight": "500"}],
+                        "data-mono-sm": ["12px", {"lineHeight": "1.0", "fontWeight": "400"}],
+                        "body-md": ["16px", {"lineHeight": "1.6", "fontWeight": "400"}],
+                        "display-lg": ["32px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "data-mono": ["13.5px", {"lineHeight": "1.4", "fontWeight": "600"}],
+                        "label-sm": ["14px", {"lineHeight": "1.2", "letterSpacing": "0.01em", "fontWeight": "600"}],
+                        "heading-md": ["20px", {"lineHeight": "1.4", "fontWeight": "600"}]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { background-color: transparent; /* Assuming overlay on chart */ }
+        
+        /* Pro-level Glass Panel */
+        .glass-panel {
+            background: linear-gradient(180deg, rgba(34, 36, 42, 0.85) 0%, rgba(22, 24, 30, 0.95) 100%);
+            backdrop-filter: blur(24px) saturate(150%);
+            -webkit-backdrop-filter: blur(24px) saturate(150%);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-top: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        }
+        
+        /* Tactile Buttons */
+        .btn-tactile {
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.01) 100%);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-bottom-color: rgba(255, 255, 255, 0.02);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+            transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .btn-tactile::after {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.1) 0%, transparent 100%);
+            opacity: 0;
+            transition: opacity 0.1s ease;
+        }
+
+        .btn-tactile:hover::after {
+            opacity: 1;
+        }
+        
+        .btn-tactile:active {
+            background: rgba(0, 0, 0, 0.2);
+            border-top-color: rgba(0, 0, 0, 0.4);
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.4);
+            transform: translateY(1px);
+        }
+        
+        /* Primary Play Button */
+        .btn-primary-tactile {
+            background: linear-gradient(180deg, #69f9e1 0%, #4adfc8 100%);
+            border: 1px solid #19c3ad;
+            border-bottom-color: #006b5e;
+            box-shadow: 0 2px 8px rgba(74, 223, 200, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+            transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .btn-primary-tactile:active {
+            background: linear-gradient(180deg, #46dcc5 0%, #19c3ad 100%);
+            box-shadow: inset 0 2px 4px rgba(0, 55, 48, 0.5);
+            transform: translateY(1px);
+        }
+
+        /* Group Containers */
+        .control-group {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 6px;
+            padding: 2px;
+            border: 1px solid rgba(255, 255, 255, 0.03);
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Range slider styling */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 14px;
+            width: 6px;
+            border-radius: 2px;
+            background: #e2e2e9;
+            border: 1px solid rgba(0,0,0,0.5);
+            cursor: pointer;
+            margin-top: -6px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.5);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 2px;
+            cursor: pointer;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 1px;
+            box-shadow: inset 0 1px 1px rgba(0,0,0,0.5);
+        }
+        
+        /* Segment Display */
+        .segment-display {
+            font-family: 'JetBrains Mono', monospace;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.5);
+            border-radius: 4px;
+            padding: 2px 6px;
+            letter-spacing: -0.5px;
+        }
+    </style>
+</head>
+<body class="h-screen w-screen overflow-hidden flex items-end justify-center pb-6 pointer-events-none">
+<!-- Remote Controller Bar (Floating) -->
+<div class="glass-panel rounded-lg h-10 flex items-center justify-between px-1 pointer-events-auto relative z-50">
+<!-- Left: Status & Time HUD -->
+<div class="flex items-center gap-2 px-2 pr-3 border-r border-white/10 h-full">
+<div class="w-1.5 h-1.5 rounded-full bg-primary shadow-[0_0_8px_rgba(74,223,200,0.8)]"></div>
+<span class="font-heading-md text-[13px] font-bold text-on-surface tracking-wider leading-none">T_CTRL</span>
+<div class="segment-display ml-1 flex flex-col items-center justify-center h-7 min-w-[64px]">
+<span class="text-[11px] text-primary leading-none font-bold">14:32:05</span>
+<span class="text-[8px] text-on-surface-variant leading-none mt-[1px] opacity-70">2023.10.24</span>
+</div>
+</div>
+<!-- Center: High-Density Controls & Timeline -->
+<div class="flex items-center gap-2 px-2 h-full">
+<!-- Session Jumps -->
+<div class="control-group flex items-center h-7 gap-[1px]">
+<div class="flex items-center px-1 border-r border-white/5">
+<span class="text-[9px] font-bold text-session-tyo mr-0.5">TYO</span>
+<button class="btn-tactile h-5 w-5 rounded-sm flex items-center justify-center text-on-surface hover:text-white"><span class="material-symbols-outlined text-[14px]">remove</span></button>
+<button class="btn-tactile h-5 w-5 rounded-sm flex items-center justify-center text-on-surface hover:text-white"><span class="material-symbols-outlined text-[14px]">add</span></button>
+</div>
+<div class="flex items-center px-1 border-r border-white/5">
+<span class="text-[9px] font-bold text-session-ldn mr-0.5">LDN</span>
+<button class="btn-tactile h-5 w-5 rounded-sm flex items-center justify-center text-on-surface hover:text-white"><span class="material-symbols-outlined text-[14px]">remove</span></button>
+<button class="btn-tactile h-5 w-5 rounded-sm flex items-center justify-center text-on-surface hover:text-white"><span class="material-symbols-outlined text-[14px]">add</span></button>
+</div>
+<div class="flex items-center px-1">
+<span class="text-[9px] font-bold text-session-ny mr-0.5">NY</span>
+<button class="btn-tactile h-5 w-5 rounded-sm flex items-center justify-center text-on-surface hover:text-white"><span class="material-symbols-outlined text-[14px]">remove</span></button>
+<button class="btn-tactile h-5 w-5 rounded-sm flex items-center justify-center text-on-surface hover:text-white"><span class="material-symbols-outlined text-[14px]">add</span></button>
+</div>
+</div>
+<!-- Time Jumps -->
+<div class="control-group flex items-center h-7 gap-[1px]">
+<button class="btn-tactile h-6 px-1.5 rounded-sm flex items-center justify-center text-on-surface hover:text-white text-[10px] font-data-mono font-bold">-1M</button>
+<button class="btn-tactile h-6 px-1.5 rounded-sm flex items-center justify-center text-on-surface hover:text-white text-[10px] font-data-mono font-bold">+1M</button>
+<div class="w-px h-4 bg-white/10 mx-0.5"></div>
+<button class="btn-tactile h-6 px-1.5 rounded-sm flex items-center justify-center text-on-surface hover:text-white text-[10px] font-data-mono font-bold">-10M</button>
+<button class="btn-tactile h-6 px-1.5 rounded-sm flex items-center justify-center text-on-surface hover:text-white text-[10px] font-data-mono font-bold">+10M</button>
+</div>
+<!-- Playback Cluster -->
+<div class="control-group flex items-center h-7 gap-[1px] ml-1">
+<button class="btn-tactile h-6 w-7 rounded-sm flex items-center justify-center text-on-surface hover:text-white">
+<span class="material-symbols-outlined text-[16px]" style="font-variation-settings: 'FILL' 1;">skip_previous</span>
+</button>
+<button class="btn-primary-tactile h-6 w-8 rounded-sm flex items-center justify-center text-background ml-[1px] mr-[1px]">
+<span class="material-symbols-outlined text-[18px]" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+</button>
+<button class="btn-tactile h-6 w-7 rounded-sm flex items-center justify-center text-on-surface hover:text-white">
+<span class="material-symbols-outlined text-[16px]" style="font-variation-settings: 'FILL' 1;">skip_next</span>
+</button>
+</div>
+<!-- Speed -->
+<button class="btn-tactile h-7 px-2 rounded-sm flex items-center justify-center text-primary font-data-mono text-[11px] font-bold border border-white/5 bg-black/20">
+        1.5x
+    </button>
+</div>
+<!-- Right: Mini Timeline -->
+<div class="flex-1 flex flex-col justify-center px-3 pl-1 min-w-[200px] max-w-[300px] border-l border-white/10 h-full relative">
+<div class="absolute top-[18px] left-3 right-3 flex h-[2px] z-0 pointer-events-none rounded-full overflow-hidden opacity-50">
+<div class="h-full bg-session-tyo w-1/4"></div>
+<div class="h-full bg-session-ldn w-[35%]"></div>
+<div class="h-full bg-session-ny w-[40%]"></div>
+</div>
+<input class="w-full relative z-10" max="100" min="0" type="range" value="45"/>
+<div class="flex justify-between w-full mt-[2px] px-[2px]">
+<span class="font-data-mono text-[8px] text-on-surface-variant leading-none">00:00</span>
+<span class="font-data-mono text-[8px] text-on-surface-variant leading-none">12:00</span>
+<span class="font-data-mono text-[8px] text-on-surface-variant leading-none">24:00</span>
+</div>
+</div>
+</div>
+</body></html>
