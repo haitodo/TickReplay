@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 use crate::error::AppError;
 use crate::state::ReplayState;
 
@@ -88,7 +88,7 @@ pub async fn run_status_pipe_server(
     let mut connected_notified = false;
 
     loop {
-        let mut server = match ServerOptions::new()
+        let server = match ServerOptions::new()
             .first_pipe_instance(true)
             .create(pipe_name)
         {
@@ -107,29 +107,21 @@ pub async fn run_status_pipe_server(
         }
         println!("Status Pipe: EAが接続されました。");
 
-        let mut buf = vec![0; 4096];
-        let mut accumulated = Vec::new();
+        let mut reader = tokio::io::BufReader::new(server);
+        let mut line = String::new();
 
         loop {
-            match server.read(&mut buf).await {
+            line.clear();
+            match reader.read_line(&mut line).await {
                 Ok(0) => {
                     // クライアント切断
                     println!("Status Pipe: EAが切断されました。");
                     break;
                 }
-                Ok(n) => {
-                    accumulated.extend_from_slice(&buf[..n]);
-                    
-                    // 改行コード（\n）で区切られた完全なメッセージを抽出して処理
-                    while let Some(pos) = accumulated.iter().position(|&b| b == b'\n') {
-                        let line_bytes = &accumulated[..pos];
-                        if let Ok(line_str) = std::str::from_utf8(line_bytes) {
-                            let trimmed = line_str.trim().to_string();
-                            if !trimmed.is_empty() {
-                                process_status_message(&trimmed, &app_handle, &state, &mut connected_notified).await;
-                            }
-                        }
-                        accumulated.drain(..=pos);
+                Ok(_) => {
+                    let trimmed = line.trim();
+                    if !trimmed.is_empty() {
+                        process_status_message(&trimmed, &app_handle, &state, &mut connected_notified).await;
                     }
                 }
                 Err(e) => {

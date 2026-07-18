@@ -708,36 +708,57 @@ function App() {
   const newsContainerRef = useRef<HTMLDivElement>(null);
   const lastScrolledEventKeyRef = useRef<string>("");
 
+  const handlersRef = useRef<any>(null);
+
   const handleStatusString = (payload: string) => {
     try {
       const data = JSON.parse(payload);
       if (data.status === "READY") {
         const isReconnecting = status === "DISCONNECTED" || status === "CONNECTED";
-        setStatus("READY");
-        setTotalTicks(data.total_ticks);
-        setCurrentIdx(data.current_idx);
-        setVirtualTimeMsc(data.virtual_time_msc);
-        setLoopActive(false);
-        setLoopA(-1);
-        setLoopB(-1);
-        setLoopAIdx(-1);
-        setLoopBIdx(-1);
+        setStatus((prev) => prev !== "READY" ? "READY" : prev);
+        setTotalTicks((prev) => prev !== data.total_ticks ? data.total_ticks : prev);
+        setCurrentIdx((prev) => prev !== data.current_idx ? data.current_idx : prev);
+        setVirtualTimeMsc((prev) => prev !== data.virtual_time_msc ? data.virtual_time_msc : prev);
+        setLoopActive((prev) => prev !== false ? false : prev);
+        setLoopA((prev) => prev !== -1 ? -1 : prev);
+        setLoopB((prev) => prev !== -1 ? -1 : prev);
+        setLoopAIdx((prev) => prev !== -1 ? -1 : prev);
+        setLoopBIdx((prev) => prev !== -1 ? -1 : prev);
         if (data.session_boundaries) {
-          setSessionBoundaries(data.session_boundaries);
+          setSessionBoundaries((prev: any) => {
+            if (JSON.stringify(prev) === JSON.stringify(data.session_boundaries)) return prev;
+            return data.session_boundaries;
+          });
         }
         if (isReconnecting) {
-          if (data.speed_mode) setSpeedMode(data.speed_mode as "TEMPORAL" | "COUNT");
+          if (data.speed_mode) setSpeedMode((prev) => prev !== data.speed_mode ? (data.speed_mode as "TEMPORAL" | "COUNT") : prev);
           if (data.multiplier !== undefined) {
-            setMultiplier(typeof data.multiplier === "number" ? data.multiplier : parseFloat(data.multiplier) || 1.0);
+            const m = typeof data.multiplier === "number" ? data.multiplier : parseFloat(data.multiplier) || 1.0;
+            setMultiplier((prev) => prev !== m ? m : prev);
           }
-          if (data.tick_step !== undefined) setTickStep(data.tick_step);
+          if (data.tick_step !== undefined) setTickStep((prev) => prev !== data.tick_step ? data.tick_step : prev);
         }
-        setErrorMessage("");
+        setErrorMessage((prev) => prev !== "" ? "" : prev);
         hasLoadedNewsRef.current = false;
         loadReplayNews();
-        if (data.account) setAccount(data.account);
-        if (data.positions) setPositions(data.positions);
-        if (data.history) setHistory(data.history);
+        if (data.account) {
+          setAccount((prev: any) => {
+            if (JSON.stringify(prev) === JSON.stringify(data.account)) return prev;
+            return data.account;
+          });
+        }
+        if (data.positions) {
+          setPositions((prev: any[]) => {
+            if (JSON.stringify(prev) === JSON.stringify(data.positions)) return prev;
+            return data.positions;
+          });
+        }
+        if (data.history) {
+          setHistory((prev: any[]) => {
+            if (JSON.stringify(prev) === JSON.stringify(data.history)) return prev;
+            return data.history;
+          });
+        }
         if (restoringSessionRef.current) {
           const session = restoringSessionRef.current;
           restoringSessionRef.current = null;
@@ -872,43 +893,59 @@ function App() {
           }).catch(console.error);
         }
       } else if (data.status === "CONNECTED") {
-        setStatus("CONNECTED");
+        setStatus((prev) => prev !== "CONNECTED" ? "CONNECTED" : prev);
         if (data.symbol) {
-          setChartSymbol(data.symbol);
+          setChartSymbol((prev) => prev !== data.symbol ? data.symbol : prev);
           if (!hasSavedSymbolRef.current) {
-            setSourceSymbol(data.symbol);
+            setSourceSymbol((prev) => prev !== data.symbol ? data.symbol : prev);
           }
         }
       } else if (data.status === "ACTIVE") {
         const isReconnecting = status === "DISCONNECTED" || status === "CONNECTED";
-        setStatus("ACTIVE");
+        setStatus((prev) => prev !== "ACTIVE" ? "ACTIVE" : prev);
         // ドラッグ中でなければ現在インデックスを更新する
         if (!isDraggingRef.current) {
-          setCurrentIdx(data.current_idx);
+          setCurrentIdx((prev) => prev !== data.current_idx ? data.current_idx : prev);
         }
-        setTotalTicks(data.total_ticks);
-        setVirtualTimeMsc(data.virtual_time_msc);
-        setIsPlaying(data.is_playing);
+        setTotalTicks((prev) => prev !== data.total_ticks ? data.total_ticks : prev);
+        setVirtualTimeMsc((prev) => prev !== data.virtual_time_msc ? data.virtual_time_msc : prev);
+        setIsPlaying((prev) => prev !== data.is_playing ? data.is_playing : prev);
         if (isReconnecting) {
-          if (data.speed_mode) setSpeedMode(data.speed_mode as "TEMPORAL" | "COUNT");
+          if (data.speed_mode) setSpeedMode((prev) => prev !== data.speed_mode ? (data.speed_mode as "TEMPORAL" | "COUNT") : prev);
           if (data.multiplier !== undefined) {
-            setMultiplier(typeof data.multiplier === "number" ? data.multiplier : parseFloat(data.multiplier) || 1.0);
+            const m = typeof data.multiplier === "number" ? data.multiplier : parseFloat(data.multiplier) || 1.0;
+            setMultiplier((prev) => prev !== m ? m : prev);
           }
-          if (data.tick_step !== undefined) setTickStep(data.tick_step);
+          if (data.tick_step !== undefined) setTickStep((prev) => prev !== data.tick_step ? data.tick_step : prev);
         }
         if (data.loop) {
-          setLoopActive(data.loop.active);
-          setLoopA(data.loop.a_msc);
-          setLoopB(data.loop.b_msc);
-          setLoopAIdx(data.loop.a_idx !== undefined ? data.loop.a_idx : -1);
-          setLoopBIdx(data.loop.b_idx !== undefined ? data.loop.b_idx : -1);
+          setLoopActive((prev) => prev !== data.loop.active ? data.loop.active : prev);
+          setLoopA((prev) => prev !== data.loop.a_msc ? data.loop.a_msc : prev);
+          setLoopB((prev) => prev !== data.loop.b_msc ? data.loop.b_msc : prev);
+          setLoopAIdx((prev) => prev !== (data.loop.a_idx !== undefined ? data.loop.a_idx : -1) ? (data.loop.a_idx !== undefined ? data.loop.a_idx : -1) : prev);
+          setLoopBIdx((prev) => prev !== (data.loop.b_idx !== undefined ? data.loop.b_idx : -1) ? (data.loop.b_idx !== undefined ? data.loop.b_idx : -1) : prev);
         }
         if (!hasLoadedNewsRef.current) {
           loadReplayNews();
         }
-        if (data.account) setAccount(data.account);
-        if (data.positions) setPositions(data.positions);
-        if (data.history) setHistory(data.history);
+        if (data.account) {
+          setAccount((prev: any) => {
+            if (JSON.stringify(prev) === JSON.stringify(data.account)) return prev;
+            return data.account;
+          });
+        }
+        if (data.positions) {
+          setPositions((prev: any[]) => {
+            if (JSON.stringify(prev) === JSON.stringify(data.positions)) return prev;
+            return data.positions;
+          });
+        }
+        if (data.history) {
+          setHistory((prev: any[]) => {
+            if (JSON.stringify(prev) === JSON.stringify(data.history)) return prev;
+            return data.history;
+          });
+        }
       } else if (data.status === "ERROR") {
         const lowerMsg = (data.message || "").toLowerCase();
         const isOrderError =
@@ -921,18 +958,18 @@ function App() {
           setIsReplayInitializing(false);
         }
       } else if (data.status === "DISCONNECTED") {
-        setStatus("DISCONNECTED");
-        setIsPlaying(false);
-        setLoopActive(false);
-        setLoopA(-1);
-        setLoopB(-1);
-        setLoopAIdx(-1);
-        setLoopBIdx(-1);
+        setStatus((prev) => prev !== "DISCONNECTED" ? "DISCONNECTED" : prev);
+        setIsPlaying((prev) => prev !== false ? false : prev);
+        setLoopActive((prev) => prev !== false ? false : prev);
+        setLoopA((prev) => prev !== -1 ? -1 : prev);
+        setLoopB((prev) => prev !== -1 ? -1 : prev);
+        setLoopAIdx((prev) => prev !== -1 ? -1 : prev);
+        setLoopBIdx((prev) => prev !== -1 ? -1 : prev);
         hasLoadedNewsRef.current = false;
-        setNewsItems([]);
-        setAccount(null);
-        setPositions([]);
-        setHistory([]);
+        setNewsItems((prev) => prev.length > 0 ? [] : prev);
+        setAccount((prev: any) => prev !== null ? null : prev);
+        setPositions((prev) => prev.length > 0 ? [] : prev);
+        setHistory((prev) => prev.length > 0 ? [] : prev);
 
         // スピード発注画面も自動で終了する
         WebviewWindow.getByLabel("speed_order")
@@ -2168,9 +2205,45 @@ function App() {
     }
   };
 
+  // Keep handlersRef updated with the latest closures
+  useEffect(() => {
+    handlersRef.current = {
+      handlePlayPause,
+      handleStep,
+      handleSessionJump,
+      handleTimeJump,
+      handleCoarseSpeed,
+      handleFineSpeed,
+      handleSetLoopA,
+      handleSetLoopB,
+      handleClearLoop,
+      handleReset,
+      hotkeys,
+      recordingAction,
+    };
+  });
+
   // --- 4. キーボードショートカット (フォーカスがある場合のローカルフォールバック)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const currentHandlers = handlersRef.current;
+      if (!currentHandlers) return;
+
+      const {
+        handlePlayPause,
+        handleStep,
+        handleSessionJump,
+        handleTimeJump,
+        handleCoarseSpeed,
+        handleFineSpeed,
+        handleSetLoopA,
+        handleSetLoopB,
+        handleClearLoop,
+        handleReset,
+        hotkeys,
+        recordingAction,
+      } = currentHandlers;
+
       // 入力フィールドフォーカス時または録音中は除外
       if (
         e.target instanceof HTMLInputElement ||
@@ -2258,12 +2331,28 @@ function App() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isPlaying, currentIdx, totalTicks, speedMode, multiplier, tickStep, hotkeys, recordingAction]);
+  }, []);
 
   // SpeedOrderウィンドウ等からのIPC経由のホットキーアクション呼び出しをリッスン
   useEffect(() => {
     const unlisten = listen<{ action: string }>("trigger-action", (event) => {
       const { action } = event.payload;
+      const currentHandlers = handlersRef.current;
+      if (!currentHandlers) return;
+
+      const {
+        handlePlayPause,
+        handleStep,
+        handleSessionJump,
+        handleTimeJump,
+        handleCoarseSpeed,
+        handleFineSpeed,
+        handleSetLoopA,
+        handleSetLoopB,
+        handleClearLoop,
+        handleReset,
+      } = currentHandlers;
+
       switch (action) {
         case "play_pause":
           handlePlayPause();
@@ -2330,7 +2419,7 @@ function App() {
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, [isPlaying, currentIdx, totalTicks, speedMode, multiplier, tickStep, hotkeys, recordingAction]);
+  }, []);
 
   // --- ホットキー録音（レコーディング）用エフェクト
   useEffect(() => {
@@ -6522,10 +6611,20 @@ const SpeedOrderWindowContent: React.FC = () => {
               return data.ask;
             });
           }
-          if (data.account) setAccount(data.account);
-          if (data.positions) setPositions(data.positions);
-          if (data.is_playing !== undefined) setIsPlaying(data.is_playing);
-          if (data.virtual_time_msc !== undefined) setVirtualTimeMsc(data.virtual_time_msc);
+          if (data.account) {
+            setAccount((prev: any) => {
+              if (JSON.stringify(prev) === JSON.stringify(data.account)) return prev;
+              return data.account;
+            });
+          }
+          if (data.positions) {
+            setPositions((prev: any[]) => {
+              if (JSON.stringify(prev) === JSON.stringify(data.positions)) return prev;
+              return data.positions;
+            });
+          }
+          if (data.is_playing !== undefined) setIsPlaying((prev) => prev !== data.is_playing ? data.is_playing : prev);
+          if (data.virtual_time_msc !== undefined) setVirtualTimeMsc((prev) => prev !== data.virtual_time_msc ? data.virtual_time_msc : prev);
         } else if (data.status === "ERROR") {
           setErrorMessage(translateErrorMessage(data.message));
         } else if (data.status === "DISCONNECTED") {
@@ -6533,8 +6632,8 @@ const SpeedOrderWindowContent: React.FC = () => {
           setStatus("DISCONNECTED");
           setBid(0);
           setAsk(0);
-          setAccount(null);
-          setPositions([]);
+          setAccount((prev: any) => prev !== null ? null : prev);
+          setPositions((prev) => prev.length > 0 ? [] : prev);
         }
       } catch (e) {
         console.error(e);

@@ -418,11 +418,16 @@ export const TradeAnalysisWindowContent: React.FC = () => {
     });
 
     // 3. リアルタイムステータスの受信リッスン
+    let lastHistoryStr = "";
     const unlisten = listen<string>("mt5-status", (event) => {
       try {
         const data = JSON.parse(event.payload);
         if (data.history) {
-          setHistory(data.history);
+          const historyStr = JSON.stringify(data.history);
+          if (historyStr !== lastHistoryStr) {
+            lastHistoryStr = historyStr;
+            setHistory(data.history);
+          }
         }
       } catch (e) {
         console.error("Failed to parse history update", e);
