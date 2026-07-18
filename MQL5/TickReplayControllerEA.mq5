@@ -197,6 +197,7 @@ ENUM_TIMEFRAMES SecondsToTimeframe(int seconds);
 void CleanTempTemplates();
 int GetMaxPeriodSeconds(string profile_name);
 bool PreloadHistoricalRates(string source_symbol, string replay_symbol, datetime start_time, int max_period_sec);
+void PrepareAdditionalSymbol(string sym, datetime start_time, datetime end_time);
 void SeekToPosition(int target_index);
 bool IsSummerTimeEurope(datetime dt);
 bool IsSummerTimeUS(datetime dt);
@@ -532,6 +533,7 @@ void ProcessCommand(string line)
       string start_time_str  = GetJsonString(line, "start_time");
       string end_time_str    = GetJsonString(line, "end_time");
       string profile_name    = GetJsonString(line, "profile_name");
+      string additional_symbols = GetJsonString(line, "additional_symbols");
       
       InpTokyoCoreTime     = GetJsonString(line, "tokyo_core");
       InpLondonCoreSummer  = GetJsonString(line, "london_summer");
@@ -653,6 +655,24 @@ void ProcessCommand(string line)
       {
          WriteErrorStatus("ティックデータのロードに失敗: " + m_source_symbol);
          return;
+      }
+
+      // 同期他通貨シンボルのデータ事前同期
+      if(additional_symbols != "")
+      {
+         string symbols[];
+         ushort u_sep = StringGetCharacter(",", 0);
+         int total_symbols = StringSplit(additional_symbols, u_sep, symbols);
+         for(int i = 0; i < total_symbols; i++)
+         {
+            string sym = symbols[i];
+            StringTrimLeft(sym);
+            StringTrimRight(sym);
+            if(sym != "")
+            {
+               PrepareAdditionalSymbol(sym, m_server_start_time, m_server_end_time);
+            }
+         }
       }
       
       // 過去データのプリロード
@@ -1932,6 +1952,34 @@ bool PreloadHistoricalRates(string source_symbol, string replay_symbol, datetime
    }
 
    return true;
+}
+
+//+------------------------------------------------------------------+
+//| 同期他通貨シンボルのデータ事前同期                               |
+//+------------------------------------------------------------------+
+void PrepareAdditionalSymbol(string sym, datetime start_time, datetime end_time)
+{
+   if(SymbolSelect(sym, true))
+   {
+      datetime temp[];
+      ArrayFree(temp);
+      // リプレイ開始時刻の 1000 バー前（M1で約16時間前）から終了時刻までのデータをコピーして、
+      // バックグラウンドでのヒストリカルデータロードおよびキャッシュ構築を強制トリガーする
+      datetime preload_start = start_time - 1000 * 60;
+      int copied = CopyTime(sym, PERIOD_M1, preload_start, end_time, temp);
+      if(copied > 0)
+      {
+         Print("[Info] 他通貨シンボル '", sym, "' の同期を要求しました。取得バー数: ", copied);
+      }
+      else
+      {
+         Print("[Warning] 他通貨シンボル '", sym, "' のデータを要求しましたが取得できませんでした（ロード待機中）。");
+      }
+   }
+   else
+   {
+      Print("[Error] 他通貨シンボル '", sym, "' を気配値に追加できません。");
+   }
 }
 
 //+------------------------------------------------------------------+

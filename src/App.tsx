@@ -609,6 +609,7 @@ function App() {
   const [sourceSymbol, setSourceSymbol] = useState("USDJPY");
   const [chartSymbol, setChartSymbol] = useState("");
   const hasSavedSymbolRef = useRef(false);
+  const [additionalSymbols, setAdditionalSymbols] = useState("");
   const [startTime, setStartTime] = useState("2026-05-01 00:00:00");
   const [endTime, setEndTime] = useState("2026-05-02 00:00:00");
 
@@ -1126,6 +1127,9 @@ function App() {
             setSourceSymbol(saved.source_symbol);
             hasSavedSymbolRef.current = true;
           }
+          if (saved.additional_symbols !== undefined && saved.additional_symbols !== null) {
+            setAdditionalSymbols(saved.additional_symbols);
+          }
           setStartTime(saved.start_time);
           setEndTime(saved.end_time);
 
@@ -1428,7 +1432,8 @@ function App() {
     customPseudoSensitivity = pseudoSensitivity,
     customPreloadTimeframe = preloadTimeframe,
     customShowHoldingTime = showHoldingTime,
-    customHoldingTimeMode = holdingTimeMode
+    customHoldingTimeMode = holdingTimeMode,
+    customAdditionalSymbols = additionalSymbols
   ) => {
     const settingsObj = {
       selected_terminal: selectedTerminal,
@@ -1467,6 +1472,7 @@ function App() {
       pseudo_sensitivity: customPseudoSensitivity,
       show_holding_time: customShowHoldingTime,
       holding_time_mode: customHoldingTimeMode,
+      additional_symbols: customAdditionalSymbols,
     };
     try {
       localStorage.setItem("speed-order-hotkeys", JSON.stringify(customHotkeys));
@@ -1563,6 +1569,7 @@ function App() {
         pseudo_base_spread: pseudoBaseSpread,
         pseudo_threshold: pseudoThreshold,
         pseudo_sensitivity: pseudoSensitivity,
+        additional_symbols: additionalSymbols,
       };
 
       await sendCommand(initCmd);
@@ -3231,6 +3238,17 @@ function App() {
                             </button>
                           )}
                         </div>
+                      </div>
+
+                      <div className="form-group">
+                        <label className="form-label">同期他通貨シンボル (複数指定時はカンマ区切り)</label>
+                        <input
+                          type="text"
+                          className="pro-input"
+                          value={additionalSymbols}
+                          onChange={(e) => setAdditionalSymbols(e.target.value)}
+                          placeholder="e.g. EURUSD,GBPUSD,USDCHF,AUDUSD,NZDUSD,USDCAD"
+                        />
                       </div>
                     </div>
                   </div>

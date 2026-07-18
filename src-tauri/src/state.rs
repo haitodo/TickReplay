@@ -146,5 +146,7 @@ pub struct ReplaySettings {
     pub show_holding_time: Option<bool>,
     #[serde(default)]
     pub holding_time_mode: Option<String>,
+    #[serde(default)]
+    pub additional_symbols: Option<String>,
 }
 
