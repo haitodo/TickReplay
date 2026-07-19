@@ -1353,12 +1353,13 @@ void WriteStatusFile()
       GetPseudoRates(m_all_ticks[m_current_idx - 1], bid, ask, spread);
    }
    
+   int max_bars = (int)TerminalInfoInteger(TERMINAL_MAXBARS);
    string msg = StringFormat(
-      "{\"status\":\"ACTIVE\",\"current_idx\":%d,\"total_ticks\":%d,\"virtual_time_msc\":%I64d,\"is_playing\":%s,\"speed_mode\":\"%s\",\"multiplier\":%s,\"tick_step\":%d,\"bid\":%.5f,\"ask\":%.5f,\"loop\":{\"active\":%s,\"a_msc\":%I64d,\"b_msc\":%I64d,\"a_idx\":%d,\"b_idx\":%d},%s}",
+      "{\"status\":\"ACTIVE\",\"current_idx\":%d,\"total_ticks\":%d,\"virtual_time_msc\":%I64d,\"is_playing\":%s,\"speed_mode\":\"%s\",\"multiplier\":%s,\"tick_step\":%d,\"bid\":%.5f,\"ask\":%.5f,\"max_bars\":%d,\"loop\":{\"active\":%s,\"a_msc\":%I64d,\"b_msc\":%I64d,\"a_idx\":%d,\"b_idx\":%d},%s}",
       m_current_idx, m_total_ticks, m_virtual_current_msc,
       (m_is_playing ? "true" : "false"),
       speed_mode_str, DoubleToString(m_time_multiplier, 1), m_tick_step_count,
-      bid, ask,
+      bid, ask, max_bars,
       loop_active_str, m_loop_a_msc, m_loop_b_msc, loop_a_idx, loop_b_idx,
       trade_json
    );
@@ -1384,11 +1385,12 @@ void WriteReadyStatus()
       GetPseudoRates(m_all_ticks[m_current_idx - 1], bid, ask, spread);
    }
    
+   int max_bars = (int)TerminalInfoInteger(TERMINAL_MAXBARS);
    string msg = StringFormat(
-      "{\"status\":\"READY\",\"total_ticks\":%d,\"current_idx\":%d,\"virtual_time_msc\":%I64d,\"speed_mode\":\"%s\",\"multiplier\":\"%s\",\"tick_step\":%d,\"bid\":%.5f,\"ask\":%.5f,\"session_boundaries\":{\"TYO\":%s,\"LDN\":%s,\"NY\":%s},%s}",
+      "{\"status\":\"READY\",\"total_ticks\":%d,\"current_idx\":%d,\"virtual_time_msc\":%I64d,\"speed_mode\":\"%s\",\"multiplier\":\"%s\",\"tick_step\":%d,\"bid\":%.5f,\"ask\":%.5f,\"max_bars\":%d,\"session_boundaries\":{\"TYO\":%s,\"LDN\":%s,\"NY\":%s},%s}",
       m_total_ticks, m_current_idx, m_virtual_current_msc,
       speed_mode_str, DoubleToString(m_time_multiplier, 1), m_tick_step_count,
-      bid, ask,
+      bid, ask, max_bars,
       tyo_json, ldn_json, ny_json,
       trade_json
    );

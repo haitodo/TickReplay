@@ -69,6 +69,11 @@ pub async fn get_profiles(terminal_path: String) -> Result<Vec<String>, AppError
 }
 
 #[tauri::command]
+pub async fn get_terminal_max_bars(terminal_path: String) -> Result<crate::mt5::MaxBarsInfo, AppError> {
+    crate::mt5::get_terminal_max_bars(terminal_path).await
+}
+
+#[tauri::command]
 pub async fn select_profile(terminal_path: String, profile_name: String) -> Result<(), AppError> {
     crate::mt5::select_profile(terminal_path, profile_name).await
 }

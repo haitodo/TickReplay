@@ -107,6 +107,12 @@ const formatShortcutForDisplay = (shortcut: string): string => {
     .replace(/\+/g, " + ");
 };
 
+interface MaxBarsInfo {
+  max_bars: number;
+  is_unlimited: boolean;
+  raw_value: string;
+}
+
 // KeyboardEventが登録ショートカットに一致するか判定するヘルパー
 const matchesHotkey = (e: KeyboardEvent, registeredKey: string): boolean => {
   if (!registeredKey || registeredKey.trim() === "") return false;
@@ -637,6 +643,8 @@ function App() {
   const [selectedTerminal, setSelectedTerminal] = useState("");
   const [profiles, setProfiles] = useState<string[]>([]);
   const [selectedProfile, setSelectedProfile] = useState("");
+  const [maxBarsInfo, setMaxBarsInfo] = useState<MaxBarsInfo | null>(null);
+  const [isMaxBarsWarningOpen, setIsMaxBarsWarningOpen] = useState(false);
   const [sourceSymbol, setSourceSymbol] = useState("USDJPY");
   const [chartSymbol, setChartSymbol] = useState("");
   const hasSavedSymbolRef = useRef(false);
@@ -1399,11 +1407,19 @@ function App() {
   }, [startTime]);
 
 
-  // 端末が選択されたらプロファイルフォルダリストをスキャンし、Filesパスを設定
+  // 端末が選択されたらプロファイルフォルダリストをスキャンし、Filesパスおよびチャート最大バー数を設定
   useEffect(() => {
     if (selectedTerminal) {
       // RustバックエンドにファイルベースIPCのパスを通知
       invoke("select_terminal", { terminalPath: selectedTerminal }).catch(console.error);
+
+      // チャートの最大バー数設定を取得
+      invoke<MaxBarsInfo>("get_terminal_max_bars", { terminalPath: selectedTerminal })
+        .then((info) => setMaxBarsInfo(info))
+        .catch((err) => {
+          console.error("Failed to get terminal max bars:", err);
+          setMaxBarsInfo(null);
+        });
 
       invoke("get_profiles", { terminalPath: selectedTerminal })
         .then((res: any) => {
@@ -1618,6 +1634,16 @@ function App() {
       }
     }
 
+    // チャート最大バー数が Unlimited でない場合の確認警告
+    if (maxBarsInfo && !maxBarsInfo.is_unlimited) {
+      setIsMaxBarsWarningOpen(true);
+      return;
+    }
+
+    await executeInitReplay();
+  };
+
+  const executeInitReplay = async () => {
     setIsReplayInitializing(true);
     try {
       // プロファイル転送
@@ -3338,6 +3364,35 @@ function App() {
                             : [{ value: "", label: "No Terminals Found" }]
                           }
                         />
+                      </div>
+
+                      <div className="form-group" style={{ marginTop: "2px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "11px", marginBottom: "3px" }}>
+                          <span className="form-label" style={{ marginBottom: 0 }}>チャートの最大バー数</span>
+                          {maxBarsInfo ? (
+                            maxBarsInfo.is_unlimited ? (
+                              <span className="max-bars-badge unlimited">
+                                <span className="material-symbols-outlined" style={{ fontSize: "13px" }}>check_circle</span>
+                                Unlimited (無制限)
+                              </span>
+                            ) : (
+                              <span className="max-bars-badge limited">
+                                <span className="material-symbols-outlined" style={{ fontSize: "13px" }}>warning</span>
+                                {maxBarsInfo.max_bars > 0 ? `${maxBarsInfo.max_bars.toLocaleString()} 本` : maxBarsInfo.raw_value} (制限あり)
+                              </span>
+                            )
+                          ) : (
+                            <span className="max-bars-badge loading">確認中...</span>
+                          )}
+                        </div>
+                        {maxBarsInfo && !maxBarsInfo.is_unlimited && (
+                          <div className="max-bars-warning-note">
+                            <span className="material-symbols-outlined" style={{ fontSize: "15px", color: "#ffb74d", marginTop: "1px", flexShrink: 0 }}>info</span>
+                            <span>
+                              ※ 最大バー数が無制限でない場合、過去データ検証時にインジケータ（MAやVWAP等）が正しく表示されない可能性があります。MT5の <strong>[ツール] → [オプション] → [チャート]</strong> で「チャートの最大バー数」を <strong>「Unlimited (無制限)」</strong> に設定してください。
+                            </span>
+                          </div>
+                        )}
                       </div>
 
                       <div className="form-group">
@@ -5400,6 +5455,59 @@ function App() {
                 }}
               >
                 リセット
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Max Bars Warning Modal */}
+      {isMaxBarsWarningOpen && (
+        <div className="modal-overlay" onClick={() => setIsMaxBarsWarningOpen(false)}>
+          <div className="modal-container" style={{ maxWidth: "460px" }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title" style={{ display: "flex", alignItems: "center", gap: "6px", color: "#ffb74d" }}>
+                <span className="material-symbols-outlined" style={{ color: "#ffb74d" }}>warning</span>
+                チャート最大バー数の確認
+              </h3>
+              <button className="modal-close-btn" onClick={() => setIsMaxBarsWarningOpen(false)}>
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <div className="modal-body" style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "12px", lineHeight: "1.6" }}>
+              <div style={{ fontSize: "13px", fontWeight: "600", color: "var(--on-surface)" }}>
+                MT5の「チャートの最大バー数」が Unlimited（無制限）に設定されていません。
+              </div>
+              <div style={{ backgroundColor: "rgba(255, 183, 77, 0.1)", border: "1px dashed rgba(255, 183, 77, 0.4)", borderRadius: "6px", padding: "10px 12px", fontSize: "12px" }}>
+                <div><strong>現在の設定:</strong> {maxBarsInfo ? (maxBarsInfo.max_bars > 0 ? `${maxBarsInfo.max_bars.toLocaleString()} 本` : maxBarsInfo.raw_value) : "未検出"}</div>
+              </div>
+              <div style={{ fontSize: "12px", color: "var(--on-surface-variant)" }}>
+                最大バー数が制限されている場合、過去データ検証時にインジケータ（移動平均線やVWAP等）の計算本数が不足し、チャート上に正しく描画されないことがあります。
+              </div>
+              <div style={{ fontSize: "12px", backgroundColor: "rgba(255, 255, 255, 0.04)", padding: "10px 12px", borderRadius: "6px", border: "1px solid var(--outline-variant)" }}>
+                💡 <strong>推奨設定手順:</strong><br />
+                MT5のメニュー <strong>[ツール] → [オプション] → [チャート]</strong> タブを開き、<strong>「チャートの最大バー数」</strong> を <strong>「Unlimited」</strong> に変更して「OK」を押してください。
+              </div>
+            </div>
+            <div className="modal-footer" style={{ padding: "12px 16px", display: "flex", gap: "8px", width: "100%", boxSizing: "border-box" }}>
+              <button
+                type="button"
+                className="pro-btn"
+                style={{ flex: 1 }}
+                onClick={() => setIsMaxBarsWarningOpen(false)}
+              >
+                キャンセル（設定変更）
+              </button>
+              <button
+                type="button"
+                className="pro-btn primary"
+                style={{ flex: 1, backgroundColor: "#ffb74d", color: "#1c1b1f", fontWeight: "bold" }}
+                onClick={() => {
+                  setIsMaxBarsWarningOpen(false);
+                  executeInitReplay();
+                }}
+              >
+                このまま開始する
               </button>
             </div>
           </div>

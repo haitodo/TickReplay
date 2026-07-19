@@ -1277,6 +1277,54 @@ html[data-theme="light"][data-order-color-style="red-green"] .type-badge.sell {
   box-shadow: 0 0 6px rgba(var(--primary-rgb), 0.15);
 }
 
+/* Max Bars Status Badges and Note */
+.max-bars-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.max-bars-badge.unlimited {
+  background-color: rgba(76, 175, 80, 0.15);
+  color: #81c784;
+  border: 1px solid rgba(76, 175, 80, 0.3);
+}
+
+.max-bars-badge.limited {
+  background-color: rgba(255, 183, 77, 0.15);
+  color: #ffb74d;
+  border: 1px solid rgba(255, 183, 77, 0.3);
+}
+
+.max-bars-badge.loading {
+  background-color: rgba(255, 255, 255, 0.05);
+  color: var(--on-surface-variant);
+  border: 1px solid var(--outline-variant);
+}
+
+.max-bars-warning-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 6px 10px;
+  background-color: rgba(255, 183, 77, 0.08);
+  border: 1px dashed rgba(255, 183, 77, 0.3);
+  border-radius: 6px;
+  font-size: 11px;
+  color: #e0e0e0;
+  line-height: 1.45;
+}
+
+.max-bars-warning-note strong {
+  color: #ffb74d;
+}
+
 /* Custom styles for checkbox list */
 .setup-checkbox-list {
   display: flex;

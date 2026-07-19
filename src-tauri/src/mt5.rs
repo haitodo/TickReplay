@@ -337,3 +337,88 @@ pub async fn get_existing_symbols_with_info(terminal_path: &str) -> Result<Vec<S
     .await
     .map_err(|e| AppError::Mt5(format!("銘柄検出スレッドエラー: {}", e)))?
 }
+
+#[derive(serde::Serialize, Clone, Debug)]
+pub struct MaxBarsInfo {
+    pub max_bars: u32,
+    pub is_unlimited: bool,
+    pub raw_value: String,
+}
+
+// MT5ターミナルの共通設定(config/common.ini)から「チャートの最大バー数」を取得
+pub async fn get_terminal_max_bars(terminal_path: String) -> Result<MaxBarsInfo, AppError> {
+    validate_terminal_path(&terminal_path)?;
+    tokio::task::spawn_blocking(move || {
+        let ini_path = Path::new(&terminal_path).join("config").join("common.ini");
+        if !ini_path.exists() {
+            return Ok(MaxBarsInfo {
+                max_bars: 0,
+                is_unlimited: false,
+                raw_value: "Not Found".to_string(),
+            });
+        }
+
+        let bytes = fs::read(&ini_path)?;
+        let content = if bytes.starts_with(&[0xFF, 0xFE]) {
+            // UTF-16LE
+            let u16_vec: Vec<u16> = bytes[2..]
+                .chunks_exact(2)
+                .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+                .collect();
+            String::from_utf16(&u16_vec).unwrap_or_default()
+        } else if bytes.starts_with(&[0xFE, 0xFF]) {
+            // UTF-16BE
+            let u16_vec: Vec<u16> = bytes[2..]
+                .chunks_exact(2)
+                .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]]))
+                .collect();
+            String::from_utf16(&u16_vec).unwrap_or_default()
+        } else {
+            String::from_utf8(bytes.clone()).unwrap_or_else(|_| {
+                let u16_vec: Vec<u16> = bytes
+                    .chunks_exact(2)
+                    .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+                    .collect();
+                String::from_utf16(&u16_vec).unwrap_or_default()
+            })
+        };
+
+        let mut in_charts_section = false;
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with('[') && trimmed.ends_with(']') {
+                let section_name = &trimmed[1..trimmed.len() - 1];
+                in_charts_section = section_name.eq_ignore_ascii_case("Charts");
+                continue;
+            }
+            if in_charts_section && trimmed.starts_with("MaxBars=") {
+                let val_str = trimmed["MaxBars=".len()..].trim();
+                let lower = val_str.to_lowercase();
+                if let Ok(val) = val_str.parse::<u32>() {
+                    let is_unlimited = val >= 100_000_000 || val == 0 || val == 2147483647;
+                    return Ok(MaxBarsInfo {
+                        max_bars: val,
+                        is_unlimited,
+                        raw_value: val_str.to_string(),
+                    });
+                } else {
+                    let is_unlimited = lower.contains("unlimited") || lower == "0";
+                    return Ok(MaxBarsInfo {
+                        max_bars: if is_unlimited { 100_000_000 } else { 0 },
+                        is_unlimited,
+                        raw_value: val_str.to_string(),
+                    });
+                }
+            }
+        }
+
+        Ok(MaxBarsInfo {
+            max_bars: 0,
+            is_unlimited: false,
+            raw_value: "Unknown".to_string(),
+        })
+    })
+    .await
+    .map_err(|e| AppError::Mt5(format!("MaxBars取得スレッドエラー: {}", e)))?
+}
+

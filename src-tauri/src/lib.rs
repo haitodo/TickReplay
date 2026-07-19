@@ -110,6 +110,7 @@ pub fn run() {
             commands::get_mt5_terminals,
             commands::select_terminal,
             commands::get_profiles,
+            commands::get_terminal_max_bars,
             commands::select_profile,
             commands::set_shortcuts_active,
             commands::set_always_on_top,
