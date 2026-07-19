@@ -1545,26 +1545,42 @@ bool InitializeReplaySymbol(string replay_symbol, string source_symbol)
             return false;
          }
       }
-      
-      // ソース銘柄またはベース銘柄から重要プロパティをコピー・設定
-      long digits = SymbolInfoInteger(source_symbol, SYMBOL_DIGITS);
-      if(digits <= 0) digits = (StringFind(source_symbol, "JPY") >= 0) ? 3 : 5;
-      CustomSymbolSetInteger(replay_symbol, SYMBOL_DIGITS, digits);
-      
-      double point = SymbolInfoDouble(source_symbol, SYMBOL_POINT);
-      if(point <= 0) point = (digits == 3 || digits == 2) ? 0.001 : 0.00001;
-      CustomSymbolSetDouble(replay_symbol, SYMBOL_POINT, point);
-      
-      double contract_size = SymbolInfoDouble(source_symbol, SYMBOL_TRADE_CONTRACT_SIZE);
-      if(contract_size <= 0) contract_size = 100000.0;
-      CustomSymbolSetDouble(replay_symbol, SYMBOL_TRADE_CONTRACT_SIZE, contract_size);
-      
-      string base_curr = SymbolInfoString(source_symbol, SYMBOL_CURRENCY_BASE);
-      if(base_curr != "") CustomSymbolSetString(replay_symbol, SYMBOL_CURRENCY_BASE, base_curr);
-      
-      string profit_curr = SymbolInfoString(source_symbol, SYMBOL_CURRENCY_PROFIT);
-      if(profit_curr != "") CustomSymbolSetString(replay_symbol, SYMBOL_CURRENCY_PROFIT, profit_curr);
    }
+   
+   // ソース銘柄およびベース銘柄から重要プロパティを修正・設定（既存シンボルの場合も毎回検証・更新）
+   string base_sym = ExtractBaseSymbol(source_symbol);
+   bool is_jpy = (StringFind(source_symbol, "JPY") >= 0);
+   
+   long digits = SymbolInfoInteger(source_symbol, SYMBOL_DIGITS);
+   if(digits <= 0 || (is_jpy && digits != 2 && digits != 3) || (!is_jpy && digits != 4 && digits != 5))
+   {
+      long base_digits = SymbolInfoInteger(base_sym, SYMBOL_DIGITS);
+      if(base_digits > 0) digits = base_digits;
+      else digits = is_jpy ? 3 : 5;
+   }
+   CustomSymbolSetInteger(replay_symbol, SYMBOL_DIGITS, digits);
+   
+   double point = SymbolInfoDouble(source_symbol, SYMBOL_POINT);
+   if(point <= 0.0 || (is_jpy && point > 0.01) || (!is_jpy && point > 0.001))
+   {
+      double base_point = SymbolInfoDouble(base_sym, SYMBOL_POINT);
+      if(base_point > 0.0) point = base_point;
+      else point = (digits == 3 || digits == 2) ? 0.001 : 0.00001;
+   }
+   CustomSymbolSetDouble(replay_symbol, SYMBOL_POINT, point);
+   
+   double contract_size = SymbolInfoDouble(source_symbol, SYMBOL_TRADE_CONTRACT_SIZE);
+   if(contract_size <= 0) contract_size = SymbolInfoDouble(base_sym, SYMBOL_TRADE_CONTRACT_SIZE);
+   if(contract_size <= 0) contract_size = 100000.0;
+   CustomSymbolSetDouble(replay_symbol, SYMBOL_TRADE_CONTRACT_SIZE, contract_size);
+   
+   string base_curr = SymbolInfoString(source_symbol, SYMBOL_CURRENCY_BASE);
+   if(base_curr == "") base_curr = SymbolInfoString(base_sym, SYMBOL_CURRENCY_BASE);
+   if(base_curr != "") CustomSymbolSetString(replay_symbol, SYMBOL_CURRENCY_BASE, base_curr);
+   
+   string profit_curr = SymbolInfoString(source_symbol, SYMBOL_CURRENCY_PROFIT);
+   if(profit_curr == "") profit_curr = SymbolInfoString(base_sym, SYMBOL_CURRENCY_PROFIT);
+   if(profit_curr != "") CustomSymbolSetString(replay_symbol, SYMBOL_CURRENCY_PROFIT, profit_curr);
    
    if(!SymbolSelect(replay_symbol, true))
    {

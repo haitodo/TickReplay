@@ -72,6 +72,29 @@ void OnStart()
 }
 
 //+------------------------------------------------------------------+
+//| カスタム銘柄名からベース通貨ペア名を抽出するヘルパー            |
+//+------------------------------------------------------------------+
+string ExtractBaseSymbol(string source_symbol)
+{
+   string sym = source_symbol;
+   int pos = StringFind(sym, "_");
+   if(pos > 0)
+   {
+      sym = StringSubstr(sym, 0, pos);
+   }
+   pos = StringFind(sym, ".");
+   if(pos > 0)
+   {
+      sym = StringSubstr(sym, 0, pos);
+   }
+   if(StringLen(sym) >= 6)
+   {
+      return sym;
+   }
+   return "USDJPY"; // フォールバック
+}
+
+//+------------------------------------------------------------------+
 //| .bin ファイルから MqlTick 配列を読み込んで CustomTicksAdd を実行する|
 //+------------------------------------------------------------------+
 bool ImportBinFile(string rel_path, string symbol_name, string group_name)
@@ -108,20 +131,35 @@ bool ImportBinFile(string rel_path, string symbol_name, string group_name)
    bool is_custom = false;
    if(!SymbolExist(symbol_name, is_custom))
    {
-      // ソースシンボルの推定 (例: EURJPY_Custom -> EURJPY)
-      string base_symbol = symbol_name;
-      int custom_pos = StringFind(symbol_name, "_Custom");
-      if(custom_pos > 0)
+      // ソースシンボルの推定 (例: EURJPY_Custom_2025 -> EURJPY)
+      string base_symbol = ExtractBaseSymbol(symbol_name);
+      
+      bool created = CustomSymbolCreate(symbol_name, group_name, base_symbol);
+      if(!created)
       {
-         base_symbol = StringSubstr(symbol_name, 0, custom_pos);
+         Print("[Warning] base_symbol ('", base_symbol, "') での CustomSymbolCreate 失敗。原銘柄なしで作成を試みます。");
+         created = CustomSymbolCreate(symbol_name, group_name, "");
       }
       
-      if(!CustomSymbolCreate(symbol_name, group_name, base_symbol))
+      if(!created)
       {
-         Print("[Error] CustomSymbolCreate 失敗: ", symbol_name, " Code: ", GetLastError());
+         Print("[Error] CustomSymbolCreate 最終失敗: ", symbol_name, " Code: ", GetLastError());
          return false;
       }
       Print("[Info] カスタムシンボルを作成しました: ", symbol_name, " (グループ: ", group_name, ")");
+      
+      bool is_jpy = (StringFind(symbol_name, "JPY") >= 0);
+      long digits = SymbolInfoInteger(base_symbol, SYMBOL_DIGITS);
+      if(digits <= 0) digits = is_jpy ? 3 : 5;
+      CustomSymbolSetInteger(symbol_name, SYMBOL_DIGITS, digits);
+      
+      double point = SymbolInfoDouble(base_symbol, SYMBOL_POINT);
+      if(point <= 0) point = (digits == 3 || digits == 2) ? 0.001 : 0.00001;
+      CustomSymbolSetDouble(symbol_name, SYMBOL_POINT, point);
+      
+      double contract_size = SymbolInfoDouble(base_symbol, SYMBOL_TRADE_CONTRACT_SIZE);
+      if(contract_size <= 0) contract_size = 100000.0;
+      CustomSymbolSetDouble(symbol_name, SYMBOL_TRADE_CONTRACT_SIZE, contract_size);
    }
    
    SymbolSelect(symbol_name, true);
