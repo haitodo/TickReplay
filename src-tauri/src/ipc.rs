@@ -153,18 +153,13 @@ async fn process_status_message(
     state: &Arc<ReplayState>,
     connected_notified: &mut bool,
 ) {
-    let mut updated = false;
+    // フロントエンドへリアルタイム通知（エラーメッセージなどの重複受信時も確実に届くようにする）
+    let _ = app_handle.emit("mt5-status", trimmed);
+
     {
         let mut last = state.last_status.lock().unwrap();
-        if *last != trimmed {
-            *last = trimmed.to_string();
-            updated = true;
-        }
+        *last = trimmed.to_string();
     }
-
-    if updated {
-        // フロントエンドに通知
-        let _ = app_handle.emit("mt5-status", trimmed);
 
         // キャッシュされている再生状態などを更新
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) {
@@ -209,7 +204,6 @@ async fn process_status_message(
             }
         }
     }
-}
 
 // エクスポートされた経済指標データを読み込む (非同期・ロック極小化)
 pub async fn read_replay_news(state: &ReplayState) -> Result<String, AppError> {

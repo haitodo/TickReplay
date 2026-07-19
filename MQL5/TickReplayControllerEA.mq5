@@ -197,7 +197,7 @@ ENUM_TIMEFRAMES SecondsToTimeframe(int seconds);
 void CleanTempTemplates();
 int GetMaxPeriodSeconds(string profile_name);
 bool PreloadHistoricalRates(string source_symbol, string replay_symbol, datetime start_time, int max_period_sec);
-void PrepareAdditionalSymbol(string sym, datetime start_time, datetime end_time);
+void PrepareAdditionalSymbol(string sym, datetime start_time, datetime end_time, int max_period_sec = 60);
 void SeekToPosition(int target_index);
 bool IsSummerTimeEurope(datetime dt);
 bool IsSummerTimeUS(datetime dt);
@@ -643,6 +643,9 @@ void ProcessCommand(string line)
          m_initialized = false;
       }
       
+      // Toggler 等による画面隠蔽フラグを解除（全インジケーター・ローソク足を表示状態に強制設定）
+      GlobalVariableSet("Global_Selected_Candles_Hidden", 0.0);
+      
       // カスタムシンボルの作成
       if(!InitializeReplaySymbol(m_replay_symbol, m_source_symbol))
       {
@@ -657,9 +660,14 @@ void ProcessCommand(string line)
          return;
       }
 
+      // 過去データのプリロード情報を先に計算
+      int max_period_sec = GetMaxPeriodSeconds(profile_name);
+
       // 同期他通貨シンボルのデータ事前同期
       if(additional_symbols != "")
       {
+         StringReplace(additional_symbols, ";", ",");
+         StringReplace(additional_symbols, " ", ",");
          string symbols[];
          ushort u_sep = StringGetCharacter(",", 0);
          int total_symbols = StringSplit(additional_symbols, u_sep, symbols);
@@ -670,13 +678,12 @@ void ProcessCommand(string line)
             StringTrimRight(sym);
             if(sym != "")
             {
-               PrepareAdditionalSymbol(sym, m_server_start_time, m_server_end_time);
+               PrepareAdditionalSymbol(sym, m_server_start_time, m_server_end_time, max_period_sec);
             }
          }
       }
       
       // 過去データのプリロード
-      int max_period_sec = GetMaxPeriodSeconds(profile_name);
       if(!PreloadHistoricalRates(m_source_symbol, m_replay_symbol, m_server_start_time, max_period_sec))
       {
          WriteErrorStatus("過去データのプリロードに失敗");
@@ -1480,6 +1487,29 @@ datetime ParseDateTime(string dt_str)
 }
 
 //+------------------------------------------------------------------+
+//| ソース銘柄からベース通貨ペア名を抽出するヘルパー                |
+//+------------------------------------------------------------------+
+string ExtractBaseSymbol(string source_symbol)
+{
+   string sym = source_symbol;
+   int pos = StringFind(sym, "_");
+   if(pos > 0)
+   {
+      sym = StringSubstr(sym, 0, pos);
+   }
+   pos = StringFind(sym, ".");
+   if(pos > 0)
+   {
+      sym = StringSubstr(sym, 0, pos);
+   }
+   if(StringLen(sym) >= 6)
+   {
+      return sym;
+   }
+   return "USDJPY"; // フォールバック
+}
+
+//+------------------------------------------------------------------+
 //| カスタムシンボルの作成・初期化                                   |
 //+------------------------------------------------------------------+
 bool InitializeReplaySymbol(string replay_symbol, string source_symbol)
@@ -1489,11 +1519,51 @@ bool InitializeReplaySymbol(string replay_symbol, string source_symbol)
    
    if(!exist)
    {
-      if(!CustomSymbolCreate(replay_symbol, "Replay", source_symbol))
+      ResetLastError();
+      bool created = CustomSymbolCreate(replay_symbol, "Replay", source_symbol);
+      
+      if(!created)
       {
-         Print("[Error] カスタムシンボルの作成に失敗しました。Code: ", GetLastError());
-         return false;
+         int err = GetLastError();
+         Print("[Warning] source_symbol ('", source_symbol, "') での CustomSymbolCreate 失敗。Code: ", err, "。ベース銘柄での作成を試みます。");
+         
+         string base_symbol = ExtractBaseSymbol(source_symbol);
+         if(SymbolExist(base_symbol, is_custom))
+         {
+            created = CustomSymbolCreate(replay_symbol, "Replay", base_symbol);
+         }
+         
+         if(!created)
+         {
+            Print("[Warning] ベース銘柄 ('", base_symbol, "') での CustomSymbolCreate 失敗。原銘柄なしで作成を試みます。");
+            created = CustomSymbolCreate(replay_symbol, "Replay", "");
+         }
+         
+         if(!created)
+         {
+            Print("[Error] カスタムシンボルの作成に最終失敗しました: ", replay_symbol, " Code: ", GetLastError());
+            return false;
+         }
       }
+      
+      // ソース銘柄またはベース銘柄から重要プロパティをコピー・設定
+      long digits = SymbolInfoInteger(source_symbol, SYMBOL_DIGITS);
+      if(digits <= 0) digits = (StringFind(source_symbol, "JPY") >= 0) ? 3 : 5;
+      CustomSymbolSetInteger(replay_symbol, SYMBOL_DIGITS, digits);
+      
+      double point = SymbolInfoDouble(source_symbol, SYMBOL_POINT);
+      if(point <= 0) point = (digits == 3 || digits == 2) ? 0.001 : 0.00001;
+      CustomSymbolSetDouble(replay_symbol, SYMBOL_POINT, point);
+      
+      double contract_size = SymbolInfoDouble(source_symbol, SYMBOL_TRADE_CONTRACT_SIZE);
+      if(contract_size <= 0) contract_size = 100000.0;
+      CustomSymbolSetDouble(replay_symbol, SYMBOL_TRADE_CONTRACT_SIZE, contract_size);
+      
+      string base_curr = SymbolInfoString(source_symbol, SYMBOL_CURRENCY_BASE);
+      if(base_curr != "") CustomSymbolSetString(replay_symbol, SYMBOL_CURRENCY_BASE, base_curr);
+      
+      string profit_curr = SymbolInfoString(source_symbol, SYMBOL_CURRENCY_PROFIT);
+      if(profit_curr != "") CustomSymbolSetString(replay_symbol, SYMBOL_CURRENCY_PROFIT, profit_curr);
    }
    
    if(!SymbolSelect(replay_symbol, true))
@@ -1514,6 +1584,93 @@ bool InitializeReplaySymbol(string replay_symbol, string source_symbol)
 }
 
 //+------------------------------------------------------------------+
+//| M1バーから 4つのティック (Open, Low/High, High/Low, Close) を生成する |
+//+------------------------------------------------------------------+
+int GenerateTicksFromRates(string symbol, const MqlRates &rates[], MqlTick &out_ticks[])
+{
+   int rates_count = ArraySize(rates);
+   if(rates_count <= 0) return 0;
+   
+   ArrayResize(out_ticks, rates_count * 4);
+   int tick_idx = 0;
+   
+   double point_val = SymbolInfoDouble(symbol, SYMBOL_POINT);
+   if(point_val <= 0) point_val = 0.001;
+   
+   for(int i = 0; i < rates_count; i++)
+   {
+      MqlRates r = rates[i];
+      long base_msc = (long)r.time * 1000;
+      double spread_val = (r.spread > 0) ? (r.spread * point_val) : (20.0 * point_val);
+      
+      // 1. Open
+      out_ticks[tick_idx].time = r.time;
+      out_ticks[tick_idx].time_msc = base_msc;
+      out_ticks[tick_idx].bid = r.open;
+      out_ticks[tick_idx].ask = r.open + spread_val;
+      out_ticks[tick_idx].last = 0;
+      out_ticks[tick_idx].volume = 1;
+      out_ticks[tick_idx].flags = 6;
+      tick_idx++;
+      
+      // 2 & 3. Low/High 順序（陽線ならLow->High, 陰線ならHigh->Low）
+      if(r.close >= r.open)
+      {
+         out_ticks[tick_idx].time = r.time;
+         out_ticks[tick_idx].time_msc = base_msc + 15000;
+         out_ticks[tick_idx].bid = r.low;
+         out_ticks[tick_idx].ask = r.low + spread_val;
+         out_ticks[tick_idx].last = 0;
+         out_ticks[tick_idx].volume = 1;
+         out_ticks[tick_idx].flags = 6;
+         tick_idx++;
+         
+         out_ticks[tick_idx].time = r.time;
+         out_ticks[tick_idx].time_msc = base_msc + 30000;
+         out_ticks[tick_idx].bid = r.high;
+         out_ticks[tick_idx].ask = r.high + spread_val;
+         out_ticks[tick_idx].last = 0;
+         out_ticks[tick_idx].volume = 1;
+         out_ticks[tick_idx].flags = 6;
+         tick_idx++;
+      }
+      else
+      {
+         out_ticks[tick_idx].time = r.time;
+         out_ticks[tick_idx].time_msc = base_msc + 15000;
+         out_ticks[tick_idx].bid = r.high;
+         out_ticks[tick_idx].ask = r.high + spread_val;
+         out_ticks[tick_idx].last = 0;
+         out_ticks[tick_idx].volume = 1;
+         out_ticks[tick_idx].flags = 6;
+         tick_idx++;
+         
+         out_ticks[tick_idx].time = r.time;
+         out_ticks[tick_idx].time_msc = base_msc + 30000;
+         out_ticks[tick_idx].bid = r.low;
+         out_ticks[tick_idx].ask = r.low + spread_val;
+         out_ticks[tick_idx].last = 0;
+         out_ticks[tick_idx].volume = 1;
+         out_ticks[tick_idx].flags = 6;
+         tick_idx++;
+      }
+      
+      // 4. Close
+      out_ticks[tick_idx].time = r.time;
+      out_ticks[tick_idx].time_msc = base_msc + 45000;
+      out_ticks[tick_idx].bid = r.close;
+      out_ticks[tick_idx].ask = r.close + spread_val;
+      out_ticks[tick_idx].last = 0;
+      out_ticks[tick_idx].volume = 1;
+      out_ticks[tick_idx].flags = 6;
+      tick_idx++;
+   }
+   
+   ArrayResize(out_ticks, tick_idx);
+   return tick_idx;
+}
+
+//+------------------------------------------------------------------+
 //| 過去ティックデータの読み込み                                     |
 //+------------------------------------------------------------------+
 bool LoadHistoricalTicks(string source_symbol, datetime start, datetime end)
@@ -1521,13 +1678,55 @@ bool LoadHistoricalTicks(string source_symbol, datetime start, datetime end)
    ulong from_msc = (ulong)start * 1000;
    ulong to_msc   = (ulong)end * 1000;
    
+   // ソースシンボルを気配値表示に追加して活性化
+   SymbolSelect(source_symbol, true);
+   
    ArrayFree(m_all_ticks);
-   ResetLastError();
-   m_total_ticks = CopyTicksRange(source_symbol, m_all_ticks, COPY_TICKS_ALL, from_msc, to_msc);
+   
+   // 1. まず CopyTicksRange で生のティックデータの取得を試みる (最大 10 回リトライ = 2.5秒)
+   int retries = 0;
+   m_total_ticks = 0;
+   
+   while(retries < 10)
+   {
+      ResetLastError();
+      m_total_ticks = CopyTicksRange(source_symbol, m_all_ticks, COPY_TICKS_ALL, from_msc, to_msc);
+      
+      if(m_total_ticks > 0)
+      {
+         break;
+      }
+      
+      int err = GetLastError();
+      Print("[Info] Ticksデータロード待機中 (試行 ", retries + 1, "/10): ", source_symbol, " Code: ", err);
+      Sleep(250);
+      retries++;
+   }
+   
+   // 2. 生のティックデータが0件の場合、M1バー (CopyRates) からの疑似ティック生成を試みる
+   if(m_total_ticks <= 0)
+   {
+      Print("[Info] 生ティックデータが0件のため、M1バーからの疑似ティック生成を試みます: ", source_symbol);
+      MqlRates rates[];
+      ArrayFree(rates);
+      int copied_rates = CopyRates(source_symbol, PERIOD_M1, start, end, rates);
+      
+      if(copied_rates > 0)
+      {
+         m_total_ticks = GenerateTicksFromRates(source_symbol, rates, m_all_ticks);
+         Print("[Info] M1バー ", copied_rates, " 件から ", m_total_ticks, " 件の疑似ティックデータを正常生成しました。");
+      }
+      else
+      {
+         Print("[Warning] M1バーの取得にも失敗しました。Code: ", GetLastError());
+      }
+   }
    
    if(m_total_ticks <= 0)
    {
-      Print("[Error] Ticksデータが0件です。Code: ", GetLastError());
+      int last_err = GetLastError();
+      Print("[Error] ティックおよびM1バーデータが0件です。Symbol: ", source_symbol, " Code: ", last_err);
+      WriteErrorStatus("ティックデータのロードに失敗: " + source_symbol + " (指定期間のデータがブローカーに存在しません / Code: " + IntegerToString(last_err) + ")");
       return false;
    }
    
@@ -1861,6 +2060,7 @@ void CleanTempTemplates()
 //+------------------------------------------------------------------+
 bool PreloadHistoricalRates(string source_symbol, string replay_symbol, datetime start_time, int max_period_sec)
 {
+   SymbolSelect(source_symbol, true);
    datetime preload_start = 0;
    datetime preload_end = start_time - 1;
 
@@ -1935,7 +2135,50 @@ bool PreloadHistoricalRates(string source_symbol, string replay_symbol, datetime
    int copied = CopyRates(source_symbol, PERIOD_M1, preload_start, preload_end, preload_rates);
    if(copied <= 0)
    {
-      Print("[Warning] プリロード歴史M1バーが取得できませんでした。");
+      Print("[Warning] CopyRatesでのプリロード歴史M1バー取得失敗。メモリ内ティックデータからの自動生成を試みます。");
+      if(m_total_ticks > 0)
+      {
+         int sample_count = (m_total_ticks > 200000) ? 200000 : m_total_ticks;
+         MqlRates generated[];
+         ArrayResize(generated, sample_count);
+         int gen_rates_count = 0;
+         
+         datetime last_bar_time = 0;
+         for(int i = 0; i < sample_count; i++)
+         {
+            datetime t = (datetime)(m_all_ticks[i].time_msc / 1000);
+            datetime bar_time = t - (t % 60);
+            double bid = m_all_ticks[i].bid;
+            
+            if(gen_rates_count == 0 || bar_time != last_bar_time)
+            {
+               if(gen_rates_count > 0 && gen_rates_count >= 3000) break;
+               gen_rates_count++;
+               generated[gen_rates_count - 1].time = bar_time;
+               generated[gen_rates_count - 1].open = bid;
+               generated[gen_rates_count - 1].high = bid;
+               generated[gen_rates_count - 1].low = bid;
+               generated[gen_rates_count - 1].close = bid;
+               generated[gen_rates_count - 1].tick_volume = 1;
+               generated[gen_rates_count - 1].spread = 20;
+               last_bar_time = bar_time;
+            }
+            else
+            {
+               if(bid > generated[gen_rates_count - 1].high) generated[gen_rates_count - 1].high = bid;
+               if(bid < generated[gen_rates_count - 1].low) generated[gen_rates_count - 1].low = bid;
+               generated[gen_rates_count - 1].close = bid;
+               generated[gen_rates_count - 1].tick_volume++;
+            }
+         }
+         
+         if(gen_rates_count > 0)
+         {
+            ArrayResize(generated, gen_rates_count);
+            CustomRatesUpdate(replay_symbol, generated);
+            Print("[Info] メモリ内ティックデータから ", gen_rates_count, " 件のM1バーを代替プリロード生成しました。");
+         }
+      }
       return true;
    }
    
@@ -2008,23 +2251,71 @@ bool PreloadHistoricalRates(string source_symbol, string replay_symbol, datetime
 //+------------------------------------------------------------------+
 //| 同期他通貨シンボルのデータ事前同期                               |
 //+------------------------------------------------------------------+
-void PrepareAdditionalSymbol(string sym, datetime start_time, datetime end_time)
+void PrepareAdditionalSymbol(string sym, datetime start_time, datetime end_time, int max_period_sec = 60)
 {
-   if(SymbolSelect(sym, true))
+   string actual_sym = sym;
+   bool is_custom = false;
+   if(!SymbolExist(actual_sym, is_custom))
    {
-      datetime temp[];
-      ArrayFree(temp);
-      // リプレイ開始時刻の 1000 バー前（M1で約16時間前）から終了時刻までのデータをコピーして、
-      // バックグラウンドでのヒストリカルデータロードおよびキャッシュ構築を強制トリガーする
-      datetime preload_start = start_time - 1000 * 60;
-      int copied = CopyTime(sym, PERIOD_M1, preload_start, end_time, temp);
-      if(copied > 0)
+      // 大文字・小文字の表記揺れ（例: EURJPY.CL -> EURJPY.cl）を全銘柄リストから吸収
+      int total = SymbolsTotal(false);
+      for(int i = 0; i < total; i++)
       {
-         Print("[Info] 他通貨シンボル '", sym, "' の同期を要求しました。取得バー数: ", copied);
+         string sname = SymbolName(i, false);
+         if(StringCompare(sname, sym, false) == 0)
+         {
+            actual_sym = sname;
+            break;
+         }
+      }
+   }
+   
+   if(SymbolSelect(actual_sym, true))
+   {
+      // プリロード開始時刻の計算
+      int history_sec = MathMax(2000 * 60, InpPreloadedBars * max_period_sec);
+      if(m_preload_mode == "DATE" && m_preload_start_time > 0)
+      {
+         datetime date_start = ConvertJSTToServer(m_preload_start_time);
+         if(date_start < start_time)
+         {
+            history_sec = MathMax(history_sec, (int)(start_time - date_start));
+         }
+      }
+      datetime preload_start = start_time - history_sec;
+      
+      // MT5がブローカーサーバーからヒストリーデータを事前ロードするまで試行
+      int total_copied = 0;
+      datetime temp[];
+      ENUM_TIMEFRAMES tfs[] = { PERIOD_M1, PERIOD_M5, PERIOD_M15, PERIOD_H1 };
+      int total_tfs = ArraySize(tfs);
+      
+      for(int t = 0; t < total_tfs; t++)
+      {
+         ENUM_TIMEFRAMES current_tf = tfs[t];
+         int retries = 0;
+         while(retries < 5)
+         {
+            ArrayFree(temp);
+            ResetLastError();
+            int copied = CopyTime(actual_sym, current_tf, preload_start, end_time, temp);
+            if(copied > 0)
+            {
+               if(current_tf == PERIOD_M1) total_copied = copied;
+               break;
+            }
+            Sleep(100);
+            retries++;
+         }
+      }
+      
+      if(total_copied > 0)
+      {
+         Print("[Info] 他通貨シンボル '", actual_sym, "' の同期を完了しました。M1取得バー数: ", total_copied);
       }
       else
       {
-         Print("[Warning] 他通貨シンボル '", sym, "' のデータを要求しましたが取得できませんでした（ロード待機中）。");
+         Print("[Info] 他通貨シンボル '", actual_sym, "' を気配値表示に追加しました。");
       }
    }
    else

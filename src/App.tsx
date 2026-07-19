@@ -525,9 +525,23 @@ function App() {
   // --- ローディング状態 (リプレイ初期化中)
   const [isReplayInitializing, setIsReplayInitializingState] = useState(false);
   const isReplayInitializingRef = useRef(false);
+  const initTimeoutRef = useRef<any>(null);
   const setIsReplayInitializing = (val: boolean) => {
     isReplayInitializingRef.current = val;
     setIsReplayInitializingState(val);
+    if (initTimeoutRef.current) {
+      clearTimeout(initTimeoutRef.current);
+      initTimeoutRef.current = null;
+    }
+    if (val) {
+      initTimeoutRef.current = setTimeout(() => {
+        if (isReplayInitializingRef.current) {
+          isReplayInitializingRef.current = false;
+          setIsReplayInitializingState(false);
+          setErrorMessage("初期化タイムアウト: MT5からの応答がないか、データロードに失敗した可能性があります。");
+        }
+      }, 30000);
+    }
   };
 
   const [setupTab, setSetupTab] = useState<"replay" | "trading" | "resume">("replay");
