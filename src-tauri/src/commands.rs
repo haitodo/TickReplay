@@ -604,21 +604,21 @@ pub async fn get_available_symbols(
 ) -> Result<Vec<crate::mt5::SymbolItem>, AppError> {
     let mut items_set = std::collections::HashSet::new();
 
-    if let Ok(config_dir) = app_handle.path().app_config_dir() {
-        let manifest = crate::custom_symbol::ImportManifest::load_from_dir(&config_dir);
-        for cs in manifest.custom_symbols {
-            items_set.insert(crate::mt5::SymbolItem {
-                name: cs,
-                source_type: "custom".to_string(),
-                group_name: "Custom".to_string(),
-            });
-        }
-    }
-
     if !terminal_path.is_empty() {
         if let Ok(mt5_items) = crate::mt5::get_existing_symbols_with_info(&terminal_path).await {
             for item in mt5_items {
                 items_set.insert(item);
+            }
+        }
+    } else {
+        if let Ok(config_dir) = app_handle.path().app_config_dir() {
+            let manifest = crate::custom_symbol::ImportManifest::load_from_dir(&config_dir);
+            for cs in manifest.custom_symbols {
+                items_set.insert(crate::mt5::SymbolItem {
+                    name: cs,
+                    source_type: "custom".to_string(),
+                    group_name: "Custom".to_string(),
+                });
             }
         }
     }
