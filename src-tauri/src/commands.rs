@@ -559,6 +559,16 @@ pub async fn import_custom_symbol_chunk(
     }
     crate::mt5::validate_terminal_path(&terminal_path)?;
 
+    // MT5 (EA) が接続されているか事前検証
+    {
+        let last_status = state.last_status.lock().unwrap();
+        if last_status.is_empty() {
+            return Err(AppError::Config(
+                "MetaTrader 5 (EA) が接続されていません。MT5を起動し、EAをセットアップした状態でインポートを行ってください。".to_string()
+            ));
+        }
+    }
+
     let zip_p = std::path::PathBuf::from(&zip_path);
     if !zip_p.exists() {
         return Err(AppError::Config(format!("ZIPファイルが存在しません: {}", zip_path)));

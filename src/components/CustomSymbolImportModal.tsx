@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 export interface ScannedZipFile {
@@ -22,13 +22,18 @@ interface CustomSymbolImportModalProps {
   onImportComplete?: () => void;
 }
 
+const STORAGE_KEY = "custom_symbol_import_root_dir";
+
 export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = ({
   isOpen,
   onClose,
   terminalPath,
   onImportComplete
 }) => {
-  const [rootDir, setRootDir] = useState("D:\\2025");
+  // 初期フォルダパス: localStorageから取得、なければ D:\TickData
+  const [rootDir, setRootDir] = useState<string>(() => {
+    return localStorage.getItem(STORAGE_KEY) || "D:\\TickData";
+  });
   const [scannedGroups, setScannedGroups] = useState<ScannedPairGroup[]>([]);
   const [isScanning, setIsScanning] = useState(false);
   const [symbolNames, setSymbolNames] = useState<{ [pair: string]: string }>({});
@@ -39,6 +44,36 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
   const [importProgress, setImportProgress] = useState({ current: 0, total: 0, currentLabel: "", ticksCount: 0 });
   const [logs, setLogs] = useState<string[]>([]);
   const [errorMessage, setErrorMessage] = useState("");
+  const [mt5Connected, setMt5Connected] = useState<boolean | null>(null);
+
+  const cancelImportRef = useRef(false);
+
+  // モーダル表示時に MT5 EA 接続状態を確認
+  useEffect(() => {
+    if (isOpen) {
+      checkMt5Connection();
+    }
+  }, [isOpen]);
+
+  const checkMt5Connection = async (): Promise<boolean> => {
+    try {
+      const statusStr = await invoke<string>("get_last_status");
+      const isConnected = !!(statusStr && statusStr.trim().length > 0);
+      setMt5Connected(isConnected);
+      return isConnected;
+    } catch {
+      setMt5Connected(false);
+      return false;
+    }
+  };
+
+  // フォルダパスの保存・更新
+  const updateRootDir = (path: string) => {
+    setRootDir(path);
+    if (path.trim()) {
+      localStorage.setItem(STORAGE_KEY, path.trim());
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -46,7 +81,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
     try {
       const selected = await invoke<string | null>("select_folder");
       if (selected) {
-        setRootDir(selected);
+        updateRootDir(selected);
         handleScanWithDir(selected);
       }
     } catch (err: any) {
@@ -59,6 +94,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
       setErrorMessage("フォルダパスを入力してください");
       return;
     }
+    updateRootDir(targetDir);
     setErrorMessage("");
     setIsScanning(true);
     try {
@@ -101,9 +137,37 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
     handleScanWithDir(rootDir);
   };
 
+  // 各シンボルグループごとの一括選択・解除処理
+  const handleSelectGroupFiles = (files: ScannedZipFile[], mode: "all" | "none" | "unimported") => {
+    setSelectedMonths(prev => {
+      const next = { ...prev };
+      files.forEach(f => {
+        if (mode === "all") {
+          next[f.file_path] = true;
+        } else if (mode === "none") {
+          next[f.file_path] = false;
+        } else if (mode === "unimported") {
+          next[f.file_path] = !f.already_imported;
+        }
+      });
+      return next;
+    });
+  };
+
+  const handleStopImport = () => {
+    cancelImportRef.current = true;
+  };
+
   const handleStartImport = async () => {
     if (!terminalPath) {
       setErrorMessage("MT5ターミナルが選択されていません。セットアップ画面でターミナルを選択してください。");
+      return;
+    }
+
+    // 事前に MT5 接続状態をチェック
+    const isConnected = await checkMt5Connection();
+    if (!isConnected) {
+      setErrorMessage("MetaTrader 5 (EA) が起動・接続されていません。MT5を起動し、EAが通信可能な状態にしてからインポートを開始してください。");
       return;
     }
 
@@ -138,6 +202,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
       return;
     }
 
+    cancelImportRef.current = false;
     setIsImporting(true);
     setErrorMessage("");
     setLogs([]);
@@ -147,6 +212,11 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
     let totalTicksTotal = 0;
 
     for (let i = 0; i < itemsToImport.length; i++) {
+      if (cancelImportRef.current) {
+        setLogs(prev => [...prev, "⏹️ [中断] ユーザーによってインポート処理が停止されました。"]);
+        break;
+      }
+
       const item = itemsToImport[i];
       const label = `${item.symbolName} (${item.yearMonth})`;
       setImportProgress({
@@ -175,7 +245,9 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
     }
 
     setIsImporting(false);
-    setLogs(prev => [...prev, `🎉 インポート完了! 合計 ${successCount}/${itemsToImport.length} 件 (${totalTicksTotal.toLocaleString()} ティック)`]);
+    if (!cancelImportRef.current) {
+      setLogs(prev => [...prev, `🎉 インポート完了! 合計 ${successCount}/${itemsToImport.length} 件 (${totalTicksTotal.toLocaleString()} ティック)`]);
+    }
 
     if (onImportComplete) {
       onImportComplete();
@@ -202,8 +274,8 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
       <div
         className="pro-panel"
         style={{
-          width: "720px",
-          maxHeight: "85vh",
+          width: "750px",
+          maxHeight: "88vh",
           display: "flex",
           flexDirection: "column",
           backgroundColor: "var(--surface-container-high, #18181c)",
@@ -232,6 +304,41 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
 
         {/* Body */}
         <div style={{ padding: "16px 18px", flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: "14px" }}>
+          
+          {/* MT5 接続ステータス表示 */}
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "8px 12px",
+            borderRadius: "6px",
+            fontSize: "12px",
+            backgroundColor: mt5Connected ? "rgba(34, 197, 94, 0.12)" : "rgba(239, 68, 68, 0.12)",
+            border: "1px solid " + (mt5Connected ? "rgba(34, 197, 94, 0.3)" : "rgba(239, 68, 68, 0.3)"),
+            color: mt5Connected ? "#4ade80" : "#f87171"
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
+                {mt5Connected ? "power" : "power_off"}
+              </span>
+              <span>
+                {mt5Connected
+                  ? "MetaTrader 5 (EA) 通信接続中: インポート実行可能"
+                  : "MetaTrader 5 (EA) 未接続: インポートを実行するにはMT5を起動してEAをアクティブにしてください"}
+              </span>
+            </div>
+            <button
+              type="button"
+              className="pro-btn"
+              onClick={checkMt5Connection}
+              disabled={isImporting}
+              style={{ padding: "2px 8px", fontSize: "11px", height: "22px" }}
+              title="MT5接続状態を再チェック"
+            >
+              再チェック
+            </button>
+          </div>
+
           {/* フォルダ指定とスキャン */}
           <div className="form-group">
             <label className="form-label">データ格納ディレクトリパス (ZIP保存先フォルダ)</label>
@@ -240,8 +347,8 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                 type="text"
                 className="pro-input input-with-button"
                 value={rootDir}
-                onChange={(e) => setRootDir(e.target.value)}
-                placeholder="e.g. D:\2025"
+                onChange={(e) => updateRootDir(e.target.value)}
+                placeholder="e.g. D:\TickData"
                 disabled={isImporting}
               />
               <button
@@ -300,6 +407,40 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                             ⚠️ MT5に既存
                           </span>
                         )}
+                      </div>
+
+                      {/* シンボル単位の一括選択・解除ボタン */}
+                      <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                        <button
+                          type="button"
+                          className="pro-btn"
+                          onClick={() => handleSelectGroupFiles(group.files, "all")}
+                          disabled={isImporting}
+                          style={{ padding: "2px 8px", fontSize: "11px", height: "24px" }}
+                          title="このシンボルの全月を選択"
+                        >
+                          全選択
+                        </button>
+                        <button
+                          type="button"
+                          className="pro-btn"
+                          onClick={() => handleSelectGroupFiles(group.files, "none")}
+                          disabled={isImporting}
+                          style={{ padding: "2px 8px", fontSize: "11px", height: "24px" }}
+                          title="このシンボルの全選択を解除"
+                        >
+                          全解除
+                        </button>
+                        <button
+                          type="button"
+                          className="pro-btn"
+                          onClick={() => handleSelectGroupFiles(group.files, "unimported")}
+                          disabled={isImporting}
+                          style={{ padding: "2px 8px", fontSize: "11px", height: "24px" }}
+                          title="未インポートの月のみ選択"
+                        >
+                          未インポート
+                        </button>
                       </div>
                     </div>
 
@@ -377,7 +518,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                 <span>インポート処理中: {importProgress.currentLabel}</span>
                 <span>{importProgress.current} / {importProgress.total} 月データ</span>
               </div>
-              <div style={{ width: "100%", height: "8px", backgroundColor: "rgba(255,255,255,0.1)", borderRadius: "4px", overflow: "hidden" }}>
+              <div style={{ width: "100%", height: "8px", backgroundColor: "rgba(255,255,255,0.1)", borderRadius: "4px", overflow: "hidden", marginBottom: "8px" }}>
                 <div
                   style={{
                     width: `${(importProgress.current / (importProgress.total || 1)) * 100}%`,
@@ -387,11 +528,21 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                   }}
                 />
               </div>
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <button
+                  type="button"
+                  className="pro-btn"
+                  onClick={handleStopImport}
+                  style={{ padding: "4px 12px", fontSize: "11px", backgroundColor: "#dc2626", color: "#fff", border: "none" }}
+                >
+                  インポート停止
+                </button>
+              </div>
             </div>
           )}
 
           {logs.length > 0 && (
-            <div style={{ maxHeight: "100px", overflowY: "auto", padding: "8px", borderRadius: "6px", backgroundColor: "#0f0f13", fontSize: "11px", fontFamily: "monospace", display: "flex", flexDirection: "column", gap: "2px" }}>
+            <div style={{ maxHeight: "120px", overflowY: "auto", padding: "8px", borderRadius: "6px", backgroundColor: "#0f0f13", fontSize: "11px", fontFamily: "monospace", display: "flex", flexDirection: "column", gap: "2px" }}>
               {logs.map((log, i) => (
                 <div key={i}>{log}</div>
               ))}
@@ -409,15 +560,26 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
           >
             閉じる
           </button>
-          <button
-            type="button"
-            className="pro-btn pro-btn-primary"
-            onClick={handleStartImport}
-            disabled={isImporting || scannedGroups.length === 0}
-            style={{ padding: "0 20px" }}
-          >
-            {isImporting ? "インポート中..." : "1月ずつインポート開始"}
-          </button>
+          {isImporting ? (
+            <button
+              type="button"
+              className="pro-btn"
+              onClick={handleStopImport}
+              style={{ padding: "0 20px", backgroundColor: "#dc2626", color: "#fff", border: "none" }}
+            >
+              インポート停止
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="pro-btn pro-btn-primary"
+              onClick={handleStartImport}
+              disabled={scannedGroups.length === 0}
+              style={{ padding: "0 20px" }}
+            >
+              1月ずつインポート開始
+            </button>
+          )}
         </div>
       </div>
     </div>
