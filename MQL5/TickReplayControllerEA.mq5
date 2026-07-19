@@ -1153,6 +1153,57 @@ void ProcessCommand(string line)
          WritePipeStatus(ping_response);
       }
    }
+   else if(command == "IMPORT_TICKS")
+   {
+      string target_symbol = GetJsonString(line, "symbol");
+      string group_path   = GetJsonString(line, "group");
+      string base_symbol  = GetJsonString(line, "base_symbol");
+      string bin_file     = GetJsonString(line, "bin_file");
+      
+      if(target_symbol != "" && bin_file != "")
+      {
+         if(group_path == "") group_path = "Custom";
+         if(base_symbol == "") base_symbol = target_symbol;
+         
+         Print("[Info] IMPORT_TICKS コマンド受信: ", target_symbol, ", bin: ", bin_file);
+         
+         int file_handle = FileOpen(bin_file, FILE_READ|FILE_BIN);
+         if(file_handle != INVALID_HANDLE)
+         {
+            ulong file_size = FileSize(file_handle);
+            int tick_count = (int)(file_size / sizeof(MqlTick));
+            if(tick_count > 0)
+            {
+               MqlTick ticks[];
+               ArrayResize(ticks, tick_count);
+               uint read_count = FileReadArray(file_handle, ticks, 0, tick_count);
+               FileClose(file_handle);
+               
+               if(read_count > 0)
+               {
+                  bool is_custom = false;
+                  if(!SymbolExist(target_symbol, is_custom))
+                  {
+                     if(CustomSymbolCreate(target_symbol, group_path, base_symbol))
+                     {
+                        Print("[Info] カスタムシンボル作成成功: ", target_symbol);
+                     }
+                  }
+                  SymbolSelect(target_symbol, true);
+                  
+                  int added = CustomTicksAdd(target_symbol, ticks);
+                  Print("[Success] EA経由のインポート完了: ", target_symbol, " (追加件数: ", added, ")");
+                  FileDelete(bin_file);
+               }
+            }
+            else
+            {
+               FileClose(file_handle);
+               FileDelete(bin_file);
+            }
+         }
+      }
+   }
 }
 
 //+------------------------------------------------------------------+

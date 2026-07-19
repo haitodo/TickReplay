@@ -1,8 +1,17 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use serde::{Deserialize, Serialize};
 use crate::error::AppError;
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
+pub struct SymbolItem {
+    pub name: String,
+    pub source_type: String, // "custom" | "broker" | "default"
+    pub group_name: String,  // 例: "Custom", "OANDA-Japan MT5 Live", "Default"
+}
+
 const EA_SOURCE: &str = include_str!("../../MQL5/TickReplayControllerEA.mq5");
+const IMPORTER_SOURCE: &str = include_str!("../../MQL5/TickReplayImporter.mq5");
 
 // 指定されたパスがMT5の端末データディレクトリ配下であるかを検証する
 pub fn validate_terminal_path(terminal_path: &str) -> Result<(), AppError> {
@@ -38,7 +47,7 @@ pub struct Mt5TerminalInfo {
     pub path: String,
 }
 
-// MT5データフォルダをスキャンし、EAファイルを自動配置する (起動時初期化用の同期処理)
+// MT5データフォルダをスキャンし、EAおよびスクリプトファイルを自動配置する (起動時初期化用の同期処理)
 pub fn setup_mt5_environment() {
     let base_path = if let Ok(appdata) = std::env::var("APPDATA") {
         PathBuf::from(appdata).join("MetaQuotes").join("Terminal")
@@ -57,16 +66,21 @@ pub fn setup_mt5_environment() {
                 let mql5_path = path.join("MQL5");
                 if mql5_path.exists() {
                     let experts_path = mql5_path.join("Experts");
+                    let scripts_path = mql5_path.join("Scripts");
                     let files_path = mql5_path.join("Files");
 
                     let _ = fs::create_dir_all(&experts_path);
+                    let _ = fs::create_dir_all(&scripts_path);
                     let _ = fs::create_dir_all(&files_path);
 
                     let ea_file = experts_path.join("TickReplayControllerEA.mq5");
                     if let Err(e) = fs::write(&ea_file, EA_SOURCE) {
                         eprintln!("EA配置失敗 {:?}: {}", ea_file, e);
-                    } else {
-                        println!("EA配置成功 {:?}", ea_file);
+                    }
+
+                    let importer_file = scripts_path.join("TickReplayImporter.mq5");
+                    if let Err(e) = fs::write(&importer_file, IMPORTER_SOURCE) {
+                        eprintln!("Importer配置失敗 {:?}: {}", importer_file, e);
                     }
                 }
             }
@@ -173,4 +187,153 @@ pub async fn select_profile(terminal_path: String, profile_name: String) -> Resu
     })
     .await
     .map_err(|e| AppError::Mt5(format!("プロファイル複製スレッドエラー: {}", e)))?
+}
+
+// 指定ターミナルから検出された既存のシンボル（標準＋カスタム）一覧を取得する
+pub async fn get_existing_custom_symbols(terminal_path: &str) -> Result<Vec<String>, AppError> {
+    let items = get_existing_symbols_with_info(terminal_path).await?;
+    let mut names: Vec<String> = items.into_iter().map(|i| i.name).collect();
+    names.dedup();
+    Ok(names)
+}
+
+pub async fn get_existing_symbols_with_info(terminal_path: &str) -> Result<Vec<SymbolItem>, AppError> {
+    validate_terminal_path(terminal_path)?;
+    let path = PathBuf::from(terminal_path);
+    tokio::task::spawn_blocking(move || {
+        let mut symbol_items = std::collections::HashSet::new();
+
+        fn is_valid_symbol_name(name: &str) -> bool {
+            if name.is_empty() || name.len() > 64 {
+                return false;
+            }
+            let lower = name.to_lowercase();
+            let system_blacklist = [
+                "cache", "logs", "chats", "mail", "users", "history", "ticks",
+                "default", "custom", "bases", "mql5", "config", "profiles",
+                "files", "charts", "indicators", "experts", "scripts", "images",
+                "include", "libraries", "symbolsets", "news", "subscriptions",
+                "symbols", "trades", "options", "books", "gvariables", "objects",
+                "strategy", "alerts"
+            ];
+            if system_blacklist.contains(&lower.as_str()) || lower.starts_with("chart") {
+                return false;
+            }
+            name.chars().all(|c| c.is_alphanumeric() || c == '.' || c == '_' || c == '-' || c == '#' || c == '+' || c == '/' || c == '$' || c == '@')
+        }
+
+        fn scan_dir_items(
+            parent_dir: &Path,
+            source_type: &str,
+            group_name: &str,
+            items: &mut std::collections::HashSet<SymbolItem>
+        ) {
+            if let Ok(entries) = fs::read_dir(parent_dir) {
+                for entry in entries.flatten() {
+                    let cp = entry.path();
+                    if cp.is_dir() {
+                        if let Some(name) = cp.file_name().and_then(|n| n.to_str()) {
+                            if is_valid_symbol_name(name) {
+                                items.insert(SymbolItem {
+                                    name: name.to_string(),
+                                    source_type: source_type.to_string(),
+                                    group_name: group_name.to_string(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let bases_dir = path.join("bases");
+        if bases_dir.exists() {
+            if let Ok(entries) = fs::read_dir(&bases_dir) {
+                for entry in entries.flatten() {
+                    let server_dir = entry.path();
+                    if server_dir.is_dir() {
+                        let server_name = server_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                        let lower_server = server_name.to_lowercase();
+                        
+                        if lower_server.is_empty() || lower_server == "cache" || lower_server == "logs" || lower_server.starts_with('.') {
+                            continue;
+                        }
+
+                        if server_name.eq_ignore_ascii_case("Custom") {
+                            scan_dir_items(&server_dir.join("history"), "custom", "Custom", &mut symbol_items);
+                            scan_dir_items(&server_dir.join("ticks"), "custom", "Custom", &mut symbol_items);
+                            
+                            if let Ok(custom_entries) = fs::read_dir(&server_dir) {
+                                for c_entry in custom_entries.flatten() {
+                                    let cp = c_entry.path();
+                                    if cp.is_dir() {
+                                        if let Some(name) = cp.file_name().and_then(|n| n.to_str()) {
+                                            if !name.eq_ignore_ascii_case("history") && !name.eq_ignore_ascii_case("ticks") {
+                                                if is_valid_symbol_name(name) {
+                                                    symbol_items.insert(SymbolItem {
+                                                        name: name.to_string(),
+                                                        source_type: "custom".to_string(),
+                                                        group_name: "Custom".to_string(),
+                                                    });
+                                                }
+                                                scan_dir_items(&cp, "custom", "Custom", &mut symbol_items);
+                                                scan_dir_items(&cp.join("history"), "custom", "Custom", &mut symbol_items);
+                                                scan_dir_items(&cp.join("ticks"), "custom", "Custom", &mut symbol_items);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else if server_name.eq_ignore_ascii_case("Default") {
+                            scan_dir_items(&server_dir.join("history"), "default", "Default", &mut symbol_items);
+                            scan_dir_items(&server_dir.join("History"), "default", "Default", &mut symbol_items);
+                            scan_dir_items(&server_dir.join("ticks"), "default", "Default", &mut symbol_items);
+                        } else {
+                            scan_dir_items(&server_dir.join("history"), "broker", server_name, &mut symbol_items);
+                            scan_dir_items(&server_dir.join("History"), "broker", server_name, &mut symbol_items);
+                            scan_dir_items(&server_dir.join("ticks"), "broker", server_name, &mut symbol_items);
+                        }
+                    }
+                }
+            }
+        }
+
+        let charts_dir = path.join("MQL5").join("Profiles").join("Charts");
+        if charts_dir.exists() {
+            fn walk_charts(dir: &Path, items: &mut std::collections::HashSet<SymbolItem>) {
+                if let Ok(entries) = fs::read_dir(dir) {
+                    for entry in entries.flatten() {
+                        let cp = entry.path();
+                        if cp.is_dir() {
+                            walk_charts(&cp, items);
+                        } else if cp.is_file() && cp.extension().and_then(|e| e.to_str()).map(|e| e.eq_ignore_ascii_case("chr")) == Some(true) {
+                            if let Ok(content) = fs::read_to_string(&cp) {
+                                for line in content.lines() {
+                                    let trimmed = line.trim();
+                                    if trimmed.to_lowercase().starts_with("symbol=") {
+                                        let sym = trimmed[7..].trim();
+                                        if is_valid_symbol_name(sym) {
+                                            let is_custom = sym.to_uppercase().ends_with("_CUSTOM") || sym.to_uppercase().contains("REPLAY");
+                                            items.insert(SymbolItem {
+                                                name: sym.to_string(),
+                                                source_type: if is_custom { "custom".to_string() } else { "broker".to_string() },
+                                                group_name: if is_custom { "Custom".to_string() } else { "Charts".to_string() },
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            walk_charts(&charts_dir, &mut symbol_items);
+        }
+
+        let mut list: Vec<SymbolItem> = symbol_items.into_iter().collect();
+        list.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(list)
+    })
+    .await
+    .map_err(|e| AppError::Mt5(format!("銘柄検出スレッドエラー: {}", e)))?
 }

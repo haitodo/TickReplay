@@ -6,6 +6,7 @@ pub mod state;
 pub mod mt5;
 pub mod ipc;
 pub mod shortcut;
+pub mod custom_symbol;
 pub mod commands;
 
 use std::sync::Arc;
@@ -124,7 +125,11 @@ pub fn run() {
             commands::save_session,
             commands::get_saved_sessions,
             commands::delete_session,
-            commands::clear_all_sessions
+            commands::clear_all_sessions,
+            commands::scan_custom_symbol_files,
+            commands::import_custom_symbol_chunk,
+            commands::get_available_symbols,
+            commands::select_folder
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

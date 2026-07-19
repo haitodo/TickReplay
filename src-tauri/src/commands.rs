@@ -516,3 +516,142 @@ pub async fn clear_all_sessions(app_handle: AppHandle) -> Result<(), AppError> {
     Ok(())
 }
 
+/// 指定されたディレクトリ内の OANDA ZIP ファイルを走査します。
+#[tauri::command]
+pub async fn scan_custom_symbol_files(
+    root_dir: String,
+    terminal_path: String,
+    app_handle: AppHandle,
+) -> Result<Vec<crate::custom_symbol::ScannedPairGroup>, AppError> {
+    let config_dir = app_handle.path().app_config_dir()?;
+    let root = std::path::PathBuf::from(&root_dir);
+    if !root.exists() {
+        return Err(AppError::Config("指定されたフォルダが存在しません".to_string()));
+    }
+    
+    let existing_symbols = if !terminal_path.is_empty() {
+        crate::mt5::get_existing_custom_symbols(&terminal_path).await.unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    tokio::task::spawn_blocking(move || {
+        crate::custom_symbol::scan_directory_for_ticks(&root, &config_dir, &existing_symbols)
+    })
+    .await
+    .map_err(|e| AppError::Config(format!("フォルダスキャンエラー: {}", e)))?
+}
+
+/// 1ヶ月分のZIPファイルをパースし、MT5 Files ディレクトリに .bin ファイルとして書き出します。
+#[tauri::command]
+pub async fn import_custom_symbol_chunk(
+    symbol_name: String,
+    group_path: String,
+    base_symbol: String,
+    zip_path: String,
+    year_month: String,
+    terminal_path: String,
+    state: State<'_, Arc<ReplayState>>,
+    app_handle: AppHandle,
+) -> Result<usize, AppError> {
+    if terminal_path.is_empty() {
+        return Err(AppError::Config("MT5ターミナルが選択されていません".to_string()));
+    }
+    crate::mt5::validate_terminal_path(&terminal_path)?;
+
+    let zip_p = std::path::PathBuf::from(&zip_path);
+    if !zip_p.exists() {
+        return Err(AppError::Config(format!("ZIPファイルが存在しません: {}", zip_path)));
+    }
+
+    let files_dir = std::path::Path::new(&terminal_path).join("MQL5").join("Files");
+    let relative_bin = format!("TickReplay/Imports/{}_{}.bin", symbol_name, year_month);
+    let output_bin = files_dir.join(&relative_bin);
+
+    // 1. ZIPから.binへ高速パース＆書き出し
+    let tick_count = tokio::task::spawn_blocking(move || {
+        crate::custom_symbol::convert_zip_to_mql_bin(&zip_p, &output_bin)
+    })
+    .await
+    .map_err(|e| AppError::Config(format!("データ変換スレッドエラー: {}", e)))??;
+
+    // 2. EAが接続中の場合は IPC で即時インポートコマンドを送信
+    let cmd = serde_json::json!({
+        "command": "IMPORT_TICKS",
+        "symbol": symbol_name,
+        "group": if group_path.is_empty() { "Custom" } else { &group_path },
+        "base_symbol": if base_symbol.is_empty() { &symbol_name } else { &base_symbol },
+        "bin_file": relative_bin,
+        "year_month": year_month,
+    }).to_string();
+
+    let _ = state.command_tx.send(cmd);
+
+    // 3. マニフェストに記録
+    let config_dir = app_handle.path().app_config_dir()?;
+    let mut manifest = crate::custom_symbol::ImportManifest::load_from_dir(&config_dir);
+    manifest.mark_imported(&symbol_name, &year_month);
+    manifest.save_to_dir(&config_dir)?;
+
+    Ok(tick_count)
+}
+
+/// 使用可能なシンボル一覧（詳細情報付き）を取得します。
+#[tauri::command]
+pub async fn get_available_symbols(
+    terminal_path: String,
+    app_handle: AppHandle,
+) -> Result<Vec<crate::mt5::SymbolItem>, AppError> {
+    let mut items_set = std::collections::HashSet::new();
+
+    if let Ok(config_dir) = app_handle.path().app_config_dir() {
+        let manifest = crate::custom_symbol::ImportManifest::load_from_dir(&config_dir);
+        for cs in manifest.custom_symbols {
+            items_set.insert(crate::mt5::SymbolItem {
+                name: cs,
+                source_type: "custom".to_string(),
+                group_name: "Custom".to_string(),
+            });
+        }
+    }
+
+    if !terminal_path.is_empty() {
+        if let Ok(mt5_items) = crate::mt5::get_existing_symbols_with_info(&terminal_path).await {
+            for item in mt5_items {
+                items_set.insert(item);
+            }
+        }
+    }
+
+    // ターミナルやカスタムシンボルから何も検出されなかった場合のみフォールバック初期値を補完
+    if items_set.is_empty() {
+        let defaults = vec![
+            "USDJPY", "EURUSD", "GBPJPY", "EURJPY", "AUDUSD", "USDCAD",
+            "USDCHF", "NZDUSD", "EURGBP", "GBPAUD", "AUDJPY", "CHFJPY",
+            "CADJPY", "NZDJPY", "EURAUD", "GOLD", "XAUUSD"
+        ];
+        for d in defaults {
+            items_set.insert(crate::mt5::SymbolItem {
+                name: d.to_string(),
+                source_type: "default".to_string(),
+                group_name: "Default".to_string(),
+            });
+        }
+    }
+
+    let mut result: Vec<crate::mt5::SymbolItem> = items_set.into_iter().collect();
+    result.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(result)
+}
+
+/// ネイティブの OS フォルダ選択ダイアログを開き、選択されたフォルダパスを返します。
+#[tauri::command]
+pub async fn select_folder() -> Result<Option<String>, AppError> {
+    let folder = rfd::AsyncFileDialog::new()
+        .set_title("OANDA ZIP データ保存先フォルダを選択")
+        .pick_folder()
+        .await;
+
+    Ok(folder.map(|f| f.path().to_string_lossy().to_string()))
+}
+

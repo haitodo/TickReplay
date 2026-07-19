@@ -6,6 +6,9 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import "./App.css";
 import { CustomSelect } from "./CustomSelect";
 import { TradeAnalysisWindowContent } from "./TradeAnalysisWindow";
+import { SymbolCombobox, SymbolItem } from "./components/SymbolCombobox";
+import { SymbolTagInput } from "./components/SymbolTagInput";
+import { CustomSymbolImportModal } from "./components/CustomSymbolImportModal";
 
 // --- デフォルトのホットキー定義
 const DEFAULT_HOTKEYS: Record<string, string> = {
@@ -610,6 +613,22 @@ function App() {
   const [chartSymbol, setChartSymbol] = useState("");
   const hasSavedSymbolRef = useRef(false);
   const [additionalSymbols, setAdditionalSymbols] = useState("");
+  const [isCustomImportOpen, setIsCustomImportOpen] = useState(false);
+  const [availableSymbols, setAvailableSymbols] = useState<SymbolItem[]>([]);
+
+  const loadAvailableSymbols = async (terminalPath: string) => {
+    try {
+      const list = await invoke<SymbolItem[]>("get_available_symbols", { terminalPath });
+      setAvailableSymbols(list);
+    } catch (err) {
+      console.error("Failed to load available symbols:", err);
+    }
+  };
+
+  useEffect(() => {
+    loadAvailableSymbols(selectedTerminal);
+  }, [selectedTerminal]);
+
   const [startTime, setStartTime] = useState("2026-05-01 00:00:00");
   const [endTime, setEndTime] = useState("2026-05-02 00:00:00");
 
@@ -3303,15 +3322,13 @@ function App() {
                       <div className="form-group">
                         <label className="form-label">ソースシンボル</label>
                         <div className="input-with-button-container">
-                          <input
-                            type="text"
-                            className="pro-input input-with-button"
+                          <SymbolCombobox
                             value={sourceSymbol}
-                            onChange={(e) => {
-                              setSourceSymbol(e.target.value);
-                              hasSavedSymbolRef.current = true;
+                            onChange={(val) => {
+                              setSourceSymbol(val);
                             }}
-                            placeholder="e.g. USDJPY"
+                            availableSymbols={availableSymbols}
+                            placeholder="e.g. USDJPY または EURJPY_Custom"
                           />
                           {chartSymbol && (
                             <button
@@ -3319,7 +3336,6 @@ function App() {
                               className="input-inline-btn"
                               onClick={() => {
                                 setSourceSymbol(chartSymbol);
-                                hasSavedSymbolRef.current = true;
                               }}
                               title={`接続中のチャートのシンボル (${chartSymbol}) にリセット`}
                             >
@@ -3330,14 +3346,36 @@ function App() {
                       </div>
 
                       <div className="form-group">
-                        <label className="form-label">同期他通貨シンボル (複数指定時はカンマ区切り)</label>
-                        <input
-                          type="text"
-                          className="pro-input"
+                        <label className="form-label">同期他通貨シンボル</label>
+                        <SymbolTagInput
                           value={additionalSymbols}
-                          onChange={(e) => setAdditionalSymbols(e.target.value)}
-                          placeholder="e.g. EURUSD,GBPUSD,USDCHF,AUDUSD,NZDUSD,USDCAD"
+                          onChange={setAdditionalSymbols}
+                          availableSymbols={availableSymbols}
+                          placeholder="銘柄を選択または入力して追加..."
                         />
+                      </div>
+
+                      <div style={{ marginTop: "12px" }}>
+                        <button
+                          type="button"
+                          className="pro-btn"
+                          onClick={() => setIsCustomImportOpen(true)}
+                          style={{
+                            width: "100%",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            gap: "6px",
+                            backgroundColor: "rgba(168, 199, 250, 0.1)",
+                            color: "var(--tertiary, #a8c7fa)",
+                            border: "1px dashed var(--tertiary, rgba(168, 199, 250, 0.4))",
+                            padding: "8px 12px",
+                            borderRadius: "6px"
+                          }}
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>database_upload</span>
+                          カスタムシンボルのインポート
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -5459,6 +5497,14 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* カスタムシンボル構築・インポート モーダル */}
+      <CustomSymbolImportModal
+        isOpen={isCustomImportOpen}
+        onClose={() => setIsCustomImportOpen(false)}
+        terminalPath={selectedTerminal}
+        onImportComplete={() => loadAvailableSymbols(selectedTerminal)}
+      />
     </div>
   );
 }
