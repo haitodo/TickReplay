@@ -205,13 +205,27 @@ const getNewsTimeForDisplay = (itemTimeStr: string, mode: "JST" | "SERVER") => {
   if (mode === "JST") {
     return itemTimeStr;
   }
-  const jstMsc = Date.parse(itemTimeStr.replace(/-/g, "/"));
-  if (isNaN(jstMsc)) return itemTimeStr;
-  const offset = getOffsetHours(jstMsc - 7 * 3600 * 1000);
-  const serverMsc = jstMsc - offset * 3600 * 1000;
-  const serverDate = new Date(serverMsc);
+  const cleanStr = itemTimeStr.replace(/\./g, "-");
+  const match = cleanStr.trim().match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/);
+  if (!match) return itemTimeStr;
+
+  const y = parseInt(match[1]);
+  const m = parseInt(match[2]) - 1;
+  const d = parseInt(match[3]);
+  const hh = parseInt(match[4]);
+  const mm = parseInt(match[5]);
+  const ss = parseInt(match[6]);
+
+  // JST日時はUTC+9なのでUTCミリ秒表現に変換
+  const jstUtcMsc = Date.UTC(y, m, d, hh, mm, ss);
+  // 夏時間・冬時間のオフセット（6または7時間）を取得
+  const offset = getOffsetHours(jstUtcMsc - 9 * 3600 * 1000);
+  const serverUtcMsc = jstUtcMsc - offset * 3600 * 1000;
+
+  const serverDate = new Date(serverUtcMsc);
   const pad = (n: number) => n.toString().padStart(2, '0');
-  return `${serverDate.getFullYear()}-${pad(serverDate.getMonth() + 1)}-${pad(serverDate.getDate())} ${pad(serverDate.getHours())}:${pad(serverDate.getMinutes())}:${pad(serverDate.getSeconds())}`;
+  // ローカルタイムゾーンに依存しないようgetUTC*を使用
+  return `${serverDate.getUTCFullYear()}-${pad(serverDate.getUTCMonth() + 1)}-${pad(serverDate.getUTCDate())} ${pad(serverDate.getUTCHours())}:${pad(serverDate.getUTCMinutes())}:${pad(serverDate.getUTCSeconds())}`;
 };
 
 const convertServerToJstStr = (serverTimeStr: string) => {
@@ -2749,16 +2763,18 @@ function App() {
     try {
       const res = await invoke<string>("read_replay_news");
       const parsed = JSON.parse(res);
-      if (Array.isArray(parsed)) {
+      if (Array.isArray(parsed) && parsed.length > 0) {
         // MT5から出力されたピリオド区切りの日付（例: 2026.05.01）をフロントエンドで一貫して比較できるようにハイフン区切り（例: 2026-05-01）に変換
         const formatted = parsed.map((item: any) => ({
           ...item,
           time: item.time ? item.time.replace(/\./g, "-") : ""
         }));
         setNewsItems(formatted);
+        // 指標データが1件以上ロードされた場合のみロード済みフラグを立てる
         hasLoadedNewsRef.current = true;
       } else {
         setNewsItems([]);
+        // 0件の場合はロード完了フラグを立てず、次回ステータス更新時にリトライできるようにする
       }
     } catch (e) {
       console.error("Failed to load replay news", e);
