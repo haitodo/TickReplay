@@ -15,6 +15,11 @@ import {
   BarController,
   LineController
 } from 'chart.js';
+import {
+  parseTimeStrToUtcMs,
+  convertServerStrToJstStr as convertServerToJstStr,
+  convertJstStrToServerStr
+} from "./utils/timeUtils";
 
 // Chart.js のコンポーネント登録
 Chart.register(
@@ -41,39 +46,6 @@ const formatHoldingTime = (ms: number) => {
   if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
   if (minutes > 0) return `${minutes}m ${seconds}s`;
   return `${seconds}s`;
-};
-
-const convertServerToJstStr = (serverTimeStr: string) => {
-  if (!serverTimeStr) return "";
-  const cleanStr = serverTimeStr.replace(/\./g, "-");
-  const match = cleanStr.trim().match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/);
-  if (!match) return cleanStr;
-
-  const y = parseInt(match[1]);
-  const m = parseInt(match[2]) - 1;
-  const d = parseInt(match[3]);
-  const hh = parseInt(match[4]);
-  const mm = parseInt(match[5]);
-  const ss = parseInt(match[6]);
-
-  const serverUtcMsc = Date.UTC(y, m, d, hh, mm, ss);
-  // 夏時間・冬時間の簡易オフセット判定
-  const getOffset = (msc: number) => {
-    const date = new Date(msc);
-    const year = date.getUTCFullYear();
-    const march1 = new Date(Date.UTC(year, 2, 1));
-    const march1Day = march1.getUTCDay();
-    const secondSundayMarch = new Date(Date.UTC(year, 2, 1 + (march1Day === 0 ? 7 : (7 - march1Day) + 7)));
-    const nov1 = new Date(Date.UTC(year, 10, 1));
-    const nov1Day = nov1.getUTCDay();
-    const firstSundayNov = new Date(Date.UTC(year, 10, 1 + (nov1Day === 0 ? 0 : 7 - nov1Day)));
-    return (date >= secondSundayMarch && date < firstSundayNov) ? 6 : 7;
-  };
-  const offset = getOffset(serverUtcMsc);
-  const jstMsc = serverUtcMsc + offset * 3600 * 1000;
-  const jstDate = new Date(jstMsc);
-  const pad = (n: number) => n.toString().padStart(2, '0');
-  return `${jstDate.getUTCFullYear()}-${pad(jstDate.getUTCMonth() + 1)}-${pad(jstDate.getUTCDate())} ${pad(jstDate.getUTCHours())}:${pad(jstDate.getUTCMinutes())}:${pad(jstDate.getUTCSeconds())}`;
 };
 
 const getHoldingTimeBucketIndex = (sec: number) => {
@@ -467,7 +439,7 @@ export const TradeAnalysisWindowContent: React.FC = () => {
 
       // エントリー仮想時間におけるJST時刻の算出
       const openJstStr = convertServerToJstStr(h.open_time);
-      const openJstMsc = Date.parse(openJstStr.replace(/-/g, "/"));
+      const openJstMsc = parseTimeStrToUtcMs(openJstStr);
 
       // 指標近接フラグ (NewsProximityFlag) のチェック
       let isNearNews = false;
@@ -475,7 +447,7 @@ export const TradeAnalysisWindowContent: React.FC = () => {
       if (!isNaN(openJstMsc) && newsItems.length > 0) {
         for (const item of newsItems) {
           if (item.importance === "HIGH" || item.importance === "VERY_HIGH") {
-            const newsTimeMsc = Date.parse(item.time.replace(/-/g, "/"));
+            const newsTimeMsc = parseTimeStrToUtcMs(item.time);
             if (!isNaN(newsTimeMsc)) {
               const diffMinutes = Math.abs(openJstMsc - newsTimeMsc) / (60 * 1000);
               if (diffMinutes <= 5.0) {
@@ -496,8 +468,8 @@ export const TradeAnalysisWindowContent: React.FC = () => {
       let dayJst = 1; // 1 = Monday
       if (!isNaN(openJstMsc)) {
         const d = new Date(openJstMsc);
-        hourJst = d.getHours();
-        dayJst = d.getDay(); // 0 = Sun, 1 = Mon...
+        hourJst = d.getUTCHours();
+        dayJst = d.getUTCDay(); // 0 = Sun, 1 = Mon...
       }
 
       return {
@@ -532,8 +504,14 @@ export const TradeAnalysisWindowContent: React.FC = () => {
         const now = Date.now();
         if (now - h.close_time_msc > 30 * 24 * 3600 * 1000) return false;
       } else if (filterPeriod === "custom") {
-        if (filterCustomStart && h.close_time_msc < Date.parse(filterCustomStart)) return false;
-        if (filterCustomEnd && h.close_time_msc > Date.parse(filterCustomEnd)) return false;
+        if (filterCustomStart) {
+          const startServerMsc = parseTimeStrToUtcMs(convertJstStrToServerStr(filterCustomStart));
+          if (!isNaN(startServerMsc) && h.close_time_msc < startServerMsc) return false;
+        }
+        if (filterCustomEnd) {
+          const endServerMsc = parseTimeStrToUtcMs(convertJstStrToServerStr(filterCustomEnd));
+          if (!isNaN(endServerMsc) && h.close_time_msc > endServerMsc) return false;
+        }
       }
 
       // 2. セッションフィルタ

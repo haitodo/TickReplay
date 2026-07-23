@@ -11,6 +11,15 @@ import { SymbolTagInput } from "./components/SymbolTagInput";
 import { CustomSymbolImportModal } from "./components/CustomSymbolImportModal";
 import { AIAnalysisPanel } from "./components/AIAnalysisPanel";
 import { useVolatilityDetector } from "./hooks/useVolatilityDetector";
+import {
+  getServerToJstOffsetHours,
+  parseTimeStrToUtcMs,
+  formatJstTime,
+  formatServerTime,
+  convertServerStrToJstStr as convertServerToJstStr,
+  convertJstStrToServerStr,
+  getNewsTimeForDisplay
+} from "./utils/timeUtils";
 
 // --- デフォルトのホットキー定義
 const DEFAULT_HOTKEYS: Record<string, string> = {
@@ -192,70 +201,6 @@ const parseDateTimeStr = (str: string) => {
 const formatDateTimeStr = (year: number, month: number, day: number, hour: number, minute: number, second: number = 0) => {
   const pad = (n: number) => n.toString().padStart(2, '0');
   return `${year}-${pad(month)}-${pad(day)} ${pad(hour)}:${pad(minute)}:${pad(second)}`;
-};
-
-const getOffsetHours = (msc: number) => {
-  if (msc <= 0) return 9; // デフォルト (JST=+9)
-  const date = new Date(msc);
-  const year = date.getUTCFullYear();
-  const march1 = new Date(Date.UTC(year, 2, 1));
-  const march1Day = march1.getUTCDay();
-  const secondSundayMarch = new Date(Date.UTC(year, 2, 1 + (march1Day === 0 ? 7 : (7 - march1Day) + 7)));
-  const nov1 = new Date(Date.UTC(year, 10, 1));
-  const nov1Day = nov1.getUTCDay();
-  const firstSundayNov = new Date(Date.UTC(year, 10, 1 + (nov1Day === 0 ? 0 : 7 - nov1Day)));
-  const isDst = date >= secondSundayMarch && date < firstSundayNov;
-  return isDst ? 6 : 7; // 夏時間=+6、冬時間=+7
-};
-
-const getNewsTimeForDisplay = (itemTimeStr: string, mode: "JST" | "SERVER") => {
-  if (!itemTimeStr) return "";
-  if (mode === "JST") {
-    return itemTimeStr;
-  }
-  const cleanStr = itemTimeStr.replace(/\./g, "-");
-  const match = cleanStr.trim().match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/);
-  if (!match) return itemTimeStr;
-
-  const y = parseInt(match[1]);
-  const m = parseInt(match[2]) - 1;
-  const d = parseInt(match[3]);
-  const hh = parseInt(match[4]);
-  const mm = parseInt(match[5]);
-  const ss = parseInt(match[6]);
-
-  // JST日時はUTC+9なのでUTCミリ秒表現に変換
-  const jstUtcMsc = Date.UTC(y, m, d, hh, mm, ss);
-  // 夏時間・冬時間のオフセット（6または7時間）を取得
-  const offset = getOffsetHours(jstUtcMsc - 9 * 3600 * 1000);
-  const serverUtcMsc = jstUtcMsc - offset * 3600 * 1000;
-
-  const serverDate = new Date(serverUtcMsc);
-  const pad = (n: number) => n.toString().padStart(2, '0');
-  // ローカルタイムゾーンに依存しないようgetUTC*を使用
-  return `${serverDate.getUTCFullYear()}-${pad(serverDate.getUTCMonth() + 1)}-${pad(serverDate.getUTCDate())} ${pad(serverDate.getUTCHours())}:${pad(serverDate.getUTCMinutes())}:${pad(serverDate.getUTCSeconds())}`;
-};
-
-const convertServerToJstStr = (serverTimeStr: string) => {
-  if (!serverTimeStr) return "";
-  const cleanStr = serverTimeStr.replace(/\./g, "-");
-  const match = cleanStr.trim().match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/);
-  if (!match) return cleanStr;
-
-  const y = parseInt(match[1]);
-  const m = parseInt(match[2]) - 1; // 0-11
-  const d = parseInt(match[3]);
-  const hh = parseInt(match[4]);
-  const mm = parseInt(match[5]);
-  const ss = parseInt(match[6]);
-
-  const serverUtcMsc = Date.UTC(y, m, d, hh, mm, ss);
-  const offset = getOffsetHours(serverUtcMsc);
-  const jstMsc = serverUtcMsc + offset * 3600 * 1000;
-
-  const jstDate = new Date(jstMsc);
-  const pad = (n: number) => n.toString().padStart(2, '0');
-  return `${jstDate.getUTCFullYear()}-${pad(jstDate.getUTCMonth() + 1)}-${pad(jstDate.getUTCDate())} ${pad(jstDate.getUTCHours())}:${pad(jstDate.getUTCMinutes())}:${pad(jstDate.getUTCSeconds())}`;
 };
 
 
@@ -2602,52 +2547,14 @@ function App() {
   // --- 5. タイムライン計算用 & シーク処理
 
   // タイムスタンプ -> JST時間文字列への変換 (US夏時間を加味)
-  const formatJstTime = (msc: number) => {
-    if (msc <= 0) return "--:--:--";
-    const date = new Date(msc);
-    const year = date.getUTCFullYear();
-
-    // US DST: 3月第2日曜日 〜 11月第1日曜日
-    const march1 = new Date(Date.UTC(year, 2, 1));
-    const march1Day = march1.getUTCDay();
-    const secondSundayMarch = new Date(Date.UTC(year, 2, 1 + (march1Day === 0 ? 7 : (7 - march1Day) + 7)));
-
-    const nov1 = new Date(Date.UTC(year, 10, 1));
-    const nov1Day = nov1.getUTCDay();
-    const firstSundayNov = new Date(Date.UTC(year, 10, 1 + (nov1Day === 0 ? 0 : 7 - nov1Day)));
-
-    const isDst = date >= secondSundayMarch && date < firstSundayNov;
-    const offsetHours = isDst ? 6 : 7; // GMT+3 or GMT+2 -> JST (GMT+9)
-
-    const jstDate = new Date(msc + offsetHours * 3600 * 1000);
-    return jstDate.toISOString().replace("T", " ").substring(0, 19);
-  };
-
-  const formatServerTime = (msc: number) => {
-    if (msc <= 0) return "--:--:--";
-    const d = new Date(msc);
-    return d.toISOString().replace("T", " ").substring(0, 19);
-  };
-
   const getDayOfWeekStr = (msc: number, isJst: boolean) => {
     if (msc <= 0) return "";
-    const date = new Date(msc);
-    let targetDate = date;
+    let targetMsc = msc;
     if (isJst) {
-      const year = date.getUTCFullYear();
-      const march1 = new Date(Date.UTC(year, 2, 1));
-      const march1Day = march1.getUTCDay();
-      const secondSundayMarch = new Date(Date.UTC(year, 2, 1 + (march1Day === 0 ? 7 : (7 - march1Day) + 7)));
-
-      const nov1 = new Date(Date.UTC(year, 10, 1));
-      const nov1Day = nov1.getUTCDay();
-      const firstSundayNov = new Date(Date.UTC(year, 10, 1 + (nov1Day === 0 ? 0 : 7 - nov1Day)));
-
-      const isDst = date >= secondSundayMarch && date < firstSundayNov;
-      const offsetHours = isDst ? 6 : 7;
-      targetDate = new Date(msc + offsetHours * 3600 * 1000);
+      const offsetHours = getServerToJstOffsetHours(msc);
+      targetMsc = msc + offsetHours * 3600 * 1000;
     }
-    const dayIndex = targetDate.getUTCDay();
+    const dayIndex = new Date(targetMsc).getUTCDay();
     const days = ["日", "月", "火", "水", "木", "金", "土"];
     return `(${days[dayIndex]})`;
   };
@@ -2783,9 +2690,10 @@ function App() {
   // --- 5.5 経済指標 & 日付計算用のヘルパー
   const getDayOffset = () => {
     if (!virtualTimeMsc || !startTime) return "T+0";
-    const startMsc = Date.parse(startTime.replace(/-/g, "/"));
-    if (isNaN(startMsc)) return "T+0";
-    const diffMs = virtualTimeMsc - startMsc;
+    const startJstUtcMsc = parseTimeStrToUtcMs(startTime);
+    if (isNaN(startJstUtcMsc)) return "T+0";
+    const currentJstUtcMsc = virtualTimeMsc + getServerToJstOffsetHours(virtualTimeMsc) * 3600 * 1000;
+    const diffMs = currentJstUtcMsc - startJstUtcMsc;
     const diffDays = Math.floor(diffMs / (24 * 3600 * 1000));
     return `T${diffDays >= 0 ? "+" : ""}${diffDays}`;
   };
@@ -2868,7 +2776,7 @@ function App() {
     if (!newsAutoScroll || filteredDailyNews.length === 0) return;
 
     const currentCompareMsc = timezoneMode === "JST"
-      ? virtualTimeMsc + getOffsetHours(virtualTimeMsc) * 3600 * 1000
+      ? virtualTimeMsc + getServerToJstOffsetHours(virtualTimeMsc) * 3600 * 1000
       : virtualTimeMsc;
 
     // 1. アクティブな指標（バーチャルタイムに最も近い、前後15分以内）を検索
@@ -2877,7 +2785,9 @@ function App() {
     for (let i = 0; i < filteredDailyNews.length; i++) {
       const item = filteredDailyNews[i];
       const displayTimeStr = getDisplayNewsTimeStr(item);
-      const eventMsc = Date.parse(displayTimeStr.replace(/-/g, "/"));
+      const eventMsc = parseTimeStrToUtcMs(displayTimeStr);
+      if (isNaN(eventMsc)) continue;
+
       const isActive = Math.abs(currentCompareMsc - eventMsc) <= 15 * 60 * 1000;
       if (isActive) {
         const diff = Math.abs(currentCompareMsc - eventMsc);
@@ -2893,8 +2803,8 @@ function App() {
       for (let i = 0; i < filteredDailyNews.length; i++) {
         const item = filteredDailyNews[i];
         const displayTimeStr = getDisplayNewsTimeStr(item);
-        const eventMsc = Date.parse(displayTimeStr.replace(/-/g, "/"));
-        if (eventMsc > currentCompareMsc) {
+        const eventMsc = parseTimeStrToUtcMs(displayTimeStr);
+        if (!isNaN(eventMsc) && eventMsc > currentCompareMsc) {
           targetIdx = i;
           break;
         }
@@ -3054,13 +2964,21 @@ function App() {
             />
           </div>
           <div className="remote-timeline-labels select-none">
-            <span className="remote-timeline-text">{startTime ? startTime.substring(11, 16) : "00:00"}</span>
+            <span className="remote-timeline-text">
+              {startTime
+                ? (timezoneMode === "JST" ? startTime : getNewsTimeForDisplay(startTime, "SERVER")).substring(11, 16)
+                : "00:00"}
+            </span>
             <span className="remote-timeline-text active">
               {timezoneMode === "JST"
                 ? formatJstTime(virtualTimeMsc).substring(11, 16)
                 : formatServerTime(virtualTimeMsc).substring(11, 16)}
             </span>
-            <span className="remote-timeline-text">{endTime ? endTime.substring(11, 16) : "24:00"}</span>
+            <span className="remote-timeline-text">
+              {endTime
+                ? (timezoneMode === "JST" ? endTime : getNewsTimeForDisplay(endTime, "SERVER")).substring(11, 16)
+                : "24:00"}
+            </span>
           </div>
         </div>
 
@@ -4588,14 +4506,15 @@ function App() {
                           <tbody>
                             {filteredDailyNews.map((item, idx) => {
                               const displayTimeStr = getDisplayNewsTimeStr(item);
-                              const eventMsc = Date.parse(displayTimeStr.replace(/-/g, "/"));
+                              const eventMsc = parseTimeStrToUtcMs(displayTimeStr);
+                              const eventServerMsc = parseTimeStrToUtcMs(convertJstStrToServerStr(item.time));
 
                               const currentCompareMsc = timezoneMode === "JST"
-                                ? virtualTimeMsc + getOffsetHours(virtualTimeMsc) * 3600 * 1000
+                                ? virtualTimeMsc + getServerToJstOffsetHours(virtualTimeMsc) * 3600 * 1000
                                 : virtualTimeMsc;
 
-                              const isPast = currentCompareMsc >= eventMsc;
-                              const isActive = Math.abs(currentCompareMsc - eventMsc) <= 15 * 60 * 1000;
+                              const isPast = !isNaN(eventMsc) && currentCompareMsc >= eventMsc;
+                              const isActive = !isNaN(eventMsc) && Math.abs(currentCompareMsc - eventMsc) <= 15 * 60 * 1000;
 
                               // 重要度ドットクラス
                               const impClass = item.importance.toLowerCase().replace("_", "-");
@@ -4631,7 +4550,7 @@ function App() {
                                     <button
                                       className="news-ai-btn"
                                       onClick={() => {
-                                        setAiTargetTimeMsc(eventMsc);
+                                        setAiTargetTimeMsc(eventServerMsc);
                                         setIsAIPanelOpen(true);
                                       }}
                                       title={`${item.event} 時刻の要因をAI解析`}

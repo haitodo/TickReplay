@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { getTrueUtcMs, formatUtcMsToDateTimeStr } from "../utils/timeUtils";
 
 export interface GdeltArticle {
   title: string;
@@ -112,8 +113,9 @@ export function useDataSources() {
       } = {}
     ): Promise<MarketContextData> => {
       const rangeHours = options.rangeHours || 3;
-      const startMsc = virtualTimeMsc - rangeHours * 3600 * 1000;
-      const endMsc = virtualTimeMsc + rangeHours * 3600 * 1000;
+      const trueUtcMsc = getTrueUtcMs(virtualTimeMsc);
+      const startMsc = trueUtcMsc - rangeHours * 3600 * 1000;
+      const endMsc = trueUtcMsc + rangeHours * 3600 * 1000;
 
       setProgress({
         gdeltStatus: "loading",
@@ -159,8 +161,8 @@ export function useDataSources() {
       const fredPromise = (async () => {
         if (!options.fredApiKey) return;
         try {
-          const startDate = new Date(virtualTimeMsc - 30 * 24 * 3600 * 1000).toISOString().substring(0, 10);
-          const endDate = new Date(virtualTimeMsc).toISOString().substring(0, 10);
+          const startDate = formatUtcMsToDateTimeStr(trueUtcMsc - 30 * 24 * 3600 * 1000).substring(0, 10);
+          const endDate = formatUtcMsToDateTimeStr(trueUtcMsc).substring(0, 10);
           const url = `https://api.stlouisfed.org/fred/series/observations?series_id=FEDFUNDS&observation_start=${startDate}&observation_end=${endDate}&api_key=${options.fredApiKey}&file_type=json`;
 
           const res = await fetch(url);

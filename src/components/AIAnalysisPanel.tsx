@@ -1,5 +1,13 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useDataSources } from "../hooks/useDataSources";
+import {
+  formatJstTime,
+  formatServerTime,
+  parseTimeStrToUtcMs,
+  getServerToUtcOffsetHours,
+  convertJstStrToServerStr,
+  getNewsTimeForDisplay
+} from "../utils/timeUtils";
 
 interface ReplayNewsItem {
   id: number;
@@ -50,17 +58,12 @@ export const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
   // 日時文字列フォーマット
   const formatTime = (msc: number) => {
     if (!msc) return "N/A";
-    const d = new Date(msc);
-    const pad = (n: number) => String(n).padStart(2, "0");
     if (timezoneMode === "JST") {
-      const jst = new Date(msc + 9 * 3600 * 1000);
-      return `${jst.getUTCFullYear()}-${pad(jst.getUTCMonth() + 1)}-${pad(jst.getUTCDate())} ${pad(
-        jst.getUTCHours()
-      )}:${pad(jst.getUTCMinutes())}:${pad(jst.getUTCSeconds())} JST`;
+      return `${formatJstTime(msc)} JST`;
     }
-    return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(
-      d.getUTCHours()
-    )}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())} UTC`;
+    const serverUtcOffset = getServerToUtcOffsetHours(msc);
+    const sign = serverUtcOffset >= 0 ? "+" : "";
+    return `${formatServerTime(msc)} SRV (GMT${sign}${serverUtcOffset})`;
   };
 
   const handleStartAnalysis = async () => {
@@ -86,8 +89,9 @@ export const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
       const rangeMs = rangeHours * 3600 * 1000;
       const targetTimeStr = formatTime(virtualTimeMsc);
       const filteredNews = newsItems.filter(item => {
-        const itemMsc = Date.parse(item.time.replace(/\./g, "/").replace(/-/g, "/"));
-        return Math.abs(itemMsc - virtualTimeMsc) <= rangeMs;
+        const newsServerMsc = parseTimeStrToUtcMs(convertJstStrToServerStr(item.time));
+        if (isNaN(newsServerMsc)) return false;
+        return Math.abs(newsServerMsc - virtualTimeMsc) <= rangeMs;
       });
 
       const newsStr =
@@ -95,7 +99,7 @@ export const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
           ? filteredNews
               .map(
                 n =>
-                  `- [${n.time}] ${n.currency} ${n.event} (重要度:${n.importance}) -> 結果:${n.actual} / 予想:${n.forecast} / 前回:${n.previous}`
+                  `- [${getNewsTimeForDisplay(n.time, timezoneMode)}] ${n.currency} ${n.event} (重要度:${n.importance}) -> 結果:${n.actual} / 予想:${n.forecast} / 前回:${n.previous}`
               )
               .join("\n")
           : "指定時間帯に発表された掲載指標なし";
