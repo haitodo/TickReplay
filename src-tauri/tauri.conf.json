@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' asset: https://*; style-src 'self' 'unsafe-inline';"
+      "csp": "default-src 'self'; connect-src 'self' https://openrouter.ai https://api.gdeltproject.org https://api.stlouisfed.org https://data-api.ecb.europa.eu https://query.wikidata.org https://finnhub.io; img-src 'self' asset: https://*; style-src 'self' 'unsafe-inline';"
     }
   },
   "bundle": {

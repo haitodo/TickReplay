@@ -9,6 +9,8 @@ import { TradeAnalysisWindowContent } from "./TradeAnalysisWindow";
 import { SymbolCombobox, SymbolItem } from "./components/SymbolCombobox";
 import { SymbolTagInput } from "./components/SymbolTagInput";
 import { CustomSymbolImportModal } from "./components/CustomSymbolImportModal";
+import { AIAnalysisPanel } from "./components/AIAnalysisPanel";
+import { useVolatilityDetector } from "./hooks/useVolatilityDetector";
 
 // --- デフォルトのホットキー定義
 const DEFAULT_HOTKEYS: Record<string, string> = {
@@ -714,7 +716,39 @@ function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isResetReplayConfirmOpen, setIsResetReplayConfirmOpen] = useState(false);
   const [isResetTradingConfirmOpen, setIsResetTradingConfirmOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"general" | "hotkeys" | "presets" | "news" | "theme">("general");
+  const [activeTab, setActiveTab] = useState<"general" | "hotkeys" | "presets" | "news" | "theme" | "ai">("general");
+  
+  // AI急変動・トレンド解析用 State
+  const [openRouterApiKey, setOpenRouterApiKey] = useState<string>(() => localStorage.getItem("openrouter-api-key") || "");
+  const [openRouterModel, setOpenRouterModel] = useState<string>(() => localStorage.getItem("openrouter-model") || "google/gemini-2.5-flash");
+  const [fredApiKey, setFredApiKey] = useState<string>(() => localStorage.getItem("fred-api-key") || "");
+  const [finnhubApiKey, setFinnhubApiKey] = useState<string>(() => localStorage.getItem("finnhub-api-key") || "");
+  const [volatilityThresholdPips, setVolatilityThresholdPips] = useState<number>(() => parseInt(localStorage.getItem("volatility-threshold-pips") || "20"));
+  const [volatilityEnabled, setVolatilityEnabled] = useState<boolean>(() => localStorage.getItem("volatility-enabled") !== "false");
+  const [isAIPanelOpen, setIsAIPanelOpen] = useState<boolean>(false);
+  const [aiTargetTimeMsc, setAiTargetTimeMsc] = useState<number>(0);
+  const [currentPrice, setCurrentPrice] = useState<number>(0);
+
+  // AI設定のlocalStorage保存同期
+  useEffect(() => {
+    localStorage.setItem("openrouter-api-key", openRouterApiKey);
+    localStorage.setItem("openrouter-model", openRouterModel);
+    localStorage.setItem("fred-api-key", fredApiKey);
+    localStorage.setItem("finnhub-api-key", finnhubApiKey);
+    localStorage.setItem("volatility-threshold-pips", String(volatilityThresholdPips));
+    localStorage.setItem("volatility-enabled", String(volatilityEnabled));
+  }, [openRouterApiKey, openRouterModel, fredApiKey, finnhubApiKey, volatilityThresholdPips, volatilityEnabled]);
+
+  // ボラティリティ急変動の自動検知フック
+  const { spikeInfo, clearSpike } = useVolatilityDetector(
+    virtualTimeMsc,
+    currentPrice,
+    sourceSymbol,
+    {
+      thresholdPips: volatilityThresholdPips,
+      enabled: volatilityEnabled
+    }
+  );
   const [themeId, setThemeId] = useState<string>(() => {
     return localStorage.getItem("accent-theme") || "cream";
   });
@@ -965,6 +999,8 @@ function App() {
         setTotalTicks((prev) => prev !== data.total_ticks ? data.total_ticks : prev);
         setVirtualTimeMsc((prev) => prev !== data.virtual_time_msc ? data.virtual_time_msc : prev);
         setIsPlaying((prev) => prev !== data.is_playing ? data.is_playing : prev);
+        if (data.bid) setCurrentPrice(data.bid);
+        else if (data.account?.bid) setCurrentPrice(data.account.bid);
         if (isReconnecting) {
           if (data.speed_mode) setSpeedMode((prev) => prev !== data.speed_mode ? (data.speed_mode as "TEMPORAL" | "COUNT") : prev);
           if (data.multiplier !== undefined) {
@@ -3259,6 +3295,31 @@ function App() {
             </span>
           </button>
 
+          {spikeInfo.isSpike && (
+            <button
+              className="spike-alert-badge"
+              onClick={() => {
+                setAiTargetTimeMsc(spikeInfo.spikeTimeMsc);
+                setIsAIPanelOpen(true);
+                clearSpike();
+              }}
+              title="急変動が検出されました。クリックしてAI解析を実行"
+            >
+              ⚡ 急変動 (+{spikeInfo.pipsDelta}p) AI解析
+            </button>
+          )}
+
+          <button
+            className="pro-btn pro-btn-square"
+            onClick={() => {
+              setAiTargetTimeMsc(virtualTimeMsc);
+              setIsAIPanelOpen(true);
+            }}
+            title="急変動・トレンドAI解析"
+          >
+            <span className="material-symbols-outlined text-[16px]" style={{ color: "#3b82f6" }}>auto_awesome</span>
+          </button>
+
           <button
             className="pro-btn pro-btn-square"
             onClick={() => setIsSettingsOpen(true)}
@@ -4521,7 +4582,7 @@ function App() {
                               <th className="news-th" style={{ width: "20px" }}>Imp</th>
                               <th className="news-th">Event</th>
                               <th className="news-th" style={{ width: "100px", textAlign: "right" }}>Value (Act/For/Pre)</th>
-                              <th className="news-th" style={{ width: "30px", textAlign: "center" }}>Jump</th>
+                              <th className="news-th" style={{ width: "60px", textAlign: "center" }}>Action</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -4559,13 +4620,23 @@ function App() {
                                     <span className="val-divider">/</span>
                                     <span className="val-prev" title="Previous">{item.previous}</span>
                                   </td>
-                                  <td className="news-td" style={{ textAlign: "center" }}>
+                                  <td className="news-td" style={{ textAlign: "center", whiteSpace: "nowrap" }}>
                                     <button
                                       className="news-jump-btn"
                                       onClick={() => handleNewsJump(item.time)}
                                       title={`${item.time} に時間ジャンプ`}
                                     >
                                       <span className="material-symbols-outlined text-[14px]">location_searching</span>
+                                    </button>
+                                    <button
+                                      className="news-ai-btn"
+                                      onClick={() => {
+                                        setAiTargetTimeMsc(eventMsc);
+                                        setIsAIPanelOpen(true);
+                                      }}
+                                      title={`${item.event} 時刻の要因をAI解析`}
+                                    >
+                                      <span className="material-symbols-outlined text-[14px]">auto_awesome</span>
                                     </button>
                                   </td>
                                 </tr>
@@ -4650,6 +4721,12 @@ function App() {
                 onClick={() => setActiveTab("theme")}
               >
                 Theme
+              </button>
+              <button
+                className={`modal-tab-btn ${activeTab === "ai" ? "active" : ""}`}
+                onClick={() => setActiveTab("ai")}
+              >
+                AI & Analysis
               </button>
             </div>
 
@@ -5305,6 +5382,101 @@ function App() {
                   </div>
                 </div>
               )}
+
+              {activeTab === "ai" && (
+                <div className="settings-grid">
+                  <div>
+                    <h4 className="settings-section-title">OpenRouter LLM設定</h4>
+                    <div className="form-grid" style={{ gridTemplateColumns: "1fr" }}>
+                      <div className="form-group">
+                        <label className="form-label">OpenRouter API Key</label>
+                        <input
+                          type="password"
+                          className="pro-input"
+                          value={openRouterApiKey}
+                          onChange={(e) => setOpenRouterApiKey(e.target.value)}
+                          placeholder="sk-or-v1-..."
+                        />
+                        <span style={{ fontSize: "10px", color: "var(--on-surface-variant)", marginTop: "2px" }}>
+                          OpenRouterのAPI Key（sk-or-v1-で始まるキー）を入力します。
+                        </span>
+                      </div>
+
+                      <div className="form-group">
+                        <label className="form-label">LLMモデル指定</label>
+                        <CustomSelect
+                          value={openRouterModel}
+                          onChange={(val) => setOpenRouterModel(val)}
+                          options={[
+                            { value: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash (推奨・高速)" },
+                            { value: "anthropic/claude-3.5-sonnet", label: "Claude 3.5 Sonnet (高精度)" },
+                            { value: "openai/gpt-4o-mini", label: "GPT-4o Mini (軽量)" },
+                            { value: "deepseek/deepseek-chat", label: "DeepSeek V3" }
+                          ]}
+                        />
+                        <input
+                          type="text"
+                          className="pro-input"
+                          style={{ marginTop: "6px" }}
+                          value={openRouterModel}
+                          onChange={(e) => setOpenRouterModel(e.target.value)}
+                          placeholder="モデル名を直接入力 (例: google/gemini-2.5-flash)"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 className="settings-section-title">補足データソース (任意)</h4>
+                    <div className="form-grid" style={{ gridTemplateColumns: "1fr" }}>
+                      <div className="form-group">
+                        <label className="form-label">FRED API Key (FRB金利取得)</label>
+                        <input
+                          type="text"
+                          className="pro-input"
+                          value={fredApiKey}
+                          onChange={(e) => setFredApiKey(e.target.value)}
+                          placeholder="FRED API Key (任意)"
+                        />
+                      </div>
+
+                      <div className="form-group">
+                        <label className="form-label">Finnhub API Key (FXニュース用)</label>
+                        <input
+                          type="text"
+                          className="pro-input"
+                          value={finnhubApiKey}
+                          onChange={(e) => setFinnhubApiKey(e.target.value)}
+                          placeholder="Finnhub API Key (任意)"
+                        />
+                      </div>
+                    </div>
+
+                    <h4 className="settings-section-title" style={{ marginTop: "16px" }}>急変動自動検知</h4>
+                    <div className="form-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                      <div className="form-group">
+                        <label className="form-label">検知閾値 (Pips / 5分)</label>
+                        <input
+                          type="number"
+                          className="pro-input"
+                          value={volatilityThresholdPips}
+                          onChange={(e) => setVolatilityThresholdPips(parseInt(e.target.value) || 20)}
+                        />
+                      </div>
+                      <div className="form-group" style={{ display: "flex", alignItems: "center", paddingTop: "20px" }}>
+                        <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "12px" }}>
+                          <input
+                            type="checkbox"
+                            checked={volatilityEnabled}
+                            onChange={(e) => setVolatilityEnabled(e.target.checked)}
+                          />
+                          自動スパイク通知バッジを有効化
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="modal-footer">
@@ -5642,6 +5814,20 @@ function App() {
         onClose={() => setIsCustomImportOpen(false)}
         terminalPath={selectedTerminal}
         onImportComplete={() => loadAvailableSymbols(selectedTerminal)}
+      />
+
+      {/* 急変動・トレンドAI解析スライドインパネル */}
+      <AIAnalysisPanel
+        isOpen={isAIPanelOpen}
+        onClose={() => setIsAIPanelOpen(false)}
+        virtualTimeMsc={aiTargetTimeMsc || virtualTimeMsc}
+        symbol={sourceSymbol}
+        newsItems={newsItems}
+        openRouterApiKey={openRouterApiKey}
+        openRouterModel={openRouterModel}
+        fredApiKey={fredApiKey}
+        finnhubApiKey={finnhubApiKey}
+        timezoneMode={timezoneMode}
       />
     </div>
   );
