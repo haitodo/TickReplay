@@ -895,6 +895,8 @@ void ProcessCommand(string line)
       ArrayFree(m_virtual_positions);
       ArrayFree(m_virtual_history);
       ClearChartTradeObjects();
+      m_trade_json_dirty = true;
+      m_cached_trade_json = "";
       
       m_current_idx = 0;
       m_total_ticks = 0;
@@ -1046,10 +1048,12 @@ void ProcessCommand(string line)
          
          if(m_total_ticks > 0 && m_current_idx > 0 && m_current_idx <= m_total_ticks)
          {
+            m_trade_json_dirty = true;
             EvaluatePositionsByTick(m_all_ticks[m_current_idx - 1]);
          }
          else
          {
+            m_trade_json_dirty = true;
             WriteStatusFile();
          }
       }
@@ -1073,6 +1077,7 @@ void ProcessCommand(string line)
       Print(StringFormat("[Info] RESTORE_ACCOUNT: Balance restored to %.2f, Leverage %.1fx, NextTicket %d", 
          m_account_balance, m_account_leverage, m_next_ticket));
       
+      m_trade_json_dirty = true;
       WriteStatusFile();
    }
    else if(command == "RESTORE_POSITION")
@@ -1107,6 +1112,7 @@ void ProcessCommand(string line)
          m_virtual_positions[size].ticket, type_str, m_virtual_positions[size].volume, m_virtual_positions[size].open_price));
          
       UpdateChartObjects();
+      m_trade_json_dirty = true;
       WriteStatusFile();
    }
    else if(command == "RESTORE_HISTORY")
@@ -1144,6 +1150,7 @@ void ProcessCommand(string line)
       {
          RedrawHistoryObjects();
       }
+      m_trade_json_dirty = true;
       WriteStatusFile();
    }
    else if(command == "PING")
@@ -3519,6 +3526,7 @@ void VirtualOrderOpen(string type_str, double volume, double sl_points, double t
    EvaluatePositionsByTick(tick);
    
    // 即座にステータスを書き出し
+   m_trade_json_dirty = true;
    WriteStatusFile();
 }
 
@@ -3670,6 +3678,7 @@ void VirtualOrderCloseEx(int ticket, double volume, string reason, double closeP
    EvaluatePositionsByTick(dummy);
    
    // 即座にステータス書き出し
+   m_trade_json_dirty = true;
    WriteStatusFile();
 }
 
@@ -3734,6 +3743,7 @@ void VirtualOrderModify(int ticket, double sl_price, double tp_price)
    // チャートの表示線を移動
    UpdateChartObjects();
    // 即座にステータス書き出し
+   m_trade_json_dirty = true;
    WriteStatusFile();
 }
 
@@ -4219,6 +4229,7 @@ void SyncVirtualTradesOnSeek(long target_msc)
       last_tick = m_all_ticks[0];
    }
    EvaluatePositionsByTick(last_tick);
+   m_trade_json_dirty = true;
 }
 
 //+------------------------------------------------------------------+

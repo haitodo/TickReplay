@@ -3912,18 +3912,22 @@ html[data-theme="light"][data-glass-effect="true"] .spread-badge {
 
 .rate-box.sell-box:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--speed-sell-color) 40%, var(--outline));
+  border-left-color: var(--speed-sell-color);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--speed-sell-color) 16%, var(--surface-charcoal)) 0%, color-mix(in srgb, var(--speed-sell-color) 8%, var(--surface-obsidian)) 100%);
   box-shadow:
-    0 0 12px color-mix(in srgb, var(--speed-sell-color) 20%, transparent),
+    0 0 14px color-mix(in srgb, var(--speed-sell-color) 25%, transparent),
     0 4px 12px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 
 .rate-box.buy-box:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--speed-buy-color) 40%, var(--outline));
+  border-left-color: var(--speed-buy-color);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--speed-buy-color) 16%, var(--surface-charcoal)) 0%, color-mix(in srgb, var(--speed-buy-color) 8%, var(--surface-obsidian)) 100%);
   box-shadow:
-    0 0 12px color-mix(in srgb, var(--speed-buy-color) 20%, transparent),
+    0 0 14px color-mix(in srgb, var(--speed-buy-color) 25%, transparent),
     0 4px 12px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 
 html[data-theme="light"] .rate-box:hover:not(:disabled) {
@@ -3936,16 +3940,20 @@ html[data-theme="light"] .rate-box:hover:not(:disabled) {
 
 html[data-theme="light"] .rate-box.sell-box:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--speed-sell-color) 35%, var(--outline)) !important;
+  border-left-color: var(--speed-sell-color) !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--speed-sell-color) 14%, #ffffff) 0%, color-mix(in srgb, var(--speed-sell-color) 7%, #f1f5f9) 100%) !important;
   box-shadow:
-    0 0 12px color-mix(in srgb, var(--speed-sell-color) 15%, transparent),
+    0 0 14px color-mix(in srgb, var(--speed-sell-color) 20%, transparent),
     0 4px 12px rgba(148, 163, 184, 0.15),
     inset 0 1px 0 #ffffff !important;
 }
 
 html[data-theme="light"] .rate-box.buy-box:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--speed-buy-color) 35%, var(--outline)) !important;
+  border-left-color: var(--speed-buy-color) !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--speed-buy-color) 14%, #ffffff) 0%, color-mix(in srgb, var(--speed-buy-color) 7%, #f1f5f9) 100%) !important;
   box-shadow:
-    0 0 12px color-mix(in srgb, var(--speed-buy-color) 15%, transparent),
+    0 0 14px color-mix(in srgb, var(--speed-buy-color) 20%, transparent),
     0 4px 12px rgba(148, 163, 184, 0.15),
     inset 0 1px 0 #ffffff !important;
 }
@@ -5025,16 +5033,22 @@ html[data-glass-effect="true"] .rate-box:hover:not(:disabled) {
 }
 
 html[data-glass-effect="true"] .rate-box.sell-box:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--speed-sell-color) 45%, rgba(255, 255, 255, 0.2)) !important;
+  border-left-color: var(--speed-sell-color) !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--speed-sell-color) 22%, rgba(38, 41, 50, 0.55)) 0%, color-mix(in srgb, var(--speed-sell-color) 12%, rgba(20, 22, 27, 0.55)) 100%) !important;
   box-shadow:
-    0 0 12px color-mix(in srgb, var(--speed-sell-color) 25%, transparent),
-    inset 0 1px 0 rgba(255, 255, 255, 0.15),
+    0 0 14px color-mix(in srgb, var(--speed-sell-color) 28%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
     0 6px 16px rgba(0, 0, 0, 0.4) !important;
 }
 
 html[data-glass-effect="true"] .rate-box.buy-box:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--speed-buy-color) 45%, rgba(255, 255, 255, 0.2)) !important;
+  border-left-color: var(--speed-buy-color) !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--speed-buy-color) 22%, rgba(38, 41, 50, 0.55)) 0%, color-mix(in srgb, var(--speed-buy-color) 12%, rgba(20, 22, 27, 0.55)) 100%) !important;
   box-shadow:
-    0 0 12px color-mix(in srgb, var(--speed-buy-color) 25%, transparent),
-    inset 0 1px 0 rgba(255, 255, 255, 0.15),
+    0 0 14px color-mix(in srgb, var(--speed-buy-color) 28%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
     0 6px 16px rgba(0, 0, 0, 0.4) !important;
 }
 
@@ -5061,17 +5075,23 @@ html[data-theme="light"][data-glass-effect="true"] .rate-box:hover:not(:disabled
 }
 
 html[data-theme="light"][data-glass-effect="true"] .rate-box.sell-box:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--speed-sell-color) 40%, rgba(15, 23, 42, 0.25)) !important;
+  border-left-color: var(--speed-sell-color) !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--speed-sell-color) 16%, rgba(255, 255, 255, 0.85)) 0%, color-mix(in srgb, var(--speed-sell-color) 8%, rgba(241, 245, 249, 0.85)) 100%) !important;
   box-shadow:
-    0 0 12px color-mix(in srgb, var(--speed-sell-color) 18%, transparent),
+    0 0 14px color-mix(in srgb, var(--speed-sell-color) 22%, transparent),
     inset 0 1px 0 #ffffff,
-    0 4px 12px rgba(148, 163, 184, 0.1) !important;
+    0 4px 12px rgba(148, 163, 184, 0.15) !important;
 }
 
 html[data-theme="light"][data-glass-effect="true"] .rate-box.buy-box:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--speed-buy-color) 40%, rgba(15, 23, 42, 0.25)) !important;
+  border-left-color: var(--speed-buy-color) !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--speed-buy-color) 16%, rgba(255, 255, 255, 0.85)) 0%, color-mix(in srgb, var(--speed-buy-color) 8%, rgba(241, 245, 249, 0.85)) 100%) !important;
   box-shadow:
-    0 0 12px color-mix(in srgb, var(--speed-buy-color) 18%, transparent),
+    0 0 14px color-mix(in srgb, var(--speed-buy-color) 22%, transparent),
     inset 0 1px 0 #ffffff,
-    0 4px 12px rgba(148, 163, 184, 0.1) !important;
+    0 4px 12px rgba(148, 163, 184, 0.15) !important;
 }
 
 /* ----------------------------------------------------
