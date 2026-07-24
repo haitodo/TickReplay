@@ -3483,20 +3483,8 @@ function App() {
                       <div style={{ marginTop: "12px" }}>
                         <button
                           type="button"
-                          className="pro-btn"
+                          className="btn-custom-import"
                           onClick={() => setIsCustomImportOpen(true)}
-                          style={{
-                            width: "100%",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            gap: "6px",
-                            backgroundColor: "rgba(168, 199, 250, 0.1)",
-                            color: "var(--tertiary, #a8c7fa)",
-                            border: "1px dashed var(--tertiary, rgba(168, 199, 250, 0.4))",
-                            padding: "8px 12px",
-                            borderRadius: "6px"
-                          }}
                         >
                           <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>database_upload</span>
                           カスタムシンボルのインポート
@@ -3657,7 +3645,7 @@ function App() {
                         )}
                       </div>
 
-                      <div style={{ borderTop: "1px solid rgba(255, 255, 255, 0.05)", paddingTop: "10px", marginTop: "4px" }}>
+                      <div style={{ borderTop: "1px solid var(--outline-variant)", paddingTop: "10px", marginTop: "4px" }}>
                         <div className="form-group">
                           <label className="checkbox-group">
                             <input
@@ -4011,7 +3999,7 @@ function App() {
                                 </div>
                               </div>
 
-                              <div className="session-card-footer" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid rgba(255, 255, 255, 0.05)", paddingTop: "8px", marginTop: "4px" }}>
+                              <div className="session-card-footer" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid var(--outline-variant)", paddingTop: "8px", marginTop: "4px" }}>
                                 {groupList.length > 1 ? (
                                   <button
                                     className="pro-btn"

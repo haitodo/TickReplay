@@ -88,6 +88,7 @@ export const SymbolTagInput: React.FC<SymbolTagInputProps> = ({
         {tags.map((tag, idx) => (
           <span
             key={tag + idx}
+            className="symbol-tag-pill"
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -95,9 +96,9 @@ export const SymbolTagInput: React.FC<SymbolTagInputProps> = ({
               padding: "2px 8px",
               fontSize: "11px",
               fontWeight: 600,
-              backgroundColor: "var(--surface-container-highest, rgba(255,255,255,0.1))",
-              color: "var(--text-main, #e2e2e9)",
-              border: "1px solid var(--outline-variant, #444)",
+              backgroundColor: "var(--surface-container-high, rgba(255,255,255,0.1))",
+              color: "var(--on-surface)",
+              border: "1px solid var(--outline-variant)",
               borderRadius: "4px"
             }}
           >
@@ -111,7 +112,7 @@ export const SymbolTagInput: React.FC<SymbolTagInputProps> = ({
               style={{
                 background: "none",
                 border: "none",
-                color: "var(--text-muted, #888)",
+                color: "var(--on-surface-variant)",
                 cursor: "pointer",
                 padding: 0,
                 display: "flex",
@@ -159,10 +160,10 @@ export const SymbolTagInput: React.FC<SymbolTagInputProps> = ({
             overflowY: "auto",
             margin: "4px 0 0 0",
             padding: "4px 0",
-            backgroundColor: "var(--surface-container-high, #1e1e24)",
-            border: "1px solid var(--outline-variant, #333)",
+            backgroundColor: "var(--surface-container-high)",
+            border: "1px solid var(--outline-variant)",
             borderRadius: "var(--radius-sm, 6px)",
-            boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.2)",
             listStyle: "none"
           }}
         >
@@ -181,7 +182,7 @@ export const SymbolTagInput: React.FC<SymbolTagInputProps> = ({
               className="custom-select-option"
             >
               <span>{sym}</span>
-              <span className="material-symbols-outlined" style={{ fontSize: "14px", color: "var(--text-muted)" }}>add</span>
+              <span className="material-symbols-outlined" style={{ fontSize: "14px", color: "var(--on-surface-variant)" }}>add</span>
             </li>
           ))}
         </ul>

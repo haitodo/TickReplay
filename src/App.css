@@ -32,6 +32,10 @@
   --secondary-rgb: 159, 202, 255;
   --secondary-hover: #83b6f0;
 
+  /* Tertiary Accent */
+  --tertiary: #a8c7fa;
+  --tertiary-rgb: 168, 199, 250;
+
   /* Status Colors */
   --status-danger: #EE3F4D;
   --status-danger-rgb: 238, 63, 77;
@@ -1275,6 +1279,29 @@ html[data-theme="light"][data-order-color-style="red-green"] .type-badge.sell {
 .setup-card .pro-select:focus {
   border-color: var(--primary-color);
   box-shadow: 0 0 6px rgba(var(--primary-rgb), 0.15);
+}
+
+/* Custom Symbol Import Button */
+.btn-custom-import {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background-color: rgba(var(--tertiary-rgb), 0.1);
+  color: var(--tertiary, #a8c7fa);
+  border: 1px dashed var(--tertiary, rgba(168, 199, 250, 0.4));
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.btn-custom-import:hover {
+  background-color: rgba(var(--tertiary-rgb), 0.18);
+  border-color: var(--tertiary, #a8c7fa);
 }
 
 /* Max Bars Status Badges and Note */
@@ -3185,6 +3212,16 @@ html[data-theme="light"] {
 
   --timeline-playhead: #0f172a;
   --timeline-playhead-border: #ffffff;
+
+  --tertiary: #1e66d5;
+  --tertiary-rgb: 30, 102, 213;
+
+  --primary-color: #0d9488;
+  --primary-rgb: 13, 148, 136;
+  --primary-hover: #0f766e;
+  --on-primary: #ffffff;
+  --primary-light: #14b8a6;
+  --primary-border: #0d9488;
 }
 
 /* Light theme overrides for hardcoded gradients and shadows */
@@ -3193,6 +3230,114 @@ html[data-theme="light"] .pro-panel {
   background: #ffffff !important;
   border-color: #cbd5e1 !important;
   box-shadow: 0 4px 20px rgba(15, 23, 42, 0.05), 0 2px 4px rgba(15, 23, 42, 0.02) !important;
+}
+
+/* Setup Replay Environment Light Theme Refinement */
+html[data-theme="light"] .setup-card {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), 0 1px 2px rgba(15, 23, 42, 0.02) !important;
+}
+
+html[data-theme="light"] .setup-card:hover {
+  border-color: rgba(var(--primary-rgb), 0.4) !important;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08) !important;
+  background-color: #ffffff !important;
+}
+
+html[data-theme="light"] .setup-card-header {
+  border-bottom-color: #e2e8f0 !important;
+}
+
+html[data-theme="light"] .setup-card .pro-input,
+html[data-theme="light"] .setup-card .pro-select {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+html[data-theme="light"] .setup-toggle-block {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+html[data-theme="light"] .setup-toggle-block:hover {
+  background-color: #f1f5f9 !important;
+  border-color: rgba(var(--primary-rgb), 0.3) !important;
+}
+
+html[data-theme="light"] .max-bars-warning-note {
+  background-color: rgba(217, 119, 6, 0.08) !important;
+  border-color: rgba(217, 119, 6, 0.25) !important;
+  color: #92400e !important;
+}
+
+html[data-theme="light"] .max-bars-warning-note strong {
+  color: #b45309 !important;
+}
+
+html[data-theme="light"] .max-bars-badge.unlimited {
+  background-color: rgba(22, 163, 74, 0.1) !important;
+  color: #15803d !important;
+  border-color: rgba(22, 163, 74, 0.3) !important;
+}
+
+html[data-theme="light"] .max-bars-badge.limited {
+  background-color: rgba(217, 119, 6, 0.1) !important;
+  color: #b45309 !important;
+  border-color: rgba(217, 119, 6, 0.3) !important;
+}
+
+html[data-theme="light"] .btn-custom-import {
+  background-color: rgba(30, 102, 213, 0.06) !important;
+  color: #1e66d5 !important;
+  border: 1px dashed rgba(30, 102, 213, 0.35) !important;
+}
+
+html[data-theme="light"] .btn-custom-import:hover {
+  background-color: rgba(30, 102, 213, 0.12) !important;
+  border-color: #1e66d5 !important;
+}
+
+html[data-theme="light"] .symbol-tag-pill {
+  background-color: #e2e8f0 !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+html[data-theme="light"] .session-card {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04) !important;
+}
+
+html[data-theme="light"] .session-card-footer {
+  border-top-color: #e2e8f0 !important;
+}
+
+html[data-theme="light"] .no-sessions-fallback {
+  background-color: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  color: #64748b !important;
+}
+
+html[data-theme="light"] .mode-toggle-segmented {
+  background-color: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+}
+
+html[data-theme="light"] .mode-toggle-segmented .pro-btn {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: #64748b !important;
+}
+
+html[data-theme="light"] .mode-toggle-segmented .pro-btn.active-loop {
+  background: #ffffff !important;
+  color: var(--primary-color) !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.1) !important;
+  font-weight: 700 !important;
 }
 
 html[data-theme="light"] .pro-panel-header {

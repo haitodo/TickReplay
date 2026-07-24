@@ -139,15 +139,15 @@ export const SymbolCombobox: React.FC<SymbolComboboxProps> = ({
     if (lowerType === "custom" || lowerGroup === "custom") {
       return {
         label: "Custom",
-        bg: "rgba(168, 199, 250, 0.15)",
-        color: "#a8c7fa",
+        bg: "rgba(var(--tertiary-rgb, 168, 199, 250), 0.15)",
+        color: "var(--tertiary, #a8c7fa)",
       };
     }
     if (lowerType === "default" || lowerGroup === "default") {
       return {
         label: "Default",
-        bg: "rgba(255, 255, 255, 0.08)",
-        color: "#888",
+        bg: "var(--surface-container-high)",
+        color: "var(--on-surface-variant)",
       };
     }
 
@@ -157,8 +157,8 @@ export const SymbolCombobox: React.FC<SymbolComboboxProps> = ({
 
     return {
       label,
-      bg: "rgba(109, 213, 237, 0.15)",
-      color: "#6dd5ed",
+      bg: "rgba(var(--secondary-rgb, 159, 202, 255), 0.15)",
+      color: "var(--secondary-color, #9fcaff)",
     };
   };
 
@@ -207,10 +207,10 @@ export const SymbolCombobox: React.FC<SymbolComboboxProps> = ({
             overflowY: "auto",
             margin: "4px 0 0 0",
             padding: "4px 0",
-            backgroundColor: "var(--surface-container-high, #1e1e24)",
-            border: "1px solid var(--outline-variant, #333)",
+            backgroundColor: "var(--surface-container-high)",
+            border: "1px solid var(--outline-variant)",
             borderRadius: "var(--radius-sm, 6px)",
-            boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.2)",
             listStyle: "none"
           }}
         >
@@ -226,8 +226,8 @@ export const SymbolCombobox: React.FC<SymbolComboboxProps> = ({
                     padding: "4px 10px",
                     fontSize: "11px",
                     fontWeight: "bold",
-                    color: grp.toLowerCase() === "custom" ? "var(--tertiary, #a8c7fa)" : "var(--text-muted, #aaa)",
-                    backgroundColor: "rgba(255,255,255,0.03)",
+                    color: grp.toLowerCase() === "custom" ? "var(--tertiary, #a8c7fa)" : "var(--on-surface-variant)",
+                    backgroundColor: "var(--surface-container-low, rgba(0,0,0,0.05))",
                     marginTop: grpIdx > 0 ? "6px" : 0
                   }}
                 >
@@ -251,8 +251,7 @@ export const SymbolCombobox: React.FC<SymbolComboboxProps> = ({
                         cursor: "pointer",
                         display: "flex",
                         justifyContent: "space-between",
-                        alignItems: "center",
-                        backgroundColor: isHighlighted ? "rgba(255,255,255,0.08)" : isSelected ? "rgba(74, 144, 226, 0.2)" : "transparent"
+                        alignItems: "center"
                       }}
                     >
                       <span style={{ fontWeight: 600 }}>{item.name}</span>
