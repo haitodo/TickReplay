@@ -55,8 +55,7 @@ pub async fn read_trade_ticks(app_handle: AppHandle, ticket: i32) -> Result<Stri
         return Ok("[]".to_string());
     }
     
-    let bytes = tokio::fs::read(&ticks_file).await?;
-    let content = String::from_utf8_lossy(&bytes).into_owned();
+    let content = tokio::fs::read_to_string(&ticks_file).await?;
     
     let _ = tokio::fs::remove_file(ticks_file).await;
     

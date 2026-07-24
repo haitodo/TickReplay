@@ -207,7 +207,6 @@ pub async fn get_existing_symbols_with_info(terminal_path: &str) -> Result<Vec<S
             if name.is_empty() || name.len() > 64 {
                 return false;
             }
-            let lower = name.to_lowercase();
             let system_blacklist = [
                 "cache", "logs", "chats", "mail", "users", "history", "ticks",
                 "default", "custom", "bases", "mql5", "config", "profiles",
@@ -216,7 +215,7 @@ pub async fn get_existing_symbols_with_info(terminal_path: &str) -> Result<Vec<S
                 "symbols", "trades", "options", "books", "gvariables", "objects",
                 "strategy", "alerts"
             ];
-            if system_blacklist.contains(&lower.as_str()) || lower.starts_with("chart") {
+            if system_blacklist.iter().any(|&b| b.eq_ignore_ascii_case(name)) || name.len() >= 5 && name[..5].eq_ignore_ascii_case("chart") {
                 return false;
             }
             name.chars().all(|c| c.is_alphanumeric() || c == '.' || c == '_' || c == '-' || c == '#' || c == '+' || c == '/' || c == '$' || c == '@')
@@ -253,9 +252,8 @@ pub async fn get_existing_symbols_with_info(terminal_path: &str) -> Result<Vec<S
                     let server_dir = entry.path();
                     if server_dir.is_dir() {
                         let server_name = server_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                        let lower_server = server_name.to_lowercase();
                         
-                        if lower_server.is_empty() || lower_server == "cache" || lower_server == "logs" || lower_server.starts_with('.') {
+                        if server_name.is_empty() || server_name.eq_ignore_ascii_case("cache") || server_name.eq_ignore_ascii_case("logs") || server_name.starts_with('.') {
                             continue;
                         }
 
@@ -310,10 +308,10 @@ pub async fn get_existing_symbols_with_info(terminal_path: &str) -> Result<Vec<S
                             if let Ok(content) = fs::read_to_string(&cp) {
                                 for line in content.lines() {
                                     let trimmed = line.trim();
-                                    if trimmed.to_lowercase().starts_with("symbol=") {
+                                    if trimmed.len() >= 7 && trimmed[..7].eq_ignore_ascii_case("symbol=") {
                                         let sym = trimmed[7..].trim();
                                         if is_valid_symbol_name(sym) {
-                                            let is_custom = sym.to_uppercase().ends_with("_CUSTOM") || sym.to_uppercase().contains("REPLAY");
+                                            let is_custom = sym.len() >= 7 && sym[sym.len() - 7..].eq_ignore_ascii_case("_custom") || sym.to_uppercase().contains("REPLAY");
                                             items.insert(SymbolItem {
                                                 name: sym.to_string(),
                                                 source_type: if is_custom { "custom".to_string() } else { "broker".to_string() },

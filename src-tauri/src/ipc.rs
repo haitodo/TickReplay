@@ -153,59 +153,70 @@ async fn process_status_message(
     state: &Arc<ReplayState>,
     connected_notified: &mut bool,
 ) {
-    // フロントエンドへリアルタイム通知（エラーメッセージなどの重複受信時も確実に届くようにする）
-    let _ = app_handle.emit("mt5-status", trimmed);
-
-    {
+    // ステータス差分チェック: 前回と全く同じメッセージの場合は emit やパースをスキップし、
+    // 不要な Tauri IPC 通信・serde パース・React 再レンダリングを回避する
+    let is_changed = {
         let mut last = state.last_status.lock().unwrap();
-        *last = trimmed.to_string();
+        if *last != trimmed {
+            *last = trimmed.to_string();
+            true
+        } else {
+            false
+        }
+    };
+
+    if !is_changed {
+        return;
     }
 
-        // キャッシュされている再生状態などを更新
-        if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) {
-            if let Some(status) = val.get("status").and_then(|s| s.as_str()) {
-                if status == "CONNECTED" && !*connected_notified {
+    // フロントエンドへリアルタイム通知（差分が発生した時のみ送信）
+    let _ = app_handle.emit("mt5-status", trimmed);
+
+    // キャッシュされている再生状態などを更新
+    if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        if let Some(status) = val.get("status").and_then(|s| s.as_str()) {
+            if status == "CONNECTED" && !*connected_notified {
+                let _ = app_handle.emit("mt5-connected", ());
+                *connected_notified = true;
+            } else if status == "DISCONNECTED" {
+                let _ = app_handle.emit("mt5-disconnected", ());
+                *connected_notified = false;
+                if let Some(speed_order) = app_handle.get_webview_window("speed_order") {
+                    let _ = speed_order.close();
+                }
+            } else if status == "ACTIVE" || status == "READY" {
+                if !*connected_notified {
                     let _ = app_handle.emit("mt5-connected", ());
                     *connected_notified = true;
-                } else if status == "DISCONNECTED" {
-                    let _ = app_handle.emit("mt5-disconnected", ());
-                    *connected_notified = false;
-                    if let Some(speed_order) = app_handle.get_webview_window("speed_order") {
-                        let _ = speed_order.close();
+                }
+                
+                // playback Mutexを1度だけロックして一貫性を保ちつつ更新
+                let mut p_guard = state.playback.lock().unwrap();
+                
+                if let Some(playing) = val.get("is_playing").and_then(|p| p.as_bool()) {
+                    p_guard.is_playing = playing;
+                }
+                if let Some(mode_val) = val.get("speed_mode") {
+                    if let Ok(mode) = serde_json::from_value::<crate::state::SpeedMode>(mode_val.clone()) {
+                        p_guard.speed_mode = mode;
                     }
-                } else if status == "ACTIVE" || status == "READY" {
-                    if !*connected_notified {
-                        let _ = app_handle.emit("mt5-connected", ());
-                        *connected_notified = true;
-                    }
-                    
-                    // playback Mutexを1度だけロックして一貫性を保ちつつ更新
-                    let mut p_guard = state.playback.lock().unwrap();
-                    
-                    if let Some(playing) = val.get("is_playing").and_then(|p| p.as_bool()) {
-                        p_guard.is_playing = playing;
-                    }
-                    if let Some(mode_val) = val.get("speed_mode") {
-                        if let Ok(mode) = serde_json::from_value::<crate::state::SpeedMode>(mode_val.clone()) {
-                            p_guard.speed_mode = mode;
-                        }
-                    }
-                    if let Some(mult_val) = val.get("multiplier") {
-                        if let Some(mult) = mult_val.as_f64() {
+                }
+                if let Some(mult_val) = val.get("multiplier") {
+                    if let Some(mult) = mult_val.as_f64() {
+                        p_guard.multiplier = mult;
+                    } else if let Some(mult_str) = mult_val.as_str() {
+                        if let Ok(mult) = mult_str.parse::<f64>() {
                             p_guard.multiplier = mult;
-                        } else if let Some(mult_str) = mult_val.as_str() {
-                            if let Ok(mult) = mult_str.parse::<f64>() {
-                                p_guard.multiplier = mult;
-                            }
                         }
                     }
-                    if let Some(step) = val.get("tick_step").and_then(|t| t.as_i64()) {
-                        p_guard.tick_step = step as i32;
-                    }
+                }
+                if let Some(step) = val.get("tick_step").and_then(|t| t.as_i64()) {
+                    p_guard.tick_step = step as i32;
                 }
             }
         }
     }
+}
 
 // エクスポートされた経済指標データを読み込む (非同期・ロック極小化)
 pub async fn read_replay_news(state: &ReplayState) -> Result<String, AppError> {
@@ -224,7 +235,6 @@ pub async fn read_replay_news(state: &ReplayState) -> Result<String, AppError> {
     }
     
     // I/O実行中はロックを完全に手放すことで、他のタスクをブロックしないようにする
-    let bytes = tokio::fs::read(news_file).await?;
-    let content = String::from_utf8_lossy(&bytes).into_owned();
+    let content = tokio::fs::read_to_string(&news_file).await?;
     Ok(content)
 }

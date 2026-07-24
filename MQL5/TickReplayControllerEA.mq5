@@ -154,9 +154,11 @@ double            m_account_margin = 0.0;        // 使用中の証拠金
 double            m_account_free_margin = 1000000.0; // 余剰証拠金
 double            m_account_margin_level = 0.0;  // 証拠金維持率 (%)
 
-VirtualPosition   m_virtual_positions[];         // 保有ポジション的配列
+VirtualPosition   m_virtual_positions[];         // 保有ポジション配列
 VirtualPosition   m_virtual_history[];           // 決済履歴の動的配列
 bool              m_show_history = false;        // 決済履歴の表示有無
+string            m_cached_trade_json = "";      // 取引情報JSONの高速キャッシュ
+bool              m_trade_json_dirty = true;     // 取引情報JSONの再構築が必要かどうかのフラグ
 
 //--- ミリ秒時間取得用キャリブレーション変数
 long              gl_start_time_msc = 0;        // 起動時のPCローカル時間(ミリ秒)
@@ -4014,6 +4016,7 @@ void ResetAccount(double initial_balance, double leverage)
    ArrayFree(m_virtual_positions);
    ArrayFree(m_virtual_history);
    ClearChartTradeObjects();
+   m_trade_json_dirty = true;
    
    Print(StringFormat("[Info] Virtual Account Reset. Balance: %.2f JPY, Leverage: %.1fx", initial_balance, leverage));
    WriteStatusFile();
@@ -4024,6 +4027,14 @@ void ResetAccount(double initial_balance, double leverage)
 //+------------------------------------------------------------------+
 string SerializePositionsAndHistoryToJson()
 {
+   int pos_size = ArraySize(m_virtual_positions);
+
+   // 保有ポジションが無く取引履歴に変更がない場合は、計算済みのJSON文字列を即座に返却してCPUアロケーションを回避する
+   if(pos_size == 0 && !m_trade_json_dirty && m_cached_trade_json != "")
+   {
+      return m_cached_trade_json;
+   }
+
    string json = "";
    
    // 口座残高
@@ -4032,7 +4043,6 @@ string SerializePositionsAndHistoryToJson()
    
    // 保有ポジション配列のシリアライズ
    json += ",\"positions\":[";
-   int pos_size = ArraySize(m_virtual_positions);
    for(int i = 0; i < pos_size; i++)
    {
       if(i > 0) json += ",";
@@ -4086,6 +4096,12 @@ string SerializePositionsAndHistoryToJson()
       );
    }
    json += "]";
+   
+   if(pos_size == 0)
+   {
+      m_cached_trade_json = json;
+      m_trade_json_dirty = false;
+   }
    
    return json;
 }

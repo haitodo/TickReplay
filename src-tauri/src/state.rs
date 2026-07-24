@@ -45,31 +45,32 @@ pub struct ReplayState {
 
 impl ReplayState {
     pub fn new(command_tx: tokio::sync::mpsc::UnboundedSender<String>) -> Self {
-        let mut default_hotkeys = std::collections::HashMap::new();
-        default_hotkeys.insert("play_pause".to_string(), "Control+Alt+Space".to_string());
-        default_hotkeys.insert("step_forward".to_string(), "Control+Alt+ArrowRight".to_string());
-        default_hotkeys.insert("step_backward".to_string(), "Control+Alt+ArrowLeft".to_string());
-        default_hotkeys.insert("session_jump_next".to_string(), "Control+Alt+Home".to_string());
-        default_hotkeys.insert("session_jump_prev".to_string(), "Control+Alt+End".to_string());
-        default_hotkeys.insert("time_jump_forward".to_string(), "Control+Alt+Shift+PageUp".to_string());
-        default_hotkeys.insert("time_jump_backward".to_string(), "Control+Alt+Shift+PageDown".to_string());
-        default_hotkeys.insert("time_jump_forward_1m".to_string(), "Control+Alt+ArrowUp".to_string());
-        default_hotkeys.insert("time_jump_backward_1m".to_string(), "Control+Alt+ArrowDown".to_string());
-        default_hotkeys.insert("time_jump_forward_10m".to_string(), "Control+Alt+PageUp".to_string());
-        default_hotkeys.insert("time_jump_backward_10m".to_string(), "Control+Alt+PageDown".to_string());
-        default_hotkeys.insert("coarse_speed_up".to_string(), "Control+Alt+BracketRight".to_string());
-        default_hotkeys.insert("coarse_speed_down".to_string(), "Control+Alt+BracketLeft".to_string());
-        default_hotkeys.insert("fine_speed_up".to_string(), "Control+Alt+Equal".to_string());
-        default_hotkeys.insert("fine_speed_down".to_string(), "Control+Alt+Minus".to_string());
-        default_hotkeys.insert("loop_set_a".to_string(), "Control+Alt+KeyA".to_string());
-        default_hotkeys.insert("loop_set_b".to_string(), "Control+Alt+KeyB".to_string());
-        default_hotkeys.insert("loop_clear".to_string(), "Control+Alt+KeyC".to_string());
-        default_hotkeys.insert("reset".to_string(), "Control+Alt+KeyR".to_string());
-        default_hotkeys.insert("order_buy".to_string(), "".to_string());
-        default_hotkeys.insert("order_sell".to_string(), "".to_string());
-        default_hotkeys.insert("order_close_buy".to_string(), "".to_string());
-        default_hotkeys.insert("order_close_sell".to_string(), "".to_string());
-        default_hotkeys.insert("order_close_all".to_string(), "".to_string());
+        let default_hotkeys = std::collections::HashMap::from([
+            ("play_pause".to_string(), "Control+Alt+Space".to_string()),
+            ("step_forward".to_string(), "Control+Alt+ArrowRight".to_string()),
+            ("step_backward".to_string(), "Control+Alt+ArrowLeft".to_string()),
+            ("session_jump_next".to_string(), "Control+Alt+Home".to_string()),
+            ("session_jump_prev".to_string(), "Control+Alt+End".to_string()),
+            ("time_jump_forward".to_string(), "Control+Alt+Shift+PageUp".to_string()),
+            ("time_jump_backward".to_string(), "Control+Alt+Shift+PageDown".to_string()),
+            ("time_jump_forward_1m".to_string(), "Control+Alt+ArrowUp".to_string()),
+            ("time_jump_backward_1m".to_string(), "Control+Alt+ArrowDown".to_string()),
+            ("time_jump_forward_10m".to_string(), "Control+Alt+PageUp".to_string()),
+            ("time_jump_backward_10m".to_string(), "Control+Alt+PageDown".to_string()),
+            ("coarse_speed_up".to_string(), "Control+Alt+BracketRight".to_string()),
+            ("coarse_speed_down".to_string(), "Control+Alt+BracketLeft".to_string()),
+            ("fine_speed_up".to_string(), "Control+Alt+Equal".to_string()),
+            ("fine_speed_down".to_string(), "Control+Alt+Minus".to_string()),
+            ("loop_set_a".to_string(), "Control+Alt+KeyA".to_string()),
+            ("loop_set_b".to_string(), "Control+Alt+KeyB".to_string()),
+            ("loop_clear".to_string(), "Control+Alt+KeyC".to_string()),
+            ("reset".to_string(), "Control+Alt+KeyR".to_string()),
+            ("order_buy".to_string(), "".to_string()),
+            ("order_sell".to_string(), "".to_string()),
+            ("order_close_buy".to_string(), "".to_string()),
+            ("order_close_sell".to_string(), "".to_string()),
+            ("order_close_all".to_string(), "".to_string()),
+        ]);
 
         let default_time_presets = vec![1.0, 5.0, 10.0, 60.0, 300.0, 3600.0];
         let default_tick_presets = vec![1, 5, 10, 50, 100, 500];

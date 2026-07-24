@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
-use std::io::{BufRead, BufReader};
 use std::path::{Path};
 use serde::{Deserialize, Serialize};
 use chrono::NaiveDateTime;
@@ -78,7 +77,7 @@ impl ImportManifest {
             .or_insert_with(HashSet::new)
             .insert(year_month.to_string());
 
-        if !self.custom_symbols.contains(&symbol.to_string()) {
+        if !self.custom_symbols.iter().any(|s| s == symbol) {
             self.custom_symbols.push(symbol.to_string());
         }
     }
@@ -172,42 +171,63 @@ pub fn convert_zip_to_mql_bin(
     let mut csv_file = archive.by_index(0)
         .map_err(|e| AppError::Config(format!("ZIP内のエントリ読込失敗: {}", e)))?;
 
-    let reader = BufReader::new(&mut csv_file);
-    let mut ticks: Vec<MqlTick> = Vec::with_capacity(1_000_000);
+    let mut buffer = Vec::new();
+    std::io::Read::read_to_end(&mut csv_file, &mut buffer)?;
 
-    for line_res in reader.lines() {
-        let line = match line_res {
-            Ok(l) => l,
-            Err(_) => continue,
-        };
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with("DATE") {
+    // 概算ティック容量をあらかじめ予約 (無用な再メモリ拡張を排除)
+    let mut ticks: Vec<MqlTick> = Vec::with_capacity(buffer.len() / 35 + 100);
+
+    for line_bytes in buffer.split(|&b| b == b'\n') {
+        let trimmed = trim_ascii_bytes(line_bytes);
+        if trimmed.is_empty() || trimmed[0] == b'#' || trimmed[0] == b'D' || trimmed[0] == b'd' {
             continue;
         }
 
-        let parts: Vec<&str> = trimmed.split(|c| c == '\t' || c == ',').collect();
-        if parts.len() < 4 {
+        // CSVフィールド分割 (区切り文字: カンマまたはタブ)
+        let mut fields = [ &[][..]; 4 ];
+        let mut field_idx = 0;
+        let mut start = 0;
+        for (i, &b) in trimmed.iter().enumerate() {
+            if b == b',' || b == b'\t' {
+                if field_idx < 4 {
+                    fields[field_idx] = &trimmed[start..i];
+                    field_idx += 1;
+                }
+                start = i + 1;
+            }
+        }
+        if field_idx < 4 && start < trimmed.len() {
+            fields[field_idx] = &trimmed[start..];
+            field_idx += 1;
+        }
+
+        if field_idx < 4 {
             continue;
         }
 
-        let date_str = parts[0].trim();
-        let time_str = parts[1].trim();
-        let bid_str = parts[2].trim();
-        let ask_str = parts[3].trim();
+        let date_bytes = trim_ascii_bytes(fields[0]);
+        let time_bytes = trim_ascii_bytes(fields[1]);
+        let bid_bytes  = trim_ascii_bytes(fields[2]);
+        let ask_bytes  = trim_ascii_bytes(fields[3]);
 
-        let bid: f64 = match bid_str.parse() {
-            Ok(v) => v,
-            Err(_) => continue,
+        let Ok(date_str) = std::str::from_utf8(date_bytes) else { continue; };
+        let Ok(time_str) = std::str::from_utf8(time_bytes) else { continue; };
+        let Ok(bid_str)  = std::str::from_utf8(bid_bytes) else { continue; };
+        let Ok(ask_str)  = std::str::from_utf8(ask_bytes) else { continue; };
+
+        let Ok(bid) = bid_str.parse::<f64>() else { continue; };
+        let Ok(ask) = ask_str.parse::<f64>() else { continue; };
+
+        let time_msc = match fast_parse_datetime_msc(date_str, time_str) {
+            Some(msc) => msc,
+            None => {
+                let dt_full_str = format!("{} {}", date_str.replace('.', "-"), time_str);
+                match parse_datetime_msc(&dt_full_str) {
+                    Ok(msc) => msc,
+                    Err(_) => continue,
+                }
+            }
         };
-        let ask: f64 = match ask_str.parse() {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-
-        let date_clean = date_str.replace('.', "-");
-        let dt_full_str = format!("{} {}", date_clean, time_str);
-
-        let time_msc = parse_datetime_msc(&dt_full_str)?;
         let time_sec = time_msc / 1000;
 
         ticks.push(MqlTick {
@@ -239,6 +259,82 @@ pub fn convert_zip_to_mql_bin(
     fs::write(output_bin_path, byte_slice)?;
 
     Ok(tick_count)
+}
+
+#[inline]
+fn trim_ascii_bytes(mut b: &[u8]) -> &[u8] {
+    while let Some((&first, rest)) = b.split_first() {
+        if first == b' ' || first == b'\r' || first == b'\t' || first == b'\n' {
+            b = rest;
+        } else {
+            break;
+        }
+    }
+    while let Some((&last, rest)) = b.split_last() {
+        if last == b' ' || last == b'\r' || last == b'\t' || last == b'\n' {
+            b = rest;
+        } else {
+            break;
+        }
+    }
+    b
+}
+
+#[inline]
+fn parse_digits(b: &[u8]) -> Option<i64> {
+    let mut val: i64 = 0;
+    if b.is_empty() { return None; }
+    for &c in b {
+        if c >= b'0' && c <= b'9' {
+            val = val * 10 + (c - b'0') as i64;
+        } else {
+            return None;
+        }
+    }
+    Some(val)
+}
+
+#[inline]
+fn fast_parse_datetime_msc(date_str: &str, time_str: &str) -> Option<i64> {
+    let d_bytes = date_str.as_bytes();
+    let t_bytes = time_str.as_bytes();
+
+    if d_bytes.len() < 10 || t_bytes.len() < 5 {
+        return None;
+    }
+
+    let year = parse_digits(&d_bytes[0..4])? as i32;
+    let month = parse_digits(&d_bytes[5..7])? as u32;
+    let day = parse_digits(&d_bytes[8..10])? as u32;
+
+    let hour = parse_digits(&t_bytes[0..2])? as u32;
+    let min = parse_digits(&t_bytes[3..5])? as u32;
+
+    let (sec, millis) = if t_bytes.len() >= 8 && t_bytes[5] == b':' {
+        let sec = parse_digits(&t_bytes[6..8])? as u32;
+        let millis = if t_bytes.len() > 9 && t_bytes[8] == b'.' {
+            let sub = &t_bytes[9..];
+            if sub.len() == 1 {
+                parse_digits(&sub[..1])? * 100
+            } else if sub.len() == 2 {
+                parse_digits(&sub[..2])? * 10
+            } else if sub.len() >= 3 {
+                parse_digits(&sub[..3])?
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+        (sec, millis)
+    } else {
+        (0, 0)
+    };
+
+    let naive_date = chrono::NaiveDate::from_ymd_opt(year, month, day)?;
+    let naive_dt = naive_date.and_hms_opt(hour, min, sec)?;
+    let secs = naive_dt.and_utc().timestamp();
+    Some(secs * 1000 + millis)
 }
 
 fn parse_datetime_msc(dt_str: &str) -> Result<i64, AppError> {
@@ -285,6 +381,11 @@ mod tests {
     fn test_parse_datetime_msc() {
         let msc = parse_datetime_msc("2025-01-01 12:30:45.123").unwrap();
         assert_eq!(msc % 1000, 123);
+        let fast_msc = fast_parse_datetime_msc("2025-01-01", "12:30:45.123").unwrap();
+        assert_eq!(msc, fast_msc);
+
+        let fast_msc2 = fast_parse_datetime_msc("2025.01.01", "12:30:45.123").unwrap();
+        assert_eq!(msc, fast_msc2);
     }
 }
 
