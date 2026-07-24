@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { getTrueUtcMs, formatUtcMsToDateTimeStr } from "../utils/timeUtils";
+import { fetchWithCorsFallback } from "../utils/fetchHelper";
 
 export interface GdeltArticle {
   title: string;
@@ -137,7 +138,7 @@ export function useDataSources() {
             keywords
           )}&mode=ArtList&maxrecords=12&format=json&startdatetime=${startStr}&enddatetime=${endStr}`;
 
-          const res = await fetch(url);
+          const res = await fetchWithCorsFallback(url, {}, 15000);
           if (res.ok) {
             const data = await res.json();
             if (data && Array.isArray(data.articles)) {
@@ -165,7 +166,7 @@ export function useDataSources() {
           const endDate = formatUtcMsToDateTimeStr(trueUtcMsc).substring(0, 10);
           const url = `https://api.stlouisfed.org/fred/series/observations?series_id=FEDFUNDS&observation_start=${startDate}&observation_end=${endDate}&api_key=${options.fredApiKey}&file_type=json`;
 
-          const res = await fetch(url);
+          const res = await fetchWithCorsFallback(url);
           if (res.ok) {
             const data = await res.json();
             if (data && Array.isArray(data.observations)) {

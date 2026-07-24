@@ -20,6 +20,14 @@ import {
   convertJstStrToServerStr,
   getNewsTimeForDisplay
 } from "./utils/timeUtils";
+import {
+  testOpenRouterKey,
+  testFredKey,
+  testFinnhubKey,
+  testGdeltApi,
+  ApiTestResult
+} from "./utils/apiKeyTester";
+
 
 // --- デフォルトのホットキー定義
 const DEFAULT_HOTKEYS: Record<string, string> = {
@@ -683,6 +691,59 @@ function App() {
     localStorage.setItem("volatility-threshold-pips", String(volatilityThresholdPips));
     localStorage.setItem("volatility-enabled", String(volatilityEnabled));
   }, [openRouterApiKey, openRouterModel, fredApiKey, finnhubApiKey, volatilityThresholdPips, volatilityEnabled]);
+
+  // API Key 接続テスト用 State
+  const [openRouterTestResult, setOpenRouterTestResult] = useState<ApiTestResult>({ success: false, status: "idle", message: "" });
+  const [fredTestResult, setFredTestResult] = useState<ApiTestResult>({ success: false, status: "idle", message: "" });
+  const [finnhubTestResult, setFinnhubTestResult] = useState<ApiTestResult>({ success: false, status: "idle", message: "" });
+  const [gdeltTestResult, setGdeltTestResult] = useState<ApiTestResult>({ success: false, status: "idle", message: "" });
+  const [isTestingAllApis, setIsTestingAllApis] = useState<boolean>(false);
+
+  const handleTestOpenRouter = async () => {
+    setOpenRouterTestResult({ success: false, status: "testing", message: "接続確認中..." });
+    const result = await testOpenRouterKey(openRouterApiKey, openRouterModel);
+    setOpenRouterTestResult(result);
+  };
+
+  const handleTestFred = async () => {
+    setFredTestResult({ success: false, status: "testing", message: "接続確認中..." });
+    const result = await testFredKey(fredApiKey);
+    setFredTestResult(result);
+  };
+
+  const handleTestFinnhub = async () => {
+    setFinnhubTestResult({ success: false, status: "testing", message: "接続確認中..." });
+    const result = await testFinnhubKey(finnhubApiKey);
+    setFinnhubTestResult(result);
+  };
+
+  const handleTestGdelt = async () => {
+    setGdeltTestResult({ success: false, status: "testing", message: "接続確認中..." });
+    const result = await testGdeltApi();
+    setGdeltTestResult(result);
+  };
+
+  const handleTestAllApis = async () => {
+    setIsTestingAllApis(true);
+    setOpenRouterTestResult({ success: false, status: "testing", message: "接続確認中..." });
+    setFredTestResult({ success: false, status: "testing", message: "接続確認中..." });
+    setFinnhubTestResult({ success: false, status: "testing", message: "接続確認中..." });
+    setGdeltTestResult({ success: false, status: "testing", message: "接続確認中..." });
+
+    const [openRouterRes, fredRes, finnhubRes, gdeltRes] = await Promise.all([
+      testOpenRouterKey(openRouterApiKey, openRouterModel),
+      testFredKey(fredApiKey),
+      testFinnhubKey(finnhubApiKey),
+      testGdeltApi()
+    ]);
+
+    setOpenRouterTestResult(openRouterRes);
+    setFredTestResult(fredRes);
+    setFinnhubTestResult(finnhubRes);
+    setGdeltTestResult(gdeltRes);
+    setIsTestingAllApis(false);
+  };
+
 
   // ボラティリティ急変動の自動検知フック
   const { spikeInfo, clearSpike } = useVolatilityDetector(
@@ -5303,94 +5364,231 @@ function App() {
               )}
 
               {activeTab === "ai" && (
-                <div className="settings-grid">
-                  <div>
-                    <h4 className="settings-section-title">OpenRouter LLM設定</h4>
-                    <div className="form-grid" style={{ gridTemplateColumns: "1fr" }}>
-                      <div className="form-group">
-                        <label className="form-label">OpenRouter API Key</label>
-                        <input
-                          type="password"
-                          className="pro-input"
-                          value={openRouterApiKey}
-                          onChange={(e) => setOpenRouterApiKey(e.target.value)}
-                          placeholder="sk-or-v1-..."
-                        />
-                        <span style={{ fontSize: "10px", color: "var(--on-surface-variant)", marginTop: "2px" }}>
-                          OpenRouterのAPI Key（sk-or-v1-で始まるキー）を入力します。
-                        </span>
+                <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                  <div className="api-test-header-bar">
+                    <div>
+                      <div style={{ fontSize: "12px", fontWeight: "600", color: "var(--on-surface)" }}>
+                        APIキー動作確認・接続テスト
                       </div>
-
-                      <div className="form-group">
-                        <label className="form-label">LLMモデル指定</label>
-                        <CustomSelect
-                          value={openRouterModel}
-                          onChange={(val) => setOpenRouterModel(val)}
-                          options={[
-                            { value: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash (推奨・高速)" },
-                            { value: "anthropic/claude-3.5-sonnet", label: "Claude 3.5 Sonnet (高精度)" },
-                            { value: "openai/gpt-4o-mini", label: "GPT-4o Mini (軽量)" },
-                            { value: "deepseek/deepseek-chat", label: "DeepSeek V3" }
-                          ]}
-                        />
-                        <input
-                          type="text"
-                          className="pro-input"
-                          style={{ marginTop: "6px" }}
-                          value={openRouterModel}
-                          onChange={(e) => setOpenRouterModel(e.target.value)}
-                          placeholder="モデル名を直接入力 (例: google/gemini-2.5-flash)"
-                        />
+                      <div style={{ fontSize: "10px", color: "var(--on-surface-variant)", marginTop: "2px" }}>
+                        設定された各種APIキーが正常に疎通・機能しているかテストできます。
                       </div>
                     </div>
+                    <button
+                      type="button"
+                      className="pro-btn primary"
+                      style={{ height: "30px", fontSize: "11px", gap: "6px" }}
+                      onClick={handleTestAllApis}
+                      disabled={isTestingAllApis}
+                    >
+                      <span className={`material-symbols-outlined text-[14px] ${isTestingAllApis ? "api-spin-icon" : ""}`}>
+                        {isTestingAllApis ? "sync" : "checklist"}
+                      </span>
+                      {isTestingAllApis ? "一括テスト中..." : "すべてのAPIキーを一括テスト"}
+                    </button>
                   </div>
 
-                  <div>
-                    <h4 className="settings-section-title">補足データソース (任意)</h4>
-                    <div className="form-grid" style={{ gridTemplateColumns: "1fr" }}>
-                      <div className="form-group">
-                        <label className="form-label">FRED API Key (FRB金利取得)</label>
-                        <input
-                          type="text"
-                          className="pro-input"
-                          value={fredApiKey}
-                          onChange={(e) => setFredApiKey(e.target.value)}
-                          placeholder="FRED API Key (任意)"
-                        />
-                      </div>
+                  <div className="settings-grid">
+                    <div>
+                      <h4 className="settings-section-title">OpenRouter LLM設定</h4>
+                      <div className="form-grid" style={{ gridTemplateColumns: "1fr" }}>
+                        <div className="form-group">
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                            <label className="form-label" style={{ marginBottom: 0 }}>OpenRouter API Key</label>
+                            <button
+                              type="button"
+                              className="pro-btn"
+                              style={{ height: "24px", padding: "0 8px", fontSize: "10px", gap: "4px" }}
+                              onClick={handleTestOpenRouter}
+                              disabled={openRouterTestResult.status === "testing" || isTestingAllApis}
+                            >
+                              <span className={`material-symbols-outlined text-[12px] ${openRouterTestResult.status === "testing" ? "api-spin-icon" : ""}`}>
+                                {openRouterTestResult.status === "testing" ? "sync" : "bolt"}
+                              </span>
+                              動作確認
+                            </button>
+                          </div>
+                          <input
+                            type="password"
+                            className="pro-input"
+                            value={openRouterApiKey}
+                            onChange={(e) => setOpenRouterApiKey(e.target.value)}
+                            placeholder="sk-or-v1-..."
+                          />
+                          <span style={{ fontSize: "10px", color: "var(--on-surface-variant)", marginTop: "2px" }}>
+                            OpenRouterのAPI Key（sk-or-v1-で始まるキー）を入力します。
+                          </span>
+                          {openRouterTestResult.status !== "idle" && (
+                            <div className={`api-test-result ${openRouterTestResult.status}`}>
+                              <div style={{ display: "flex", alignItems: "center", gap: "6px", flex: 1 }}>
+                                <span className="material-symbols-outlined text-[14px]">
+                                  {openRouterTestResult.status === "testing" ? "sync" : openRouterTestResult.success ? "check_circle" : "error"}
+                                </span>
+                                <span>{openRouterTestResult.message}</span>
+                              </div>
+                              {openRouterTestResult.latency !== undefined && (
+                                <span className="api-test-latency">{openRouterTestResult.latency}ms</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
 
-                      <div className="form-group">
-                        <label className="form-label">Finnhub API Key (FXニュース用)</label>
-                        <input
-                          type="text"
-                          className="pro-input"
-                          value={finnhubApiKey}
-                          onChange={(e) => setFinnhubApiKey(e.target.value)}
-                          placeholder="Finnhub API Key (任意)"
-                        />
+                        <div className="form-group">
+                          <label className="form-label">LLMモデル指定</label>
+                          <CustomSelect
+                            value={openRouterModel}
+                            onChange={(val) => setOpenRouterModel(val)}
+                            options={[
+                              { value: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash (推奨・高速)" },
+                              { value: "anthropic/claude-3.5-sonnet", label: "Claude 3.5 Sonnet (高精度)" },
+                              { value: "openai/gpt-4o-mini", label: "GPT-4o Mini (軽量)" },
+                              { value: "deepseek/deepseek-chat", label: "DeepSeek V3" }
+                            ]}
+                          />
+                          <input
+                            type="text"
+                            className="pro-input"
+                            style={{ marginTop: "6px" }}
+                            value={openRouterModel}
+                            onChange={(e) => setOpenRouterModel(e.target.value)}
+                            placeholder="モデル名を直接入力 (例: google/gemini-2.5-flash)"
+                          />
+                        </div>
                       </div>
                     </div>
 
-                    <h4 className="settings-section-title" style={{ marginTop: "16px" }}>急変動自動検知</h4>
-                    <div className="form-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-                      <div className="form-group">
-                        <label className="form-label">検知閾値 (Pips / 5分)</label>
-                        <input
-                          type="number"
-                          className="pro-input"
-                          value={volatilityThresholdPips}
-                          onChange={(e) => setVolatilityThresholdPips(parseInt(e.target.value) || 20)}
-                        />
-                      </div>
-                      <div className="form-group" style={{ display: "flex", alignItems: "center", paddingTop: "20px" }}>
-                        <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "12px" }}>
+                    <div>
+                      <h4 className="settings-section-title">補足データソース (任意)</h4>
+                      <div className="form-grid" style={{ gridTemplateColumns: "1fr" }}>
+                        <div className="form-group">
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                            <label className="form-label" style={{ marginBottom: 0 }}>FRED API Key (FRB金利取得)</label>
+                            <button
+                              type="button"
+                              className="pro-btn"
+                              style={{ height: "24px", padding: "0 8px", fontSize: "10px", gap: "4px" }}
+                              onClick={handleTestFred}
+                              disabled={fredTestResult.status === "testing" || isTestingAllApis}
+                            >
+                              <span className={`material-symbols-outlined text-[12px] ${fredTestResult.status === "testing" ? "api-spin-icon" : ""}`}>
+                                {fredTestResult.status === "testing" ? "sync" : "bolt"}
+                              </span>
+                              動作確認
+                            </button>
+                          </div>
                           <input
-                            type="checkbox"
-                            checked={volatilityEnabled}
-                            onChange={(e) => setVolatilityEnabled(e.target.checked)}
+                            type="text"
+                            className="pro-input"
+                            value={fredApiKey}
+                            onChange={(e) => setFredApiKey(e.target.value)}
+                            placeholder="FRED API Key (任意)"
                           />
-                          自動スパイク通知バッジを有効化
-                        </label>
+                          {fredTestResult.status !== "idle" && (
+                            <div className={`api-test-result ${fredTestResult.status}`}>
+                              <div style={{ display: "flex", alignItems: "center", gap: "6px", flex: 1 }}>
+                                <span className="material-symbols-outlined text-[14px]">
+                                  {fredTestResult.status === "testing" ? "sync" : fredTestResult.success ? "check_circle" : "error"}
+                                </span>
+                                <span>{fredTestResult.message}</span>
+                              </div>
+                              {fredTestResult.latency !== undefined && (
+                                <span className="api-test-latency">{fredTestResult.latency}ms</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="form-group">
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                            <label className="form-label" style={{ marginBottom: 0 }}>Finnhub API Key (FXニュース用)</label>
+                            <button
+                              type="button"
+                              className="pro-btn"
+                              style={{ height: "24px", padding: "0 8px", fontSize: "10px", gap: "4px" }}
+                              onClick={handleTestFinnhub}
+                              disabled={finnhubTestResult.status === "testing" || isTestingAllApis}
+                            >
+                              <span className={`material-symbols-outlined text-[12px] ${finnhubTestResult.status === "testing" ? "api-spin-icon" : ""}`}>
+                                {finnhubTestResult.status === "testing" ? "sync" : "bolt"}
+                              </span>
+                              動作確認
+                            </button>
+                          </div>
+                          <input
+                            type="text"
+                            className="pro-input"
+                            value={finnhubApiKey}
+                            onChange={(e) => setFinnhubApiKey(e.target.value)}
+                            placeholder="Finnhub API Key (任意)"
+                          />
+                          {finnhubTestResult.status !== "idle" && (
+                            <div className={`api-test-result ${finnhubTestResult.status}`}>
+                              <div style={{ display: "flex", alignItems: "center", gap: "6px", flex: 1 }}>
+                                <span className="material-symbols-outlined text-[14px]">
+                                  {finnhubTestResult.status === "testing" ? "sync" : finnhubTestResult.success ? "check_circle" : "error"}
+                                </span>
+                                <span>{finnhubTestResult.message}</span>
+                              </div>
+                              {finnhubTestResult.latency !== undefined && (
+                                <span className="api-test-latency">{finnhubTestResult.latency}ms</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="form-group" style={{ marginTop: "4px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <label className="form-label" style={{ marginBottom: 0 }}>GDELT ニュース API (キー不要)</label>
+                            <button
+                              type="button"
+                              className="pro-btn"
+                              style={{ height: "24px", padding: "0 8px", fontSize: "10px", gap: "4px" }}
+                              onClick={handleTestGdelt}
+                              disabled={gdeltTestResult.status === "testing" || isTestingAllApis}
+                            >
+                              <span className={`material-symbols-outlined text-[12px] ${gdeltTestResult.status === "testing" ? "api-spin-icon" : ""}`}>
+                                {gdeltTestResult.status === "testing" ? "sync" : "bolt"}
+                              </span>
+                              動作確認
+                            </button>
+                          </div>
+                          {gdeltTestResult.status !== "idle" && (
+                            <div className={`api-test-result ${gdeltTestResult.status}`}>
+                              <div style={{ display: "flex", alignItems: "center", gap: "6px", flex: 1 }}>
+                                <span className="material-symbols-outlined text-[14px]">
+                                  {gdeltTestResult.status === "testing" ? "sync" : gdeltTestResult.success ? "check_circle" : "error"}
+                                </span>
+                                <span>{gdeltTestResult.message}</span>
+                              </div>
+                              {gdeltTestResult.latency !== undefined && (
+                                <span className="api-test-latency">{gdeltTestResult.latency}ms</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <h4 className="settings-section-title" style={{ marginTop: "16px" }}>急変動自動検知</h4>
+                      <div className="form-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                        <div className="form-group">
+                          <label className="form-label">検知閾値 (Pips / 5分)</label>
+                          <input
+                            type="number"
+                            className="pro-input"
+                            value={volatilityThresholdPips}
+                            onChange={(e) => setVolatilityThresholdPips(parseInt(e.target.value) || 20)}
+                          />
+                        </div>
+                        <div className="form-group" style={{ display: "flex", alignItems: "center", paddingTop: "20px" }}>
+                          <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "12px" }}>
+                            <input
+                              type="checkbox"
+                              checked={volatilityEnabled}
+                              onChange={(e) => setVolatilityEnabled(e.target.checked)}
+                            />
+                            自動スパイク通知バッジを有効化
+                          </label>
+                        </div>
                       </div>
                     </div>
                   </div>
