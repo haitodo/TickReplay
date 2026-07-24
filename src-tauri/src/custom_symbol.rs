@@ -8,7 +8,7 @@ use crate::error::AppError;
 
 /// MQL5 の MqlTick 構造体と同等のメモリレイアウト (パック60バイト)
 #[repr(C, packed)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct MqlTick {
     pub time: i64,        // 8 bytes: Unixタイムスタンプ (秒)
     pub bid: f64,         // 8 bytes: Bid価格
@@ -234,12 +234,7 @@ pub fn convert_zip_to_mql_bin(
     }
 
     let tick_count = ticks.len();
-    let byte_slice: &[u8] = unsafe {
-        std::slice::from_raw_parts(
-            ticks.as_ptr() as *const u8,
-            ticks.len() * std::mem::size_of::<MqlTick>(),
-        )
-    };
+    let byte_slice: &[u8] = bytemuck::cast_slice(&ticks);
 
     fs::write(output_bin_path, byte_slice)?;
 
@@ -267,3 +262,29 @@ fn parse_datetime_msc(dt_str: &str) -> Result<i64, AppError> {
     let secs = naive_dt.and_utc().timestamp();
     Ok(secs * 1000 + millis)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mql_tick_size_and_alignment() {
+        assert_eq!(std::mem::size_of::<MqlTick>(), 60);
+    }
+
+    #[test]
+    fn test_parse_zip_filename() {
+        let res = parse_zip_filename("ticks_EURJPY-oj5k_2025-01.zip");
+        assert_eq!(res, Some(("EURJPY".to_string(), "2025-01".to_string())));
+
+        let res_invalid = parse_zip_filename("invalid_filename.zip");
+        assert_eq!(res_invalid, None);
+    }
+
+    #[test]
+    fn test_parse_datetime_msc() {
+        let msc = parse_datetime_msc("2025-01-01 12:30:45.123").unwrap();
+        assert_eq!(msc % 1000, 123);
+    }
+}
+

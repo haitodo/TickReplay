@@ -185,8 +185,10 @@ async fn process_status_message(
                     if let Some(playing) = val.get("is_playing").and_then(|p| p.as_bool()) {
                         p_guard.is_playing = playing;
                     }
-                    if let Some(mode) = val.get("speed_mode").and_then(|m| m.as_str()) {
-                        p_guard.speed_mode = mode.to_string();
+                    if let Some(mode_val) = val.get("speed_mode") {
+                        if let Ok(mode) = serde_json::from_value::<crate::state::SpeedMode>(mode_val.clone()) {
+                            p_guard.speed_mode = mode;
+                        }
                     }
                     if let Some(mult_val) = val.get("multiplier") {
                         if let Some(mult) = mult_val.as_f64() {

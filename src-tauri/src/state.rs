@@ -1,13 +1,27 @@
 use std::path::PathBuf;
 use std::sync::{Mutex, RwLock};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum SpeedMode {
+    Temporal,
+    Tick,
+}
+
+impl Default for SpeedMode {
+    fn default() -> Self {
+        Self::Temporal
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PlaybackState {
     pub is_playing: bool,
-    pub speed_mode: String,
+    pub speed_mode: SpeedMode,
     pub multiplier: f64,
     pub tick_step: i32,
 }
+
 
 #[derive(Debug, Clone)]
 pub struct SettingsState {
@@ -64,7 +78,7 @@ impl ReplayState {
             files_path: Mutex::new(None),
             playback: Mutex::new(PlaybackState {
                 is_playing: false,
-                speed_mode: "TEMPORAL".to_string(),
+                speed_mode: SpeedMode::Temporal,
                 multiplier: 1.0,
                 tick_step: 1,
             }),
