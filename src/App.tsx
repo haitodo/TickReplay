@@ -6856,6 +6856,14 @@ const SpeedOrderWindowContent: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const prevStatusRef = useRef<string>("DISCONNECTED");
   const [errorMessage, setErrorMessage] = useState<string>("");
+  const [errorDisplayDuration, setErrorDisplayDuration] = useState<number>(() => {
+    const saved = localStorage.getItem("speed-order-error-display-duration");
+    if (saved !== null) {
+      const parsed = parseFloat(saved);
+      if (!isNaN(parsed) && parsed >= 0) return Math.round(parsed * 10) / 10;
+    }
+    return 3.0;
+  });
   // const [isVisible, setIsVisible] = useState<boolean>(false);
   const isVisibleRef = useRef<boolean>(false);
 
@@ -6909,15 +6917,19 @@ const SpeedOrderWindowContent: React.FC = () => {
     localStorage.setItem("speed-order-holding-time-mode", holdingTimeMode);
   }, [holdingTimeMode]);
 
-  // エラー表示の自動消去（3秒後）
   useEffect(() => {
-    if (errorMessage) {
+    localStorage.setItem("speed-order-error-display-duration", String(errorDisplayDuration));
+  }, [errorDisplayDuration]);
+
+  // エラー表示の自動消去
+  useEffect(() => {
+    if (errorMessage && errorDisplayDuration > 0) {
       const timer = setTimeout(() => {
         setErrorMessage("");
-      }, 3000);
+      }, Math.round(errorDisplayDuration * 1000));
       return () => clearTimeout(timer);
     }
-  }, [errorMessage]);
+  }, [errorMessage, errorDisplayDuration]);
 
   // ウィンドウの表示・非表示イベントのリッスン
   useEffect(() => {
@@ -6966,6 +6978,11 @@ const SpeedOrderWindowContent: React.FC = () => {
         setShowHoldingTime(e.newValue !== "false");
       } else if (e.key === "speed-order-holding-time-mode" && e.newValue) {
         setHoldingTimeMode(e.newValue as "pc" | "server");
+      } else if (e.key === "speed-order-error-display-duration" && e.newValue) {
+        const parsed = parseFloat(e.newValue);
+        if (!isNaN(parsed) && parsed >= 0) {
+          setErrorDisplayDuration(Math.round(parsed * 10) / 10);
+        }
       } else if (e.key === "speed-order-hotkeys" && e.newValue) {
         try {
           setHotkeys(JSON.parse(e.newValue));
@@ -7950,6 +7967,46 @@ const SpeedOrderWindowContent: React.FC = () => {
                   </div>
                 </div>
               )}
+
+              <div className="speed-settings-row">
+                <div className="speed-settings-label">
+                  <span className="label-text">エラー表示時間</span>
+                  <span className="label-desc">エラー表示の保持時間（0で自動消去なし）</span>
+                </div>
+                <div className="speed-settings-control">
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", width: "100%" }}>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="60"
+                      className="speed-input"
+                      style={{
+                        flex: 1,
+                        textAlign: "right",
+                        padding: "4px 8px",
+                        fontSize: "11px",
+                        height: "26px",
+                        boxSizing: "border-box"
+                      }}
+                      value={errorDisplayDuration}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value);
+                        const safeVal = isNaN(val) ? 0 : Math.max(0, Math.round(val * 10) / 10);
+                        setErrorDisplayDuration(safeVal);
+                        localStorage.setItem("speed-order-error-display-duration", String(safeVal));
+                        window.dispatchEvent(new StorageEvent("storage", {
+                          key: "speed-order-error-display-duration",
+                          newValue: String(safeVal)
+                        }));
+                      }}
+                    />
+                    <span style={{ fontSize: "11px", color: "var(--on-surface-variant)", whiteSpace: "nowrap" }}>
+                      秒
+                    </span>
+                  </div>
+                </div>
+              </div>
 
               <div className="speed-settings-row">
                 <div className="speed-settings-label">
