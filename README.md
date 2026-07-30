@@ -76,12 +76,12 @@ npm run tauri build
 ```
 ビルドが成功すると、以下のパスに出力ファイルが生成されます：
 
-* **インストーラーファイル (.msi)**:
-  `src-tauri/target/release/bundle/msi/tauri-app_0.1.0_x64_en-US.msi` (または設定された製品名・言語の msi)
-* **ポータブル実行ファイル (.exe)**:
-  `src-tauri/target/release/tauri-app.exe`
+* **インストーラーファイル (.exe)**:
+  `src-tauri/target/release/bundle/nsis/TickReplay_0.1.0_x64-setup.exe`
+* **実行ファイル (.exe)**:
+  `src-tauri/target/release/TickReplay.exe`
 
-配布する際は、`.msi` または `.exe` をそのまま配布して利用できます。
+配布する際は、生成された `.exe` インストーラーをそのまま配布して利用できます。
 
 ---
 
