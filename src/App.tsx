@@ -6822,9 +6822,17 @@ const SpeedOrderWindowContent: React.FC = () => {
     const saved = localStorage.getItem("speed-order-sl-points");
     return saved ? Math.max(0, parseInt(saved, 10)) : 0;
   });
+  const [slEnabled, setSlEnabled] = useState<boolean>(() => {
+    const saved = localStorage.getItem("speed-order-sl-enabled");
+    return saved !== "false";
+  });
   const [tpPoints, setTpPoints] = useState<number>(() => {
     const saved = localStorage.getItem("speed-order-tp-points");
     return saved ? Math.max(0, parseInt(saved, 10)) : 0;
+  });
+  const [tpEnabled, setTpEnabled] = useState<boolean>(() => {
+    const saved = localStorage.getItem("speed-order-tp-enabled");
+    return saved !== "false";
   });
   const [account, setAccount] = useState<any>(null);
   const [positions, setPositions] = useState<any[]>([]);
@@ -6866,8 +6874,16 @@ const SpeedOrderWindowContent: React.FC = () => {
   }, [slPoints]);
 
   useEffect(() => {
+    localStorage.setItem("speed-order-sl-enabled", String(slEnabled));
+  }, [slEnabled]);
+
+  useEffect(() => {
     localStorage.setItem("speed-order-tp-points", String(tpPoints));
   }, [tpPoints]);
+
+  useEffect(() => {
+    localStorage.setItem("speed-order-tp-enabled", String(tpEnabled));
+  }, [tpEnabled]);
 
   useEffect(() => {
     localStorage.setItem("speed-order-show-holding-time", String(showHoldingTime));
@@ -7316,8 +7332,8 @@ const SpeedOrderWindowContent: React.FC = () => {
       command: "ORDER_OPEN",
       type,
       volume: lots,
-      sl_points: slPoints,
-      tp_points: tpPoints
+      sl_points: slEnabled ? slPoints : 0,
+      tp_points: tpEnabled ? tpPoints : 0
     });
   };
 
@@ -7438,7 +7454,7 @@ const SpeedOrderWindowContent: React.FC = () => {
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, [lots, status, totalBuyLots, totalSellLots, positions, slPoints, tpPoints]);
+  }, [lots, status, totalBuyLots, totalSellLots, positions, slPoints, tpPoints, slEnabled, tpEnabled]);
 
   return (
     <div className="speed-order-window" data-color-style={orderColorStyle} style={{ position: "relative" }}>
@@ -7746,7 +7762,17 @@ const SpeedOrderWindowContent: React.FC = () => {
 
         <div className="speed-sl-tp-row">
           <div className="speed-input-group">
-            <label className="speed-label">SL (Points)</label>
+            <div className="speed-input-header">
+              <label className="speed-label" style={{ opacity: slEnabled ? 1 : 0.5 }}>SL (Points)</label>
+              <label className="speed-switch" title={slEnabled ? "SL有効" : "SL無効"}>
+                <input
+                  type="checkbox"
+                  checked={slEnabled}
+                  onChange={(e) => setSlEnabled(e.target.checked)}
+                />
+                <span className="speed-switch-slider"></span>
+              </label>
+            </div>
             <input
               type="number"
               step="10"
@@ -7754,11 +7780,23 @@ const SpeedOrderWindowContent: React.FC = () => {
               className="speed-input"
               value={slPoints}
               onChange={(e) => setSlPoints(Math.max(0, parseInt(e.target.value) || 0))}
-              placeholder="0 (None)"
+              disabled={!slEnabled}
+              style={{ opacity: slEnabled ? 1 : 0.45 }}
+              placeholder={slEnabled ? "0 (None)" : "OFF"}
             />
           </div>
           <div className="speed-input-group">
-            <label className="speed-label">TP (Points)</label>
+            <div className="speed-input-header">
+              <label className="speed-label" style={{ opacity: tpEnabled ? 1 : 0.5 }}>TP (Points)</label>
+              <label className="speed-switch" title={tpEnabled ? "TP有効" : "TP無効"}>
+                <input
+                  type="checkbox"
+                  checked={tpEnabled}
+                  onChange={(e) => setTpEnabled(e.target.checked)}
+                />
+                <span className="speed-switch-slider"></span>
+              </label>
+            </div>
             <input
               type="number"
               step="10"
@@ -7766,7 +7804,9 @@ const SpeedOrderWindowContent: React.FC = () => {
               className="speed-input"
               value={tpPoints}
               onChange={(e) => setTpPoints(Math.max(0, parseInt(e.target.value) || 0))}
-              placeholder="0 (None)"
+              disabled={!tpEnabled}
+              style={{ opacity: tpEnabled ? 1 : 0.45 }}
+              placeholder={tpEnabled ? "0 (None)" : "OFF"}
             />
           </div>
         </div>

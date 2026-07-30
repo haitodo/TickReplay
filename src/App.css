@@ -4251,6 +4251,12 @@ html[data-theme="light"] .rate-box.buy-box:hover:not(:disabled) {
   flex: 1;
 }
 
+.speed-input-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
 .speed-label {
   font-size: 9px;
   color: var(--on-surface-variant);
