@@ -6834,6 +6834,14 @@ const SpeedOrderWindowContent: React.FC = () => {
     const saved = localStorage.getItem("speed-order-tp-enabled");
     return saved !== "false";
   });
+  const [maxSpreadPips, setMaxSpreadPips] = useState<number>(() => {
+    const saved = localStorage.getItem("speed-order-max-spread-pips");
+    return saved !== null ? Math.max(0, parseFloat(saved) || 0) : 2.0;
+  });
+  const [maxSpreadEnabled, setMaxSpreadEnabled] = useState<boolean>(() => {
+    const saved = localStorage.getItem("speed-order-max-spread-enabled");
+    return saved === "true";
+  });
   const [account, setAccount] = useState<any>(null);
   const [positions, setPositions] = useState<any[]>([]);
   const [showHoldingTime, setShowHoldingTime] = useState<boolean>(() => {
@@ -6884,6 +6892,14 @@ const SpeedOrderWindowContent: React.FC = () => {
   useEffect(() => {
     localStorage.setItem("speed-order-tp-enabled", String(tpEnabled));
   }, [tpEnabled]);
+
+  useEffect(() => {
+    localStorage.setItem("speed-order-max-spread-pips", String(maxSpreadPips));
+  }, [maxSpreadPips]);
+
+  useEffect(() => {
+    localStorage.setItem("speed-order-max-spread-enabled", String(maxSpreadEnabled));
+  }, [maxSpreadEnabled]);
 
   useEffect(() => {
     localStorage.setItem("speed-order-show-holding-time", String(showHoldingTime));
@@ -7328,6 +7344,15 @@ const SpeedOrderWindowContent: React.FC = () => {
   };
 
   const handleOrderOpen = (type: "BUY" | "SELL") => {
+    if (maxSpreadEnabled && maxSpreadPips > 0) {
+      const currentPipMultiplier = isJpy ? 100 : 10000;
+      const currentSpreadPips = (ask > 0 && bid > 0) ? (ask - bid) * currentPipMultiplier : 0;
+      if (currentSpreadPips > maxSpreadPips + 0.00001) {
+        setErrorMessage(`スプレッド制限オーバー: 現在 ${currentSpreadPips.toFixed(1)} pips > 許容 ${maxSpreadPips.toFixed(1)} pips`);
+        return;
+      }
+    }
+
     sendCommand({
       command: "ORDER_OPEN",
       type,
@@ -7454,7 +7479,7 @@ const SpeedOrderWindowContent: React.FC = () => {
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, [lots, status, totalBuyLots, totalSellLots, positions, slPoints, tpPoints, slEnabled, tpEnabled]);
+  }, [lots, status, totalBuyLots, totalSellLots, positions, slPoints, tpPoints, slEnabled, tpEnabled, maxSpreadPips, maxSpreadEnabled, ask, bid, isJpy]);
 
   return (
     <div className="speed-order-window" data-color-style={orderColorStyle} style={{ position: "relative" }}>
@@ -7761,6 +7786,30 @@ const SpeedOrderWindowContent: React.FC = () => {
         </div>
 
         <div className="speed-sl-tp-row">
+          <div className="speed-input-group">
+            <div className="speed-input-header">
+              <label className="speed-label" style={{ opacity: maxSpreadEnabled ? 1 : 0.5 }}>Spread (Pips)</label>
+              <label className="speed-switch" title={maxSpreadEnabled ? "許容スプレッド有効" : "許容スプレッド無効"}>
+                <input
+                  type="checkbox"
+                  checked={maxSpreadEnabled}
+                  onChange={(e) => setMaxSpreadEnabled(e.target.checked)}
+                />
+                <span className="speed-switch-slider"></span>
+              </label>
+            </div>
+            <input
+              type="number"
+              step="0.1"
+              min="0"
+              className="speed-input"
+              value={maxSpreadPips}
+              onChange={(e) => setMaxSpreadPips(Math.max(0, parseFloat(e.target.value) || 0))}
+              disabled={!maxSpreadEnabled}
+              style={{ opacity: maxSpreadEnabled ? 1 : 0.45 }}
+              placeholder={maxSpreadEnabled ? "0.0" : "OFF"}
+            />
+          </div>
           <div className="speed-input-group">
             <div className="speed-input-header">
               <label className="speed-label" style={{ opacity: slEnabled ? 1 : 0.5 }}>SL (Points)</label>
