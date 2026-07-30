@@ -4296,7 +4296,10 @@ html[data-theme="light"] .rate-box.buy-box:hover:not(:disabled) {
 
 .quick-lot-btn {
   flex: 1;
+  min-width: 0;
   height: 28px;
+  padding: 0 2px;
+  white-space: nowrap;
   background-color: var(--surface-container-high);
   border: 1px solid var(--outline-variant);
   border-radius: var(--radius-sm);
@@ -6108,5 +6111,16 @@ html[data-theme="light"] .holding-time-val {
 @keyframes apiSpin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* スピンボタン（UP/DOWN矢印）非表示用クラス */
+input[type="number"].no-spinner::-webkit-outer-spin-button,
+input[type="number"].no-spinner::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"].no-spinner {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
 

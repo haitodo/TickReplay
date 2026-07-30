@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -6864,6 +6864,26 @@ const SpeedOrderWindowContent: React.FC = () => {
     }
     return 3.0;
   });
+
+  const [quickLots, setQuickLots] = useState<number[]>(() => {
+    const saved = localStorage.getItem("speed-order-quick-lots");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length >= 1) {
+          const valid = parsed
+            .map((v: any) => parseFloat(v))
+            .filter((v: number) => !isNaN(v) && v > 0);
+          if (valid.length >= 1) {
+            return valid.slice(0, 5).sort((a, b) => a - b);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to parse initial speed-order-quick-lots", e);
+      }
+    }
+    return [1, 10, 100];
+  });
   // const [isVisible, setIsVisible] = useState<boolean>(false);
   const isVisibleRef = useRef<boolean>(false);
 
@@ -6920,6 +6940,23 @@ const SpeedOrderWindowContent: React.FC = () => {
   useEffect(() => {
     localStorage.setItem("speed-order-error-display-duration", String(errorDisplayDuration));
   }, [errorDisplayDuration]);
+
+  useEffect(() => {
+    localStorage.setItem("speed-order-quick-lots", JSON.stringify(quickLots));
+  }, [quickLots]);
+
+  const sortedQuickLots = useMemo(() => {
+    const valid = quickLots.filter(v => v > 0).sort((a, b) => a - b);
+    return valid.length > 0 ? valid : [1];
+  }, [quickLots]);
+
+  const lotsGroupWidth = useMemo(() => {
+    const count = sortedQuickLots.length;
+    if (count >= 5) return "72px";
+    if (count === 4) return "82px";
+    if (count === 3) return "95px";
+    return "110px";
+  }, [sortedQuickLots.length]);
 
   // エラー表示の自動消去
   useEffect(() => {
@@ -6988,6 +7025,20 @@ const SpeedOrderWindowContent: React.FC = () => {
           setHotkeys(JSON.parse(e.newValue));
         } catch (err) {
           console.error("Failed to parse hotkeys from storage event", err);
+        }
+      } else if (e.key === "speed-order-quick-lots" && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (Array.isArray(parsed) && parsed.length >= 1) {
+            const valid = parsed
+              .map((v: any) => parseFloat(v))
+              .filter((v: number) => !isNaN(v) && v > 0);
+            if (valid.length >= 1) {
+              setQuickLots(valid.slice(0, 5).sort((a, b) => a - b));
+            }
+          }
+        } catch (err) {
+          console.error("Failed to parse quick lots from storage event", err);
         }
       }
     };
@@ -7713,14 +7764,14 @@ const SpeedOrderWindowContent: React.FC = () => {
       {/* 注文入力パラメータフォーム */}
       <div className="speed-inputs-container">
         <div className="speed-input-row">
-          <div className="speed-input-group" style={{ flex: "0 0 135px" }}>
-            <div style={{ display: "flex", alignItems: "baseline", gap: "4px", marginBottom: "4px" }}>
-              <label className="speed-label" style={{ marginBottom: 0 }}>Lots</label>
+          <div className="speed-input-group" style={{ flex: `0 0 ${lotsGroupWidth}`, transition: "flex-basis 0.2s ease" }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: "2px", marginBottom: "4px", overflow: "hidden" }}>
+              <label className="speed-label" style={{ marginBottom: 0, flexShrink: 0 }}>Lots</label>
               {account && (
                 <span
                   className="speed-max-lots-badge"
                   onClick={() => setLots(maxLots)}
-                  title="クリックして最大可能枚数をセット"
+                  title={`クリックして最大可能枚数をセット (発注可能: ${maxLots})`}
                   style={{
                     fontSize: "8.5px",
                     color: "var(--on-surface)",
@@ -7729,6 +7780,9 @@ const SpeedOrderWindowContent: React.FC = () => {
                     transition: "opacity 0.25s ease",
                     fontFamily: "var(--font-ui)",
                     fontWeight: 600,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis"
                   }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.opacity = "1";
@@ -7739,7 +7793,7 @@ const SpeedOrderWindowContent: React.FC = () => {
                     e.currentTarget.style.textDecoration = "none";
                   }}
                 >
-                  (発注可能: {maxLots})
+                  ({maxLots})
                 </span>
               )}
             </div>
@@ -7765,40 +7819,27 @@ const SpeedOrderWindowContent: React.FC = () => {
             <button
               className="quick-lot-btn clear-btn"
               onClick={() => setLots(0)}
+              title="クリア"
             >
               C
             </button>
-            {contractSize === 100000 ? (
-              [0.01, 0.1, 1.0, 10.0].map(v => (
-                <button
-                  key={v}
-                  className="quick-lot-btn"
-                  onClick={() => setLots(prev => Math.round((prev + v) * 100) / 100)}
-                >
-                  +{v}
-                </button>
-              ))
-            ) : contractSize === 10000 ? (
-              [1, 10, 100].map(v => (
-                <button
-                  key={v}
-                  className="quick-lot-btn"
-                  onClick={() => setLots(prev => Math.floor(prev + v))}
-                >
-                  +{v}
-                </button>
-              ))
-            ) : (
-              [1, 10, 100, 1000].map(v => (
-                <button
-                  key={v}
-                  className="quick-lot-btn"
-                  onClick={() => setLots(prev => Math.floor(prev + v))}
-                >
-                  +{v}
-                </button>
-              ))
-            )}
+            {sortedQuickLots.map((v, idx) => (
+              <button
+                key={`${v}-${idx}`}
+                className="quick-lot-btn"
+                onClick={() =>
+                  setLots((prev) => {
+                    const nextVal = prev + v;
+                    if (contractSize === 100000 || v % 1 !== 0) {
+                      return Math.round(nextVal * 100) / 100;
+                    }
+                    return Math.floor(nextVal);
+                  })
+                }
+              >
+                +{v}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -8027,6 +8068,111 @@ const SpeedOrderWindowContent: React.FC = () => {
                     />
                     <span className="speed-switch-slider"></span>
                   </label>
+                </div>
+              </div>
+
+              <div className="speed-settings-row" style={{ alignItems: "flex-start", paddingTop: "8px", paddingBottom: "8px" }}>
+                <div className="speed-settings-label">
+                  <span className="label-text">LOT加算ボタン</span>
+                  <span className="label-desc">1〜5個の加算プリセット（自動昇順）</span>
+                </div>
+                <div className="speed-settings-control" style={{ minWidth: "150px", maxWidth: "150px" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px", width: "100%", alignItems: "flex-end" }}>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", justifyContent: "flex-end" }}>
+                      {quickLots.map((val, idx) => (
+                        <div key={idx} style={{ display: "flex", alignItems: "center", position: "relative" }}>
+                          <input
+                            type="number"
+                            step="any"
+                            min="0.01"
+                            className="speed-input font-data no-spinner"
+                            style={{
+                              width: "44px",
+                              height: "22px",
+                              padding: "2px 2px",
+                              fontSize: "10px",
+                              textAlign: "center",
+                              boxSizing: "border-box"
+                            }}
+                            value={val === 0 ? "" : val}
+                            onChange={(e) => {
+                              const num = parseFloat(e.target.value);
+                              const nextLots = [...quickLots];
+                              nextLots[idx] = isNaN(num) ? 0 : Math.max(0, num);
+                              setQuickLots(nextLots);
+                            }}
+                            onBlur={() => {
+                              const valid = quickLots
+                                .map((v) => (v <= 0 || isNaN(v) ? 1 : v))
+                                .sort((a, b) => a - b);
+                              setQuickLots(valid);
+                            }}
+                          />
+                          {quickLots.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const updated = quickLots.filter((_, i) => i !== idx);
+                                const sorted = updated.length > 0 ? updated.sort((a, b) => a - b) : [1];
+                                setQuickLots(sorted);
+                              }}
+                              style={{
+                                position: "absolute",
+                                top: "-4px",
+                                right: "-4px",
+                                width: "12px",
+                                height: "12px",
+                                borderRadius: "50%",
+                                backgroundColor: "var(--error-color, #ef4444)",
+                                color: "#ffffff",
+                                border: "none",
+                                fontSize: "9px",
+                                fontWeight: "bold",
+                                lineHeight: "1",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                cursor: "pointer",
+                                padding: 0,
+                                boxShadow: "0 1px 2px rgba(0,0,0,0.3)"
+                              }}
+                              title="削除"
+                            >
+                              ×
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    {quickLots.length < 5 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (quickLots.length >= 5) return;
+                          const validCurrent = quickLots.filter((v) => v > 0);
+                          const maxVal = validCurrent.length > 0 ? Math.max(...validCurrent) : 1;
+                          const nextVal = maxVal >= 100 ? maxVal + 100 : maxVal >= 10 ? maxVal + 10 : maxVal * 10 || 1;
+                          const updated = [...quickLots, nextVal].sort((a, b) => a - b);
+                          setQuickLots(updated);
+                        }}
+                        style={{
+                          padding: "2px 8px",
+                          fontSize: "10px",
+                          height: "20px",
+                          background: "var(--surface-container-highest, rgba(255, 255, 255, 0.08))",
+                          border: "1px solid var(--outline-variant)",
+                          borderRadius: "var(--radius-sm)",
+                          color: "var(--on-surface)",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "2px"
+                        }}
+                      >
+                        + 追加
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
 
