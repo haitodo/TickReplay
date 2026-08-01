@@ -71,6 +71,13 @@ impl BinaryCommandPacket {
                     }
                 }
 
+                if let Some(skip) = v.get("auto_skip_weekend").and_then(|b| b.as_bool()) {
+                    flags |= 0x10; // HAS_AUTO_SKIP
+                    if skip {
+                        flags |= 0x20; // AUTO_SKIP_TRUE
+                    }
+                }
+
                 Some(Self {
                     magic: TRBI_MAGIC,
                     cmd_type: 2,

@@ -519,6 +519,10 @@ void ProcessBinaryCommand(const BinaryCommandPacket &packet)
          {
             m_speed_mode = ((packet.flags & 0x04) != 0) ? REPLAY_MODE_COUNT : REPLAY_MODE_TEMPORAL;
          }
+         if((packet.flags & 0x10) != 0)
+         {
+            m_auto_skip_weekend = ((packet.flags & 0x20) != 0);
+         }
          break;
       case 3: // PLAY
          m_is_playing = true;
