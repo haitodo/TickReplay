@@ -99,7 +99,7 @@ pub fn run() {
                     tauri::WebviewUrl::App("index.html?window=speed_order".into()),
                 )
                 .title("Speed Order")
-                .inner_size(320.0, 480.0)
+                .inner_size(320.0, 438.0)
                 .resizable(false)
                 .always_on_top(true)
                 .visible(false);

@@ -3891,14 +3891,12 @@ html[data-theme="light"] .theme-picker-card.active .theme-color-circle {
   width: 100vw;
   height: 100vh;
   box-sizing: border-box;
-  padding: 11px 12px;
-  /* 上下の余白を微調整 */
+  padding: 10px 12px;
   background-color: var(--bg-color);
   color: var(--on-surface);
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  /* 要素間の隙間を10pxに微調整 */
+  gap: 8px;
   overflow: hidden;
   transition: background-color 0.25s ease, color 0.25s ease;
 

@@ -48,12 +48,32 @@ pub fn set_remote_mode(is_remote: bool, always_on_top: bool, window: tauri::Wind
 
 #[tauri::command]
 pub async fn open_speed_order_window(app_handle: AppHandle) -> Result<(), AppError> {
+    let target_inner_w = 320.0;
+    let target_inner_h = 438.0;
+
     if let Some(window) = app_handle.get_webview_window("speed_order") {
+        let scale_factor = window.scale_factor().unwrap_or(1.0);
+        let (dec_w, dec_h) = match (window.outer_size(), window.inner_size()) {
+            (Ok(outer), Ok(inner)) => {
+                let dw = (outer.width.saturating_sub(inner.width)) as f64 / scale_factor;
+                let dh = (outer.height.saturating_sub(inner.height)) as f64 / scale_factor;
+                if dw >= 0.0 && dw <= 50.0 && dh >= 0.0 && dh <= 100.0 {
+                    (dw, dh)
+                } else {
+                    (16.0, 39.0)
+                }
+            }
+            _ => (16.0, 39.0),
+        };
+
+        let outer_w = target_inner_w + dec_w;
+        let outer_h = target_inner_h + dec_h;
+
         if let Some(main_win) = app_handle.get_webview_window("main") {
             if let (Ok(main_pos), Ok(main_size)) = (main_win.outer_position(), main_win.outer_size()) {
-                let scale_factor = main_win.scale_factor().unwrap_or(1.0);
-                let speed_w_phys = (320.0 * scale_factor) as i32;
-                let speed_h_phys = (480.0 * scale_factor) as i32;
+                let main_scale = main_win.scale_factor().unwrap_or(1.0);
+                let speed_w_phys = (outer_w * main_scale) as i32;
+                let speed_h_phys = (outer_h * main_scale) as i32;
 
                 let target_x = main_pos.x + (main_size.width as i32 - speed_w_phys) / 2;
                 let target_y = main_pos.y + (main_size.height as i32 - speed_h_phys) / 2;
@@ -70,8 +90,8 @@ pub async fn open_speed_order_window(app_handle: AppHandle) -> Result<(), AppErr
         }
 
         let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
-            width: 320.0,
-            height: 480.0,
+            width: outer_w,
+            height: outer_h,
         }));
 
         window.show()?;
@@ -85,7 +105,7 @@ pub async fn open_speed_order_window(app_handle: AppHandle) -> Result<(), AppErr
             tauri::WebviewUrl::App("index.html?window=speed_order".into()),
         )
         .title("Speed Order")
-        .inner_size(320.0, 480.0)
+        .inner_size(target_inner_w, target_inner_h)
         .resizable(false)
         .always_on_top(true)
         .visible(false);
@@ -96,11 +116,28 @@ pub async fn open_speed_order_window(app_handle: AppHandle) -> Result<(), AppErr
 
         let window = win_builder.build()?;
 
+        let scale_factor = window.scale_factor().unwrap_or(1.0);
+        let (dec_w, dec_h) = match (window.outer_size(), window.inner_size()) {
+            (Ok(outer), Ok(inner)) => {
+                let dw = (outer.width.saturating_sub(inner.width)) as f64 / scale_factor;
+                let dh = (outer.height.saturating_sub(inner.height)) as f64 / scale_factor;
+                if dw >= 0.0 && dw <= 50.0 && dh >= 0.0 && dh <= 100.0 {
+                    (dw, dh)
+                } else {
+                    (16.0, 39.0)
+                }
+            }
+            _ => (16.0, 39.0),
+        };
+
+        let outer_w = target_inner_w + dec_w;
+        let outer_h = target_inner_h + dec_h;
+
         if let Some(main_win) = app_handle.get_webview_window("main") {
             if let (Ok(main_pos), Ok(main_size)) = (main_win.outer_position(), main_win.outer_size()) {
-                let scale_factor = main_win.scale_factor().unwrap_or(1.0);
-                let speed_w_phys = (320.0 * scale_factor) as i32;
-                let speed_h_phys = (480.0 * scale_factor) as i32;
+                let main_scale = main_win.scale_factor().unwrap_or(1.0);
+                let speed_w_phys = (outer_w * main_scale) as i32;
+                let speed_h_phys = (outer_h * main_scale) as i32;
 
                 let target_x = main_pos.x + (main_size.width as i32 - speed_w_phys) / 2;
                 let target_y = main_pos.y + (main_size.height as i32 - speed_h_phys) / 2;
@@ -117,8 +154,8 @@ pub async fn open_speed_order_window(app_handle: AppHandle) -> Result<(), AppErr
         }
 
         window.set_size(tauri::Size::Logical(tauri::LogicalSize {
-            width: 320.0,
-            height: 480.0,
+            width: outer_w,
+            height: outer_h,
         }))?;
 
         window.show()?;
