@@ -347,8 +347,8 @@ function App() {
   } = useTheme();
   const [recordingAction, setRecordingAction] = useState<string | null>(null);
   const [hotkeys, setHotkeys] = useState<Record<string, string>>(DEFAULT_HOTKEYS);
-  const [timePresets, setTimePresets] = useState<number[]>([1.0, 5.0, 10.0, 60.0, 300.0, 3600.0]);
-  const [tickPresets, setTickPresets] = useState<number[]>([1, 5, 10, 50, 100, 500]);
+  const [timePresets, setTimePresets] = useState<number[]>([0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0]);
+  const [tickPresets, setTickPresets] = useState<number[]>([1, 2, 5, 10, 30, 60]);
   const [newTimePreset, setNewTimePreset] = useState<string>("");
   const [newTickPreset, setNewTickPreset] = useState<string>("");
 

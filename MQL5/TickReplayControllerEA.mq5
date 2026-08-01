@@ -357,12 +357,13 @@ void OnTimer()
          //--- 【モードA: 時間比率モード】
          if(m_speed_mode == REPLAY_MODE_TEMPORAL)
          {
-             // 仮想時刻が次配信予定のティック時刻より遅れている場合、即座に同期補正
-             if(m_current_idx < m_total_ticks && m_virtual_current_msc < (long)m_all_ticks[m_current_idx].time_msc)
+             // 仮想時刻が未設定(0)の場合のみ初期化
+             if(m_virtual_current_msc <= 0 && m_current_idx < m_total_ticks)
              {
                 m_virtual_current_msc = (long)m_all_ticks[m_current_idx].time_msc;
              }
              
+             // 実経過ミリ秒に再生倍率を掛けた正確な時間を加算
              m_virtual_current_msc += (long)(real_elapsed_msc * m_time_multiplier);
             
             // 自動スキップが有効で、次のティックまでの空白が1時間（3,600,000ms）以上ある場合
@@ -385,15 +386,22 @@ void OnTimer()
                end_idx++;
             }
          }
-         //--- 【モードB: ティック枚数モード】
+         //--- 【モードB: ティック枚数モード（実時間レート制御: m_tick_step_count Ticks / sec）】
          else if(m_speed_mode == REPLAY_MODE_COUNT)
          {
-            end_idx = start_idx + m_tick_step_count;
-            if(end_idx > m_total_ticks) end_idx = m_total_ticks;
-            
-            if(end_idx > start_idx)
+            static double tick_accumulator = 0.0;
+            tick_accumulator += (real_elapsed_msc / 1000.0) * (double)m_tick_step_count;
+            int advance_count = (int)tick_accumulator;
+            if(advance_count > 0)
             {
-               m_virtual_current_msc = m_all_ticks[end_idx - 1].time_msc;
+               tick_accumulator -= advance_count;
+               end_idx = start_idx + advance_count;
+               if(end_idx > m_total_ticks) end_idx = m_total_ticks;
+               
+               if(end_idx > start_idx)
+               {
+                  m_virtual_current_msc = m_all_ticks[end_idx - 1].time_msc;
+               }
             }
          }
 
@@ -1802,7 +1810,11 @@ int GenerateTicksFromRates(string symbol, const MqlRates &rates[], MqlTick &out_
    int rates_count = ArraySize(rates);
    if(rates_count <= 0) return 0;
    
-   ArrayResize(out_ticks, rates_count * 4);
+   int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+   if(digits <= 0) digits = 5;
+   
+   // 1バーあたり最大30ティック程度生成
+   ArrayResize(out_ticks, rates_count * 30);
    int tick_idx = 0;
    
    double point_val = SymbolInfoDouble(symbol, SYMBOL_POINT);
@@ -1814,67 +1826,45 @@ int GenerateTicksFromRates(string symbol, const MqlRates &rates[], MqlTick &out_
       long base_msc = (long)r.time * 1000;
       double spread_val = (r.spread > 0) ? (r.spread * point_val) : (20.0 * point_val);
       
-      // 1. Open
-      out_ticks[tick_idx].time = r.time;
-      out_ticks[tick_idx].time_msc = base_msc;
-      out_ticks[tick_idx].bid = r.open;
-      out_ticks[tick_idx].ask = r.open + spread_val;
-      out_ticks[tick_idx].last = 0;
-      out_ticks[tick_idx].volume = 1;
-      out_ticks[tick_idx].flags = 6;
-      tick_idx++;
+      int ticks_in_bar = (int)MathMax(12, MathMin((int)r.tick_volume, 30));
       
-      // 2 & 3. Low/High 順序（陽線ならLow->High, 陰線ならHigh->Low）
-      if(r.close >= r.open)
+      // 4つの主要価格ポイント (Open -> Low/High -> High/Low -> Close)
+      double p0 = r.open;
+      double p1 = (r.close >= r.open) ? r.low  : r.high;
+      double p2 = (r.close >= r.open) ? r.high : r.low;
+      double p3 = r.close;
+      
+      for(int k = 0; k < ticks_in_bar; k++)
       {
-         out_ticks[tick_idx].time = r.time;
-         out_ticks[tick_idx].time_msc = base_msc + 15000;
-         out_ticks[tick_idx].bid = r.low;
-         out_ticks[tick_idx].ask = r.low + spread_val;
-         out_ticks[tick_idx].last = 0;
-         out_ticks[tick_idx].volume = 1;
-         out_ticks[tick_idx].flags = 6;
-         tick_idx++;
+         double ratio = (ticks_in_bar > 1) ? ((double)k / (double)(ticks_in_bar - 1)) : 0.0;
+         long offset_msc = (long)(ratio * 58000.0); // 0〜58秒に分散
          
-         out_ticks[tick_idx].time = r.time;
-         out_ticks[tick_idx].time_msc = base_msc + 30000;
-         out_ticks[tick_idx].bid = r.high;
-         out_ticks[tick_idx].ask = r.high + spread_val;
+         double current_price = p0;
+         if(ratio < 0.333)
+         {
+            double local_t = ratio / 0.333;
+            current_price = p0 + (p1 - p0) * local_t;
+         }
+         else if(ratio < 0.666)
+         {
+            double local_t = (ratio - 0.333) / 0.333;
+            current_price = p1 + (p2 - p1) * local_t;
+         }
+         else
+         {
+            double local_t = (ratio - 0.666) / 0.334;
+            current_price = p2 + (p3 - p2) * local_t;
+         }
+         
+         out_ticks[tick_idx].time = r.time + (datetime)(offset_msc / 1000);
+         out_ticks[tick_idx].time_msc = base_msc + offset_msc;
+         out_ticks[tick_idx].bid = RoundHalfUp(current_price, digits);
+         out_ticks[tick_idx].ask = RoundHalfUp(current_price + spread_val, digits);
          out_ticks[tick_idx].last = 0;
          out_ticks[tick_idx].volume = 1;
          out_ticks[tick_idx].flags = 6;
          tick_idx++;
       }
-      else
-      {
-         out_ticks[tick_idx].time = r.time;
-         out_ticks[tick_idx].time_msc = base_msc + 15000;
-         out_ticks[tick_idx].bid = r.high;
-         out_ticks[tick_idx].ask = r.high + spread_val;
-         out_ticks[tick_idx].last = 0;
-         out_ticks[tick_idx].volume = 1;
-         out_ticks[tick_idx].flags = 6;
-         tick_idx++;
-         
-         out_ticks[tick_idx].time = r.time;
-         out_ticks[tick_idx].time_msc = base_msc + 30000;
-         out_ticks[tick_idx].bid = r.low;
-         out_ticks[tick_idx].ask = r.low + spread_val;
-         out_ticks[tick_idx].last = 0;
-         out_ticks[tick_idx].volume = 1;
-         out_ticks[tick_idx].flags = 6;
-         tick_idx++;
-      }
-      
-      // 4. Close
-      out_ticks[tick_idx].time = r.time;
-      out_ticks[tick_idx].time_msc = base_msc + 45000;
-      out_ticks[tick_idx].bid = r.close;
-      out_ticks[tick_idx].ask = r.close + spread_val;
-      out_ticks[tick_idx].last = 0;
-      out_ticks[tick_idx].volume = 1;
-      out_ticks[tick_idx].flags = 6;
-      tick_idx++;
    }
    
    ArrayResize(out_ticks, tick_idx);
