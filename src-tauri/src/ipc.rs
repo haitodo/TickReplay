@@ -5,6 +5,156 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 use crate::error::AppError;
 use crate::state::ReplayState;
 
+pub const TRBI_MAGIC: u32 = 0x54524249; // "TRBI" ASCII
+
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy)]
+pub struct BinaryCommandPacket {
+    pub magic: u32,
+    pub cmd_type: u16,
+    pub reserved: u16,
+    pub target_index: i64,
+    pub target_time_msc: i64,
+    pub multiplier: f64,
+    pub tick_step: i32,
+    pub flags: u32,
+}
+
+impl BinaryCommandPacket {
+    pub fn to_bytes(&self) -> [u8; 40] {
+        let mut buf = [0u8; 40];
+        buf[0..4].copy_from_slice(&self.magic.to_le_bytes());
+        buf[4..6].copy_from_slice(&self.cmd_type.to_le_bytes());
+        buf[6..8].copy_from_slice(&self.reserved.to_le_bytes());
+        buf[8..16].copy_from_slice(&self.target_index.to_le_bytes());
+        buf[16..24].copy_from_slice(&self.target_time_msc.to_le_bytes());
+        buf[24..32].copy_from_slice(&self.multiplier.to_le_bytes());
+        buf[32..36].copy_from_slice(&self.tick_step.to_le_bytes());
+        buf[36..40].copy_from_slice(&self.flags.to_le_bytes());
+        buf
+    }
+
+    pub fn from_json_str(cmd_json: &str) -> Option<Self> {
+        let v: serde_json::Value = serde_json::from_str(cmd_json).ok()?;
+        let cmd = v.get("command")?.as_str()?;
+        
+        match cmd {
+            "SEEK" => {
+                let target_index = v.get("target_index")?.as_i64()?;
+                Some(Self {
+                    magic: TRBI_MAGIC,
+                    cmd_type: 1,
+                    reserved: 0,
+                    target_index,
+                    target_time_msc: 0,
+                    multiplier: 0.0,
+                    tick_step: 0,
+                    flags: 0,
+                })
+            }
+            "CONTROL" => {
+                let multiplier = v.get("multiplier").and_then(|m| m.as_f64()).unwrap_or(0.0);
+                let tick_step = v.get("tick_step").and_then(|t| t.as_i64()).unwrap_or(0) as i32;
+                let mut flags: u32 = 0;
+
+                if let Some(is_playing) = v.get("is_playing").and_then(|p| p.as_bool()) {
+                    flags |= 0x02; // HAS_IS_PLAYING
+                    if is_playing {
+                        flags |= 0x01; // IS_PLAYING_TRUE
+                    }
+                }
+
+                if let Some(speed_mode) = v.get("speed_mode").and_then(|s| s.as_str()) {
+                    flags |= 0x08; // HAS_SPEED_MODE
+                    if speed_mode == "COUNT" {
+                        flags |= 0x04; // IS_MODE_COUNT
+                    }
+                }
+
+                Some(Self {
+                    magic: TRBI_MAGIC,
+                    cmd_type: 2,
+                    reserved: 0,
+                    target_index: -1,
+                    target_time_msc: 0,
+                    multiplier,
+                    tick_step,
+                    flags,
+                })
+            }
+            "PLAY" => Some(Self {
+                magic: TRBI_MAGIC,
+                cmd_type: 3,
+                reserved: 0,
+                target_index: -1,
+                target_time_msc: 0,
+                multiplier: 0.0,
+                tick_step: 0,
+                flags: 0,
+            }),
+            "PAUSE" => Some(Self {
+                magic: TRBI_MAGIC,
+                cmd_type: 4,
+                reserved: 0,
+                target_index: -1,
+                target_time_msc: 0,
+                multiplier: 0.0,
+                tick_step: 0,
+                flags: 0,
+            }),
+            "RESET" => Some(Self {
+                magic: TRBI_MAGIC,
+                cmd_type: 5,
+                reserved: 0,
+                target_index: 0,
+                target_time_msc: 0,
+                multiplier: 0.0,
+                tick_step: 0,
+                flags: 0,
+            }),
+            _ => None,
+        }
+    }
+}
+
+// 連続するシーク操作コマンドのデバウンス・キュー圧縮（Devモード診断付き）
+fn is_coalescable_seek(cmd_json: &str) -> bool {
+    if cmd_json.contains("SEEK") || cmd_json.contains("SEEK_TIME") {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(cmd_json) {
+            if let Some(cmd) = v.get("command").and_then(|c| c.as_str()) {
+                return cmd == "SEEK" || cmd == "SEEK_TIME";
+            }
+        }
+    }
+    false
+}
+
+fn coalesce_commands(pending: Vec<String>) -> Vec<String> {
+    if pending.len() <= 1 {
+        return pending;
+    }
+
+    let mut result = Vec::with_capacity(pending.len());
+    let mut i = 0;
+    while i < pending.len() {
+        let current = &pending[i];
+        if is_coalescable_seek(current) {
+            let mut last_seek_idx = i;
+            let mut j = i + 1;
+            while j < pending.len() && is_coalescable_seek(&pending[j]) {
+                last_seek_idx = j;
+                j += 1;
+            }
+            result.push(pending[last_seek_idx].clone());
+            i = j;
+        } else {
+            result.push(current.clone());
+            i += 1;
+        }
+    }
+    result
+}
+
 // 名前付きパイプサーバー（コマンド配信用：Rust → EA）のタスク
 pub async fn run_command_pipe_server(
     mut cmd_rx: tokio::sync::mpsc::UnboundedReceiver<String>,
@@ -43,9 +193,55 @@ pub async fn run_command_pipe_server(
             tokio::select! {
                 cmd_opt = cmd_rx.recv() => {
                     if let Some(cmd) = cmd_opt {
-                        let data = format!("{}\n", cmd);
-                        if let Err(e) = server.write_all(data.as_bytes()).await {
-                            eprintln!("Command Pipe への書き込み失敗: {}", e);
+                        let mut batch = vec![cmd];
+                        // チャンネル内の保留コマンドを即座に吸い出し、一括最適化
+                        while let Ok(next_cmd) = cmd_rx.try_recv() {
+                            batch.push(next_cmd);
+                        }
+
+                        #[cfg(debug_assertions)]
+                        let initial_count = batch.len();
+
+                        let coalesced = coalesce_commands(batch);
+
+                        #[cfg(debug_assertions)]
+                        if coalesced.len() < initial_count {
+                            println!(
+                                "[DEV-IPC-THROTTLE] コマンドキュー最適化: {} 件 -> {} 件に間引き圧縮",
+                                initial_count,
+                                coalesced.len()
+                            );
+                        }
+
+                        let mut send_failed = false;
+                        for c in coalesced {
+                            if let Some(bin_pkt) = BinaryCommandPacket::from_json_str(&c) {
+                                #[cfg(debug_assertions)]
+                                {
+                                    let cmd_type = bin_pkt.cmd_type;
+                                    let target_index = bin_pkt.target_index;
+                                    println!(
+                                        "[DEV-IPC-BINARY] バイナリパケット送信: type={}, idx={}",
+                                        cmd_type, target_index
+                                    );
+                                }
+
+                                let bytes = bin_pkt.to_bytes();
+                                if let Err(e) = server.write_all(&bytes).await {
+                                    eprintln!("Command Pipe バイナリ書き込み失敗: {}", e);
+                                    send_failed = true;
+                                    break;
+                                }
+                            } else {
+                                let data = format!("{}\n", c);
+                                if let Err(e) = server.write_all(data.as_bytes()).await {
+                                    eprintln!("Command Pipe への書き込み失敗: {}", e);
+                                    send_failed = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if send_failed {
                             break;
                         }
                         if let Err(e) = server.flush().await {

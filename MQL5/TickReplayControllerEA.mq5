@@ -343,6 +343,7 @@ void OnTimer()
       if(m_last_real_timer_msc == 0)
       {
          m_last_real_timer_msc = current_real_msc;
+         return;
       }
       else
       {
@@ -355,7 +356,13 @@ void OnTimer()
          //--- 【モードA: 時間比率モード】
          if(m_speed_mode == REPLAY_MODE_TEMPORAL)
          {
-            m_virtual_current_msc += (long)(real_elapsed_msc * m_time_multiplier);
+             // 仮想時刻が次配信予定のティック時刻より遅れている場合、即座に同期補正
+             if(m_current_idx < m_total_ticks && m_virtual_current_msc < (long)m_all_ticks[m_current_idx].time_msc)
+             {
+                m_virtual_current_msc = (long)m_all_ticks[m_current_idx].time_msc;
+             }
+             
+             m_virtual_current_msc += (long)(real_elapsed_msc * m_time_multiplier);
             
             // 自動スキップが有効で、次のティックまでの空白が1時間（3,600,000ms）以上ある場合
             if(m_auto_skip_weekend && m_current_idx < m_total_ticks)
@@ -418,6 +425,7 @@ void OnTimer()
                      else if(added < 0)
                      {
                         Print("[Warning] CustomTicksAdd failed. Code: ", GetLastError());
+                        m_current_idx += count_to_send;
                      }
                      
                      static uint last_redraw_time = 0;
@@ -467,6 +475,67 @@ void OnTimer()
 
 //+------------------------------------------------------------------+
 //| コマンドパイプの監視と処理                                       |
+#define TRBI_MAGIC 0x54524249
+
+struct BinaryCommandPacket
+{
+   uint   magic;           // 0x54524249 ("TRBI")
+   ushort cmd_type;        // 1: SEEK, 2: CONTROL, 3: PLAY, 4: PAUSE, 5: RESET
+   ushort reserved;        // パディング
+   long   target_index;    // SEEK用インデックス
+   long   target_time_msc; // SEEK_TIME用タイムスタンプ
+   double multiplier;      // 再生倍率
+   int    tick_step;       // ステップ数
+   uint   flags;           // フラグ
+};
+
+void ProcessBinaryCommand(const BinaryCommandPacket &packet)
+{
+#ifdef _DEBUG
+   Print("[DEV-MQL5-BINARY] バイナリコマンド受信: type=", packet.cmd_type, " target_idx=", packet.target_index, " mult=", packet.multiplier);
+#endif
+
+   switch(packet.cmd_type)
+   {
+      case 1: // SEEK
+         if(packet.target_index >= 0)
+            SeekToPosition((int)packet.target_index);
+         break;
+      case 2: // CONTROL
+         if(packet.multiplier > 0)
+            m_time_multiplier = packet.multiplier;
+         if(packet.tick_step > 0)
+            m_tick_step_count = packet.tick_step;
+         if((packet.flags & 0x02) != 0)
+         {
+            bool prev_playing = m_is_playing;
+            m_is_playing = ((packet.flags & 0x01) != 0);
+            if(!prev_playing && m_is_playing)
+            {
+               m_last_real_timer_msc = 0;
+            }
+         }
+         if((packet.flags & 0x08) != 0)
+         {
+            m_speed_mode = ((packet.flags & 0x04) != 0) ? REPLAY_MODE_COUNT : REPLAY_MODE_TEMPORAL;
+         }
+         break;
+      case 3: // PLAY
+         m_is_playing = true;
+         m_last_real_timer_msc = 0;
+         break;
+      case 4: // PAUSE
+         m_is_playing = false;
+         m_last_real_timer_msc = 0;
+         break;
+      case 5: // RESET
+         SeekToPosition(0);
+         break;
+      default:
+         break;
+   }
+}
+
 //+------------------------------------------------------------------+
 void CheckAndProcessCommand()
 {
@@ -485,8 +554,10 @@ void CheckAndProcessCommand()
       return;
 
    // バッファの確保とデータの読み込み
-   uchar buf[];
-   ArrayResize(buf, total_bytes_avail);
+   static uchar buf[];
+   if(ArrayResize(buf, total_bytes_avail, 4096) < 0)
+      return;
+
    uint bytes_read = 0;
    if(!ReadFile(hCommandPipe, buf, total_bytes_avail, bytes_read, 0))
    {
@@ -497,6 +568,21 @@ void CheckAndProcessCommand()
 
    if(bytes_read <= 0)
       return;
+
+   // バイナリ通信（TRBIマジックヘッダー）の検出とゼロコピー解釈
+   if(bytes_read >= 40)
+   {
+      uint magic = (uint)buf[0] | ((uint)buf[1] << 8) | ((uint)buf[2] << 16) | ((uint)buf[3] << 24);
+      if(magic == TRBI_MAGIC)
+      {
+         BinaryCommandPacket packet;
+         if(CharArrayToStruct(packet, buf, 0))
+         {
+            ProcessBinaryCommand(packet);
+            return;
+         }
+      }
+   }
 
    string new_content = CharArrayToString(buf, 0, (int)bytes_read, CP_UTF8);
    m_accumulated_commands += new_content;
@@ -1345,6 +1431,10 @@ void WritePipeStatus(string message)
 //+------------------------------------------------------------------+
 //| 定期ステータス更新の書き込み                                     |
 //+------------------------------------------------------------------+
+string g_tyo_json = "[]";
+string g_ldn_json = "[]";
+string g_ny_json = "[]";
+
 void WriteStatusFile()
 {
    string loop_active_str = (m_loop_a_msc != -1 && m_loop_b_msc != -1) ? "true" : "false";
@@ -1364,11 +1454,12 @@ void WriteStatusFile()
    
    int max_bars = (int)TerminalInfoInteger(TERMINAL_MAXBARS);
    string msg = StringFormat(
-      "{\"status\":\"ACTIVE\",\"current_idx\":%d,\"total_ticks\":%d,\"virtual_time_msc\":%I64d,\"is_playing\":%s,\"speed_mode\":\"%s\",\"multiplier\":%s,\"tick_step\":%d,\"bid\":%.5f,\"ask\":%.5f,\"max_bars\":%d,\"loop\":{\"active\":%s,\"a_msc\":%I64d,\"b_msc\":%I64d,\"a_idx\":%d,\"b_idx\":%d},%s}",
+      "{\"status\":\"ACTIVE\",\"current_idx\":%d,\"total_ticks\":%d,\"virtual_time_msc\":%I64d,\"is_playing\":%s,\"speed_mode\":\"%s\",\"multiplier\":%s,\"tick_step\":%d,\"bid\":%.5f,\"ask\":%.5f,\"max_bars\":%d,\"session_boundaries\":{\"TYO\":%s,\"LDN\":%s,\"NY\":%s},\"loop\":{\"active\":%s,\"a_msc\":%I64d,\"b_msc\":%I64d,\"a_idx\":%d,\"b_idx\":%d},%s}",
       m_current_idx, m_total_ticks, m_virtual_current_msc,
       (m_is_playing ? "true" : "false"),
       speed_mode_str, DoubleToString(m_time_multiplier, 1), m_tick_step_count,
       bid, ask, max_bars,
+      g_tyo_json, g_ldn_json, g_ny_json,
       loop_active_str, m_loop_a_msc, m_loop_b_msc, loop_a_idx, loop_b_idx,
       trade_json
    );
@@ -1380,8 +1471,7 @@ void WriteStatusFile()
 //+------------------------------------------------------------------+
 void WriteReadyStatus()
 {
-   string tyo_json, ldn_json, ny_json;
-   CalculateSessionBoundaries(tyo_json, ldn_json, ny_json);
+   CalculateSessionBoundaries(g_tyo_json, g_ldn_json, g_ny_json);
    
    string speed_mode_str = (m_speed_mode == REPLAY_MODE_TEMPORAL) ? "TEMPORAL" : "COUNT";
    string trade_json = SerializePositionsAndHistoryToJson();
@@ -1400,7 +1490,7 @@ void WriteReadyStatus()
       m_total_ticks, m_current_idx, m_virtual_current_msc,
       speed_mode_str, DoubleToString(m_time_multiplier, 1), m_tick_step_count,
       bid, ask, max_bars,
-      tyo_json, ldn_json, ny_json,
+      g_tyo_json, g_ldn_json, g_ny_json,
       trade_json
    );
    WritePipeStatus(msg);
@@ -1760,6 +1850,10 @@ bool LoadHistoricalTicks(string source_symbol, datetime start, datetime end)
    m_current_idx = 0;
    m_virtual_current_msc = m_all_ticks[0].time_msc;
    Print("[Info] ", source_symbol, " から ", m_total_ticks, " 件のティックデータをメモリにロードしました。");
+#ifdef _DEBUG
+   ulong approx_mem_bytes = (ulong)m_total_ticks * sizeof(MqlTick);
+   Print("[DEV-MQL5] Buffer Pool Pre-allocated. Total ticks: ", m_total_ticks, " (~", approx_mem_bytes / (1024 * 1024), " MB)");
+#endif
    return true;
 }
 
@@ -2423,11 +2517,11 @@ void SeekToPosition(int target_index)
             int count_to_add = target_index - start_idx + 1;
             if(count_to_add > 0)
             {
-               MqlTick add_ticks[];
-               if(ArrayResize(add_ticks, count_to_add) >= 0)
+               static MqlTick s_seek_add_buffer[];
+               if(ArrayResize(s_seek_add_buffer, count_to_add, 50000) >= 0)
                {
-                  ArrayCopy(add_ticks, m_all_ticks, 0, start_idx, count_to_add);
-                  int added = CustomTicksAdd(m_replay_symbol, add_ticks);
+                  ArrayCopy(s_seek_add_buffer, m_all_ticks, 0, start_idx, count_to_add);
+                  int added = CustomTicksAdd(m_replay_symbol, s_seek_add_buffer);
                   if(added < 0)
                   {
                      Print("[Error] CustomTicksAdd 失敗。Code: ", GetLastError());
@@ -2437,36 +2531,41 @@ void SeekToPosition(int target_index)
          }
          else
          {
-            ulong from_msc = m_all_ticks[0].time_msc;
-            long delete_start_msc = (long)m_all_ticks[target_index].time_msc + 1;
-            
-            // 1. 未来のティックデータを削除（巻き戻し、および前進時の重複データ排除）
-            int deleted = CustomTicksDelete(m_replay_symbol, delete_start_msc, LONG_MAX);
-            if(deleted < 0)
+            int current_last_idx = m_current_idx - 1;
+            // A) 巻き戻し (Rewind): 未来のティックおよびレートのみを削除（過去データ100%維持）
+            if(target_index < current_last_idx)
             {
-               Print("[Error] CustomTicksDelete 失敗。Code: ", GetLastError());
-            }
-            
-            // 2. 0からtarget_indexまでの全ティックを一括置換（重複を完全に排除）
-            int count_to_replace = target_index + 1;
-            MqlTick replace_ticks[];
-            if(ArrayResize(replace_ticks, count_to_replace) >= 0)
-            {
-               ArrayCopy(replace_ticks, m_all_ticks, 0, 0, count_to_replace);
+               long delete_start_msc = (long)m_all_ticks[target_index].time_msc + 1;
+               int deleted = CustomTicksDelete(m_replay_symbol, delete_start_msc, LONG_MAX);
+               if(deleted < 0) Print("[Error] CustomTicksDelete 失敗。Code: ", GetLastError());
                
-               int replaced = CustomTicksReplace(m_replay_symbol, from_msc, m_all_ticks[target_index].time_msc, replace_ticks);
-               if(replaced < 0)
-               {
-                  Print("[Error] CustomTicksReplace 失敗。Code: ", GetLastError());
-               }
-               
-               // 3. 未来のバーデータを削除
                datetime delete_start_time = (datetime)(m_all_ticks[target_index].time_msc / 1000) + 1;
                int deleted_rates = CustomRatesDelete(m_replay_symbol, delete_start_time, D'3000.01.01 00:00:00');
-               if(deleted_rates < 0)
+               if(deleted_rates < 0) Print("[Error] CustomRatesDelete 失敗。Code: ", GetLastError());
+
+#ifdef _DEBUG
+               Print("[DEV-MQL5-SEEK] Delta Truncation (Rewind): 未来データ削除（過去維持） target_idx=", target_index);
+#endif
+            }
+            // B) 早送り (Fast Forward): 差分ティックのみを追加
+            else if(target_index > current_last_idx)
+            {
+               int start_add_idx = m_current_idx;
+               int count_to_add = target_index - start_add_idx + 1;
+               if(count_to_add > 0)
                {
-                  Print("[Error] CustomRatesDelete 失敗。Code: ", GetLastError());
+                  static MqlTick s_seek_add_buffer[];
+                  if(ArrayResize(s_seek_add_buffer, count_to_add, 50000) >= 0)
+                  {
+                     ArrayCopy(s_seek_add_buffer, m_all_ticks, 0, start_add_idx, count_to_add);
+                     int added = CustomTicksAdd(m_replay_symbol, s_seek_add_buffer);
+                     if(added < 0) Print("[Error] CustomTicksAdd 失敗。Code: ", GetLastError());
+                  }
                }
+
+#ifdef _DEBUG
+               Print("[DEV-MQL5-SEEK] Delta Append (Forward): 差分ティック追加 count=", count_to_add);
+#endif
             }
          }
          
@@ -2503,7 +2602,8 @@ void SeekToPosition(int target_index)
          
          // オートスクロールを一時オフにしてから時間軸を設定しなおす
          ChartSetInteger(cid, CHART_AUTOSCROLL, false);
-         ChartSetSymbolPeriod(cid, m_replay_symbol, period);
+         if(ChartSymbol(cid) != m_replay_symbol || ChartPeriod(cid) != period)
+             ChartSetSymbolPeriod(cid, m_replay_symbol, period);
          
          if(InpAutoScrollSync)
          {
@@ -2513,7 +2613,13 @@ void SeekToPosition(int target_index)
          // センタリングのカスタムイベントを送信 (最新価格基準で強制センタリング指示)
          EventChartCustom(cid, 1001, 0, target_price, "");
          
-         ChartRedraw(cid);
+         static uint last_seek_redraw_time = 0;
+         uint now_seek_time = GetTickCount();
+         if(now_seek_time - last_seek_redraw_time >= 30)
+         {
+            last_seek_redraw_time = now_seek_time;
+            ChartRedraw(cid);
+         }
       }
    }
    

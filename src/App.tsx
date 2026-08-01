@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -579,6 +579,12 @@ function App() {
         setTotalTicks((prev) => prev !== data.total_ticks ? data.total_ticks : prev);
         setVirtualTimeMsc((prev) => prev !== data.virtual_time_msc ? data.virtual_time_msc : prev);
         setIsPlaying((prev) => prev !== data.is_playing ? data.is_playing : prev);
+        if (data.session_boundaries) {
+          setSessionBoundaries((prev: any) => {
+            if (JSON.stringify(prev) === JSON.stringify(data.session_boundaries)) return prev;
+            return data.session_boundaries;
+          });
+        }
         if (data.bid) setCurrentPrice(data.bid);
         else if (data.account?.bid) setCurrentPrice(data.account.bid);
         if (isReconnecting) {
@@ -661,6 +667,51 @@ function App() {
     handleStatusStringRef.current = handleStatusString;
   });
 
+  const pendingStatusPayloadRef = useRef<string | null>(null);
+  const rafIdRef = useRef<number | null>(null);
+  const skippedCountRef = useRef<number>(0);
+
+  const scheduleStatusUpdate = useCallback((payload: string) => {
+    if (pendingStatusPayloadRef.current !== null) {
+      skippedCountRef.current++;
+    }
+    pendingStatusPayloadRef.current = payload;
+
+    try {
+      const data = JSON.parse(payload);
+      if (data.session_boundaries) {
+        setSessionBoundaries((prev: any) => {
+          if (JSON.stringify(prev) === JSON.stringify(data.session_boundaries)) return prev;
+          return data.session_boundaries;
+        });
+      }
+    } catch (_) {}
+
+    if (rafIdRef.current === null) {
+      rafIdRef.current = requestAnimationFrame(() => {
+        rafIdRef.current = null;
+        if (pendingStatusPayloadRef.current !== null) {
+          const latest = pendingStatusPayloadRef.current;
+          pendingStatusPayloadRef.current = null;
+          handleStatusStringRef.current(latest);
+
+          if (import.meta.env.DEV && skippedCountRef.current > 0) {
+            console.debug("[DEV-UI-THROTTLE] rAF UI throttle skipped render passes:", skippedCountRef.current);
+            skippedCountRef.current = 0;
+          }
+        }
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+      }
+    };
+  }, []);
+
   const handleCheckConnection = async () => {
     setErrorMessage("");
     try {
@@ -738,7 +789,7 @@ function App() {
   useEffect(() => {
     // ステータスファイル経由のEAステータス受信
     const unlistenStatus = listen<string>("mt5-status", (event) => {
-      handleStatusStringRef.current(event.payload);
+      scheduleStatusUpdate(event.payload);
     });
 
     // EA接続時
