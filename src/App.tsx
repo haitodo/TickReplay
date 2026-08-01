@@ -7845,8 +7845,8 @@ const SpeedOrderWindowContent: React.FC = () => {
 
         <div className="speed-sl-tp-row">
           <div className="speed-input-group">
-            <div className="speed-input-header">
-              <label className="speed-label" style={{ opacity: maxSpreadEnabled ? 1 : 0.5 }}>Spread (Pips)</label>
+            <div className="speed-input-header" title="許容スプレッド (Pips)">
+              <label className="speed-label" style={{ opacity: maxSpreadEnabled ? 1 : 0.5 }}>Spread</label>
               <label className="speed-switch" title={maxSpreadEnabled ? "許容スプレッド有効" : "許容スプレッド無効"}>
                 <input
                   type="checkbox"
@@ -7866,11 +7866,12 @@ const SpeedOrderWindowContent: React.FC = () => {
               disabled={!maxSpreadEnabled}
               style={{ opacity: maxSpreadEnabled ? 1 : 0.45 }}
               placeholder={maxSpreadEnabled ? "0.0" : "OFF"}
+              title="許容スプレッド (Pips)"
             />
           </div>
           <div className="speed-input-group">
-            <div className="speed-input-header">
-              <label className="speed-label" style={{ opacity: slEnabled ? 1 : 0.5 }}>SL (Points)</label>
+            <div className="speed-input-header" title="ストップロス (Points)">
+              <label className="speed-label" style={{ opacity: slEnabled ? 1 : 0.5 }}>SL</label>
               <label className="speed-switch" title={slEnabled ? "SL有効" : "SL無効"}>
                 <input
                   type="checkbox"
@@ -7890,11 +7891,12 @@ const SpeedOrderWindowContent: React.FC = () => {
               disabled={!slEnabled}
               style={{ opacity: slEnabled ? 1 : 0.45 }}
               placeholder={slEnabled ? "0 (None)" : "OFF"}
+              title="ストップロス (Points)"
             />
           </div>
           <div className="speed-input-group">
-            <div className="speed-input-header">
-              <label className="speed-label" style={{ opacity: tpEnabled ? 1 : 0.5 }}>TP (Points)</label>
+            <div className="speed-input-header" title="テイクプロフィット (Points)">
+              <label className="speed-label" style={{ opacity: tpEnabled ? 1 : 0.5 }}>TP</label>
               <label className="speed-switch" title={tpEnabled ? "TP有効" : "TP無効"}>
                 <input
                   type="checkbox"
@@ -7914,6 +7916,7 @@ const SpeedOrderWindowContent: React.FC = () => {
               disabled={!tpEnabled}
               style={{ opacity: tpEnabled ? 1 : 0.45 }}
               placeholder={tpEnabled ? "0 (None)" : "OFF"}
+              title="テイクプロフィット (Points)"
             />
           </div>
         </div>

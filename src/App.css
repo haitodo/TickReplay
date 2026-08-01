@@ -4255,6 +4255,9 @@ html[data-theme="light"] .rate-box.buy-box:hover:not(:disabled) {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  height: 18px;
+  min-height: 18px;
+  white-space: nowrap;
 }
 
 .speed-label {
@@ -4262,6 +4265,9 @@ html[data-theme="light"] .rate-box.buy-box:hover:not(:disabled) {
   color: var(--on-surface-variant);
   text-transform: uppercase;
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .speed-input-wrapper {
