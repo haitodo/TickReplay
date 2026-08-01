@@ -210,6 +210,7 @@ datetime FindPreviousSessionStart(datetime current_time, string session);
 datetime FindNextSessionStart(datetime current_time, string session);
 int FindTickIndexForward(datetime target_time);
 int FindTickIndexBackward(datetime target_time);
+int FindTickIndexByMsc(long target_msc);
 void JumpToSessionStart(string session, bool is_advance);
 void CalculateSessionBoundaries(string &out_tyo_json, string &out_ldn_json, string &out_ny_json);
 void UpdateReplayGeneration();
@@ -534,6 +535,95 @@ void ProcessBinaryCommand(const BinaryCommandPacket &packet)
          break;
       case 5: // RESET
          SeekToPosition(0);
+         break;
+      case 6: // SEEK_TIME
+         if(packet.target_time_msc > 0)
+         {
+            int idx = FindTickIndexByMsc(packet.target_time_msc);
+            if(idx >= 0) SeekToPosition(idx);
+         }
+         break;
+      case 7: // SEEK_RELATIVE
+         {
+            int delta = (int)packet.target_index;
+            if(delta != 0)
+            {
+               if(delta == -1 && m_current_idx > 1)
+               {
+                  int target_idx = m_current_idx - 2;
+                  while(target_idx >= 0 && m_all_ticks[target_idx].time_msc == m_all_ticks[m_current_idx - 1].time_msc)
+                  {
+                     target_idx--;
+                  }
+                  if(target_idx >= 0) SeekToPosition(target_idx);
+                  else SeekToPosition(0);
+               }
+               else
+               {
+                  int target_index = m_current_idx - 1 + delta;
+                  SeekToPosition(target_index);
+               }
+            }
+         }
+         break;
+      case 8: // TIME_JUMP
+         {
+            int delta_sec = (int)packet.target_index;
+            if(delta_sec != 0)
+            {
+               datetime current_v_time = (datetime)(m_virtual_current_msc / 1000);
+               datetime target_time = 0;
+               int target_idx = -1;
+               if(delta_sec > 0)
+               {
+                  datetime dest_time = current_v_time + delta_sec;
+                  target_time = dest_time - (dest_time % 60);
+                  if(target_time > m_server_end_time) target_time = m_server_end_time;
+                  target_idx = FindTickIndexForward(target_time);
+               }
+               else
+               {
+                  int abs_delta = -delta_sec;
+                  if(current_v_time >= (datetime)abs_delta)
+                  {
+                     datetime dest_time = current_v_time - abs_delta;
+                     target_time = dest_time - (dest_time % 60);
+                  }
+                  else
+                  {
+                     target_time = m_server_start_time;
+                  }
+                  if(target_time < m_server_start_time) target_time = m_server_start_time;
+                  target_idx = FindTickIndexForward(target_time);
+               }
+               if(target_idx >= 0) SeekToPosition(target_idx);
+            }
+         }
+         break;
+      case 9: // SESSION_JUMP
+         {
+            uint sess_code = packet.flags & 0x03;
+            string sess_str = (sess_code == 1) ? "LDN" : (sess_code == 2) ? "NY" : "TYO";
+            bool is_advance = ((packet.flags & 0x04) != 0);
+            JumpToSessionStart(sess_str, is_advance);
+         }
+         break;
+      case 10: // LOOP_SET_A
+         m_loop_a_msc = m_virtual_current_msc;
+         m_loop_a_idx = m_current_idx - 1;
+         break;
+      case 11: // LOOP_SET_B
+         if(m_loop_a_msc != -1 && m_virtual_current_msc > m_loop_a_msc)
+         {
+            m_loop_b_msc = m_virtual_current_msc;
+            m_loop_b_idx = m_current_idx - 1;
+         }
+         break;
+      case 12: // LOOP_CLEAR
+         m_loop_a_msc = -1;
+         m_loop_b_msc = -1;
+         m_loop_a_idx = -1;
+         m_loop_b_idx = -1;
          break;
       default:
          break;
@@ -2864,6 +2954,31 @@ int FindTickIndexBackward(datetime target_time)
       else
       {
          high = mid - 1;
+      }
+   }
+   return ans;
+}
+
+//+------------------------------------------------------------------+
+//| ミリ秒タイムスタンプ指定の高速二分探索                            |
+//+------------------------------------------------------------------+
+int FindTickIndexByMsc(long target_msc)
+{
+   if(m_total_ticks <= 0) return -1;
+   int low = 0;
+   int high = m_total_ticks - 1;
+   int ans = -1;
+   while(low <= high)
+   {
+      int mid = low + (high - low) / 2;
+      if((long)m_all_ticks[mid].time_msc >= target_msc)
+      {
+         ans = mid;
+         high = mid - 1;
+      }
+      else
+      {
+         low = mid + 1;
       }
    }
    return ans;

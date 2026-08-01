@@ -119,6 +119,98 @@ impl BinaryCommandPacket {
                 tick_step: 0,
                 flags: 0,
             }),
+            "SEEK_TIME" => {
+                let target_time_msc = v.get("target_time_msc").and_then(|t| t.as_i64()).unwrap_or(0);
+                Some(Self {
+                    magic: TRBI_MAGIC,
+                    cmd_type: 6,
+                    reserved: 0,
+                    target_index: -1,
+                    target_time_msc,
+                    multiplier: 0.0,
+                    tick_step: 0,
+                    flags: 0,
+                })
+            }
+            "SEEK_RELATIVE" => {
+                let delta = v.get("delta").and_then(|d| d.as_i64()).unwrap_or(0);
+                Some(Self {
+                    magic: TRBI_MAGIC,
+                    cmd_type: 7,
+                    reserved: 0,
+                    target_index: delta,
+                    target_time_msc: 0,
+                    multiplier: 0.0,
+                    tick_step: 0,
+                    flags: 0,
+                })
+            }
+            "TIME_JUMP" => {
+                let delta_sec = v.get("delta_seconds").and_then(|d| d.as_i64()).unwrap_or(0);
+                Some(Self {
+                    magic: TRBI_MAGIC,
+                    cmd_type: 8,
+                    reserved: 0,
+                    target_index: delta_sec,
+                    target_time_msc: 0,
+                    multiplier: 0.0,
+                    tick_step: 0,
+                    flags: 0,
+                })
+            }
+            "SESSION_JUMP" => {
+                let session = v.get("session").and_then(|s| s.as_str()).unwrap_or("");
+                let direction = v.get("direction").and_then(|d| d.as_str()).unwrap_or("");
+                let mut flags: u32 = 0;
+                match session {
+                    "LDN" => flags |= 1,
+                    "NY" => flags |= 2,
+                    _ => flags |= 0,
+                }
+                if direction == "NEXT" {
+                    flags |= 0x04;
+                }
+                Some(Self {
+                    magic: TRBI_MAGIC,
+                    cmd_type: 9,
+                    reserved: 0,
+                    target_index: -1,
+                    target_time_msc: 0,
+                    multiplier: 0.0,
+                    tick_step: 0,
+                    flags,
+                })
+            }
+            "LOOP_SET_A" => Some(Self {
+                magic: TRBI_MAGIC,
+                cmd_type: 10,
+                reserved: 0,
+                target_index: -1,
+                target_time_msc: 0,
+                multiplier: 0.0,
+                tick_step: 0,
+                flags: 0,
+            }),
+            "LOOP_SET_B" => Some(Self {
+                magic: TRBI_MAGIC,
+                cmd_type: 11,
+                reserved: 0,
+                target_index: -1,
+                target_time_msc: 0,
+                multiplier: 0.0,
+                tick_step: 0,
+                flags: 0,
+            }),
+            "LOOP_CLEAR" => Some(Self {
+                magic: TRBI_MAGIC,
+                cmd_type: 12,
+                reserved: 0,
+                target_index: -1,
+                target_time_msc: 0,
+                multiplier: 0.0,
+                tick_step: 0,
+                flags: 0,
+            }),
             _ => None,
         }
     }
