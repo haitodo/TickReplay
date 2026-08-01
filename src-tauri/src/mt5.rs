@@ -13,6 +13,16 @@ pub struct SymbolItem {
 const EA_SOURCE: &str = include_str!("../../MQL5/TickReplayControllerEA.mq5");
 const IMPORTER_SOURCE: &str = include_str!("../../MQL5/TickReplayImporter.mq5");
 
+const MQH_CONFIG: &str = include_str!("../../MQL5/Include/TickReplay/Config.mqh");
+const MQH_WIN32PIPE: &str = include_str!("../../MQL5/Include/TickReplay/Win32Pipe.mqh");
+const MQH_JSONHELPER: &str = include_str!("../../MQL5/Include/TickReplay/JsonHelper.mqh");
+const MQH_SESSION: &str = include_str!("../../MQL5/Include/TickReplay/SessionManager.mqh");
+const MQH_TICKBUFFER: &str = include_str!("../../MQL5/Include/TickReplay/TickBuffer.mqh");
+const MQH_SYMBOL: &str = include_str!("../../MQL5/Include/TickReplay/SymbolManager.mqh");
+const MQH_CHART: &str = include_str!("../../MQL5/Include/TickReplay/ChartManager.mqh");
+const MQH_VIRTUALTRADER: &str = include_str!("../../MQL5/Include/TickReplay/VirtualTrader.mqh");
+const MQH_REPLAYENGINE: &str = include_str!("../../MQL5/Include/TickReplay/ReplayEngine.mqh");
+
 // 指定されたパスがMT5の端末データディレクトリ配下であるかを検証する
 pub fn validate_terminal_path(terminal_path: &str) -> Result<(), AppError> {
     let base_path = std::env::var("APPDATA")
@@ -47,7 +57,7 @@ pub struct Mt5TerminalInfo {
     pub path: String,
 }
 
-// MT5データフォルダをスキャンし、EAおよびスクリプトファイルを自動配置する (起動時初期化用の同期処理)
+// MT5データフォルダをスキャンし、EAおよびスクリプトファイル・Includeファイルを自動配置する (起動時初期化用の同期処理)
 pub fn setup_mt5_environment() {
     let base_path = if let Ok(appdata) = std::env::var("APPDATA") {
         PathBuf::from(appdata).join("MetaQuotes").join("Terminal")
@@ -68,10 +78,12 @@ pub fn setup_mt5_environment() {
                     let experts_path = mql5_path.join("Experts");
                     let scripts_path = mql5_path.join("Scripts");
                     let files_path = mql5_path.join("Files");
+                    let include_path = mql5_path.join("Include").join("TickReplay");
 
                     let _ = fs::create_dir_all(&experts_path);
                     let _ = fs::create_dir_all(&scripts_path);
                     let _ = fs::create_dir_all(&files_path);
+                    let _ = fs::create_dir_all(&include_path);
 
                     let ea_file = experts_path.join("TickReplayControllerEA.mq5");
                     if let Err(e) = fs::write(&ea_file, EA_SOURCE) {
@@ -81,6 +93,25 @@ pub fn setup_mt5_environment() {
                     let importer_file = scripts_path.join("TickReplayImporter.mq5");
                     if let Err(e) = fs::write(&importer_file, IMPORTER_SOURCE) {
                         eprintln!("Importer配置失敗 {:?}: {}", importer_file, e);
+                    }
+
+                    let mqh_files = [
+                        ("Config.mqh", MQH_CONFIG),
+                        ("Win32Pipe.mqh", MQH_WIN32PIPE),
+                        ("JsonHelper.mqh", MQH_JSONHELPER),
+                        ("SessionManager.mqh", MQH_SESSION),
+                        ("TickBuffer.mqh", MQH_TICKBUFFER),
+                        ("SymbolManager.mqh", MQH_SYMBOL),
+                        ("ChartManager.mqh", MQH_CHART),
+                        ("VirtualTrader.mqh", MQH_VIRTUALTRADER),
+                        ("ReplayEngine.mqh", MQH_REPLAYENGINE),
+                    ];
+
+                    for (fname, content) in mqh_files {
+                        let target_path = include_path.join(fname);
+                        if let Err(e) = fs::write(&target_path, content) {
+                            eprintln!("Header配置失敗 {:?}: {}", target_path, e);
+                        }
                     }
                 }
             }
