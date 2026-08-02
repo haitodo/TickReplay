@@ -3926,9 +3926,27 @@ function App() {
                           <span className="material-symbols-outlined text-[12px]">tune</span>
                           <span>Preset設定</span>
                         </button>
-                        <div style={{ fontSize: "10px", color: "var(--on-surface-variant)", fontFamily: "var(--font-data)", fontWeight: 600 }}>
-                          {speedMode === "TEMPORAL" ? "TIME MODE" : "TICK MODE"}
-                        </div>
+
+                        <button
+                          className={`toggle-btn ${speedMode === "TEMPORAL" ? "active" : ""}`}
+                          style={{
+                            padding: "2px 8px",
+                            height: "18px",
+                            fontSize: "10px",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "3px",
+                            fontWeight: 600,
+                            fontFamily: "var(--font-data)"
+                          }}
+                          onClick={() => updateSpeed(speedMode === "TEMPORAL" ? "COUNT" : "TEMPORAL", multiplier, tickStep)}
+                          title="再生モード切替 (Time Mode / Tick Mode)"
+                        >
+                          <span className="material-symbols-outlined text-[12px]">
+                            {speedMode === "TEMPORAL" ? "schedule" : "tag"}
+                          </span>
+                          <span>{speedMode === "TEMPORAL" ? "TIME MODE" : "TICK MODE"}</span>
+                        </button>
                       </div>
                     </div>
                     <div className="pro-panel-body transport-panel-body">
@@ -3953,17 +3971,6 @@ function App() {
 
                       {/* Single Horizontal Speed Toolbar */}
                       <div className="transport-speed-inline-bar">
-                        {/* Mode Badge */}
-                        <button
-                          className="speed-mode-badge"
-                          onClick={() => updateSpeed(speedMode === "TEMPORAL" ? "COUNT" : "TEMPORAL", multiplier, tickStep)}
-                          title="Toggle Speed Mode (Time vs Tick Count)"
-                        >
-                          <span className="material-symbols-outlined text-[11px]" style={{ marginRight: "2px" }}>
-                            {speedMode === "TEMPORAL" ? "schedule" : "tag"}
-                          </span>
-                          {speedMode === "TEMPORAL" ? "Time" : "Tick"}
-                        </button>
 
                         {/* Integrated Multi-tier Speed Stepper */}
                         <div className="speed-precision-stepper">
