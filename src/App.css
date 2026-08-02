@@ -5894,24 +5894,32 @@ html[data-theme="light"][data-glass-effect="true"] .close-btn.close-all:hover:no
   width: 100%;
   border-collapse: collapse;
   text-align: left;
-  font-size: 11px;
+  font-size: 10.5px;
 }
 
 .dashboard-table th {
+  height: 25px;
   background-color: var(--surface-container-high);
   color: var(--on-surface-variant);
   font-weight: 600;
-  padding: 6px 12px;
+  padding: 0 6px;
   border-bottom: 1px solid var(--outline-variant);
   position: sticky;
   top: 0;
   z-index: 10;
+  white-space: nowrap;
+  letter-spacing: -0.1px;
+  vertical-align: middle;
+  box-sizing: border-box;
 }
 
 .dashboard-table td {
-  padding: 6px 12px;
+  height: 25px;
+  padding: 0 6px;
   border-bottom: 1px solid var(--outline-variant);
   vertical-align: middle;
+  white-space: nowrap;
+  box-sizing: border-box;
 }
 
 .dashboard-table tr:last-child td {
@@ -5925,6 +5933,15 @@ html[data-theme="light"][data-glass-effect="true"] .close-btn.close-all:hover:no
 
 .clickable-rows tbody tr:hover {
   background-color: rgba(var(--primary-rgb), 0.04);
+}
+
+.seek-cell {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.seek-cell:hover {
+  background-color: rgba(var(--primary-rgb), 0.15);
 }
 
 .reason-badge {
@@ -5945,7 +5962,8 @@ html[data-theme="light"][data-glass-effect="true"] .close-btn.close-all:hover:no
   color: var(--primary-color);
 }
 
-.reason-badge.manual {
+.reason-badge.manual,
+.reason-badge.settlement {
   background-color: var(--surface-container-highest);
   color: var(--on-surface-variant);
 }

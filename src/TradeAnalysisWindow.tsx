@@ -20,6 +20,7 @@ import {
   convertServerStrToJstStr as convertServerToJstStr,
   convertJstStrToServerStr
 } from "./utils/timeUtils";
+import { formatRate } from "./utils/rateUtils";
 
 // Chart.js のコンポーネント登録
 Chart.register(
@@ -967,9 +968,9 @@ export const TradeAnalysisWindowContent: React.FC = () => {
         h.ticket,
         h.type,
         h.volume.toFixed(2),
-        h.open_price.toFixed(5),
+        h.open_price ? formatRate(h.open_price, h.symbol) : "-",
         convertServerToJstStr(h.open_time),
-        h.close_price.toFixed(5),
+        h.close_price ? formatRate(h.close_price, h.symbol) : "-",
         convertServerToJstStr(h.close_time),
         h.durationSec.toFixed(1),
         h.profit.toFixed(0),
@@ -1457,21 +1458,21 @@ export const TradeAnalysisWindowContent: React.FC = () => {
               <div style={{ flex: 1, overflowY: "auto", overflowX: "auto" }}>
                 <table className="dashboard-table clickable-rows" style={{ fontSize: "11px", width: "100%", tableLayout: "auto" }}>
                   <thead style={{ position: "sticky", top: 0, backgroundColor: "var(--surface-container-high)", zIndex: 1 }}>
-                    <tr>
-                      <th onClick={() => requestSort("ticket")} style={{ cursor: "pointer" }}>Ticket</th>
-                      <th onClick={() => requestSort("type")} style={{ cursor: "pointer" }}>Side</th>
-                      <th onClick={() => requestSort("volume")} style={{ cursor: "pointer" }}>Lots</th>
-                      <th onClick={() => requestSort("open_price")} style={{ cursor: "pointer" }}>Entry Price</th>
-                      <th onClick={() => requestSort("close_price")} style={{ cursor: "pointer" }}>Exit Price</th>
-                      <th onClick={() => requestSort("close_time_msc")} style={{ cursor: "pointer" }}>Close Time (Server)</th>
-                      <th onClick={() => requestSort("durationSec")} style={{ cursor: "pointer" }}>保有時間</th>
-                      <th onClick={() => requestSort("spread_entry")} style={{ cursor: "pointer" }}>スプレッド</th>
-                      <th onClick={() => requestSort("mfe_pips")} style={{ cursor: "pointer" }}>MFE (pips)</th>
-                      <th onClick={() => requestSort("mae_pips")} style={{ cursor: "pointer" }}>MAE (pips)</th>
-                      <th onClick={() => requestSort("volatility")} style={{ cursor: "pointer" }}>直近ボラ</th>
-                      <th onClick={() => requestSort("volume_60s")} style={{ cursor: "pointer" }}>直近出来高</th>
-                      <th onClick={() => requestSort("entryInterval")} style={{ cursor: "pointer" }}>前回間隔</th>
-                      <th onClick={() => requestSort("profit")} style={{ cursor: "pointer" }}>Profit (JPY)</th>
+                    <tr style={{ whiteSpace: "nowrap" }}>
+                      <th onClick={() => requestSort("ticket")} style={{ cursor: "pointer" }} title="Ticket Number [クリックでソート]">Ticket</th>
+                      <th onClick={() => requestSort("type")} style={{ cursor: "pointer" }} title="Order Side (BUY/SELL) [クリックでソート]">Side</th>
+                      <th onClick={() => requestSort("volume")} style={{ cursor: "pointer" }} title="Volume (Lots) [クリックでソート]">Lots</th>
+                      <th onClick={() => requestSort("open_price")} style={{ cursor: "pointer" }} title="Entry Price (新規価格) [クリックでソート]">Entry</th>
+                      <th onClick={() => requestSort("close_price")} style={{ cursor: "pointer" }} title="Exit Price (決済価格) [クリックでソート]">Exit</th>
+                      <th onClick={() => requestSort("close_time_msc")} style={{ cursor: "pointer" }} title="Close Time (Server) (約定日時) [クリックでソート]">Time</th>
+                      <th onClick={() => requestSort("durationSec")} style={{ cursor: "pointer" }} title="Holding Duration (ポジション保有時間) [クリックでソート]">保有</th>
+                      <th onClick={() => requestSort("spread_entry")} style={{ cursor: "pointer" }} title="Spread at Entry (エントリー時スプレッド pips) [クリックでソート]">スプレッド</th>
+                      <th onClick={() => requestSort("mfe_pips")} style={{ cursor: "pointer" }} title="Maximum Favorable Excursion (含み益最大値 pips) [クリックでソート]">MFE</th>
+                      <th onClick={() => requestSort("mae_pips")} style={{ cursor: "pointer" }} title="Maximum Adverse Excursion (含み損最大値 pips) [クリックでソート]">MAE</th>
+                      <th onClick={() => requestSort("volatility")} style={{ cursor: "pointer" }} title="Volatility (直近ボラティリティ pips) [クリックでソート]">ボラ</th>
+                      <th onClick={() => requestSort("volume_60s")} style={{ cursor: "pointer" }} title="Volume 60s (直近60秒出来高) [クリックでソート]">出来高</th>
+                      <th onClick={() => requestSort("entryInterval")} style={{ cursor: "pointer" }} title="Entry Interval (前回決済からの経過時間) [クリックでソート]">間隔</th>
+                      <th onClick={() => requestSort("profit")} style={{ cursor: "pointer" }} title="Profit / Loss (損益 JPY) [クリックでソート]">Profit</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1494,8 +1495,8 @@ export const TradeAnalysisWindowContent: React.FC = () => {
                             <span className={`type-badge ${h.type.toLowerCase()}`}>{h.type}</span>
                           </td>
                           <td className="font-data">{h.volume.toFixed(2)}</td>
-                          <td className="font-data">{h.open_price.toFixed(5)}</td>
-                          <td className="font-data">{h.close_price.toFixed(5)}</td>
+                          <td className="font-data">{formatRate(h.open_price, h.symbol)}</td>
+                          <td className="font-data">{formatRate(h.close_price, h.symbol)}</td>
                           <td className="font-data" style={{ fontSize: "10px" }}>{h.close_time}</td>
                           <td className="font-data" style={{ fontSize: "10px" }}>{formatHoldingTime(h.durationSec * 1000)}</td>
                           <td className="font-data">{h.spread_entry.toFixed(1)}</td>
@@ -1569,7 +1570,7 @@ export const TradeAnalysisWindowContent: React.FC = () => {
                 <div style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "10px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
                     <span>Entry Price:</span>
-                    <strong className="font-data">{selectedTrade.open_price.toFixed(5)}</strong>
+                    <strong className="font-data">{formatRate(selectedTrade.open_price, selectedTrade.symbol)}</strong>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
                     <span>Entry Time (JST):</span>
@@ -1577,7 +1578,7 @@ export const TradeAnalysisWindowContent: React.FC = () => {
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", marginTop: "4px", paddingTop: "4px", borderTop: "1px dashed rgba(255,255,255,0.05)" }}>
                     <span>Exit Price:</span>
-                    <strong className="font-data">{selectedTrade.close_price.toFixed(5)}</strong>
+                    <strong className="font-data">{formatRate(selectedTrade.close_price, selectedTrade.symbol)}</strong>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
                     <span>Exit Time (JST):</span>

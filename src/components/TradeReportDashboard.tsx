@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { convertServerStrToJstStr as convertServerToJstStr } from "../utils/timeUtils";
+import { formatRate, getReasonDisplayLabel, getReasonTooltip } from "../utils/rateUtils";
 import { calculateTradeStats } from "../domain/tradeStatistics";
 
 interface TradeReportDashboardProps {
@@ -180,15 +181,15 @@ export const TradeReportDashboard: React.FC<TradeReportDashboardProps> = ({
               <table className="dashboard-table">
                 <thead>
                   <tr>
-                    <th>Ticket</th>
-                    <th>Type</th>
-                    <th>Lots</th>
-                    <th>Open Price</th>
-                    <th>SL</th>
-                    <th>TP</th>
-                    <th>Current</th>
-                    <th>Profit</th>
-                    <th style={{ textAlign: "center" }}>Action</th>
+                    <th title="Ticket Number">Ticket</th>
+                    <th title="Order Type (BUY/SELL)">Type</th>
+                    <th title="Volume (Lots)">Lots</th>
+                    <th title="Open Price (新規価格)">Open</th>
+                    <th title="Stop Loss (損切り価格)">SL</th>
+                    <th title="Take Profit (利確価格)">TP</th>
+                    <th title="Current Price (現在価格)">Current</th>
+                    <th title="Profit / Loss (損益)">Profit</th>
+                    <th style={{ textAlign: "center" }} title="Close Position Action">Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -199,15 +200,15 @@ export const TradeReportDashboard: React.FC<TradeReportDashboardProps> = ({
                         <span className={`type-badge ${p.type.toLowerCase()}`}>{p.type}</span>
                       </td>
                       <td className="font-data">{p.volume.toFixed(2)}</td>
-                      <td className="font-data">{p.open_price.toFixed(5)}</td>
-                      <td className="font-data">{p.sl > 0 ? p.sl.toFixed(5) : "-"}</td>
-                      <td className="font-data">{p.tp > 0 ? p.tp.toFixed(5) : "-"}</td>
-                      <td className="font-data">{p.current_price.toFixed(5)}</td>
+                      <td className="font-data">{formatRate(p.open_price, p.symbol)}</td>
+                      <td className="font-data">{formatRate(p.sl, p.symbol)}</td>
+                      <td className="font-data">{formatRate(p.tp, p.symbol)}</td>
+                      <td className="font-data">{formatRate(p.current_price, p.symbol)}</td>
                       <td className="font-data">{formatPL(p.profit)}</td>
                       <td style={{ textAlign: "center" }}>
                         <button
                           className="pro-btn danger"
-                          style={{ padding: "2px 8px", fontSize: "10px" }}
+                          style={{ padding: "1px 6px", fontSize: "9.5px" }}
                           onClick={() => handleClosePosition(p.ticket, p.volume)}
                         >
                           決済
@@ -259,19 +260,19 @@ export const TradeReportDashboard: React.FC<TradeReportDashboardProps> = ({
           </div>
           <div className="pro-panel-body" style={{ padding: 0 }}>
             <div className="dashboard-table-wrapper">
-              <table className="dashboard-table clickable-rows">
+              <table className="dashboard-table">
                 <thead>
                   <tr>
-                    <th>Ticket</th>
-                    <th>Type</th>
-                    <th>Lots</th>
-                    <th>Open Price</th>
-                    <th>Close Price</th>
-                    <th>Close Time (Server)</th>
-                    <th>保有時間</th>
-                    <th>Profit</th>
-                    <th>Reason</th>
-                    <th style={{ textAlign: "center" }}>Seek</th>
+                    <th title="Ticket Number">Ticket</th>
+                    <th title="Order Type (BUY/SELL)">Type</th>
+                    <th title="Volume (Lots)">Lots</th>
+                    <th title="Open Price (新規価格)">Open</th>
+                    <th title="Close Price (決済価格)">Close</th>
+                    <th title="Close Time (Server) (約定日時)">Time</th>
+                    <th title="Holding Time (ポジション保有時間)">保有</th>
+                    <th title="Profit / Loss (損益)">Profit</th>
+                    <th title="Close Reason (決済理由)">理由</th>
+                    <th style={{ textAlign: "center" }} title="Seek to Execution Time (該当時間へジャンプ)">Seek</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -317,24 +318,32 @@ export const TradeReportDashboard: React.FC<TradeReportDashboardProps> = ({
                     }
 
                     return (
-                      <tr key={h.ticket} onClick={() => handleRowClick(h.close_time)} title="クリックしてこの約定時間へジャンプ">
+                      <tr key={h.ticket}>
                         <td className="font-data">{h.ticket}</td>
                         <td>
                           <span className={`type-badge ${h.type.toLowerCase()}`}>{h.type}</span>
                         </td>
                         <td className="font-data">{h.volume.toFixed(2)}</td>
-                        <td className="font-data">{h.open_price.toFixed(5)}</td>
-                        <td className="font-data">{h.close_price.toFixed(5)}</td>
-                        <td className="font-data" style={{ fontSize: "10px" }}>{h.close_time}</td>
-                        <td className="font-data" style={{ fontSize: "10px", color: "var(--on-surface-variant)" }}>{holdingTimeStr}</td>
+                        <td className="font-data">{formatRate(h.open_price, h.symbol)}</td>
+                        <td className="font-data">{formatRate(h.close_price, h.symbol)}</td>
+                        <td className="font-data" style={{ fontSize: "10.5px" }}>{h.close_time}</td>
+                        <td className="font-data" style={{ fontSize: "10.5px", color: "var(--on-surface-variant)" }}>{holdingTimeStr}</td>
                         <td className="font-data">{formatPL(h.profit)}</td>
                         <td>
-                          <span className={`reason-badge ${h.close_reason.toLowerCase()}`}>
-                            {h.close_reason}
+                          <span
+                            className={`reason-badge ${h.close_reason.toLowerCase()}`}
+                            title={getReasonTooltip(h.close_reason)}
+                          >
+                            {getReasonDisplayLabel(h.close_reason)}
                           </span>
                         </td>
-                        <td style={{ textAlign: "center" }}>
-                          <span className="material-symbols-outlined text-[14px] text-accent">location_searching</span>
+                        <td
+                          className="seek-cell"
+                          style={{ textAlign: "center", cursor: "pointer" }}
+                          onClick={() => handleRowClick(h.close_time)}
+                          title="クリックしてこの約定時間へジャンプ"
+                        >
+                          <span className="material-symbols-outlined text-[13px] text-accent" style={{ verticalAlign: "middle" }}>location_searching</span>
                         </td>
                       </tr>
                     );
