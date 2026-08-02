@@ -4417,30 +4417,35 @@ function App() {
                 className={`modal-tab-btn ${activeTab === "general" ? "active" : ""}`}
                 onClick={() => setActiveTab("general")}
               >
+                <span className="material-symbols-outlined tab-icon">tune</span>
                 General
               </button>
               <button
                 className={`modal-tab-btn ${activeTab === "hotkeys" ? "active" : ""}`}
                 onClick={() => setActiveTab("hotkeys")}
               >
+                <span className="material-symbols-outlined tab-icon">keyboard</span>
                 Hotkeys
               </button>
               <button
                 className={`modal-tab-btn ${activeTab === "news" ? "active" : ""}`}
                 onClick={() => setActiveTab("news")}
               >
+                <span className="material-symbols-outlined tab-icon">newspaper</span>
                 News
               </button>
               <button
                 className={`modal-tab-btn ${activeTab === "theme" ? "active" : ""}`}
                 onClick={() => setActiveTab("theme")}
               >
+                <span className="material-symbols-outlined tab-icon">palette</span>
                 Theme
               </button>
               <button
                 className={`modal-tab-btn ${activeTab === "ai" ? "active" : ""}`}
                 onClick={() => setActiveTab("ai")}
               >
+                <span className="material-symbols-outlined tab-icon">auto_awesome</span>
                 AI & Analysis
               </button>
             </div>
