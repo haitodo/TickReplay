@@ -3871,9 +3871,8 @@ function App() {
               {/* Timeline Panel */}
               <div className="pro-panel timeline-panel">
                 <div className="pro-panel-header">
-                  <h3 className="pro-panel-title">
+                  <h3 className="pro-panel-title" title="Market Timeline Overview" style={{ cursor: "pointer" }}>
                     <span className="material-symbols-outlined icon-accent">timeline</span>
-                    Market Timeline Overview
                   </h3>
                   <div className="timeline-header-info">
                     <span className="timeline-meta-tick">
@@ -3956,9 +3955,8 @@ function App() {
                   {/* Transport Panel */}
                   <div className="pro-panel">
                     <div className="pro-panel-header" style={{ padding: "4px 8px 4px 12px", minWidth: 0, gap: "8px" }}>
-                      <h3 className="pro-panel-title" style={{ flexShrink: 0 }}>
+                      <h3 className="pro-panel-title" title="Transport" style={{ flexShrink: 0, cursor: "pointer" }}>
                         <span className="material-symbols-outlined icon-accent">play_circle</span>
-                        Transport
                       </h3>
 
                       {/* Presets Pills Inline (Header Move) */}
@@ -4141,9 +4139,8 @@ function App() {
                   {/* Navigation Matrix Panel */}
                   <div className="pro-panel" style={{ flex: 1, minWidth: 0 }}>
                     <div className="pro-panel-header" style={{ padding: "6px 8px", minWidth: 0, gap: "6px" }}>
-                      <h3 className="pro-panel-title" style={{ minWidth: 0, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
+                      <h3 className="pro-panel-title" title="Navigation Matrix" style={{ flexShrink: 0, cursor: "pointer" }}>
                         <span className="material-symbols-outlined icon-accent">grid_view</span>
-                        Navigation Matrix
                       </h3>
                       <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
                         <button
@@ -4247,9 +4244,8 @@ function App() {
                 <div className="col-right">
                   <div className="pro-panel" style={{ flex: 1 }}>
                     <div className="pro-panel-header">
-                      <h3 className="pro-panel-title">
+                      <h3 className="pro-panel-title" title="News Impact List" style={{ cursor: "pointer" }}>
                         <span className="material-symbols-outlined icon-accent">monitoring</span>
-                        News Impact List
                       </h3>
                       <span className="font-data" style={{ fontSize: "9px", color: "var(--primary-color)", backgroundColor: "rgba(var(--primary-rgb), 0.1)", padding: "2px 6px", borderRadius: "2px" }}>
                         SYNCED
