@@ -1530,6 +1530,49 @@ html[data-theme="light"][data-order-color-style="red-green"] .type-badge.sell {
   transform: scale(1.1);
 }
 
+/* 経済指標リストの表示位置リセット（未到達指標への追従）ボタン */
+.news-scroll-reset-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(var(--primary-rgb), 0.12);
+  border: 1px solid rgba(var(--primary-rgb), 0.3);
+  color: var(--primary-color);
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  user-select: none;
+}
+
+.news-scroll-reset-btn:hover:not(:disabled) {
+  background: rgba(var(--primary-rgb), 0.22);
+  border-color: var(--primary-color);
+  transform: translateY(-1px);
+}
+
+.news-scroll-reset-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.news-scroll-reset-btn:disabled {
+  opacity: 0.45;
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--on-surface-variant);
+  cursor: default;
+  transform: none;
+  box-shadow: none;
+}
+
+
+.news-scroll-reset-btn:active {
+  transform: translateY(0);
+}
+
+
 /* News Settings Panel */
 .news-settings-container {
   display: flex;

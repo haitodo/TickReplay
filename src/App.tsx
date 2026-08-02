@@ -246,6 +246,7 @@ function App() {
   const [maxHistoryBars, setMaxHistoryBars] = useState(300);
   const [autoScrollSync, setAutoScrollSync] = useState(true);
   const [newsAutoScroll, setNewsAutoScroll] = useState(true);
+  const [isNewsScrolledToTarget, setIsNewsScrolledToTarget] = useState(true);
   const [autoSkipWeekend, setAutoSkipWeekend] = useState(true);
   const [preloadMode, setPreloadMode] = useState<"BARS" | "DATE">("BARS");
   const [preloadDate, setPreloadDate] = useState("2026-01-01 00:00:00");
@@ -2500,77 +2501,108 @@ function App() {
     }
   }, [newsAutoScroll]);
 
-  useEffect(() => {
-    if (!newsAutoScroll || filteredDailyNews.length === 0) return;
+  // これから発生する最初の「未到達の経済指標」のインデックスを取得
+  const getUpcomingNewsTargetIdx = useCallback(() => {
+    if (filteredDailyNews.length === 0) return -1;
 
     const currentCompareMsc = timezoneMode === "JST"
       ? virtualTimeMsc + getServerToJstOffsetHours(virtualTimeMsc) * 3600 * 1000
       : virtualTimeMsc;
 
-    // 1. アクティブな指標（バーチャルタイムに最も近い、前後15分以内）を検索
+    // 1. これから発生する最初の未到達指標（eventMsc > currentCompareMsc）をターゲットにする
     let targetIdx = -1;
-    let minDiff = Infinity;
     for (let i = 0; i < filteredDailyNews.length; i++) {
       const item = filteredDailyNews[i];
       const displayTimeStr = getDisplayNewsTimeStr(item);
       const eventMsc = parseTimeStrToUtcMs(displayTimeStr);
-      if (isNaN(eventMsc)) continue;
-
-      const isActive = Math.abs(currentCompareMsc - eventMsc) <= 15 * 60 * 1000;
-      if (isActive) {
-        const diff = Math.abs(currentCompareMsc - eventMsc);
-        if (diff < minDiff) {
-          minDiff = diff;
-          targetIdx = i;
-        }
+      if (!isNaN(eventMsc) && eventMsc > currentCompareMsc) {
+        targetIdx = i;
+        break;
       }
     }
 
-    // 2. アクティブな指標がない場合、これから発生する最初の指標をターゲットにする
-    if (targetIdx === -1) {
-      for (let i = 0; i < filteredDailyNews.length; i++) {
-        const item = filteredDailyNews[i];
-        const displayTimeStr = getDisplayNewsTimeStr(item);
-        const eventMsc = parseTimeStrToUtcMs(displayTimeStr);
-        if (!isNaN(eventMsc) && eventMsc > currentCompareMsc) {
-          targetIdx = i;
-          break;
-        }
-      }
-    }
-
-    // 3. すべて過去の指標である場合、最後の指標をターゲットにする
+    // 2. すべて過去の指標である場合のみ、最後の指標をターゲットにする
     if (targetIdx === -1 && filteredDailyNews.length > 0) {
       targetIdx = filteredDailyNews.length - 1;
     }
 
-    if (targetIdx !== -1) {
-      const targetItem = filteredDailyNews[targetIdx];
-      const targetKey = `${targetItem.time}_${targetItem.event}`;
+    return targetIdx;
+  }, [filteredDailyNews, timezoneMode, virtualTimeMsc, getDisplayNewsTimeStr]);
 
-      // ターゲットの指標が変更された場合のみスクロール処理を実行
-      if (lastScrolledEventKeyRef.current !== targetKey) {
-        lastScrolledEventKeyRef.current = targetKey;
-        const container = newsContainerRef.current;
-        if (container) {
-          const rows = container.querySelectorAll("tbody tr");
-          const targetRow = rows[targetIdx] as HTMLElement;
-          if (targetRow) {
-            const containerRect = container.getBoundingClientRect();
-            const rowRect = targetRow.getBoundingClientRect();
-            const relativeOffsetTop = rowRect.top - containerRect.top + container.scrollTop;
-            const containerHeight = container.clientHeight;
-            const rowHeight = targetRow.clientHeight;
 
-            container.scrollTo({
-              top: relativeOffsetTop - containerHeight / 2 + rowHeight / 2,
-              behavior: "smooth",
-            });
-          }
+  // 手動スクロール検知ハンドラー
+  const handleNewsContainerScroll = useCallback(() => {
+    const container = newsContainerRef.current;
+    if (!container || filteredDailyNews.length === 0) return;
+    const targetIdx = getUpcomingNewsTargetIdx();
+    if (targetIdx === -1) return;
+
+    const rows = container.querySelectorAll("tbody tr");
+    const targetRow = rows[targetIdx] as HTMLElement;
+    if (!targetRow) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const rowRect = targetRow.getBoundingClientRect();
+    const relativeOffsetTop = rowRect.top - containerRect.top + container.scrollTop;
+    const rowHeight = targetRow.clientHeight || 28;
+
+    // ターゲット指標がコンテナの上から3行目付近に位置する目標スクロールTop
+    const expectedTop = Math.max(0, relativeOffsetTop - rowHeight * 2);
+
+    const isAligned = Math.abs(container.scrollTop - expectedTop) <= 25;
+    setIsNewsScrolledToTarget(isAligned);
+  }, [filteredDailyNews, getUpcomingNewsTargetIdx]);
+
+  // 指定インデックスの経済指標行へスムーズスクロール（上から3行目に配置）
+  const scrollToNewsRowByIndex = useCallback((targetIdx: number, force: boolean = false) => {
+    if (targetIdx < 0 || targetIdx >= filteredDailyNews.length) return;
+    const targetItem = filteredDailyNews[targetIdx];
+    const targetKey = `${targetItem.time}_${targetItem.event}`;
+
+    if (force || lastScrolledEventKeyRef.current !== targetKey) {
+      lastScrolledEventKeyRef.current = targetKey;
+      const container = newsContainerRef.current;
+      if (container) {
+        const rows = container.querySelectorAll("tbody tr");
+        const targetRow = rows[targetIdx] as HTMLElement;
+        if (targetRow) {
+          const containerRect = container.getBoundingClientRect();
+          const rowRect = targetRow.getBoundingClientRect();
+          const relativeOffsetTop = rowRect.top - containerRect.top + container.scrollTop;
+          const rowHeight = targetRow.clientHeight || 28;
+
+          // ターゲット指標がコンテナの上から3行目付近に来るようにスクロール
+          const targetTop = Math.max(0, relativeOffsetTop - rowHeight * 2);
+
+          container.scrollTo({
+            top: targetTop,
+            behavior: "smooth",
+          });
+          setIsNewsScrolledToTarget(true);
         }
       }
     }
-  }, [virtualTimeMsc, filteredDailyNews, newsAutoScroll]);
+  }, [filteredDailyNews]);
+
+
+  // ヘッダーの「次の指標へ」ボタン操作ハンドラー
+  const handleScrollToNextUpcomingNews = () => {
+    const targetIdx = getUpcomingNewsTargetIdx();
+    if (targetIdx !== -1) {
+      scrollToNewsRowByIndex(targetIdx, true);
+      setIsNewsScrolledToTarget(true);
+    }
+  };
+
+  useEffect(() => {
+    if (!newsAutoScroll || filteredDailyNews.length === 0) return;
+    const targetIdx = getUpcomingNewsTargetIdx();
+    if (targetIdx !== -1) {
+      scrollToNewsRowByIndex(targetIdx, false);
+    }
+  }, [virtualTimeMsc, filteredDailyNews, newsAutoScroll, getUpcomingNewsTargetIdx, scrollToNewsRowByIndex]);
+
+
 
   // --- 6. レンダリング
 
@@ -4245,16 +4277,32 @@ function App() {
                 {/* Right Column: Economic Impact Calendar */}
                 <div className="col-right">
                   <div className="pro-panel" style={{ flex: 1 }}>
-                    <div className="pro-panel-header">
+                    <div className="pro-panel-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <h3 className="pro-panel-title" title="経済指標リスト" style={{ cursor: "pointer" }}>
                         <span className="material-symbols-outlined icon-accent">monitoring</span>
+                        <span>経済指標</span>
                       </h3>
-                      <span className="font-data" style={{ fontSize: "9px", color: "var(--primary-color)", backgroundColor: "rgba(var(--primary-rgb), 0.1)", padding: "2px 6px", borderRadius: "2px" }}>
-                        同期中
-                      </span>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <button
+                          className="news-scroll-reset-btn"
+                          onClick={handleScrollToNextUpcomingNews}
+                          disabled={isNewsScrolledToTarget}
+                          title={isNewsScrolledToTarget ? "既に次の未到達指標（追従位置）に固定されています" : "クリックして次の未到達指標の位置へ戻し、追従を復帰します"}
+                        >
+                          <span className="material-symbols-outlined text-[13px]">
+                            {isNewsScrolledToTarget ? "check" : "my_location"}
+                          </span>
+                          <span>{isNewsScrolledToTarget ? "追従中" : "次の指標へ"}</span>
+                        </button>
+                        {newsAutoScroll && (
+                          <span className="font-data" style={{ fontSize: "9px", color: "var(--primary-color)", backgroundColor: "rgba(var(--primary-rgb), 0.1)", padding: "2px 6px", borderRadius: "2px" }}>
+                            同期中
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="pro-panel-body" style={{ flex: 1 }}>
-                      <div ref={newsContainerRef} className="news-table-container">
+                      <div ref={newsContainerRef} className="news-table-container" onScroll={handleNewsContainerScroll}>
                         <table className="news-table">
                           <thead>
                             <tr>
