@@ -37,8 +37,8 @@ pub fn set_remote_mode(is_remote: bool, always_on_top: bool, window: tauri::Wind
         window.set_decorations(true)?;
         window.set_resizable(true)?;
         window.set_size(tauri::Size::Logical(tauri::LogicalSize {
-            width: 600.0,
-            height: 660.0,
+            width: 520.0,
+            height: 600.0,
         }))?;
         window.center()?;
         window.set_always_on_top(always_on_top)?;

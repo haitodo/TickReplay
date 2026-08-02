@@ -86,8 +86,8 @@ pub fn run() {
             // 画面中央に配置したのち表示（show）する。
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
-                    width: 600.0,
-                    height: 660.0,
+                    width: 520.0,
+                    height: 600.0,
                 }));
                 let _ = window.center();
                 let _ = window.show();
