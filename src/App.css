@@ -3584,7 +3584,9 @@ html[data-glass-effect="true"] .remote-btn-time,
 html[data-glass-effect="true"] .remote-btn-playback,
 html[data-glass-effect="true"] .remote-speed-btn,
 html[data-glass-effect="true"] .remote-btn-utility,
-html[data-glass-effect="true"] .session-btn {
+html[data-glass-effect="true"] .session-btn,
+html[data-glass-effect="true"] .preset-pill-btn,
+html[data-glass-effect="true"] .toggle-btn {
   background: linear-gradient(180deg, #30333d 0%, #1f2128 100%) !important;
   border: 1px solid #444855 !important;
   border-top: 1px solid #575c6e !important;
@@ -3603,7 +3605,9 @@ html[data-glass-effect="true"] .remote-btn-time:hover,
 html[data-glass-effect="true"] .remote-btn-playback:hover,
 html[data-glass-effect="true"] .remote-speed-btn:hover,
 html[data-glass-effect="true"] .remote-btn-utility:hover,
-html[data-glass-effect="true"] .session-btn:hover {
+html[data-glass-effect="true"] .session-btn:hover,
+html[data-glass-effect="true"] .preset-pill-btn:hover,
+html[data-glass-effect="true"] .toggle-btn:hover {
   background: linear-gradient(180deg, #3b3f4c 0%, #262831 100%) !important;
   border-color: #515668 !important;
   border-top-color: #696f86 !important;
@@ -3618,11 +3622,101 @@ html[data-glass-effect="true"] .remote-btn-time:active,
 html[data-glass-effect="true"] .remote-btn-playback:active,
 html[data-glass-effect="true"] .remote-speed-btn:active,
 html[data-glass-effect="true"] .remote-btn-utility:active,
-html[data-glass-effect="true"] .session-btn:active {
+html[data-glass-effect="true"] .session-btn:active,
+html[data-glass-effect="true"] .preset-pill-btn:active,
+html[data-glass-effect="true"] .toggle-btn:active {
   background: #121319 !important;
   border-color: #20222a !important;
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.6) !important;
   transform: translateY(1px);
+}
+
+/* Transport & Navigation Matrix specific Active / Card Glass Styling */
+html[data-glass-effect="true"] .preset-pill-btn.active {
+  background: linear-gradient(180deg, var(--primary-light) 0%, var(--primary-color) 100%) !important;
+  border: 1px solid var(--primary-border) !important;
+  border-top: 1px solid var(--primary-light) !important;
+  border-left: 1px solid var(--primary-light) !important;
+  box-shadow:
+    0 2px 8px rgba(var(--primary-rgb), 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    inset 1px 0 0 rgba(255, 255, 255, 0.2) !important;
+  color: #0D0F14 !important;
+  font-weight: 700;
+}
+
+html[data-glass-effect="true"] .toggle-btn.active {
+  background: linear-gradient(180deg, rgba(var(--primary-rgb), 0.25) 0%, rgba(var(--primary-rgb), 0.12) 100%) !important;
+  border: 1px solid var(--primary-color) !important;
+  border-top: 1px solid var(--primary-light) !important;
+  color: var(--primary-color) !important;
+  box-shadow:
+    0 0 10px rgba(var(--primary-rgb), 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+}
+
+/* Speed Precision Stepper Glass Simulation */
+html[data-glass-effect="true"] .speed-precision-stepper {
+  background: linear-gradient(180deg, #252830 0%, #16181e 100%) !important;
+  border: 1px solid #3d4251 !important;
+  border-top: 1px solid #4f5466 !important;
+  border-left: 1px solid #434857 !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 1px 0 0 rgba(255, 255, 255, 0.06),
+    0 2px 4px rgba(0, 0, 0, 0.4) !important;
+}
+
+html[data-glass-effect="true"] .stepper-btn:hover {
+  background: rgba(255, 255, 255, 0.15) !important;
+  color: var(--primary-color) !important;
+}
+
+html[data-glass-effect="true"] .stepper-btn:active {
+  background: rgba(0, 0, 0, 0.3) !important;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5) !important;
+}
+
+html[data-glass-effect="true"] .stepper-display {
+  background: rgba(9, 10, 13, 0.75) !important;
+  border-left-color: #2d313c !important;
+  border-right-color: #2d313c !important;
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.6) !important;
+}
+
+/* Session & Time Step Cards Glass Simulation */
+html[data-glass-effect="true"] .session-stepper-card,
+html[data-glass-effect="true"] .time-step-card {
+  background: linear-gradient(180deg, #2a2d36 0%, #1a1c23 100%) !important;
+  border: 1px solid #3d4251 !important;
+  border-top: 1px solid #505567 !important;
+  border-left: 1px solid #454a5a !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 1px 0 0 rgba(255, 255, 255, 0.06),
+    0 2px 4px rgba(0, 0, 0, 0.4) !important;
+}
+
+html[data-glass-effect="true"] .session-stepper-card.tyo {
+  border-left: 2px solid var(--session-tyo) !important;
+}
+
+html[data-glass-effect="true"] .session-stepper-card.ldn {
+  border-left: 2px solid var(--session-ldn) !important;
+}
+
+html[data-glass-effect="true"] .session-stepper-card.ny {
+  border-left: 2px solid var(--session-ny) !important;
+}
+
+html[data-glass-effect="true"] .session-stepper-btn:hover,
+html[data-glass-effect="true"] .time-step-btn:hover {
+  background-color: rgba(255, 255, 255, 0.12) !important;
+  color: #ffffff !important;
+}
+
+html[data-glass-effect="true"] .session-pill:hover {
+  background-color: rgba(255, 255, 255, 0.06) !important;
 }
 
 /* Primary accented buttons / play buttons (Opaque Glowing Glass) */
@@ -4226,7 +4320,9 @@ html[data-theme="light"][data-glass-effect="true"] .remote-btn-time,
 html[data-theme="light"][data-glass-effect="true"] .remote-btn-playback,
 html[data-theme="light"][data-glass-effect="true"] .remote-speed-btn,
 html[data-theme="light"][data-glass-effect="true"] .remote-btn-utility,
-html[data-theme="light"][data-glass-effect="true"] .session-btn {
+html[data-theme="light"][data-glass-effect="true"] .session-btn,
+html[data-theme="light"][data-glass-effect="true"] .preset-pill-btn,
+html[data-theme="light"][data-glass-effect="true"] .toggle-btn {
   background: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%) !important;
   border: 1px solid #cbd5e1 !important;
   border-top: 1px solid #ffffff !important;
@@ -4244,7 +4340,9 @@ html[data-theme="light"][data-glass-effect="true"] .remote-btn-time:hover,
 html[data-theme="light"][data-glass-effect="true"] .remote-btn-playback:hover,
 html[data-theme="light"][data-glass-effect="true"] .remote-speed-btn:hover,
 html[data-theme="light"][data-glass-effect="true"] .remote-btn-utility:hover,
-html[data-theme="light"][data-glass-effect="true"] .session-btn:hover {
+html[data-theme="light"][data-glass-effect="true"] .session-btn:hover,
+html[data-theme="light"][data-glass-effect="true"] .preset-pill-btn:hover,
+html[data-theme="light"][data-glass-effect="true"] .toggle-btn:hover {
   background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%) !important;
   border-color: #cbd5e1 !important;
   color: #000000 !important;
@@ -4257,10 +4355,68 @@ html[data-theme="light"][data-glass-effect="true"] .remote-btn-time:active,
 html[data-theme="light"][data-glass-effect="true"] .remote-btn-playback:active,
 html[data-theme="light"][data-glass-effect="true"] .remote-speed-btn:active,
 html[data-theme="light"][data-glass-effect="true"] .remote-btn-utility:active,
-html[data-theme="light"][data-glass-effect="true"] .session-btn:active {
+html[data-theme="light"][data-glass-effect="true"] .session-btn:active,
+html[data-theme="light"][data-glass-effect="true"] .preset-pill-btn:active,
+html[data-theme="light"][data-glass-effect="true"] .toggle-btn:active {
   background: #e2e8f0 !important;
   border-color: #cbd5e1 !important;
   box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.08) !important;
+}
+
+html[data-theme="light"][data-glass-effect="true"] .preset-pill-btn.active {
+  background: linear-gradient(180deg, var(--primary-light) 0%, var(--primary-color) 100%) !important;
+  border: 1px solid var(--primary-border) !important;
+  border-top: 1px solid var(--primary-light) !important;
+  border-left: 1px solid var(--primary-light) !important;
+  color: #ffffff !important;
+  box-shadow:
+    0 2px 6px rgba(var(--primary-rgb), 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
+}
+
+html[data-theme="light"][data-glass-effect="true"] .toggle-btn.active {
+  background: rgba(var(--primary-rgb), 0.12) !important;
+  border: 1px solid var(--primary-color) !important;
+  color: var(--primary-color) !important;
+  box-shadow:
+    0 0 6px rgba(var(--primary-rgb), 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5) !important;
+}
+
+html[data-theme="light"][data-glass-effect="true"] .speed-precision-stepper {
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%) !important;
+  border: 1px solid #cbd5e1 !important;
+  border-top: 1px solid #ffffff !important;
+  border-left: 1px solid #ffffff !important;
+  box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+}
+
+html[data-theme="light"][data-glass-effect="true"] .stepper-display {
+  background: #f1f5f9 !important;
+  border-left-color: #cbd5e1 !important;
+  border-right-color: #cbd5e1 !important;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.06) !important;
+}
+
+html[data-theme="light"][data-glass-effect="true"] .session-stepper-card,
+html[data-theme="light"][data-glass-effect="true"] .time-step-card {
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%) !important;
+  border: 1px solid #cbd5e1 !important;
+  border-top: 1px solid #ffffff !important;
+  border-left: 1px solid #ffffff !important;
+  box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+}
+
+html[data-theme="light"][data-glass-effect="true"] .session-stepper-card.tyo {
+  border-left: 2px solid var(--session-tyo) !important;
+}
+
+html[data-theme="light"][data-glass-effect="true"] .session-stepper-card.ldn {
+  border-left: 2px solid var(--session-ldn) !important;
+}
+
+html[data-theme="light"][data-glass-effect="true"] .session-stepper-card.ny {
+  border-left: 2px solid var(--session-ny) !important;
 }
 
 /* Light Glass Theme Primary (Call to Action) Buttons override to prevent white-on-white text */
