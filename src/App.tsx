@@ -2787,14 +2787,11 @@ function App() {
       {/* Top Navbar */}
       <nav className="top-navbar">
         <div className="nav-brand">
-          <div className="connection-status">
+          <div 
+            className="connection-status" 
+            title={`Status: ${status === "DISCONNECTED" ? "Disconnected (未接続)" : status === "CONNECTED" ? "Connected (接続完了)" : status === "READY" ? "Ready (準備完了)" : "Active (動作中)"}`}
+          >
             <span className={`status-dot ${status.toLowerCase()}`}></span>
-            <span className="status-text">
-              {status === "DISCONNECTED" && "Disconnected"}
-              {status === "CONNECTED" && "Connected"}
-              {status === "READY" && "Ready"}
-              {status === "ACTIVE" && "Active"}
-            </span>
           </div>
         </div>
 

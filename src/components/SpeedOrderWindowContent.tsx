@@ -817,13 +817,12 @@ export const SpeedOrderWindowContent: React.FC = () => {
           >
             <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>settings</span>
           </button>
-          <div className="speed-order-status" data-tauri-drag-region>
+          <div 
+            className="speed-order-status" 
+            title={`Status: ${status === "DISCONNECTED" ? "Offline (未接続)" : status === "CONNECTED" ? "Connected (接続完了)" : status === "READY" ? "Ready (準備完了)" : "Active (動作中)"}`}
+            data-tauri-drag-region
+          >
             <span className={`status-dot ${status.toLowerCase()}`}></span>
-            <span className="symbol-label">
-              {status === "DISCONNECTED" ? "Offline" :
-                status === "CONNECTED" ? "Connected" :
-                  status === "READY" ? "Ready" : "Replay"}
-            </span>
           </div>
         </div>
       </div>
