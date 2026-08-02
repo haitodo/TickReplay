@@ -1810,29 +1810,30 @@ function App() {
     }
   };
 
-  // Fine（微調整）速度変更
+  // Fine（0.1刻み微調整）速度変更
   const handleFineSpeed = (increment: boolean) => {
     if (speedMode === "TEMPORAL") {
-      let step = 1.0;
-      if (multiplier < 1.0) step = 0.1;
-      else if (multiplier < 10.0) step = 1.0;
-      else if (multiplier < 60.0) step = 5.0;
-      else if (multiplier < 300.0) step = 50.0;
-      else if (multiplier < 3600.0) step = 500.0;
-      else step = 1000.0;
-
+      const step = 0.1;
       let nextVal = increment ? multiplier + step : multiplier - step;
-      if (!increment && multiplier <= 1.0 && multiplier > 0.1) nextVal = multiplier - 0.1;
-      nextVal = Math.max(0.1, Math.min(10000.0, nextVal));
+      nextVal = Math.max(0.1, Math.min(1000.0, nextVal));
       updateSpeed("TEMPORAL", Math.round(nextVal * 10) / 10, tickStep);
     } else {
-      let step = 1;
-      if (tickStep < 10) step = 1;
-      else if (tickStep < 50) step = 5;
-      else if (tickStep < 100) step = 10;
-      else if (tickStep < 500) step = 50;
-      else step = 100;
+      const step = 1;
+      let nextVal = increment ? tickStep + step : tickStep - step;
+      nextVal = Math.max(1, Math.min(1000, nextVal));
+      updateSpeed("COUNT", multiplier, nextVal);
+    }
+  };
 
+  // Medium（1.0刻み調整）速度変更
+  const handleMediumSpeed = (increment: boolean) => {
+    if (speedMode === "TEMPORAL") {
+      const step = 1.0;
+      let nextVal = increment ? multiplier + step : multiplier - step;
+      nextVal = Math.max(0.1, Math.min(1000.0, nextVal));
+      updateSpeed("TEMPORAL", Math.round(nextVal * 10) / 10, tickStep);
+    } else {
+      const step = 10;
       let nextVal = increment ? tickStep + step : tickStep - step;
       nextVal = Math.max(1, Math.min(1000, nextVal));
       updateSpeed("COUNT", multiplier, nextVal);
@@ -1900,7 +1901,12 @@ function App() {
       handleSessionJump,
       handleTimeJump,
       handleCoarseSpeed,
+      handleMediumSpeed,
       handleFineSpeed,
+      updateSpeed,
+      speedMode,
+      multiplier,
+      tickStep,
       handleSetLoopA,
       handleSetLoopB,
       handleClearLoop,
@@ -1922,7 +1928,12 @@ function App() {
         handleSessionJump,
         handleTimeJump,
         handleCoarseSpeed,
+        handleMediumSpeed,
         handleFineSpeed,
+        updateSpeed,
+        speedMode,
+        multiplier,
+        tickStep,
         handleSetLoopA,
         handleSetLoopB,
         handleClearLoop,
@@ -1981,12 +1992,24 @@ function App() {
       } else if (matchesHotkey(e, hotkeys.coarse_speed_down)) {
         e.preventDefault();
         handleCoarseSpeed(false);
+      } else if (matchesHotkey(e, hotkeys.medium_speed_up)) {
+        e.preventDefault();
+        handleMediumSpeed(true);
+      } else if (matchesHotkey(e, hotkeys.medium_speed_down)) {
+        e.preventDefault();
+        handleMediumSpeed(false);
       } else if (matchesHotkey(e, hotkeys.fine_speed_up)) {
         e.preventDefault();
         handleFineSpeed(true);
       } else if (matchesHotkey(e, hotkeys.fine_speed_down)) {
         e.preventDefault();
         handleFineSpeed(false);
+      } else if (matchesHotkey(e, hotkeys.speed_mode_toggle)) {
+        e.preventDefault();
+        updateSpeed(speedMode === "TEMPORAL" ? "COUNT" : "TEMPORAL", multiplier, tickStep);
+      } else if (matchesHotkey(e, hotkeys.speed_reset_1x)) {
+        e.preventDefault();
+        updateSpeed(speedMode, 1.0, 1);
       } else if (matchesHotkey(e, hotkeys.loop_set_a)) {
         e.preventDefault();
         handleSetLoopA();
@@ -2033,7 +2056,12 @@ function App() {
         handleSessionJump,
         handleTimeJump,
         handleCoarseSpeed,
+        handleMediumSpeed,
         handleFineSpeed,
+        updateSpeed,
+        speedMode,
+        multiplier,
+        tickStep,
         handleSetLoopA,
         handleSetLoopB,
         handleClearLoop,
@@ -2080,11 +2108,23 @@ function App() {
         case "coarse_speed_down":
           handleCoarseSpeed(false);
           break;
+        case "medium_speed_up":
+          handleMediumSpeed(true);
+          break;
+        case "medium_speed_down":
+          handleMediumSpeed(false);
+          break;
         case "fine_speed_up":
           handleFineSpeed(true);
           break;
         case "fine_speed_down":
           handleFineSpeed(false);
+          break;
+        case "speed_mode_toggle":
+          updateSpeed(speedMode === "TEMPORAL" ? "COUNT" : "TEMPORAL", multiplier, tickStep);
+          break;
+        case "speed_reset_1x":
+          updateSpeed(speedMode, 1.0, 1);
           break;
         case "loop_set_a":
           handleSetLoopA();
@@ -3808,138 +3848,157 @@ function App() {
                         <span className="material-symbols-outlined icon-accent">play_circle</span>
                         Transport
                       </h3>
+                      <div style={{ fontSize: "10px", color: "var(--on-surface-variant)", fontFamily: "var(--font-data)", fontWeight: 600 }}>
+                        {speedMode === "TEMPORAL" ? "TIME MODE (0.1x Step)" : "TICK MODE (1T Step)"}
+                      </div>
                     </div>
-                    <div className="pro-panel-body" style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: "16px" }}>
-                      {/* Core Transport */}
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                        <button className="pro-btn pro-btn-square" onClick={() => handleStep(-1)}>
+                    <div className="pro-panel-body transport-panel-body">
+                      {/* Playback Controls Group */}
+                      <div className="transport-playback-group">
+                        <button className="pro-btn pro-btn-square" onClick={() => handleStep(-1)} title="Previous Step">
                           <span className="material-symbols-outlined text-[20px]">skip_previous</span>
                         </button>
                         <button
                           className={`pro-btn pro-btn-lg-square pro-glow ${isPlaying ? "active-loop" : "primary"}`}
                           onClick={handlePlayPause}
+                          title={isPlaying ? "Pause (Space)" : "Play (Space)"}
                         >
-                          <span className="material-symbols-outlined text-[32px]">{isPlaying ? "pause" : "play_arrow"}</span>
+                          <span className="material-symbols-outlined text-[28px]">{isPlaying ? "pause" : "play_arrow"}</span>
                         </button>
-                        <button className="pro-btn pro-btn-square" onClick={() => handleStep(1)}>
+                        <button className="pro-btn pro-btn-square" onClick={() => handleStep(1)} title="Next Step">
                           <span className="material-symbols-outlined text-[20px]">skip_next</span>
                         </button>
                       </div>
 
-                      <div style={{ width: "1px", height: "36px", backgroundColor: "var(--outline-variant)" }}></div>
+                      <div className="transport-v-divider"></div>
 
-                      {/* Speed & Loop */}
-                      <div style={{ flex: 1, display: "flex", gap: "12px", alignItems: "center" }}>
-                        {/* Speed sliders & Presets */}
-                        <div className="speed-control-panel" style={{ display: "flex", flexDirection: "column", gap: "6px", flex: 1 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%" }}>
-                            <div className="speed-hud-card" style={{ minWidth: "70px" }}>
-                              <span className="speed-hud-label">
-                                {speedMode === "TEMPORAL" ? "Rate" : "Ticks"}
-                              </span>
-                              <span className="speed-hud-value">
+                      {/* Speed Controls Group */}
+                      <div className="transport-speed-group">
+                        {/* Top Row: Mode Toggle & Stepper Control */}
+                        <div className="transport-speed-controls-row">
+                          <button
+                            className="speed-mode-badge"
+                            onClick={() => updateSpeed(speedMode === "TEMPORAL" ? "COUNT" : "TEMPORAL", multiplier, tickStep)}
+                            title="Toggle Speed Mode (Time vs Tick Count)"
+                          >
+                            <span className="material-symbols-outlined text-[12px]" style={{ marginRight: "3px" }}>
+                              {speedMode === "TEMPORAL" ? "schedule" : "tag"}
+                            </span>
+                            {speedMode === "TEMPORAL" ? "Time" : "Tick"}
+                          </button>
+
+                          {/* Integrated Multi-tier Speed Stepper (<< < - [ 1.0x ] + > >>) */}
+                          <div className="speed-precision-stepper">
+                            <button
+                              className="stepper-btn coarse"
+                              onClick={() => handleCoarseSpeed(false)}
+                              title="プリセット切り替え Down (左のプリセットへジャンプ)"
+                            >
+                              &lt;&lt;
+                            </button>
+                            <button
+                              className="stepper-btn medium"
+                              onClick={() => handleMediumSpeed(false)}
+                              title={speedMode === "TEMPORAL" ? "1.0刻み Down (-1.0x)" : "10刻み Down (-10T)"}
+                            >
+                              &lt;
+                            </button>
+                            <button
+                              className="stepper-btn fine"
+                              onClick={() => handleFineSpeed(false)}
+                              title={speedMode === "TEMPORAL" ? "0.1刻み Down (-0.1x)" : "1刻み Down (-1T)"}
+                            >
+                              -
+                            </button>
+                            <div className="stepper-display">
+                              <span className="stepper-value">
                                 {speedMode === "TEMPORAL" ? `${multiplier.toFixed(1)}x` : `${tickStep}T`}
                               </span>
                             </div>
-                            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "4px" }}>
-                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                <button
-                                  className="toggle-btn"
-                                  style={{ padding: "1px 6px", fontSize: "9px" }}
-                                  onClick={() => updateSpeed(speedMode === "TEMPORAL" ? "COUNT" : "TEMPORAL", multiplier, tickStep)}
-                                >
-                                  Mode: {speedMode === "TEMPORAL" ? "Time" : "Tick"}
-                                </button>
-
-                                {/* Coarse/Fine Increments */}
-                                <div style={{ display: "flex", gap: "2px" }}>
-                                  <button className="toggle-btn" style={{ padding: "0 4px", fontSize: "9px" }} onClick={() => handleCoarseSpeed(false)} title="Coarse Down">&lt;&lt;</button>
-                                  <button className="toggle-btn" style={{ padding: "0 4px", fontSize: "9px" }} onClick={() => handleFineSpeed(false)} title="Fine Down">&lt;</button>
-                                  <button className="toggle-btn" style={{ padding: "0 4px", fontSize: "9px" }} onClick={() => handleFineSpeed(true)} title="Fine Up">&gt;</button>
-                                  <button className="toggle-btn" style={{ padding: "0 4px", fontSize: "9px" }} onClick={() => handleCoarseSpeed(true)} title="Coarse Up">&gt;&gt;</button>
-                                </div>
-                              </div>
-                              <input
-                                className="pro-slider"
-                                type="range"
-                                min={speedMode === "TEMPORAL" ? "0.1" : "1"}
-                                max={speedMode === "TEMPORAL" ? Math.max(10, multiplier) : Math.max(100, tickStep)}
-                                step={speedMode === "TEMPORAL" ? "0.1" : "1"}
-                                value={speedMode === "TEMPORAL" ? multiplier : tickStep}
-                                onChange={(e) => {
-                                  const val = parseFloat(e.target.value);
-                                  if (speedMode === "TEMPORAL") {
-                                    updateSpeed("TEMPORAL", val, tickStep);
-                                  } else {
-                                    updateSpeed("COUNT", multiplier, Math.round(val));
-                                  }
-                                }}
-                              />
-                            </div>
-                          </div>
-
-                          {/* Direct Presets Row */}
-                          <div style={{ display: "flex", gap: "4px", width: "100%", justifyContent: "flex-start", paddingLeft: "80px" }}>
-                            {speedMode === "TEMPORAL" ? (
-                              timePresets.map((preset) => {
-                                const label = `${preset}x`;
-                                const isActive = Math.abs(preset - multiplier) < 0.01;
-                                return (
-                                  <button
-                                    key={preset}
-                                    className={`pro-btn ${isActive ? "active-loop" : ""}`}
-                                    style={{ padding: "2px 6px", fontSize: "9px", fontWeight: "bold", minWidth: "28px" }}
-                                    onClick={() => updateSpeed("TEMPORAL", preset, tickStep)}
-                                  >
-                                    {label}
-                                  </button>
-                                );
-                              })
-                            ) : (
-                              tickPresets.map((preset) => {
-                                const isActive = preset === tickStep;
-                                return (
-                                  <button
-                                    key={preset}
-                                    className={`pro-btn ${isActive ? "active-loop" : ""}`}
-                                    style={{ padding: "2px 6px", fontSize: "9px", fontWeight: "bold", minWidth: "28px" }}
-                                    onClick={() => updateSpeed("COUNT", multiplier, preset)}
-                                  >
-                                    {preset}T
-                                  </button>
-                                );
-                              })
-                            )}
+                            <button
+                              className="stepper-btn fine"
+                              onClick={() => handleFineSpeed(true)}
+                              title={speedMode === "TEMPORAL" ? "0.1刻み Up (+0.1x)" : "1刻み Up (+1T)"}
+                            >
+                              +
+                            </button>
+                            <button
+                              className="stepper-btn medium"
+                              onClick={() => handleMediumSpeed(true)}
+                              title={speedMode === "TEMPORAL" ? "1.0刻み Up (+1.0x)" : "10刻み Up (+10T)"}
+                            >
+                              &gt;
+                            </button>
+                            <button
+                              className="stepper-btn coarse"
+                              onClick={() => handleCoarseSpeed(true)}
+                              title="プリセット切り替え Up (右のプリセットへジャンプ)"
+                            >
+                              &gt;&gt;
+                            </button>
                           </div>
                         </div>
 
-                        {/* Loop control */}
-                        <div className="loop-sub-controls">
-                          <div className="loop-label-sm">Loop {loopActive && "(Active)"}</div>
-                          <div style={{ display: "flex", gap: "2px" }}>
-                            <button
-                              className={`pro-btn ${loopA !== -1 ? "active-loop" : ""}`}
-                              style={{ height: "20px", padding: "0 6px", fontSize: "9px", fontWeight: "bold" }}
-                              onClick={handleSetLoopA}
-                            >
-                              A
-                            </button>
-                            <button
-                              className="pro-btn"
-                              style={{ height: "20px", width: "20px", padding: 0 }}
-                              onClick={handleClearLoop}
-                              title="Clear Loop"
-                            >
-                              <span className="material-symbols-outlined text-[12px]">sync_disabled</span>
-                            </button>
-                            <button
-                              className={`pro-btn ${loopB !== -1 ? "active-loop" : ""}`}
-                              style={{ height: "20px", padding: "0 6px", fontSize: "9px", fontWeight: "bold" }}
-                              onClick={handleSetLoopB}
-                            >
-                              B
-                            </button>
-                          </div>
+                        {/* Bottom Row: Quick Presets Pills */}
+                        <div className="transport-presets-row">
+                          {speedMode === "TEMPORAL" ? (
+                            timePresets.map((preset) => {
+                              const label = `${preset}x`;
+                              const isActive = Math.abs(preset - multiplier) < 0.01;
+                              return (
+                                <button
+                                  key={preset}
+                                  className={`preset-pill-btn ${isActive ? "active" : ""}`}
+                                  onClick={() => updateSpeed("TEMPORAL", preset, tickStep)}
+                                >
+                                  {label}
+                                </button>
+                              );
+                            })
+                          ) : (
+                            tickPresets.map((preset) => {
+                              const isActive = preset === tickStep;
+                              return (
+                                <button
+                                  key={preset}
+                                  className={`preset-pill-btn ${isActive ? "active" : ""}`}
+                                  onClick={() => updateSpeed("COUNT", multiplier, preset)}
+                                >
+                                  {preset}T
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="transport-v-divider"></div>
+
+                      {/* Loop Controls Group */}
+                      <div className="transport-loop-group">
+                        <span className="loop-group-label">Loop {loopActive && "•"}</span>
+                        <div className="loop-btn-group">
+                          <button
+                            className={`pro-btn loop-btn ${loopA !== -1 ? "active-loop" : ""}`}
+                            onClick={handleSetLoopA}
+                            title="Set Loop Point A"
+                          >
+                            A
+                          </button>
+                          <button
+                            className="pro-btn loop-btn loop-clear-btn"
+                            onClick={handleClearLoop}
+                            title="Clear Loop Points"
+                          >
+                            <span className="material-symbols-outlined text-[12px]">sync_disabled</span>
+                          </button>
+                          <button
+                            className={`pro-btn loop-btn ${loopB !== -1 ? "active-loop" : ""}`}
+                            onClick={handleSetLoopB}
+                            title="Set Loop Point B"
+                          >
+                            B
+                          </button>
                         </div>
                       </div>
                     </div>
