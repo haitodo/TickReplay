@@ -120,7 +120,14 @@ impl BinaryCommandPacket {
                 flags: 0,
             }),
             "SEEK_TIME" => {
-                let target_time_msc = v.get("target_time_msc").and_then(|t| t.as_i64()).unwrap_or(0);
+                let mut target_time_msc = v.get("target_time_msc").and_then(|t| t.as_i64()).unwrap_or(0);
+                if target_time_msc <= 0 {
+                    if let Some(target_time_str) = v.get("target_time").and_then(|t| t.as_str()) {
+                        if let Some(parsed) = parse_time_str_to_msc(target_time_str) {
+                            target_time_msc = parsed;
+                        }
+                    }
+                }
                 Some(Self {
                     magic: TRBI_MAGIC,
                     cmd_type: 6,
@@ -214,6 +221,30 @@ impl BinaryCommandPacket {
             _ => None,
         }
     }
+}
+
+fn parse_time_str_to_msc(s: &str) -> Option<i64> {
+    let clean = s.replace('.', "-");
+    let parts: Vec<&str> = clean.trim().split_whitespace().collect();
+    if parts.is_empty() {
+        return None;
+    }
+    let date_parts: Vec<i32> = parts[0].split('-').filter_map(|p| p.parse().ok()).collect();
+    if date_parts.len() < 3 {
+        return None;
+    }
+    let (year, month, day) = (date_parts[0], date_parts[1], date_parts[2]);
+    let (mut hour, mut min, mut sec) = (0u32, 0u32, 0u32);
+    if parts.len() > 1 {
+        let time_parts: Vec<u32> = parts[1].split(':').filter_map(|p| p.parse().ok()).collect();
+        if !time_parts.is_empty() { hour = time_parts[0]; }
+        if time_parts.len() > 1 { min = time_parts[1]; }
+        if time_parts.len() > 2 { sec = time_parts[2]; }
+    }
+    let date = chrono::NaiveDate::from_ymd_opt(year, month as u32, day as u32)?;
+    let time = chrono::NaiveTime::from_hms_opt(hour, min, sec)?;
+    let dt = chrono::NaiveDateTime::new(date, time);
+    Some(dt.and_utc().timestamp_millis())
 }
 
 // 連続するシーク操作コマンドのデバウンス・キュー圧縮（Devモード診断付き）

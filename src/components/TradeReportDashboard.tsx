@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { convertServerStrToJstStr as convertServerToJstStr } from "../utils/timeUtils";
+import { convertServerStrToJstStr as convertServerToJstStr, parseTimeStrToUtcMs } from "../utils/timeUtils";
 import { formatRate, getReasonDisplayLabel, getReasonTooltip } from "../utils/rateUtils";
 import { calculateTradeStats } from "../domain/tradeStatistics";
 
@@ -77,10 +77,12 @@ export const TradeReportDashboard: React.FC<TradeReportDashboardProps> = ({
 
   const handleRowClick = (closeTimeStr: string) => {
     const jstTimeStr = convertServerToJstStr(closeTimeStr);
+    const serverUtcMsc = parseTimeStrToUtcMs(closeTimeStr);
     setCurrentViewMode("replay");
     sendCommand({
       command: "SEEK_TIME",
-      target_time: jstTimeStr
+      target_time: jstTimeStr,
+      target_time_msc: isNaN(serverUtcMsc) ? 0 : serverUtcMsc
     });
   };
 

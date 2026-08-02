@@ -2443,10 +2443,15 @@ function App() {
 
   const handleNewsJump = async (eventTimeJst: string) => {
     try {
-      await sendCommand({
-        command: "SEEK_TIME",
-        target_time: eventTimeJst
-      });
+      const serverTimeStr = convertJstStrToServerStr(eventTimeJst);
+      const serverTimeMsc = parseTimeStrToUtcMs(serverTimeStr);
+      if (!isNaN(serverTimeMsc) && serverTimeMsc > 0) {
+        await sendCommand({
+          command: "SEEK_TIME",
+          target_time: serverTimeStr,
+          target_time_msc: serverTimeMsc
+        });
+      }
     } catch (e) {
       console.error("Failed to jump to event time", e);
     }

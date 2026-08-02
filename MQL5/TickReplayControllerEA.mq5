@@ -2955,6 +2955,7 @@ int FindTickIndexBackward(datetime target_time)
 int FindTickIndexByMsc(long target_msc)
 {
    if(m_total_ticks <= 0) return -1;
+   if(target_msc > (long)m_all_ticks[m_total_ticks - 1].time_msc) return m_total_ticks - 1;
    int low = 0;
    int high = m_total_ticks - 1;
    int ans = -1;
