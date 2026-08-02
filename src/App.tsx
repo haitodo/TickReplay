@@ -3853,94 +3853,92 @@ function App() {
                       </div>
                     </div>
                     <div className="pro-panel-body transport-panel-body">
-                      {/* Playback Controls Group */}
+                      {/* Playback Controls Group (Compact) */}
                       <div className="transport-playback-group">
-                        <button className="pro-btn pro-btn-square" onClick={() => handleStep(-1)} title="Previous Step">
-                          <span className="material-symbols-outlined text-[20px]">skip_previous</span>
+                        <button className="pro-btn pro-btn-compact" onClick={() => handleStep(-1)} title="Previous Step">
+                          <span className="material-symbols-outlined text-[16px]">skip_previous</span>
                         </button>
                         <button
-                          className={`pro-btn pro-btn-lg-square pro-glow ${isPlaying ? "active-loop" : "primary"}`}
+                          className={`pro-btn pro-btn-compact-play pro-glow ${isPlaying ? "active-loop" : "primary"}`}
                           onClick={handlePlayPause}
                           title={isPlaying ? "Pause (Space)" : "Play (Space)"}
                         >
-                          <span className="material-symbols-outlined text-[28px]">{isPlaying ? "pause" : "play_arrow"}</span>
+                          <span className="material-symbols-outlined text-[22px]">{isPlaying ? "pause" : "play_arrow"}</span>
                         </button>
-                        <button className="pro-btn pro-btn-square" onClick={() => handleStep(1)} title="Next Step">
-                          <span className="material-symbols-outlined text-[20px]">skip_next</span>
+                        <button className="pro-btn pro-btn-compact" onClick={() => handleStep(1)} title="Next Step">
+                          <span className="material-symbols-outlined text-[16px]">skip_next</span>
                         </button>
                       </div>
 
                       <div className="transport-v-divider"></div>
 
-                      {/* Speed Controls Group */}
-                      <div className="transport-speed-group">
-                        {/* Top Row: Mode Toggle & Stepper Control */}
-                        <div className="transport-speed-controls-row">
-                          <button
-                            className="speed-mode-badge"
-                            onClick={() => updateSpeed(speedMode === "TEMPORAL" ? "COUNT" : "TEMPORAL", multiplier, tickStep)}
-                            title="Toggle Speed Mode (Time vs Tick Count)"
-                          >
-                            <span className="material-symbols-outlined text-[12px]" style={{ marginRight: "3px" }}>
-                              {speedMode === "TEMPORAL" ? "schedule" : "tag"}
-                            </span>
-                            {speedMode === "TEMPORAL" ? "Time" : "Tick"}
-                          </button>
+                      {/* Single Horizontal Speed Toolbar */}
+                      <div className="transport-speed-inline-bar">
+                        {/* Mode Badge */}
+                        <button
+                          className="speed-mode-badge"
+                          onClick={() => updateSpeed(speedMode === "TEMPORAL" ? "COUNT" : "TEMPORAL", multiplier, tickStep)}
+                          title="Toggle Speed Mode (Time vs Tick Count)"
+                        >
+                          <span className="material-symbols-outlined text-[11px]" style={{ marginRight: "2px" }}>
+                            {speedMode === "TEMPORAL" ? "schedule" : "tag"}
+                          </span>
+                          {speedMode === "TEMPORAL" ? "Time" : "Tick"}
+                        </button>
 
-                          {/* Integrated Multi-tier Speed Stepper (<< < - [ 1.0x ] + > >>) */}
-                          <div className="speed-precision-stepper">
-                            <button
-                              className="stepper-btn coarse"
-                              onClick={() => handleCoarseSpeed(false)}
-                              title="プリセット切り替え Down (左のプリセットへジャンプ)"
-                            >
-                              &lt;&lt;
-                            </button>
-                            <button
-                              className="stepper-btn medium"
-                              onClick={() => handleMediumSpeed(false)}
-                              title={speedMode === "TEMPORAL" ? "1.0刻み Down (-1.0x)" : "10刻み Down (-10T)"}
-                            >
-                              &lt;
-                            </button>
-                            <button
-                              className="stepper-btn fine"
-                              onClick={() => handleFineSpeed(false)}
-                              title={speedMode === "TEMPORAL" ? "0.1刻み Down (-0.1x)" : "1刻み Down (-1T)"}
-                            >
-                              -
-                            </button>
-                            <div className="stepper-display">
-                              <span className="stepper-value">
-                                {speedMode === "TEMPORAL" ? `${multiplier.toFixed(1)}x` : `${tickStep}T`}
-                              </span>
-                            </div>
-                            <button
-                              className="stepper-btn fine"
-                              onClick={() => handleFineSpeed(true)}
-                              title={speedMode === "TEMPORAL" ? "0.1刻み Up (+0.1x)" : "1刻み Up (+1T)"}
-                            >
-                              +
-                            </button>
-                            <button
-                              className="stepper-btn medium"
-                              onClick={() => handleMediumSpeed(true)}
-                              title={speedMode === "TEMPORAL" ? "1.0刻み Up (+1.0x)" : "10刻み Up (+10T)"}
-                            >
-                              &gt;
-                            </button>
-                            <button
-                              className="stepper-btn coarse"
-                              onClick={() => handleCoarseSpeed(true)}
-                              title="プリセット切り替え Up (右のプリセットへジャンプ)"
-                            >
-                              &gt;&gt;
-                            </button>
+                        {/* Integrated Multi-tier Speed Stepper */}
+                        <div className="speed-precision-stepper">
+                          <button
+                            className="stepper-btn coarse"
+                            onClick={() => handleCoarseSpeed(false)}
+                            title="プリセット切り替え Down (左のプリセットへジャンプ)"
+                          >
+                            &lt;&lt;
+                          </button>
+                          <button
+                            className="stepper-btn medium"
+                            onClick={() => handleMediumSpeed(false)}
+                            title={speedMode === "TEMPORAL" ? "1.0刻み Down (-1.0x)" : "10刻み Down (-10T)"}
+                          >
+                            &lt;
+                          </button>
+                          <button
+                            className="stepper-btn fine"
+                            onClick={() => handleFineSpeed(false)}
+                            title={speedMode === "TEMPORAL" ? "0.1刻み Down (-0.1x)" : "1刻み Down (-1T)"}
+                          >
+                            -
+                          </button>
+                          <div className="stepper-display">
+                            <span className="stepper-value">
+                              {speedMode === "TEMPORAL" ? `${multiplier.toFixed(1)}x` : `${tickStep}T`}
+                            </span>
                           </div>
+                          <button
+                            className="stepper-btn fine"
+                            onClick={() => handleFineSpeed(true)}
+                            title={speedMode === "TEMPORAL" ? "0.1刻み Up (+0.1x)" : "1刻み Up (+1T)"}
+                          >
+                            +
+                          </button>
+                          <button
+                            className="stepper-btn medium"
+                            onClick={() => handleMediumSpeed(true)}
+                            title={speedMode === "TEMPORAL" ? "1.0刻み Up (+1.0x)" : "10刻み Up (+10T)"}
+                          >
+                            &gt;
+                          </button>
+                          <button
+                            className="stepper-btn coarse"
+                            onClick={() => handleCoarseSpeed(true)}
+                            title="プリセット切り替え Up (右のプリセットへジャンプ)"
+                          >
+                            &gt;&gt;
+                          </button>
                         </div>
 
-                        {/* Bottom Row: Quick Presets Pills */}
-                        <div className="transport-presets-row">
+                        {/* Presets Pills Inline */}
+                        <div className="transport-presets-inline">
                           {speedMode === "TEMPORAL" ? (
                             timePresets.map((preset) => {
                               const label = `${preset}x`;
