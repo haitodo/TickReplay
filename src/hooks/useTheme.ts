@@ -31,6 +31,7 @@ export function useTheme() {
     let border = selected.border;
 
     if (themeMode === "light") {
+      document.documentElement.setAttribute('data-theme', 'light');
       document.documentElement.setAttribute('data-theme-mode', 'light');
       const lightAdjusted = THEME_PRESETS_LIGHT[selected.id];
       if (lightAdjusted) {
@@ -42,6 +43,7 @@ export function useTheme() {
         border = lightAdjusted.border ?? border;
       }
     } else {
+      document.documentElement.setAttribute('data-theme', 'dark');
       document.documentElement.removeAttribute('data-theme-mode');
     }
 
