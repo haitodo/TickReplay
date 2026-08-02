@@ -3875,9 +3875,15 @@ function App() {
                     <span className="material-symbols-outlined icon-accent">timeline</span>
                     Market Timeline Overview
                   </h3>
-                  <span className="pro-panel-meta">24H CYCLE</span>
+                  <div className="timeline-header-info">
+                    <span className="timeline-meta-tick">
+                      Tick: <span className="timeline-meta-val">{currentIdx}</span> / {totalTicks}
+                    </span>
+                    <span className="timeline-meta-percent">{progressPercent.toFixed(1)}%</span>
+                    <span className="pro-panel-meta timeline-cycle-badge">24H CYCLE</span>
+                  </div>
                 </div>
-                <div className="pro-panel-body">
+                <div className="pro-panel-body" style={{ padding: "4px 8px" }}>
                   <div className="timeline-wrapper">
                     <div className="timeline-track">
                       <svg
@@ -3932,17 +3938,12 @@ function App() {
                         <circle
                           cx={`${progressPercent}%`}
                           cy="50%"
-                          r="5"
+                          r="4"
                           fill="var(--primary-color)"
                           stroke="var(--timeline-playhead-border, #ffffff)"
                           strokeWidth="1"
                         />
                       </svg>
-                    </div>
-
-                    <div className="timeline-info">
-                      <span>Tick: {currentIdx} / {totalTicks}</span>
-                      <span>{progressPercent.toFixed(1)}%</span>
                     </div>
                   </div>
                 </div>
@@ -3954,12 +3955,45 @@ function App() {
                 <div className="col-left">
                   {/* Transport Panel */}
                   <div className="pro-panel">
-                    <div className="pro-panel-header" style={{ padding: "6px 12px" }}>
-                      <h3 className="pro-panel-title">
+                    <div className="pro-panel-header" style={{ padding: "4px 8px 4px 12px", minWidth: 0, gap: "8px" }}>
+                      <h3 className="pro-panel-title" style={{ flexShrink: 0 }}>
                         <span className="material-symbols-outlined icon-accent">play_circle</span>
                         Transport
                       </h3>
-                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+
+                      {/* Presets Pills Inline (Header Move) */}
+                      <div className="transport-presets-inline" style={{ flex: 1, justifyContent: "center" }}>
+                        {speedMode === "TEMPORAL" ? (
+                          timePresets.map((preset) => {
+                            const label = `${preset}x`;
+                            const isActive = Math.abs(preset - multiplier) < 0.01;
+                            return (
+                              <button
+                                key={preset}
+                                className={`preset-pill-btn ${isActive ? "active" : ""}`}
+                                onClick={() => updateSpeed("TEMPORAL", preset, tickStep)}
+                              >
+                                {label}
+                              </button>
+                            );
+                          })
+                        ) : (
+                          tickPresets.map((preset) => {
+                            const isActive = preset === tickStep;
+                            return (
+                              <button
+                                key={preset}
+                                className={`preset-pill-btn ${isActive ? "active" : ""}`}
+                                onClick={() => updateSpeed("COUNT", multiplier, preset)}
+                              >
+                                {preset}T
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
                         <button
                           className="toggle-btn"
                           style={{ padding: "2px 6px", height: "18px", fontSize: "10px", display: "inline-flex", alignItems: "center", gap: "3px" }}
@@ -4020,7 +4054,6 @@ function App() {
 
                       {/* Single Horizontal Speed Toolbar */}
                       <div className="transport-speed-inline-bar">
-
                         {/* Integrated Multi-tier Speed Stepper */}
                         <div className="speed-precision-stepper">
                           <button
@@ -4071,38 +4104,6 @@ function App() {
                             &gt;&gt;
                           </button>
                         </div>
-
-                        {/* Presets Pills Inline */}
-                        <div className="transport-presets-inline">
-                          {speedMode === "TEMPORAL" ? (
-                            timePresets.map((preset) => {
-                              const label = `${preset}x`;
-                              const isActive = Math.abs(preset - multiplier) < 0.01;
-                              return (
-                                <button
-                                  key={preset}
-                                  className={`preset-pill-btn ${isActive ? "active" : ""}`}
-                                  onClick={() => updateSpeed("TEMPORAL", preset, tickStep)}
-                                >
-                                  {label}
-                                </button>
-                              );
-                            })
-                          ) : (
-                            tickPresets.map((preset) => {
-                              const isActive = preset === tickStep;
-                              return (
-                                <button
-                                  key={preset}
-                                  className={`preset-pill-btn ${isActive ? "active" : ""}`}
-                                  onClick={() => updateSpeed("COUNT", multiplier, preset)}
-                                >
-                                  {preset}T
-                                </button>
-                              );
-                            })
-                          )}
-                        </div>
                       </div>
 
                       <div className="transport-v-divider"></div>
@@ -4138,16 +4139,16 @@ function App() {
                   </div>
 
                   {/* Navigation Matrix Panel */}
-                  <div className="pro-panel" style={{ flex: 1 }}>
-                    <div className="pro-panel-header" style={{ padding: "6px 12px" }}>
-                      <h3 className="pro-panel-title">
+                  <div className="pro-panel" style={{ flex: 1, minWidth: 0 }}>
+                    <div className="pro-panel-header" style={{ padding: "6px 8px", minWidth: 0, gap: "6px" }}>
+                      <h3 className="pro-panel-title" style={{ minWidth: 0, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
                         <span className="material-symbols-outlined icon-accent">grid_view</span>
                         Navigation Matrix
                       </h3>
-                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
                         <button
                           className="toggle-btn"
-                          style={{ padding: "2px 6px", height: "18px", fontSize: "10px", display: "inline-flex", alignItems: "center", gap: "3px" }}
+                          style={{ padding: "2px 5px", height: "18px", fontSize: "10px", display: "inline-flex", alignItems: "center", gap: "2px" }}
                           onClick={() => {
                             setEditingTimeSteps([...timeSteps]);
                             setIsTimeStepsModalOpen(true);
@@ -4157,11 +4158,11 @@ function App() {
                           <span className="material-symbols-outlined text-[12px]">tune</span>
                           <span>Step設定</span>
                         </button>
-                        <span style={{ fontSize: "10px", color: "var(--on-surface-variant)", marginLeft: "4px" }}>Day Offset:</span>
+                        <span style={{ fontSize: "9.5px", color: "var(--on-surface-variant)", marginLeft: "2px" }}>Day:</span>
                         <button className="toggle-btn" style={{ padding: 0, width: "16px", height: "16px", display: "inline-flex", alignItems: "center", justifyContent: "center" }} onClick={() => handleSessionJump("ANY", "PREV")} title="Previous Day">
                           <span className="material-symbols-outlined text-[12px]" style={{ lineHeight: 1 }}>chevron_left</span>
                         </button>
-                        <span className="font-data" style={{ fontSize: "10px", color: "var(--primary-color)", backgroundColor: "rgba(var(--primary-rgb), 0.12)", padding: "1px 6px", borderRadius: "3px", fontWeight: 600 }}>
+                        <span className="font-data" style={{ fontSize: "10px", color: "var(--primary-color)", backgroundColor: "rgba(var(--primary-rgb), 0.12)", padding: "1px 5px", borderRadius: "3px", fontWeight: 600 }}>
                           {getDayOffset()}
                         </span>
                         <button className="toggle-btn" style={{ padding: 0, width: "16px", height: "16px", display: "inline-flex", alignItems: "center", justifyContent: "center" }} onClick={() => handleSessionJump("ANY", "NEXT")} title="Next Day">
@@ -4225,7 +4226,7 @@ function App() {
                       </div>
 
                       {/* Row 2: Time Steps */}
-                      <div className="time-steps-horizontal-grid" style={{ gridTemplateColumns: `repeat(${timeSteps.length}, 1fr)` }}>
+                      <div className="time-steps-horizontal-grid" style={{ gridTemplateColumns: `repeat(${timeSteps.length}, minmax(0, 1fr))` }}>
                         {timeSteps.map((step) => (
                           <div className="time-step-card" key={step.id}>
                             <button className="time-step-btn" onClick={() => handleTimeJump(-step.seconds)} title={`-${step.label}`}>
