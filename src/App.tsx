@@ -53,6 +53,40 @@ import { isEventFiltered as checkEventFiltered } from "./domain/newsFilterLogic"
 
 
 
+export interface TimeStepItem {
+  id: string;
+  seconds: number;
+  label: string;
+}
+
+const DEFAULT_TIME_STEPS: TimeStepItem[] = [
+  { id: "ts-1", seconds: 10, label: "10S" },
+  { id: "ts-2", seconds: 60, label: "1M" },
+  { id: "ts-3", seconds: 600, label: "10M" },
+  { id: "ts-4", seconds: 3600, label: "1H" },
+];
+
+const PRESET_TIME_OPTIONS: { seconds: number; label: string }[] = [
+  { seconds: 5, label: "5S" },
+  { seconds: 10, label: "10S" },
+  { seconds: 30, label: "30S" },
+  { seconds: 60, label: "1M" },
+  { seconds: 300, label: "5M" },
+  { seconds: 600, label: "10M" },
+  { seconds: 900, label: "15M" },
+  { seconds: 1800, label: "30M" },
+  { seconds: 3600, label: "1H" },
+  { seconds: 14400, label: "4H" },
+];
+
+const formatSecondsToLabel = (sec: number): string => {
+  if (sec < 60) return `${sec}S`;
+  if (sec < 3600 && sec % 60 === 0) return `${sec / 60}M`;
+  if (sec % 3600 === 0) return `${sec / 3600}H`;
+  if (sec >= 3600) return `${(sec / 3600).toFixed(1)}H`;
+  return `${(sec / 60).toFixed(1)}M`;
+};
+
 function App() {
   // Check URL routing for child windows
   const urlParams = new URLSearchParams(window.location.search);
@@ -253,6 +287,29 @@ function App() {
   const [isResetReplayConfirmOpen, setIsResetReplayConfirmOpen] = useState(false);
   const [isResetTradingConfirmOpen, setIsResetTradingConfirmOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"general" | "hotkeys" | "presets" | "news" | "theme" | "ai">("general");
+
+  // タイムステップカスタマイズ State
+  const [timeSteps, setTimeSteps] = useState<TimeStepItem[]>(() => {
+    const saved = localStorage.getItem("custom-time-steps");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return (parsed as TimeStepItem[]).slice(0, 5).sort((a, b) => a.seconds - b.seconds);
+        }
+      } catch (e) {
+        console.error("Failed to parse custom-time-steps", e);
+      }
+    }
+    return [...DEFAULT_TIME_STEPS].sort((a, b) => a.seconds - b.seconds);
+  });
+
+  const [isTimeStepsModalOpen, setIsTimeStepsModalOpen] = useState<boolean>(false);
+  const [editingTimeSteps, setEditingTimeSteps] = useState<TimeStepItem[]>(timeSteps);
+
+  useEffect(() => {
+    localStorage.setItem("custom-time-steps", JSON.stringify(timeSteps));
+  }, [timeSteps]);
   
   // AI急変動・トレンド解析用 State
   const [openRouterApiKey, setOpenRouterApiKey] = useState<string>(() => localStorage.getItem("openrouter-api-key") || "");
@@ -4004,124 +4061,104 @@ function App() {
 
                   {/* Navigation Matrix Panel */}
                   <div className="pro-panel" style={{ flex: 1 }}>
-                    <div className="pro-panel-header">
+                    <div className="pro-panel-header" style={{ padding: "6px 12px" }}>
                       <h3 className="pro-panel-title">
                         <span className="material-symbols-outlined icon-accent">grid_view</span>
                         Navigation Matrix
                       </h3>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <button
+                          className="toggle-btn"
+                          style={{ padding: "2px 6px", height: "18px", fontSize: "10px", display: "inline-flex", alignItems: "center", gap: "3px" }}
+                          onClick={() => {
+                            setEditingTimeSteps([...timeSteps]);
+                            setIsTimeStepsModalOpen(true);
+                          }}
+                          title="タイムステップを編集 (最大5つ)"
+                        >
+                          <span className="material-symbols-outlined text-[12px]">tune</span>
+                          <span>Step設定</span>
+                        </button>
+                        <span style={{ fontSize: "10px", color: "var(--on-surface-variant)", marginLeft: "4px" }}>Day Offset:</span>
+                        <button className="toggle-btn" style={{ padding: 0, width: "16px", height: "16px", display: "inline-flex", alignItems: "center", justifyContent: "center" }} onClick={() => handleSessionJump("ANY", "PREV")} title="Previous Day">
+                          <span className="material-symbols-outlined text-[12px]" style={{ lineHeight: 1 }}>chevron_left</span>
+                        </button>
+                        <span className="font-data" style={{ fontSize: "10px", color: "var(--primary-color)", backgroundColor: "rgba(var(--primary-rgb), 0.12)", padding: "1px 6px", borderRadius: "3px", fontWeight: 600 }}>
+                          {getDayOffset()}
+                        </span>
+                        <button className="toggle-btn" style={{ padding: 0, width: "16px", height: "16px", display: "inline-flex", alignItems: "center", justifyContent: "center" }} onClick={() => handleSessionJump("ANY", "NEXT")} title="Next Day">
+                          <span className="material-symbols-outlined text-[12px]" style={{ lineHeight: 1 }}>chevron_right</span>
+                        </button>
+                      </div>
                     </div>
-                    <div className="pro-panel-body" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", flex: 1 }}>
-                      {/* Left: Time Steppers */}
-                      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                        <div className="form-label" style={{ borderBottom: "1px solid var(--outline-variant)", paddingBottom: "4px" }}>
-                          Time Steps
+                    <div className="pro-panel-body nav-matrix-compact-body">
+                      {/* Row 1: Session Jump */}
+                      <div className="session-jump-grid">
+                        {/* Tokyo */}
+                        <div className="session-stepper-card tyo">
+                          <button className="session-stepper-btn" onClick={() => handleSessionJump("TYO", "PREV")} title="Previous Tokyo Session">
+                            <span className="material-symbols-outlined">remove</span>
+                          </button>
+                          <button className="session-pill tyo" onClick={() => handleSessionJump("TYO", "NEXT")} title="Jump to Tokyo Session">
+                            <span className="session-pill-dot tyo"></span>
+                            <div className="session-pill-text">
+                              <span className="session-pill-name">Tokyo</span>
+                              <span className="session-pill-time">09:00</span>
+                            </div>
+                          </button>
+                          <button className="session-stepper-btn" onClick={() => handleSessionJump("TYO", "NEXT")} title="Next Tokyo Session">
+                            <span className="material-symbols-outlined">add</span>
+                          </button>
                         </div>
-                        <div className="time-steps-grid">
-                          <div className="step-card">
-                            <button className="pro-btn pro-btn-square" style={{ height: "24px", width: "24px" }} onClick={() => handleTimeJump(-60)}>
-                              <span className="material-symbols-outlined text-[14px]">remove</span>
-                            </button>
-                            <span className="step-value">1M</span>
-                            <button className="pro-btn pro-btn-square" style={{ height: "24px", width: "24px" }} onClick={() => handleTimeJump(60)}>
-                              <span className="material-symbols-outlined text-[14px]">add</span>
-                            </button>
-                          </div>
-                          <div className="step-card">
-                            <button className="pro-btn pro-btn-square" style={{ height: "24px", width: "24px" }} onClick={() => handleTimeJump(-600)}>
-                              <span className="material-symbols-outlined text-[14px]">remove</span>
-                            </button>
-                            <span className="step-value">10M</span>
-                            <button className="pro-btn pro-btn-square" style={{ height: "24px", width: "24px" }} onClick={() => handleTimeJump(600)}>
-                              <span className="material-symbols-outlined text-[14px]">add</span>
-                            </button>
-                          </div>
-                          <div className="step-card">
-                            <button className="pro-btn pro-btn-square" style={{ height: "24px", width: "24px" }} onClick={() => handleTimeJump(-3600)}>
-                              <span className="material-symbols-outlined text-[14px]">remove</span>
-                            </button>
-                            <span className="step-value">1H</span>
-                            <button className="pro-btn pro-btn-square" style={{ height: "24px", width: "24px" }} onClick={() => handleTimeJump(3600)}>
-                              <span className="material-symbols-outlined text-[14px]">add</span>
-                            </button>
-                          </div>
+
+                        {/* London */}
+                        <div className="session-stepper-card ldn">
+                          <button className="session-stepper-btn" onClick={() => handleSessionJump("LDN", "PREV")} title="Previous London Session">
+                            <span className="material-symbols-outlined">remove</span>
+                          </button>
+                          <button className="session-pill ldn" onClick={() => handleSessionJump("LDN", "NEXT")} title="Jump to London Session">
+                            <span className="session-pill-dot ldn"></span>
+                            <div className="session-pill-text">
+                              <span className="session-pill-name">London</span>
+                              <span className="session-pill-time">16:00</span>
+                            </div>
+                          </button>
+                          <button className="session-stepper-btn" onClick={() => handleSessionJump("LDN", "NEXT")} title="Next London Session">
+                            <span className="material-symbols-outlined">add</span>
+                          </button>
+                        </div>
+
+                        {/* New York */}
+                        <div className="session-stepper-card ny">
+                          <button className="session-stepper-btn" onClick={() => handleSessionJump("NY", "PREV")} title="Previous New York Session">
+                            <span className="material-symbols-outlined">remove</span>
+                          </button>
+                          <button className="session-pill ny" onClick={() => handleSessionJump("NY", "NEXT")} title="Jump to New York Session">
+                            <span className="session-pill-dot ny"></span>
+                            <div className="session-pill-text">
+                              <span className="session-pill-name">New York</span>
+                              <span className="session-pill-time">21:00</span>
+                            </div>
+                          </button>
+                          <button className="session-stepper-btn" onClick={() => handleSessionJump("NY", "NEXT")} title="Next New York Session">
+                            <span className="material-symbols-outlined">add</span>
+                          </button>
                         </div>
                       </div>
 
-                      {/* Right: Session Jumps */}
-                      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                        <div className="form-label" style={{ borderBottom: "1px solid var(--outline-variant)", paddingBottom: "4px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <span>Session Jump</span>
-                          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                            <button className="toggle-btn" style={{ padding: 0, width: "14px", height: "14px", display: "inline-flex", alignItems: "center", justifyContent: "center" }} onClick={() => handleSessionJump("ANY", "PREV")}>
-                              <span className="material-symbols-outlined text-[10px]" style={{ lineHeight: 1 }}>chevron_left</span>
+                      {/* Row 2: Time Steps */}
+                      <div className="time-steps-horizontal-grid" style={{ gridTemplateColumns: `repeat(${timeSteps.length}, 1fr)` }}>
+                        {timeSteps.map((step) => (
+                          <div className="time-step-card" key={step.id}>
+                            <button className="time-step-btn" onClick={() => handleTimeJump(-step.seconds)} title={`-${step.label}`}>
+                              <span className="material-symbols-outlined">remove</span>
                             </button>
-                            <span className="font-data" style={{ fontSize: "9px", color: "var(--primary-color)", backgroundColor: "rgba(var(--primary-rgb), 0.1)", padding: "0 4px", borderRadius: "2px" }}>
-                              {getDayOffset()}
-                            </span>
-                            <button className="toggle-btn" style={{ padding: 0, width: "14px", height: "14px", display: "inline-flex", alignItems: "center", justifyContent: "center" }} onClick={() => handleSessionJump("ANY", "NEXT")}>
-                              <span className="material-symbols-outlined text-[10px]" style={{ lineHeight: 1 }}>chevron_right</span>
+                            <span className="time-step-val">{step.label}</span>
+                            <button className="time-step-btn" onClick={() => handleTimeJump(step.seconds)} title={`+${step.label}`}>
+                              <span className="material-symbols-outlined">add</span>
                             </button>
                           </div>
-                        </div>
-                        <div className="session-jump-list">
-                          {/* Tokyo Row */}
-                          <div className="session-row">
-                            <button className="session-btn tyo" onClick={() => handleSessionJump("TYO", "NEXT")}>
-                              <span className="session-btn-dot tyo"></span>
-                              <div className="session-btn-info">
-                                <span className="session-btn-name">Tokyo</span>
-                                <span className="session-btn-time">09:00 - 18:00</span>
-                              </div>
-                              <span className="session-btn-offset">{getDayOffset()}</span>
-                            </button>
-                            <div className="session-steppers">
-                              <button className="pro-btn session-stepper-btn" onClick={() => handleSessionJump("TYO", "NEXT")}>
-                                <span className="material-symbols-outlined text-[10px]">add</span>
-                              </button>
-                              <button className="pro-btn session-stepper-btn" onClick={() => handleSessionJump("TYO", "PREV")}>
-                                <span className="material-symbols-outlined text-[10px]">remove</span>
-                              </button>
-                            </div>
-                          </div>
-                          {/* London Row */}
-                          <div className="session-row">
-                            <button className="session-btn ldn" onClick={() => handleSessionJump("LDN", "NEXT")}>
-                              <span className="session-btn-dot ldn"></span>
-                              <div className="session-btn-info">
-                                <span className="session-btn-name">London</span>
-                                <span className="session-btn-time">16:00 - 01:00</span>
-                              </div>
-                              <span className="session-btn-offset">{getDayOffset()}</span>
-                            </button>
-                            <div className="session-steppers">
-                              <button className="pro-btn session-stepper-btn" onClick={() => handleSessionJump("LDN", "NEXT")}>
-                                <span className="material-symbols-outlined text-[10px]">add</span>
-                              </button>
-                              <button className="pro-btn session-stepper-btn" onClick={() => handleSessionJump("LDN", "PREV")}>
-                                <span className="material-symbols-outlined text-[10px]">remove</span>
-                              </button>
-                            </div>
-                          </div>
-                          {/* New York Row */}
-                          <div className="session-row">
-                            <button className="session-btn ny" onClick={() => handleSessionJump("NY", "NEXT")}>
-                              <span className="session-btn-dot ny"></span>
-                              <div className="session-btn-info">
-                                <span className="session-btn-name">New York</span>
-                                <span className="session-btn-time">21:00 - 07:00</span>
-                              </div>
-                              <span className="session-btn-offset">{getDayOffset()}</span>
-                            </button>
-                            <div className="session-steppers">
-                              <button className="pro-btn session-stepper-btn" onClick={() => handleSessionJump("NY", "NEXT")}>
-                                <span className="material-symbols-outlined text-[10px]">add</span>
-                              </button>
-                              <button className="pro-btn session-stepper-btn" onClick={() => handleSessionJump("NY", "PREV")}>
-                                <span className="material-symbols-outlined text-[10px]">remove</span>
-                              </button>
-                            </div>
-                          </div>
-                        </div>
+                        ))}
                       </div>
                     </div>
                   </div>
@@ -5490,6 +5527,178 @@ function App() {
         terminalPath={selectedTerminal}
         onImportComplete={() => loadAvailableSymbols(selectedTerminal)}
       />
+
+      {/* Time Steps カスタマイズ モーダル */}
+      {isTimeStepsModalOpen && (
+        <div className="modal-overlay" onClick={() => setIsTimeStepsModalOpen(false)}>
+          <div className="modal-container" style={{ maxWidth: "460px" }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <span className="material-symbols-outlined icon-accent" style={{ color: "var(--primary-color)" }}>tune</span>
+                Time Steps カスタマイズ (最大5つ)
+              </h3>
+              <button className="modal-close-btn" onClick={() => setIsTimeStepsModalOpen(false)}>
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <div className="modal-body" style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: "16px" }}>
+              
+              {/* Quick Add Presets */}
+              <div>
+                <div className="form-label" style={{ marginBottom: "6px" }}>クイック追加プリセット:</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                  {PRESET_TIME_OPTIONS.map((preset) => {
+                    const isAlreadyAdded = editingTimeSteps.some((item) => item.seconds === preset.seconds);
+                    const isMax = editingTimeSteps.length >= 5;
+                    return (
+                      <button
+                        key={preset.label}
+                        className={`pro-btn ${isAlreadyAdded ? "secondary" : ""}`}
+                        disabled={isAlreadyAdded || isMax}
+                        style={{
+                          padding: "3px 8px",
+                          fontSize: "11px",
+                          opacity: isAlreadyAdded || isMax ? 0.5 : 1,
+                          cursor: isAlreadyAdded || isMax ? "not-allowed" : "pointer"
+                        }}
+                        onClick={() => {
+                          if (editingTimeSteps.length < 5 && !isAlreadyAdded) {
+                            const updated = [
+                              ...editingTimeSteps,
+                              { id: `ts-${Date.now()}-${Math.random()}`, seconds: preset.seconds, label: preset.label }
+                            ].sort((a, b) => a.seconds - b.seconds);
+                            setEditingTimeSteps(updated);
+                          }
+                        }}
+                      >
+                        + {preset.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Current Steps Edit List */}
+              <div>
+                <div className="form-label" style={{ marginBottom: "8px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>設定中のステップ (最大5枠 / 現在 {editingTimeSteps.length}枠):</span>
+                  {editingTimeSteps.length < 5 && (
+                    <button
+                      className="pro-btn"
+                      style={{ padding: "2px 8px", fontSize: "11px" }}
+                      onClick={() => {
+                        const updated = [
+                          ...editingTimeSteps,
+                          { id: `ts-${Date.now()}`, seconds: 300, label: "5M" }
+                        ].sort((a, b) => a.seconds - b.seconds);
+                        setEditingTimeSteps(updated);
+                      }}
+                    >
+                      + カスタム追加
+                    </button>
+                  )}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                  {editingTimeSteps.map((step, index) => (
+                    <div
+                      key={step.id || index}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        backgroundColor: "var(--surface-obsidian)",
+                        padding: "6px 10px",
+                        borderRadius: "var(--radius-sm)",
+                        border: "1px solid var(--outline-variant)"
+                      }}
+                    >
+                      <span className="font-data" style={{ fontSize: "12px", color: "var(--on-surface-variant)", width: "18px" }}>
+                        #{index + 1}
+                      </span>
+                      <div style={{ display: "flex", alignItems: "center", gap: "4px", flex: 1 }}>
+                        <span style={{ fontSize: "11px", color: "var(--on-surface-variant)" }}>秒数:</span>
+                        <input
+                          type="number"
+                          className="pro-input"
+                          style={{ width: "70px", padding: "2px 6px", fontSize: "12px", textAlign: "right" }}
+                          value={step.seconds}
+                          min={1}
+                          max={86400}
+                          onChange={(e) => {
+                            const val = Math.max(1, parseInt(e.target.value) || 1);
+                            const updated = [...editingTimeSteps];
+                            updated[index] = {
+                              ...updated[index],
+                              seconds: val,
+                              label: formatSecondsToLabel(val)
+                            };
+                            setEditingTimeSteps(updated);
+                          }}
+                        />
+                        <span style={{ fontSize: "11px", color: "var(--on-surface-variant)" }}>秒</span>
+                      </div>
+
+                      <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                        <span style={{ fontSize: "11px", color: "var(--on-surface-variant)" }}>表示名:</span>
+                        <input
+                          type="text"
+                          className="pro-input"
+                          style={{ width: "55px", padding: "2px 6px", fontSize: "12px", fontWeight: 700 }}
+                          value={step.label}
+                          onChange={(e) => {
+                            const updated = [...editingTimeSteps];
+                            updated[index] = { ...updated[index], label: e.target.value };
+                            setEditingTimeSteps(updated);
+                          }}
+                        />
+                      </div>
+
+                      <button
+                        className="pro-btn danger pro-btn-square"
+                        style={{ width: "24px", height: "24px", padding: 0 }}
+                        disabled={editingTimeSteps.length <= 1}
+                        title="削除"
+                        onClick={() => {
+                          if (editingTimeSteps.length > 1) {
+                            setEditingTimeSteps(editingTimeSteps.filter((_, i) => i !== index));
+                          }
+                        }}
+                      >
+                        <span className="material-symbols-outlined text-[13px]">delete</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="modal-footer" style={{ padding: "12px 16px", display: "flex", gap: "8px", justifyContent: "space-between" }}>
+              <button
+                className="pro-btn secondary"
+                onClick={() => setEditingTimeSteps([...DEFAULT_TIME_STEPS].sort((a, b) => a.seconds - b.seconds))}
+                title="デフォルトに戻す"
+              >
+                初期化
+              </button>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button className="pro-btn" onClick={() => setIsTimeStepsModalOpen(false)}>
+                  キャンセル
+                </button>
+                <button
+                  className="pro-btn primary"
+                  onClick={() => {
+                    const sorted = [...editingTimeSteps].sort((a, b) => a.seconds - b.seconds);
+                    setTimeSteps(sorted);
+                    setIsTimeStepsModalOpen(false);
+                  }}
+                >
+                  保存
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 急変動・トレンドAI解析スライドインパネル */}
       <AIAnalysisPanel
