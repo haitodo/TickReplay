@@ -282,6 +282,23 @@ function App() {
   const [isRemoteMode, setIsRemoteMode] = useState(false);
   const [isShortcutsActive, setIsShortcutsActive] = useState(false);
   const [alwaysOnTop, setAlwaysOnTop] = useState(false);
+  const [isSubmenuOpen, setIsSubmenuOpen] = useState(false);
+  const submenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (submenuRef.current && !submenuRef.current.contains(event.target as Node)) {
+        setIsSubmenuOpen(false);
+      }
+    };
+    if (isSubmenuOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isSubmenuOpen]);
+
   const [errorMessage, setErrorMessage] = useState("");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isResetReplayConfirmOpen, setIsResetReplayConfirmOpen] = useState(false);
@@ -2808,117 +2825,63 @@ function App() {
 
         {/* Action icons & Terminate */}
         <div className="nav-actions">
-          {/* A. 画面切替＆発注ツール (検証時のみ) */}
+          {/* 1. 画面切替 (検証時のみ) */}
           {(status === "ACTIVE" || status === "READY") && (
-            <>
-              <div className="mode-toggle-segmented" style={{ display: "flex", gap: "2px", backgroundColor: "var(--surface-container-high)", padding: "2px", borderRadius: "var(--radius-sm)", marginRight: "4px", border: "1px solid var(--outline-variant)", userSelect: "none", flexShrink: 0 }}>
-                <button
-                  className={`pro-btn ${currentViewMode === "replay" ? "active-loop" : ""}`}
-                  style={{ padding: "4px 8px", fontSize: "10px", height: "24px", whiteSpace: "nowrap", flexShrink: 0 }}
-                  onClick={() => setCurrentViewMode("replay")}
-                >
-                  再生画面
-                </button>
-                <button
-                  className={`pro-btn ${currentViewMode === "trade" ? "active-loop" : ""}`}
-                  style={{ padding: "4px 8px", fontSize: "10px", height: "24px", whiteSpace: "nowrap", flexShrink: 0 }}
-                  onClick={() => setCurrentViewMode("trade")}
-                >
-                  取引実績
-                </button>
-              </div>
-
+            <div className="mode-toggle-segmented" style={{ display: "flex", gap: "2px", backgroundColor: "var(--surface-container-high)", padding: "2px", borderRadius: "var(--radius-sm)", marginRight: "4px", border: "1px solid var(--outline-variant)", userSelect: "none", flexShrink: 0 }}>
               <button
-                className="pro-btn pro-btn-square"
-                onClick={async () => {
-                  try {
-                    await invoke("open_speed_order_window");
-                  } catch (err) {
-                    console.error(err);
-                  }
-                }}
-                title="スピード発注パネルを起動"
+                className={`pro-btn ${currentViewMode === "replay" ? "active-loop" : ""}`}
+                style={{ padding: "4px 8px", fontSize: "10px", height: "24px", whiteSpace: "nowrap", flexShrink: 0 }}
+                onClick={() => setCurrentViewMode("replay")}
               >
-                <span className="material-symbols-outlined text-[16px]">currency_exchange</span>
+                再生画面
               </button>
-
-              <div className="nav-divider"></div>
-            </>
+              <button
+                className={`pro-btn ${currentViewMode === "trade" ? "active-loop" : ""}`}
+                style={{ padding: "4px 8px", fontSize: "10px", height: "24px", whiteSpace: "nowrap", flexShrink: 0 }}
+                onClick={() => setCurrentViewMode("trade")}
+              >
+                取引実績
+              </button>
+            </div>
           )}
 
-          {/* B. セッション管理 (検証時のみ) */}
+          {/* 2. スピード発注パネルを起動 (検証時のみ) */}
+          {(status === "ACTIVE" || status === "READY") && (
+            <button
+              className="pro-btn pro-btn-square"
+              onClick={async () => {
+                try {
+                  await invoke("open_speed_order_window");
+                } catch (err) {
+                  console.error(err);
+                }
+              }}
+              title="スピード発注パネルを起動"
+            >
+              <span className="material-symbols-outlined text-[16px]">currency_exchange</span>
+            </button>
+          )}
+
+          {/* 3. 現在の検証状態を保存 (検証時のみ) */}
           {(status === "READY" || status === "ACTIVE") && (
-            <>
-              <button
-                className="pro-btn pro-btn-square"
-                onClick={() => {
-                  const now = new Date();
-                  const pad = (n: number) => n.toString().padStart(2, '0');
-                  const defaultName = `${sourceSymbol}_Replay_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
-                  setSaveSessionName(currentSessionId ? currentSessionName : defaultName);
-                  setSaveAsNewSnapshot(false);
-                  setSessionSaveType("manual");
-                  setIsSaveSessionOpen(true);
-                }}
-                title="現在の検証状態を保存"
-              >
-                <span className="material-symbols-outlined text-[16px]">save</span>
-              </button>
-
-              <button
-                className="pro-btn pro-btn-square danger"
-                onClick={handleTerminate}
-                title="リプレイ検証を終了する"
-              >
-                <span className="material-symbols-outlined text-[16px]">power_settings_new</span>
-              </button>
-
-              <div className="nav-divider"></div>
-            </>
+            <button
+              className="pro-btn pro-btn-square"
+              onClick={() => {
+                const now = new Date();
+                const pad = (n: number) => n.toString().padStart(2, '0');
+                const defaultName = `${sourceSymbol}_Replay_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+                setSaveSessionName(currentSessionId ? currentSessionName : defaultName);
+                setSaveAsNewSnapshot(false);
+                setSessionSaveType("manual");
+                setIsSaveSessionOpen(true);
+              }}
+              title="現在の検証状態を保存"
+            >
+              <span className="material-symbols-outlined text-[16px]">save</span>
+            </button>
           )}
 
-          {/* C. 各種表示・入力制御 (常時表示) */}
-          <button
-            className={`pro-btn pro-btn-square ${alwaysOnTop ? "active-loop" : ""}`}
-            onClick={handleAlwaysOnTopToggle}
-            title="ウインドウを常に最前面に固定"
-          >
-            <span className="material-symbols-outlined text-[16px]">push_pin</span>
-          </button>
-
-          <button
-            className={`pro-btn pro-btn-square ${isShortcutsActive ? "active-loop" : ""}`}
-            onClick={handleShortcutsToggle}
-            title="キーボードショートカット有効化"
-          >
-            <span className="material-symbols-outlined text-[16px]">keyboard</span>
-          </button>
-
-          <button
-            className="pro-btn pro-btn-square"
-            onClick={() => toggleRemoteMode(true)}
-            title="リモート操作モードの切替"
-          >
-            <span className="material-symbols-outlined text-[16px]">settings_remote</span>
-          </button>
-
-          <div className="nav-divider"></div>
-
-          {/* D. アプリ全体設定 (常時表示) */}
-          <button
-            className="pro-btn pro-btn-square"
-            onClick={() => {
-              const nextMode = themeMode === "dark" ? "light" : "dark";
-              setThemeMode(nextMode);
-              saveAllSettings(hotkeys, timePresets, tickPresets, newsFilters, glassEffect, nextMode);
-            }}
-            title={themeMode === "dark" ? "ライトモードに切り替え" : "ダークモードに切り替え"}
-          >
-            <span className="material-symbols-outlined text-[16px]">
-              {themeMode === "dark" ? "light_mode" : "dark_mode"}
-            </span>
-          </button>
-
+          {/* 4. 急変動・トレンドAI解析 (常時表示) */}
           {spikeInfo.isSpike && (
             <button
               className="spike-alert-badge"
@@ -2944,6 +2907,7 @@ function App() {
             <span className="material-symbols-outlined text-[16px]" style={{ color: "#3b82f6" }}>auto_awesome</span>
           </button>
 
+          {/* 5. 環境設定 (常時表示) */}
           <button
             className="pro-btn pro-btn-square"
             onClick={() => setIsSettingsOpen(true)}
@@ -2951,6 +2915,91 @@ function App() {
           >
             <span className="material-symbols-outlined text-[16px]">settings</span>
           </button>
+
+          {/* 6. リプレイ検証を終了する (検証時のみ) */}
+          {(status === "READY" || status === "ACTIVE") && (
+            <button
+              className="pro-btn pro-btn-square danger"
+              onClick={handleTerminate}
+              title="リプレイ検証を終了する"
+            >
+              <span className="material-symbols-outlined text-[16px]">power_settings_new</span>
+            </button>
+          )}
+
+          <div className="nav-divider"></div>
+
+          {/* 7. サブメニュー（その他補助機能） */}
+          <div className="header-submenu-container" ref={submenuRef}>
+            <button
+              className={`pro-btn pro-btn-square ${isSubmenuOpen ? "active-loop" : ""}`}
+              onClick={() => setIsSubmenuOpen(!isSubmenuOpen)}
+              title="その他・補助機能"
+            >
+              <span className="material-symbols-outlined text-[16px]">more_vert</span>
+              {(alwaysOnTop || isShortcutsActive) && (
+                <span className="header-submenu-dot-indicator" title="補助機能が有効です"></span>
+              )}
+            </button>
+
+            {isSubmenuOpen && (
+              <div className="header-submenu-dropdown">
+                <div className="header-submenu-header">補助ツール &amp; 表示設定</div>
+                <button
+                  className={`header-submenu-item ${alwaysOnTop ? "active" : ""}`}
+                  onClick={() => {
+                    handleAlwaysOnTopToggle();
+                  }}
+                  title="ウインドウを常に最前面に固定"
+                >
+                  <span className="material-symbols-outlined icon">push_pin</span>
+                  <span className="label">最前面に固定</span>
+                  <span className="status-tag">{alwaysOnTop ? "ON" : "OFF"}</span>
+                </button>
+
+                <button
+                  className={`header-submenu-item ${isShortcutsActive ? "active" : ""}`}
+                  onClick={() => {
+                    handleShortcutsToggle();
+                  }}
+                  title="キーボードショートカット有効化"
+                >
+                  <span className="material-symbols-outlined icon">keyboard</span>
+                  <span className="label">ショートカット</span>
+                  <span className="status-tag">{isShortcutsActive ? "ON" : "OFF"}</span>
+                </button>
+
+                <button
+                  className="header-submenu-item"
+                  onClick={() => {
+                    toggleRemoteMode(true);
+                    setIsSubmenuOpen(false);
+                  }}
+                  title="リモート操作モードの切替"
+                >
+                  <span className="material-symbols-outlined icon">settings_remote</span>
+                  <span className="label">リモコンモード</span>
+                </button>
+
+                <div className="header-submenu-divider"></div>
+
+                <button
+                  className="header-submenu-item"
+                  onClick={() => {
+                    const nextMode = themeMode === "dark" ? "light" : "dark";
+                    setThemeMode(nextMode);
+                    saveAllSettings(hotkeys, timePresets, tickPresets, newsFilters, glassEffect, nextMode);
+                  }}
+                  title={themeMode === "dark" ? "ライトモードに切り替え" : "ダークモードに切り替え"}
+                >
+                  <span className="material-symbols-outlined icon">
+                    {themeMode === "dark" ? "light_mode" : "dark_mode"}
+                  </span>
+                  <span className="label">{themeMode === "dark" ? "ライトモード" : "ダークモード"}</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </nav>
 
