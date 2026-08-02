@@ -2892,7 +2892,7 @@ function App() {
               }}
               title="スピード発注パネルを起動"
             >
-              <span className="material-symbols-outlined text-[16px]">currency_exchange</span>
+              <span className="material-symbols-outlined text-[16px] pro-money-icon">currency_exchange</span>
             </button>
           )}
 
