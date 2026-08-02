@@ -2607,28 +2607,28 @@ function App() {
           <div className="remote-session-group">
             <div className="remote-session-block border-r">
               <span className="remote-session-label tyo select-none">TYO</span>
-              <button className="remote-btn-tactile" onClick={() => handleSessionJump("TYO", "PREV")} title="Tokyo Session Previous" style={{ marginRight: '2px' }}>
+              <button className="remote-btn-tactile" onClick={() => handleSessionJump("TYO", "PREV")} title="東京セッション 前日へ" style={{ marginRight: '2px' }}>
                 <span className="material-symbols-outlined text-[14px]">remove</span>
               </button>
-              <button className="remote-btn-tactile" onClick={() => handleSessionJump("TYO", "NEXT")} title="Tokyo Session Next">
+              <button className="remote-btn-tactile" onClick={() => handleSessionJump("TYO", "NEXT")} title="東京セッション 翌日へ">
                 <span className="material-symbols-outlined text-[14px]">add</span>
               </button>
             </div>
             <div className="remote-session-block border-r">
               <span className="remote-session-label ldn select-none">LDN</span>
-              <button className="remote-btn-tactile" onClick={() => handleSessionJump("LDN", "PREV")} title="London Session Previous" style={{ marginRight: '2px' }}>
+              <button className="remote-btn-tactile" onClick={() => handleSessionJump("LDN", "PREV")} title="ロンドンセッション 前日へ" style={{ marginRight: '2px' }}>
                 <span className="material-symbols-outlined text-[14px]">remove</span>
               </button>
-              <button className="remote-btn-tactile" onClick={() => handleSessionJump("LDN", "NEXT")} title="London Session Next">
+              <button className="remote-btn-tactile" onClick={() => handleSessionJump("LDN", "NEXT")} title="ロンドンセッション 翌日へ">
                 <span className="material-symbols-outlined text-[14px]">add</span>
               </button>
             </div>
             <div className="remote-session-block">
               <span className="remote-session-label ny select-none">NY</span>
-              <button className="remote-btn-tactile" onClick={() => handleSessionJump("NY", "PREV")} title="New York Session Previous" style={{ marginRight: '2px' }}>
+              <button className="remote-btn-tactile" onClick={() => handleSessionJump("NY", "PREV")} title="ニューヨークセッション 前日へ" style={{ marginRight: '2px' }}>
                 <span className="material-symbols-outlined text-[14px]">remove</span>
               </button>
-              <button className="remote-btn-tactile" onClick={() => handleSessionJump("NY", "NEXT")} title="New York Session Next">
+              <button className="remote-btn-tactile" onClick={() => handleSessionJump("NY", "NEXT")} title="ニューヨークセッション 翌日へ">
                 <span className="material-symbols-outlined text-[14px]">add</span>
               </button>
             </div>
@@ -2636,22 +2636,22 @@ function App() {
 
           {/* Time Jumps */}
           <div className="remote-time-group">
-            <button className="remote-btn-time" onClick={() => handleTimeJump(-60)} title="Time Jump -1M">-1M</button>
-            <button className="remote-btn-time" onClick={() => handleTimeJump(60)} title="Time Jump +1M">+1M</button>
+            <button className="remote-btn-time" onClick={() => handleTimeJump(-60)} title="1分戻る">-1M</button>
+            <button className="remote-btn-time" onClick={() => handleTimeJump(60)} title="1分進む">+1M</button>
             <div className="remote-divider-v"></div>
-            <button className="remote-btn-time" onClick={() => handleTimeJump(-600)} title="Time Jump -10M">-10M</button>
-            <button className="remote-btn-time" onClick={() => handleTimeJump(600)} title="Time Jump +10M">+10M</button>
+            <button className="remote-btn-time" onClick={() => handleTimeJump(-600)} title="10分戻る">-10M</button>
+            <button className="remote-btn-time" onClick={() => handleTimeJump(600)} title="10分進む">+10M</button>
           </div>
 
           {/* Playback Cluster */}
           <div className="remote-playback-group">
-            <button className="remote-btn-playback" onClick={() => handleStep(-1)} title="1 Tick Backward">
+            <button className="remote-btn-playback" onClick={() => handleStep(-1)} title="1コマ(1ティック)戻る">
               <span className="material-symbols-outlined text-[15px]" style={{ fontVariationSettings: "'FILL' 1" }}>skip_previous</span>
             </button>
-            <button className={`remote-btn-playback-primary ${isPlaying ? "active-play" : ""}`} onClick={handlePlayPause} title={isPlaying ? "Pause Replay" : "Play Replay"}>
+            <button className={`remote-btn-playback-primary ${isPlaying ? "active-play" : ""}`} onClick={handlePlayPause} title={isPlaying ? "一時停止" : "再生"}>
               <span className="material-symbols-outlined text-[16px] text-[#0D0F14]" style={{ fontVariationSettings: "'FILL' 1" }}>{isPlaying ? "pause" : "play_arrow"}</span>
             </button>
-            <button className="remote-btn-playback" onClick={() => handleStep(1)} title="1 Tick Forward">
+            <button className="remote-btn-playback" onClick={() => handleStep(1)} title="1コマ(1ティック)進む">
               <span className="material-symbols-outlined text-[15px]" style={{ fontVariationSettings: "'FILL' 1" }}>skip_next</span>
             </button>
           </div>
@@ -2660,7 +2660,7 @@ function App() {
           <button
             className="remote-speed-btn"
             onClick={() => updateSpeed(speedMode === "TEMPORAL" ? "COUNT" : "TEMPORAL", multiplier, tickStep)}
-            title="Click to toggle Speed Mode (Time vs Tick Count)"
+            title="再生速度モード切替 (時間基準 / ティック数基準)"
           >
             {speedMode === "TEMPORAL" ? `${multiplier.toFixed(1)}x` : `${tickStep}T`}
           </button>
@@ -3040,7 +3040,7 @@ function App() {
             <div className="pro-panel-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <h3 className="pro-panel-title">
                 <span className="material-symbols-outlined icon-accent">settings_input_component</span>
-                Setup Replay Environment
+                リプレイ環境のセットアップ
               </h3>
               <div className="mode-toggle-segmented" style={{ display: "flex", gap: "2px", backgroundColor: "var(--surface-container-high)", padding: "2px", borderRadius: "var(--radius-sm)", border: "1px solid var(--outline-variant)", userSelect: "none" }}>
                 <button
@@ -3868,7 +3868,7 @@ function App() {
               {/* Timeline Panel */}
               <div className="pro-panel timeline-panel">
                 <div className="pro-panel-header">
-                  <h3 className="pro-panel-title" title="Market Timeline Overview" style={{ cursor: "pointer" }}>
+                  <h3 className="pro-panel-title" title="マーケットタイムライン概要" style={{ cursor: "pointer" }}>
                     <span className="material-symbols-outlined icon-accent">timeline</span>
                   </h3>
                   <div className="timeline-header-info">
@@ -3876,7 +3876,7 @@ function App() {
                       Tick: <span className="timeline-meta-val">{currentIdx}</span> / {totalTicks}
                     </span>
                     <span className="timeline-meta-percent">{progressPercent.toFixed(1)}%</span>
-                    <span className="pro-panel-meta timeline-cycle-badge">24H CYCLE</span>
+                    <span className="pro-panel-meta timeline-cycle-badge">24時間サイクル</span>
                   </div>
                 </div>
                 <div className="pro-panel-body" style={{ padding: "4px 8px" }}>
@@ -3952,7 +3952,7 @@ function App() {
                   {/* Transport Panel */}
                   <div className="pro-panel">
                     <div className="pro-panel-header" style={{ padding: "4px 8px 4px 12px", minWidth: 0, gap: "8px" }}>
-                      <h3 className="pro-panel-title" title="Transport" style={{ flexShrink: 0, cursor: "pointer" }}>
+                      <h3 className="pro-panel-title" title="再生コントロール" style={{ flexShrink: 0, cursor: "pointer" }}>
                         <span className="material-symbols-outlined icon-accent">play_circle</span>
                       </h3>
 
@@ -4136,7 +4136,7 @@ function App() {
                   {/* Navigation Matrix Panel */}
                   <div className="pro-panel" style={{ flex: 1, minWidth: 0 }}>
                     <div className="pro-panel-header" style={{ padding: "6px 8px", minWidth: 0, gap: "6px" }}>
-                      <h3 className="pro-panel-title" title="Navigation Matrix" style={{ flexShrink: 0, cursor: "pointer" }}>
+                      <h3 className="pro-panel-title" title="時間移動マトリクス" style={{ flexShrink: 0, cursor: "pointer" }}>
                         <span className="material-symbols-outlined icon-accent">grid_view</span>
                       </h3>
                       <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
@@ -4152,14 +4152,14 @@ function App() {
                           <span className="material-symbols-outlined text-[12px]">tune</span>
                           <span>Step設定</span>
                         </button>
-                        <span style={{ fontSize: "9.5px", color: "var(--on-surface-variant)", marginLeft: "2px" }}>Day:</span>
-                        <button className="toggle-btn" style={{ padding: 0, width: "16px", height: "16px", display: "inline-flex", alignItems: "center", justifyContent: "center" }} onClick={() => handleSessionJump("ANY", "PREV")} title="Previous Day">
+                        <span style={{ fontSize: "9.5px", color: "var(--on-surface-variant)", marginLeft: "2px" }}>日付:</span>
+                        <button className="toggle-btn" style={{ padding: 0, width: "16px", height: "16px", display: "inline-flex", alignItems: "center", justifyContent: "center" }} onClick={() => handleSessionJump("ANY", "PREV")} title="前日">
                           <span className="material-symbols-outlined text-[12px]" style={{ lineHeight: 1 }}>chevron_left</span>
                         </button>
                         <span className="font-data" style={{ fontSize: "10px", color: "var(--primary-color)", backgroundColor: "rgba(var(--primary-rgb), 0.12)", padding: "1px 5px", borderRadius: "3px", fontWeight: 600 }}>
                           {getDayOffset()}
                         </span>
-                        <button className="toggle-btn" style={{ padding: 0, width: "16px", height: "16px", display: "inline-flex", alignItems: "center", justifyContent: "center" }} onClick={() => handleSessionJump("ANY", "NEXT")} title="Next Day">
+                        <button className="toggle-btn" style={{ padding: 0, width: "16px", height: "16px", display: "inline-flex", alignItems: "center", justifyContent: "center" }} onClick={() => handleSessionJump("ANY", "NEXT")} title="翌日">
                           <span className="material-symbols-outlined text-[12px]" style={{ lineHeight: 1 }}>chevron_right</span>
                         </button>
                       </div>
@@ -4169,51 +4169,51 @@ function App() {
                       <div className="session-jump-grid">
                         {/* Tokyo */}
                         <div className="session-stepper-card tyo">
-                          <button className="session-stepper-btn" onClick={() => handleSessionJump("TYO", "PREV")} title="Previous Tokyo Session">
+                          <button className="session-stepper-btn" onClick={() => handleSessionJump("TYO", "PREV")} title="前の東京セッション">
                             <span className="material-symbols-outlined">remove</span>
                           </button>
-                          <button className="session-pill tyo" onClick={() => handleSessionJump("TYO", "NEXT")} title="Jump to Tokyo Session">
+                          <button className="session-pill tyo" onClick={() => handleSessionJump("TYO", "NEXT")} title="東京セッションへ移動">
                             <span className="session-pill-dot tyo"></span>
                             <div className="session-pill-text">
                               <span className="session-pill-name">Tokyo</span>
                               <span className="session-pill-time">09:00</span>
                             </div>
                           </button>
-                          <button className="session-stepper-btn" onClick={() => handleSessionJump("TYO", "NEXT")} title="Next Tokyo Session">
+                          <button className="session-stepper-btn" onClick={() => handleSessionJump("TYO", "NEXT")} title="次の東京セッション">
                             <span className="material-symbols-outlined">add</span>
                           </button>
                         </div>
 
                         {/* London */}
                         <div className="session-stepper-card ldn">
-                          <button className="session-stepper-btn" onClick={() => handleSessionJump("LDN", "PREV")} title="Previous London Session">
+                          <button className="session-stepper-btn" onClick={() => handleSessionJump("LDN", "PREV")} title="前のロンドンセッション">
                             <span className="material-symbols-outlined">remove</span>
                           </button>
-                          <button className="session-pill ldn" onClick={() => handleSessionJump("LDN", "NEXT")} title="Jump to London Session">
+                          <button className="session-pill ldn" onClick={() => handleSessionJump("LDN", "NEXT")} title="ロンドンセッションへ移動">
                             <span className="session-pill-dot ldn"></span>
                             <div className="session-pill-text">
                               <span className="session-pill-name">London</span>
                               <span className="session-pill-time">16:00</span>
                             </div>
                           </button>
-                          <button className="session-stepper-btn" onClick={() => handleSessionJump("LDN", "NEXT")} title="Next London Session">
+                          <button className="session-stepper-btn" onClick={() => handleSessionJump("LDN", "NEXT")} title="次のロンドンセッション">
                             <span className="material-symbols-outlined">add</span>
                           </button>
                         </div>
 
                         {/* New York */}
                         <div className="session-stepper-card ny">
-                          <button className="session-stepper-btn" onClick={() => handleSessionJump("NY", "PREV")} title="Previous New York Session">
+                          <button className="session-stepper-btn" onClick={() => handleSessionJump("NY", "PREV")} title="前のニューヨークセッション">
                             <span className="material-symbols-outlined">remove</span>
                           </button>
-                          <button className="session-pill ny" onClick={() => handleSessionJump("NY", "NEXT")} title="Jump to New York Session">
+                          <button className="session-pill ny" onClick={() => handleSessionJump("NY", "NEXT")} title="ニューヨークセッションへ移動">
                             <span className="session-pill-dot ny"></span>
                             <div className="session-pill-text">
                               <span className="session-pill-name">New York</span>
                               <span className="session-pill-time">21:00</span>
                             </div>
                           </button>
-                          <button className="session-stepper-btn" onClick={() => handleSessionJump("NY", "NEXT")} title="Next New York Session">
+                          <button className="session-stepper-btn" onClick={() => handleSessionJump("NY", "NEXT")} title="次のニューヨークセッション">
                             <span className="material-symbols-outlined">add</span>
                           </button>
                         </div>
@@ -4241,11 +4241,11 @@ function App() {
                 <div className="col-right">
                   <div className="pro-panel" style={{ flex: 1 }}>
                     <div className="pro-panel-header">
-                      <h3 className="pro-panel-title" title="News Impact List" style={{ cursor: "pointer" }}>
+                      <h3 className="pro-panel-title" title="経済指標リスト" style={{ cursor: "pointer" }}>
                         <span className="material-symbols-outlined icon-accent">monitoring</span>
                       </h3>
                       <span className="font-data" style={{ fontSize: "9px", color: "var(--primary-color)", backgroundColor: "rgba(var(--primary-rgb), 0.1)", padding: "2px 6px", borderRadius: "2px" }}>
-                        SYNCED
+                        同期中
                       </span>
                     </div>
                     <div className="pro-panel-body" style={{ flex: 1 }}>
@@ -4253,12 +4253,12 @@ function App() {
                         <table className="news-table">
                           <thead>
                             <tr>
-                              <th className="news-th" style={{ width: "45px" }}>Time</th>
-                              <th className="news-th" style={{ width: "35px" }}>Ccy</th>
-                              <th className="news-th" style={{ width: "20px" }}>Imp</th>
-                              <th className="news-th">Event</th>
-                              <th className="news-th" style={{ width: "130px", textAlign: "left" }}>Value (Act/For/Pre)</th>
-                              <th className="news-th" style={{ width: "60px", textAlign: "center" }}>Action</th>
+                              <th className="news-th" style={{ width: "45px" }}>時間</th>
+                              <th className="news-th" style={{ width: "35px" }}>通貨</th>
+                              <th className="news-th" style={{ width: "26px", textAlign: "center" }} title="重要度 (Impact)">Imp</th>
+                              <th className="news-th">指標名</th>
+                              <th className="news-th" style={{ width: "130px", textAlign: "left" }}>数値 (結果/予想/前回)</th>
+                              <th className="news-th" style={{ width: "60px", textAlign: "center" }}>操作</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -4405,7 +4405,7 @@ function App() {
             <div className="modal-header">
               <h3 className="modal-title">
                 <span className="material-symbols-outlined icon-accent">settings</span>
-                System & Control Settings
+                システム・操作設定
               </h3>
               <button className="modal-close-btn" onClick={() => { if (!recordingAction) setIsSettingsOpen(false); }} disabled={!!recordingAction}>
                 <span className="material-symbols-outlined">close</span>
@@ -4418,35 +4418,35 @@ function App() {
                 onClick={() => setActiveTab("general")}
               >
                 <span className="material-symbols-outlined tab-icon">tune</span>
-                General
+                一般設定
               </button>
               <button
                 className={`modal-tab-btn ${activeTab === "hotkeys" ? "active" : ""}`}
                 onClick={() => setActiveTab("hotkeys")}
               >
                 <span className="material-symbols-outlined tab-icon">keyboard</span>
-                Hotkeys
+                ショートカット
               </button>
               <button
                 className={`modal-tab-btn ${activeTab === "news" ? "active" : ""}`}
                 onClick={() => setActiveTab("news")}
               >
                 <span className="material-symbols-outlined tab-icon">newspaper</span>
-                News
+                経済指標
               </button>
               <button
                 className={`modal-tab-btn ${activeTab === "theme" ? "active" : ""}`}
                 onClick={() => setActiveTab("theme")}
               >
                 <span className="material-symbols-outlined tab-icon">palette</span>
-                Theme
+                テーマ・表示
               </button>
               <button
                 className={`modal-tab-btn ${activeTab === "ai" ? "active" : ""}`}
                 onClick={() => setActiveTab("ai")}
               >
                 <span className="material-symbols-outlined tab-icon">auto_awesome</span>
-                AI & Analysis
+                AI・データ分析
               </button>
             </div>
 
@@ -4577,7 +4577,7 @@ function App() {
                             {timezoneMode === "JST" ? "日本時間 JST" : "MT5サーバ時刻 SRV"}
                           </div>
                           <span style={{ fontSize: "10px", color: "var(--on-surface-variant)" }}>
-                            ※タイムゾーンの変更はセットアップ画面（Setup Replay Environment）でのみ可能です。
+                            ※タイムゾーンの変更はセットアップ画面（リプレイ環境のセットアップ）でのみ可能です。
                           </span>
                         </div>
                       </div>

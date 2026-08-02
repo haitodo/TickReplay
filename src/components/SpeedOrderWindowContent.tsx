@@ -1052,7 +1052,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
               onClick={() => setLots(0)}
               title="クリア"
             >
-              C
+              CLR
             </button>
             {sortedQuickLots.map((v: any, idx: number) => (
               <button
@@ -1096,7 +1096,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
               onChange={(e) => setMaxSpreadPips(Math.max(0, parseFloat(e.target.value) || 0))}
               disabled={!maxSpreadEnabled}
               style={{ opacity: maxSpreadEnabled ? 1 : 0.45 }}
-              placeholder={maxSpreadEnabled ? "0.0" : "OFF"}
+              placeholder={maxSpreadEnabled ? "0.0" : "無効"}
               title="許容スプレッド (Pips)"
             />
           </div>
@@ -1121,7 +1121,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
               onChange={(e) => setSlPoints(Math.max(0, parseInt(e.target.value) || 0))}
               disabled={!slEnabled}
               style={{ opacity: slEnabled ? 1 : 0.45 }}
-              placeholder={slEnabled ? "0 (None)" : "OFF"}
+              placeholder={slEnabled ? "0 (なし)" : "無効"}
               title="ストップロス (Points)"
             />
           </div>
@@ -1146,7 +1146,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
               onChange={(e) => setTpPoints(Math.max(0, parseInt(e.target.value) || 0))}
               disabled={!tpEnabled}
               style={{ opacity: tpEnabled ? 1 : 0.45 }}
-              placeholder={tpEnabled ? "0 (None)" : "OFF"}
+              placeholder={tpEnabled ? "0 (なし)" : "無効"}
               title="テイクプロフィット (Points)"
             />
           </div>

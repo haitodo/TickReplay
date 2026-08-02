@@ -28,17 +28,17 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   const getStatusBadge = () => {
     switch (status) {
       case "CONNECTED":
-        return <span className="status-badge connected">Connected</span>;
+        return <span className="status-badge connected">接続完了</span>;
       case "READY":
-        return <span className="status-badge ready">Ready</span>;
+        return <span className="status-badge ready">準備完了</span>;
       case "ACTIVE":
-        return <span className="status-badge active">Replaying</span>;
+        return <span className="status-badge active">再生中</span>;
       case "ERROR":
-        return <span className="status-badge error">Error</span>;
+        return <span className="status-badge error">エラー</span>;
       default:
         return (
           <button className="status-badge-btn disconnected" onClick={onRefreshTerminals}>
-            Waiting for EA... (Click to Refresh)
+            EA接続待ち... (クリックで再読み込み)
           </button>
         );
     }
@@ -52,31 +52,31 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
       </div>
       <div className="header-right">
         <button className="icon-btn" onClick={onOpenImportModal} title="カスタムシンボル一括インポート">
-          📁 Import
+          📁 データ取込
         </button>
         <button className="icon-btn" onClick={onOpenHotkeysModal} title="ショートカット一覧">
-          ⌨️ Hotkeys List
+          ⌨️ ショートカット一覧
         </button>
         <button
           className={`toggle-btn ${hotkeysEnabled ? "active" : ""}`}
           onClick={onToggleHotkeys}
           title="グローバルショートカットの有効/無効"
         >
-          Hotkey: {hotkeysEnabled ? "ON" : "OFF"}
+          ショートカット: {hotkeysEnabled ? "ON" : "OFF"}
         </button>
         <button
           className={`toggle-btn ${isAlwaysOnTop ? "active" : ""}`}
           onClick={onToggleAlwaysOnTop}
           title="最前面に固定"
         >
-          📌 Pin
+          📌 最前面固定
         </button>
         <button
           className={`toggle-btn ${isRemoteMode ? "active" : ""}`}
           onClick={onToggleRemoteMode}
           title="リモコンミニモード切り替え"
         >
-          📺 Remote
+          📺 リモコン
         </button>
       </div>
     </header>

@@ -1077,7 +1077,7 @@ export const TradeAnalysisWindowContent: React.FC = () => {
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-            <span style={{ fontSize: "11px", color: "var(--on-surface-variant)" }}>Side:</span>
+            <span style={{ fontSize: "11px", color: "var(--on-surface-variant)" }}>売買:</span>
             <select className="pro-input" style={{ padding: "4px 8px", fontSize: "11px", height: "26px" }}
               value={filterSide} onChange={(e) => setFilterSide(e.target.value as any)}>
               <option value="all">両方</option>
@@ -1462,9 +1462,9 @@ export const TradeAnalysisWindowContent: React.FC = () => {
                       <th onClick={() => requestSort("ticket")} style={{ cursor: "pointer" }} title="Ticket Number [クリックでソート]">Ticket</th>
                       <th onClick={() => requestSort("type")} style={{ cursor: "pointer" }} title="Order Side (BUY/SELL) [クリックでソート]">Side</th>
                       <th onClick={() => requestSort("volume")} style={{ cursor: "pointer" }} title="Volume (Lots) [クリックでソート]">Lots</th>
-                      <th onClick={() => requestSort("open_price")} style={{ cursor: "pointer" }} title="Entry Price (新規価格) [クリックでソート]">Entry</th>
-                      <th onClick={() => requestSort("close_price")} style={{ cursor: "pointer" }} title="Exit Price (決済価格) [クリックでソート]">Exit</th>
-                      <th onClick={() => requestSort("close_time_msc")} style={{ cursor: "pointer" }} title="Close Time (Server) (約定日時) [クリックでソート]">Time</th>
+                      <th onClick={() => requestSort("open_price")} style={{ cursor: "pointer" }} title="Entry Price (新規価格) [クリックでソート]">新規価格</th>
+                      <th onClick={() => requestSort("close_price")} style={{ cursor: "pointer" }} title="Exit Price (決済価格) [クリックでソート]">決済価格</th>
+                      <th onClick={() => requestSort("close_time_msc")} style={{ cursor: "pointer" }} title="Close Time (Server) (約定日時) [クリックでソート]">決済日時</th>
                       <th onClick={() => requestSort("durationSec")} style={{ cursor: "pointer" }} title="Holding Duration (ポジション保有時間) [クリックでソート]">保有</th>
                       <th onClick={() => requestSort("spread_entry")} style={{ cursor: "pointer" }} title="Spread at Entry (エントリー時スプレッド pips) [クリックでソート]">スプレッド</th>
                       <th onClick={() => requestSort("mfe_pips")} style={{ cursor: "pointer" }} title="Maximum Favorable Excursion (含み益最大値 pips) [クリックでソート]">MFE</th>
@@ -1472,7 +1472,7 @@ export const TradeAnalysisWindowContent: React.FC = () => {
                       <th onClick={() => requestSort("volatility")} style={{ cursor: "pointer" }} title="Volatility (直近ボラティリティ pips) [クリックでソート]">ボラ</th>
                       <th onClick={() => requestSort("volume_60s")} style={{ cursor: "pointer" }} title="Volume 60s (直近60秒出来高) [クリックでソート]">出来高</th>
                       <th onClick={() => requestSort("entryInterval")} style={{ cursor: "pointer" }} title="Entry Interval (前回決済からの経過時間) [クリックでソート]">間隔</th>
-                      <th onClick={() => requestSort("profit")} style={{ cursor: "pointer" }} title="Profit / Loss (損益 JPY) [クリックでソート]">Profit</th>
+                      <th onClick={() => requestSort("profit")} style={{ cursor: "pointer" }} title="Profit / Loss (損益 JPY) [クリックでソート]">損益</th>
                     </tr>
                   </thead>
                   <tbody>
