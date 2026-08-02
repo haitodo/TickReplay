@@ -253,6 +253,18 @@ export const TradeAnalysisWindowContent: React.FC = () => {
   const [newsItems, setNewsItems] = useState<any[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<number | null>(null);
 
+  // レスポンシブ (コンパクト画面対応) 状態
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  const [compactTab, setCompactTab] = useState<"dashboard" | "filters" | "inspector">("dashboard");
+
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  const isCompact = windowWidth <= 900;
+
   // テーマ・CSS同期
   const [themeId, setThemeId] = useState(() => localStorage.getItem("accent-theme") || "cream");
   const [themeMode, setThemeMode] = useState<"dark" | "light">(() => (localStorage.getItem("theme-mode") as "dark" | "light") || "dark");
@@ -849,6 +861,9 @@ export const TradeAnalysisWindowContent: React.FC = () => {
   // 取引選択処理
   const handleSelectTrade = (ticket: number) => {
     setSelectedTicket(ticket);
+    if (isCompact) {
+      setCompactTab("inspector");
+    }
   };
 
   // 選択トレードのメタデータ
@@ -1100,7 +1115,7 @@ export const TradeAnalysisWindowContent: React.FC = () => {
         </div>
 
         {/* 行2: KPIsサマリー */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: "8px", marginTop: "4px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: isCompact ? "repeat(4, 1fr)" : "repeat(8, 1fr)", gap: "6px", marginTop: "4px" }}>
           <div className="stat-card" style={{ padding: "6px 10px", display: "flex", flexDirection: "column", gap: "2px" }}>
             <span style={{ fontSize: "9px", color: "var(--on-surface-variant)" }}>取引件数</span>
             <span style={{ fontSize: "14px", fontWeight: "bold" }}>{stats.total} 回</span>
@@ -1134,6 +1149,36 @@ export const TradeAnalysisWindowContent: React.FC = () => {
             <span style={{ fontSize: "14px", fontWeight: "bold" }}>{stats.avgSpread.toFixed(1)} pips</span>
           </div>
         </div>
+
+        {/* コンパクト表示用 タブ切り替えバー */}
+        {isCompact && (
+          <div style={{ display: "flex", gap: "6px", marginTop: "4px" }}>
+            <button
+              className={`pro-btn ${compactTab === "dashboard" ? "primary" : ""}`}
+              style={{ flex: 1, padding: "4px 6px", fontSize: "10.5px", display: "flex", alignItems: "center", justifyContent: "center", gap: "4px" }}
+              onClick={() => setCompactTab("dashboard")}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: "13px" }}>analytics</span>
+              <span>分析 & 明細</span>
+            </button>
+            <button
+              className={`pro-btn ${compactTab === "filters" ? "primary" : ""}`}
+              style={{ flex: 1, padding: "4px 6px", fontSize: "10.5px", display: "flex", alignItems: "center", justifyContent: "center", gap: "4px" }}
+              onClick={() => setCompactTab("filters")}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: "13px" }}>filter_alt</span>
+              <span>環境フィルタ</span>
+            </button>
+            <button
+              className={`pro-btn ${compactTab === "inspector" ? "primary" : ""}`}
+              style={{ flex: 1, padding: "4px 6px", fontSize: "10.5px", display: "flex", alignItems: "center", justifyContent: "center", gap: "4px" }}
+              onClick={() => setCompactTab("inspector")}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: "13px" }}>info</span>
+              <span>詳細インスペクタ</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* メイングリッド構成 (3カラム) */}
@@ -1144,353 +1189,369 @@ export const TradeAnalysisWindowContent: React.FC = () => {
         width: "100%"
       }}>
         {/* 領域2. 左レール */}
-        <div className="col-filters" style={{
-          width: "180px",
-          backgroundColor: "var(--surface-container-low)",
-          borderRight: "1px solid var(--outline-variant)",
-          padding: "16px 12px",
-          display: "flex",
-          flexDirection: "column",
-          gap: "16px",
-          overflowY: "auto",
-          flexShrink: 0
-        }}>
-          <div>
-            <h4 style={{ fontSize: "11px", fontWeight: "bold", marginBottom: "8px", textTransform: "uppercase", color: "var(--on-surface-variant)" }}>市場環境フィルタ</h4>
-            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              <label style={{ display: "flex", flexDirection: "column", gap: "3px", fontSize: "10px" }}>
-                <span>ボラティリティ (pips):</span>
-                <select className="pro-input" style={{ fontSize: "10px", padding: "2px 4px" }}
-                  value={filterVolatility} onChange={(e) => setFilterVolatility(e.target.value as any)}>
-                  <option value="all">すべて</option>
-                  <option value="low">低 (&lt; 2.0 p) </option>
-                  <option value="medium">中 (2.0 - 5.0 p)</option>
-                  <option value="high">高 (&gt;= 5.0 p)</option>
-                </select>
-              </label>
-              <label style={{ display: "flex", flexDirection: "column", gap: "3px", fontSize: "10px" }}>
-                <span>出来高 (60秒間):</span>
-                <select className="pro-input" style={{ fontSize: "10px", padding: "2px 4px" }}
-                  value={filterVolume} onChange={(e) => setFilterVolume(e.target.value as any)}>
-                  <option value="all">すべて</option>
-                  <option value="low">低 (&lt; 30)</option>
-                  <option value="medium">中 (30 - 100)</option>
-                  <option value="high">高 (&gt;= 100)</option>
-                </select>
-              </label>
-              <label style={{ display: "flex", flexDirection: "column", gap: "3px", fontSize: "10px" }}>
-                <span>保有時間 (秒):</span>
-                <select className="pro-input" style={{ fontSize: "10px", padding: "2px 4px" }}
-                  value={filterHolding} onChange={(e) => setFilterHolding(e.target.value as any)}>
-                  <option value="all">すべて</option>
-                  <option value="short">超短期 (&lt; 15s)</option>
-                  <option value="medium">短期 (15s - 1m)</option>
-                  <option value="long">長期 (&gt;= 1m)</option>
-                </select>
-              </label>
+        {(!isCompact || compactTab === "filters") && (
+          <div className="col-filters" style={{
+            width: isCompact ? "100%" : "180px",
+            backgroundColor: "var(--surface-container-low)",
+            borderRight: isCompact ? "none" : "1px solid var(--outline-variant)",
+            padding: "16px 12px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "16px",
+            overflowY: "auto",
+            flexShrink: 0
+          }}>
+            <div>
+              <h4 style={{ fontSize: "11px", fontWeight: "bold", marginBottom: "8px", textTransform: "uppercase", color: "var(--on-surface-variant)" }}>市場環境フィルタ</h4>
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                <label style={{ display: "flex", flexDirection: "column", gap: "3px", fontSize: "10px" }}>
+                  <span>ボラティリティ (pips):</span>
+                  <select className="pro-input" style={{ fontSize: "10px", padding: "2px 4px" }}
+                    value={filterVolatility} onChange={(e) => setFilterVolatility(e.target.value as any)}>
+                    <option value="all">すべて</option>
+                    <option value="low">低 (&lt; 2.0 p) </option>
+                    <option value="medium">中 (2.0 - 5.0 p)</option>
+                    <option value="high">高 (&gt;= 5.0 p)</option>
+                  </select>
+                </label>
+                <label style={{ display: "flex", flexDirection: "column", gap: "3px", fontSize: "10px" }}>
+                  <span>出来高 (60秒間):</span>
+                  <select className="pro-input" style={{ fontSize: "10px", padding: "2px 4px" }}
+                    value={filterVolume} onChange={(e) => setFilterVolume(e.target.value as any)}>
+                    <option value="all">すべて</option>
+                    <option value="low">低 (&lt; 30)</option>
+                    <option value="medium">中 (30 - 100)</option>
+                    <option value="high">高 (&gt;= 100)</option>
+                  </select>
+                </label>
+                <label style={{ display: "flex", flexDirection: "column", gap: "3px", fontSize: "10px" }}>
+                  <span>保有時間 (秒):</span>
+                  <select className="pro-input" style={{ fontSize: "10px", padding: "2px 4px" }}
+                    value={filterHolding} onChange={(e) => setFilterHolding(e.target.value as any)}>
+                    <option value="all">すべて</option>
+                    <option value="short">超短期 (&lt; 15s)</option>
+                    <option value="medium">短期 (15s - 1m)</option>
+                    <option value="long">長期 (&gt;= 1m)</option>
+                  </select>
+                </label>
+              </div>
             </div>
-          </div>
 
-          <div style={{ borderTop: "1px solid var(--outline-variant)", paddingTop: "12px" }}>
-            <h4 style={{ fontSize: "11px", fontWeight: "bold", marginBottom: "8px", textTransform: "uppercase", color: "var(--on-surface-variant)" }}>分析プリセット</h4>
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-              <button className="pro-btn" style={{ padding: "4px 8px", fontSize: "10px", textAlign: "left" }}
-                onClick={() => {
-                  setFilterSession("tokyo");
-                  setFilterPeriod("all");
-                  setFilterSide("all");
-                  setFilterLots("all");
-                  setFilterVolatility("all");
-                  setFilterVolume("all");
-                  setFilterHolding("all");
-                }}>
-                Tokyo Open
-              </button>
-              <button className="pro-btn" style={{ padding: "4px 8px", fontSize: "10px", textAlign: "left" }}
-                onClick={() => {
-                  setFilterSession("london");
-                  setFilterPeriod("all");
-                  setFilterSide("all");
-                  setFilterLots("all");
-                  setFilterVolatility("all");
-                  setFilterVolume("all");
-                  setFilterHolding("all");
-                }}>
-                London Open
-              </button>
-              <button className="pro-btn" style={{ padding: "4px 8px", fontSize: "10px", textAlign: "left" }}
-                onClick={() => {
-                  setFilterSession("newyork");
-                  setFilterPeriod("all");
-                  setFilterSide("all");
-                  setFilterLots("all");
-                  setFilterVolatility("all");
-                  setFilterVolume("all");
-                  setFilterHolding("all");
-                }}>
-                NY Open
-              </button>
-              <button className="pro-btn danger" style={{ padding: "4px 8px", fontSize: "10px", textAlign: "left" }}
-                onClick={() => {
-                  // リベンジトレード: 出来高関係なく超超短期で連続エントリー
-                  setFilterHolding("all");
-                  setFilterVolatility("all");
-                  setCrossFilterHoldingBucket(null);
-                  setCrossFilterHour(null);
-                  setCrossFilterDay(null);
-                  // 15秒以内の連続エントリーを探すためのフィルタ設定
-                  alert("下部一覧から前回取引時間(EntryInterval)が短いものをソートすることで、ポジポジ病の検証が行えます。");
-                }}>
-                連敗リベンジ分析
-              </button>
-              <button className="pro-btn" style={{ padding: "4px 8px", fontSize: "10px", textAlign: "left" }}
-                onClick={() => {
-                  // お祈りトレード: 保有時間が長期
-                  setFilterHolding("long");
-                  setFilterVolatility("all");
-                  setFilterVolume("all");
-                }}>
-                短期お祈りトレード
-              </button>
+            <div style={{ borderTop: "1px solid var(--outline-variant)", paddingTop: "12px" }}>
+              <h4 style={{ fontSize: "11px", fontWeight: "bold", marginBottom: "8px", textTransform: "uppercase", color: "var(--on-surface-variant)" }}>分析プリセット</h4>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <button className="pro-btn" style={{ padding: "4px 8px", fontSize: "10px", textAlign: "left" }}
+                  onClick={() => {
+                    setFilterSession("tokyo");
+                    setFilterPeriod("all");
+                    setFilterSide("all");
+                    setFilterLots("all");
+                    setFilterVolatility("all");
+                    setFilterVolume("all");
+                    setFilterHolding("all");
+                    if (isCompact) setCompactTab("dashboard");
+                  }}>
+                  Tokyo Open
+                </button>
+                <button className="pro-btn" style={{ padding: "4px 8px", fontSize: "10px", textAlign: "left" }}
+                  onClick={() => {
+                    setFilterSession("london");
+                    setFilterPeriod("all");
+                    setFilterSide("all");
+                    setFilterLots("all");
+                    setFilterVolatility("all");
+                    setFilterVolume("all");
+                    setFilterHolding("all");
+                    if (isCompact) setCompactTab("dashboard");
+                  }}>
+                  London Open
+                </button>
+                <button className="pro-btn" style={{ padding: "4px 8px", fontSize: "10px", textAlign: "left" }}
+                  onClick={() => {
+                    setFilterSession("newyork");
+                    setFilterPeriod("all");
+                    setFilterSide("all");
+                    setFilterLots("all");
+                    setFilterVolatility("all");
+                    setFilterVolume("all");
+                    setFilterHolding("all");
+                    if (isCompact) setCompactTab("dashboard");
+                  }}>
+                  NY Open
+                </button>
+                <button className="pro-btn danger" style={{ padding: "4px 8px", fontSize: "10px", textAlign: "left" }}
+                  onClick={() => {
+                    setFilterHolding("all");
+                    setFilterVolatility("all");
+                    setCrossFilterHoldingBucket(null);
+                    setCrossFilterHour(null);
+                    setCrossFilterDay(null);
+                    alert("下部一覧から前回取引時間(EntryInterval)が短いものをソートすることで、ポジポジ病の検証が行えます。");
+                    if (isCompact) setCompactTab("dashboard");
+                  }}>
+                  連敗リベンジ分析
+                </button>
+                <button className="pro-btn" style={{ padding: "4px 8px", fontSize: "10px", textAlign: "left" }}
+                  onClick={() => {
+                    setFilterHolding("long");
+                    setFilterVolatility("all");
+                    setFilterVolume("all");
+                    if (isCompact) setCompactTab("dashboard");
+                  }}>
+                  短期お祈りトレード
+                </button>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* 領域3. 中央分析キャンバス & 領域5. 下部トレード明細 */}
-        <div style={{
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-          height: "100%"
-        }}>
-          {/* 2x2中央グリッド */}
-          <div className="analysis-grid" style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gridTemplateRows: "1fr 1fr",
-            gap: "10px",
-            padding: "10px",
-            backgroundColor: "rgba(0,0,0,0.1)",
+        {(!isCompact || compactTab === "dashboard") && (
+          <div style={{
             flex: 1,
-            overflowY: "auto"
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+            height: "100%",
+            minWidth: 0
           }}>
-            {/* ウィジェット①: ヒートマップ */}
-            <div className="pro-panel" style={{ padding: "10px", display: "flex", flexDirection: "column" }}>
-              <div className="pro-panel-header" style={{ marginBottom: "6px", flexShrink: 0 }}>
-                <h3 className="pro-panel-title" style={{ fontSize: "11px" }}>① 時刻 × 曜日 ヒートマップ (期待損益カラー)</h3>
-              </div>
-              <div style={{ flex: 1, position: "relative", display: "flex", flexDirection: "column", gap: "3px", justifyContent: "space-between" }}>
-                {/* 曜日行のループ */}
-                {heatmapData.map((row, rIdx) => {
-                  const dayNum = rIdx + 1;
-                  return (
-                    <div key={dayNum} style={{ display: "flex", alignItems: "center", gap: "3px", height: "18%" }}>
-                      <span style={{ fontSize: "9px", width: "16px", color: "var(--on-surface-variant)", textAlign: "center" }}>
-                        {dayNames[dayNum]}
-                      </span>
-                      {row.map((cell) => {
-                        // 期待値に基づいてセルのカラーを設定
-                        let bg = themeMode === "dark" ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.03)";
-                        if (cell.count > 0) {
-                          if (cell.expectancy > 0) {
-                            const strength = Math.min(0.8, 0.1 + (cell.expectancy / 50000));
-                            bg = getRgba(profitColor, strength);
-                          } else {
-                            const strength = Math.min(0.8, 0.1 + (Math.abs(cell.expectancy) / 50000));
-                            bg = getRgba(lossColor, strength);
+            {/* 2x2中央グリッド */}
+            <div className="analysis-grid" style={{
+              display: "grid",
+              gridTemplateColumns: isCompact ? "1fr" : "1fr 1fr",
+              gridTemplateRows: isCompact ? "auto" : "1fr 1fr",
+              gap: "10px",
+              padding: "10px",
+              backgroundColor: "rgba(0,0,0,0.1)",
+              flex: 1,
+              overflowY: "auto"
+            }}>
+              {/* ウィジェット①: ヒートマップ */}
+              <div className="pro-panel" style={{ padding: "10px", display: "flex", flexDirection: "column", minHeight: isCompact ? "180px" : undefined }}>
+                <div className="pro-panel-header" style={{ marginBottom: "6px", flexShrink: 0 }}>
+                  <h3 className="pro-panel-title" style={{ fontSize: "11px" }}>① 時刻 × 曜日 ヒートマップ (期待損益カラー)</h3>
+                </div>
+                <div style={{ flex: 1, position: "relative", display: "flex", flexDirection: "column", gap: "3px", justifyContent: "space-between" }}>
+                  {/* 曜日行のループ */}
+                  {heatmapData.map((row, rIdx) => {
+                    const dayNum = rIdx + 1;
+                    return (
+                      <div key={dayNum} style={{ display: "flex", alignItems: "center", gap: "3px", height: "18%" }}>
+                        <span style={{ fontSize: "9px", width: "16px", color: "var(--on-surface-variant)", textAlign: "center" }}>
+                          {dayNames[dayNum]}
+                        </span>
+                        {row.map((cell) => {
+                          let bg = themeMode === "dark" ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.03)";
+                          if (cell.count > 0) {
+                            if (cell.expectancy > 0) {
+                              const strength = Math.min(0.8, 0.1 + (cell.expectancy / 50000));
+                              bg = getRgba(profitColor, strength);
+                            } else {
+                              const strength = Math.min(0.8, 0.1 + (Math.abs(cell.expectancy) / 50000));
+                              bg = getRgba(lossColor, strength);
+                            }
                           }
-                        }
-                        const isSelected = crossFilterDay === cell.day && crossFilterHour === cell.hour;
+                          const isSelected = crossFilterDay === cell.day && crossFilterHour === cell.hour;
 
-                        return (
-                          <div
-                            key={cell.hour}
-                            onClick={() => {
-                              if (cell.count === 0) return;
-                              if (isSelected) {
-                                setCrossFilterDay(null);
-                                setCrossFilterHour(null);
-                              } else {
-                                setCrossFilterDay(cell.day);
-                                setCrossFilterHour(cell.hour);
-                              }
-                            }}
-                            title={`JST ${cell.hour}時 | 取引: ${cell.count}回\n平均損益: ${cell.expectancy.toFixed(0)} JPY`}
-                            style={{
-                              flex: 1,
-                              height: "100%",
-                              backgroundColor: bg,
-                              border: isSelected ? "1.5px solid var(--primary-color)" : "1px solid rgba(255,255,255,0.03)",
-                              cursor: cell.count > 0 ? "pointer" : "default",
-                              borderRadius: "2px",
-                              transition: "all 0.15s ease"
-                            }}
-                          />
-                        );
-                      })}
-                    </div>
-                  );
-                })}
-                {/* 時間軸の目盛り */}
-                <div style={{ display: "flex", gap: "3px", height: "12px", alignItems: "center", marginTop: "2px" }}>
-                  <span style={{ width: "16px" }} />
-                  {Array.from({ length: 24 }).map((_, h) => (
-                    <span key={h} style={{ flex: 1, fontSize: "8px", textAlign: "center", color: "var(--on-surface-variant)" }}>
-                      {h % 4 === 0 ? h : ""}
-                    </span>
-                  ))}
+                          return (
+                            <div
+                              key={cell.hour}
+                              onClick={() => {
+                                if (cell.count === 0) return;
+                                if (isSelected) {
+                                  setCrossFilterDay(null);
+                                  setCrossFilterHour(null);
+                                } else {
+                                  setCrossFilterDay(cell.day);
+                                  setCrossFilterHour(cell.hour);
+                                }
+                              }}
+                              title={`JST ${cell.hour}時 | 取引: ${cell.count}回\n平均損益: ${cell.expectancy.toFixed(0)} JPY`}
+                              style={{
+                                flex: 1,
+                                height: "100%",
+                                backgroundColor: bg,
+                                border: isSelected ? "1.5px solid var(--primary-color)" : "1px solid rgba(255,255,255,0.03)",
+                                cursor: cell.count > 0 ? "pointer" : "default",
+                                borderRadius: "2px",
+                                transition: "all 0.15s ease"
+                              }}
+                            />
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                  {/* 時間軸の目盛り */}
+                  <div style={{ display: "flex", gap: "3px", height: "12px", alignItems: "center", marginTop: "2px" }}>
+                    <span style={{ width: "16px" }} />
+                    {Array.from({ length: 24 }).map((_, h) => (
+                      <span key={h} style={{ flex: 1, fontSize: "8px", textAlign: "center", color: "var(--on-surface-variant)" }}>
+                        {h % 4 === 0 ? h : ""}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* ウィジェット②: 保有秒数期待値 */}
+              <div className="pro-panel" style={{ padding: "10px", display: "flex", flexDirection: "column", minHeight: isCompact ? "180px" : undefined }}>
+                <div className="pro-panel-header" style={{ marginBottom: "6px", flexShrink: 0 }}>
+                  <h3 className="pro-panel-title" style={{ fontSize: "11px" }}>② 保有秒数別期待値 (pips/値幅期待値グラフ)</h3>
+                </div>
+                <div style={{ flex: 1, position: "relative", minHeight: "140px" }}>
+                  <canvas ref={holdingChartRef} />
+                </div>
+              </div>
+
+              {/* ウィジェット③: 決済品質散布図 */}
+              <div className="pro-panel" style={{ padding: "10px", display: "flex", flexDirection: "column", minHeight: isCompact ? "180px" : undefined }}>
+                <div className="pro-panel-header" style={{ marginBottom: "6px", flexShrink: 0 }}>
+                  <h3 className="pro-panel-title" style={{ fontSize: "11px" }}>③ 決済品質散布図 (MAE / MFE 分布)</h3>
+                </div>
+                <div style={{ flex: 1, position: "relative", minHeight: "140px" }}>
+                  <canvas ref={scatterChartRef} />
+                </div>
+              </div>
+
+              {/* ウィジェット④: AI文脈・差異分析 */}
+              <div className="pro-panel" style={{ padding: "10px", display: "flex", flexDirection: "column", minHeight: isCompact ? "140px" : undefined }}>
+                <div className="pro-panel-header" style={{ marginBottom: "6px", flexShrink: 0 }}>
+                  <h3 className="pro-panel-title" style={{ fontSize: "11px" }}>④ 勝ち/負け上位20% 行動差異分析</h3>
+                </div>
+                <div style={{
+                  flex: 1,
+                  overflowY: "auto",
+                  fontSize: "11px",
+                  lineHeight: "1.6",
+                  color: "var(--on-surface-variant)",
+                  padding: "8px",
+                  backgroundColor: "rgba(255,255,255,0.01)",
+                  borderRadius: "4px",
+                  border: "1px solid var(--outline-variant)"
+                }}>
+                  <ul style={{ paddingLeft: "14px", margin: 0, display: "flex", flexDirection: "column", gap: "8px" }}>
+                    {contextAdvice.map((adv, idx) => (
+                      <li key={idx} style={{ marginBottom: "4px" }}>
+                        {adv}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               </div>
             </div>
 
-            {/* ウィジェット②: 保有秒数期待値 */}
-            <div className="pro-panel" style={{ padding: "10px", display: "flex", flexDirection: "column" }}>
-              <div className="pro-panel-header" style={{ marginBottom: "6px", flexShrink: 0 }}>
-                <h3 className="pro-panel-title" style={{ fontSize: "11px" }}>② 保有秒数別期待値 (pips/値幅期待値グラフ)</h3>
+            {/* 領域5. 下部トレード明細 */}
+            <div className="pro-panel" style={{
+              height: isCompact ? "180px" : "220px",
+              margin: "0 10px 10px 10px",
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+              flexShrink: 0
+            }}>
+              <div className="pro-panel-header" style={{ flexShrink: 0, padding: "8px 12px" }}>
+                <h3 className="pro-panel-title" style={{ fontSize: "11px" }}>取引履歴明細 (ソート可能テーブル)</h3>
+                <span className="pro-panel-meta" style={{ fontSize: "9px" }}>↑ / ↓: 取引選択 | Ctrl+E: エクスポート</span>
               </div>
-              <div style={{ flex: 1, position: "relative" }}>
-                <canvas ref={holdingChartRef} />
-              </div>
-            </div>
+              <div style={{ flex: 1, overflowY: "auto", overflowX: "auto" }}>
+                <table className="dashboard-table clickable-rows" style={{ fontSize: "11px", width: "100%", tableLayout: "auto" }}>
+                  <thead style={{ position: "sticky", top: 0, backgroundColor: "var(--surface-container-high)", zIndex: 1 }}>
+                    <tr>
+                      <th onClick={() => requestSort("ticket")} style={{ cursor: "pointer" }}>Ticket</th>
+                      <th onClick={() => requestSort("type")} style={{ cursor: "pointer" }}>Side</th>
+                      <th onClick={() => requestSort("volume")} style={{ cursor: "pointer" }}>Lots</th>
+                      <th onClick={() => requestSort("open_price")} style={{ cursor: "pointer" }}>Entry Price</th>
+                      <th onClick={() => requestSort("close_price")} style={{ cursor: "pointer" }}>Exit Price</th>
+                      <th onClick={() => requestSort("close_time_msc")} style={{ cursor: "pointer" }}>Close Time (Server)</th>
+                      <th onClick={() => requestSort("durationSec")} style={{ cursor: "pointer" }}>保有時間</th>
+                      <th onClick={() => requestSort("spread_entry")} style={{ cursor: "pointer" }}>スプレッド</th>
+                      <th onClick={() => requestSort("mfe_pips")} style={{ cursor: "pointer" }}>MFE (pips)</th>
+                      <th onClick={() => requestSort("mae_pips")} style={{ cursor: "pointer" }}>MAE (pips)</th>
+                      <th onClick={() => requestSort("volatility")} style={{ cursor: "pointer" }}>直近ボラ</th>
+                      <th onClick={() => requestSort("volume_60s")} style={{ cursor: "pointer" }}>直近出来高</th>
+                      <th onClick={() => requestSort("entryInterval")} style={{ cursor: "pointer" }}>前回間隔</th>
+                      <th onClick={() => requestSort("profit")} style={{ cursor: "pointer" }}>Profit (JPY)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortedHistory.map((h) => {
+                      const isSelected = h.ticket === selectedTicket;
+                      const formattedProfit = h.profit.toLocaleString();
 
-            {/* ウィジェット③: 決済品質散布図 */}
-            <div className="pro-panel" style={{ padding: "10px", display: "flex", flexDirection: "column" }}>
-              <div className="pro-panel-header" style={{ marginBottom: "6px", flexShrink: 0 }}>
-                <h3 className="pro-panel-title" style={{ fontSize: "11px" }}>③ 決済品質散布図 (MAE / MFE 分布)</h3>
-              </div>
-              <div style={{ flex: 1, position: "relative" }}>
-                <canvas ref={scatterChartRef} />
-              </div>
-            </div>
-
-            {/* ウィジェット④: AI文脈・差異分析 */}
-            <div className="pro-panel" style={{ padding: "10px", display: "flex", flexDirection: "column" }}>
-              <div className="pro-panel-header" style={{ marginBottom: "6px", flexShrink: 0 }}>
-                <h3 className="pro-panel-title" style={{ fontSize: "11px" }}>④ 勝ち/負け上位20% 行動差異分析</h3>
-              </div>
-              <div style={{
-                flex: 1,
-                overflowY: "auto",
-                fontSize: "11px",
-                lineHeight: "1.6",
-                color: "var(--on-surface-variant)",
-                padding: "8px",
-                backgroundColor: "rgba(255,255,255,0.01)",
-                borderRadius: "4px",
-                border: "1px solid var(--outline-variant)"
-              }}>
-                <ul style={{ paddingLeft: "14px", margin: 0, display: "flex", flexDirection: "column", gap: "8px" }}>
-                  {contextAdvice.map((adv, idx) => (
-                    <li key={idx} style={{ marginBottom: "4px" }}>
-                      {adv}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          </div>
-
-          {/* 領域5. 下部トレード明細 */}
-          <div className="pro-panel" style={{
-            height: "220px",
-            margin: "0 10px 10px 10px",
-            display: "flex",
-            flexDirection: "column",
-            overflow: "hidden",
-            flexShrink: 0
-          }}>
-            <div className="pro-panel-header" style={{ flexShrink: 0, padding: "8px 12px" }}>
-              <h3 className="pro-panel-title" style={{ fontSize: "11px" }}>取引履歴明細 (ソート可能テーブル)</h3>
-              <span className="pro-panel-meta" style={{ fontSize: "9px" }}>↑ / ↓: 取引選択 | Ctrl+E: エクスポート</span>
-            </div>
-            <div style={{ flex: 1, overflowY: "auto", overflowX: "auto" }}>
-              <table className="dashboard-table clickable-rows" style={{ fontSize: "11px", width: "100%", tableLayout: "auto" }}>
-                <thead style={{ position: "sticky", top: 0, backgroundColor: "var(--surface-container-high)", zIndex: 1 }}>
-                  <tr>
-                    <th onClick={() => requestSort("ticket")} style={{ cursor: "pointer" }}>Ticket</th>
-                    <th onClick={() => requestSort("type")} style={{ cursor: "pointer" }}>Side</th>
-                    <th onClick={() => requestSort("volume")} style={{ cursor: "pointer" }}>Lots</th>
-                    <th onClick={() => requestSort("open_price")} style={{ cursor: "pointer" }}>Entry Price</th>
-                    <th onClick={() => requestSort("close_price")} style={{ cursor: "pointer" }}>Exit Price</th>
-                    <th onClick={() => requestSort("close_time_msc")} style={{ cursor: "pointer" }}>Close Time (Server)</th>
-                    <th onClick={() => requestSort("durationSec")} style={{ cursor: "pointer" }}>保有時間</th>
-                    <th onClick={() => requestSort("spread_entry")} style={{ cursor: "pointer" }}>スプレッド</th>
-                    <th onClick={() => requestSort("mfe_pips")} style={{ cursor: "pointer" }}>MFE (pips)</th>
-                    <th onClick={() => requestSort("mae_pips")} style={{ cursor: "pointer" }}>MAE (pips)</th>
-                    <th onClick={() => requestSort("volatility")} style={{ cursor: "pointer" }}>直近ボラ</th>
-                    <th onClick={() => requestSort("volume_60s")} style={{ cursor: "pointer" }}>直近出来高</th>
-                    <th onClick={() => requestSort("entryInterval")} style={{ cursor: "pointer" }}>前回間隔</th>
-                    <th onClick={() => requestSort("profit")} style={{ cursor: "pointer" }}>Profit (JPY)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedHistory.map((h) => {
-                    const isSelected = h.ticket === selectedTicket;
-                    const formattedProfit = h.profit.toLocaleString();
-
-                    return (
-                      <tr
-                        key={h.ticket}
-                        onClick={() => handleSelectTrade(h.ticket)}
-                        style={{
-                          backgroundColor: isSelected ? "rgba(var(--primary-rgb), 0.12)" : "",
-                          borderLeft: isSelected ? "3px solid var(--primary-color)" : "",
-                          cursor: "pointer"
-                        }}
-                      >
-                        <td className="font-data">{h.ticket}</td>
-                        <td>
-                          <span className={`type-badge ${h.type.toLowerCase()}`}>{h.type}</span>
-                        </td>
-                        <td className="font-data">{h.volume.toFixed(2)}</td>
-                        <td className="font-data">{h.open_price.toFixed(5)}</td>
-                        <td className="font-data">{h.close_price.toFixed(5)}</td>
-                        <td className="font-data" style={{ fontSize: "10px" }}>{h.close_time}</td>
-                        <td className="font-data" style={{ fontSize: "10px" }}>{formatHoldingTime(h.durationSec * 1000)}</td>
-                        <td className="font-data">{h.spread_entry.toFixed(1)}</td>
-                        <td className="font-data" style={{ color: "var(--profit-color)" }}>{h.mfe_pips.toFixed(1)}</td>
-                        <td className="font-data" style={{ color: "var(--loss-color)" }}>{h.mae_pips.toFixed(1)}</td>
-                        <td className="font-data">{h.volatility.toFixed(1)}</td>
-                        <td className="font-data">{h.volume_60s}</td>
-                        <td className="font-data" style={{ color: h.entryInterval < 15 ? "var(--status-danger)" : "" }}>
-                          {h.entryInterval > 0 ? `${h.entryInterval.toFixed(0)}s` : "-"}
-                        </td>
-                        <td className="font-data" style={{
-                          fontWeight: "bold",
-                          color: h.profit > 0 ? "var(--profit-color)" : "var(--loss-color)"
-                        }}>
-                          {h.profit > 0 ? `+${formattedProfit}` : formattedProfit}
+                      return (
+                        <tr
+                          key={h.ticket}
+                          onClick={() => handleSelectTrade(h.ticket)}
+                          style={{
+                            backgroundColor: isSelected ? "rgba(var(--primary-rgb), 0.12)" : "",
+                            borderLeft: isSelected ? "3px solid var(--primary-color)" : "",
+                            cursor: "pointer"
+                          }}
+                        >
+                          <td className="font-data">{h.ticket}</td>
+                          <td>
+                            <span className={`type-badge ${h.type.toLowerCase()}`}>{h.type}</span>
+                          </td>
+                          <td className="font-data">{h.volume.toFixed(2)}</td>
+                          <td className="font-data">{h.open_price.toFixed(5)}</td>
+                          <td className="font-data">{h.close_price.toFixed(5)}</td>
+                          <td className="font-data" style={{ fontSize: "10px" }}>{h.close_time}</td>
+                          <td className="font-data" style={{ fontSize: "10px" }}>{formatHoldingTime(h.durationSec * 1000)}</td>
+                          <td className="font-data">{h.spread_entry.toFixed(1)}</td>
+                          <td className="font-data" style={{ color: "var(--profit-color)" }}>{h.mfe_pips.toFixed(1)}</td>
+                          <td className="font-data" style={{ color: "var(--loss-color)" }}>{h.mae_pips.toFixed(1)}</td>
+                          <td className="font-data">{h.volatility.toFixed(1)}</td>
+                          <td className="font-data">{h.volume_60s}</td>
+                          <td className="font-data" style={{ color: h.entryInterval < 15 ? "var(--status-danger)" : "" }}>
+                            {h.entryInterval > 0 ? `${h.entryInterval.toFixed(0)}s` : "-"}
+                          </td>
+                          <td className="font-data" style={{
+                            fontWeight: "bold",
+                            color: h.profit > 0 ? "var(--profit-color)" : "var(--loss-color)"
+                          }}>
+                            {h.profit > 0 ? `+${formattedProfit}` : formattedProfit}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {sortedHistory.length === 0 && (
+                      <tr>
+                        <td colSpan={14} style={{ textAlign: "center", padding: "24px 0", color: "var(--on-surface-variant)" }}>
+                          フィルタ条件に一致する取引データはありません。
                         </td>
                       </tr>
-                    );
-                  })}
-                  {sortedHistory.length === 0 && (
-                    <tr>
-                      <td colSpan={14} style={{ textAlign: "center", padding: "24px 0", color: "var(--on-surface-variant)" }}>
-                        フィルタ条件に一致する取引データはありません。
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* 領域4. 右インスペクタ (Single Trade Deep-Dive) */}
-        <div className="col-inspector" style={{
-          width: "280px",
-          backgroundColor: "var(--surface-container)",
-          borderLeft: "1px solid var(--outline-variant)",
-          padding: "12px",
-          display: "flex",
-          flexDirection: "column",
-          gap: "12px",
-          overflowY: "auto",
-          flexShrink: 0
-        }}>
-          <h4 style={{ fontSize: "11px", fontWeight: "bold", margin: 0, textTransform: "uppercase", color: "var(--on-surface-variant)" }}>右インスペクタ (詳細分析)</h4>
+        {(!isCompact || compactTab === "inspector") && (
+          <div className="col-inspector" style={{
+            width: isCompact ? "100%" : "280px",
+            backgroundColor: "var(--surface-container)",
+            borderLeft: isCompact ? "none" : "1px solid var(--outline-variant)",
+            padding: "12px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "12px",
+            overflowY: "auto",
+            flexShrink: 0
+          }}>
+            {isCompact && (
+              <button
+                className="pro-btn"
+                style={{ padding: "4px 8px", fontSize: "10px", alignSelf: "flex-start", marginBottom: "4px" }}
+                onClick={() => setCompactTab("dashboard")}
+              >
+                ← 分析＆明細一覧へ戻る
+              </button>
+            )}
+            <h4 style={{ fontSize: "11px", fontWeight: "bold", margin: 0, textTransform: "uppercase", color: "var(--on-surface-variant)" }}>右インスペクタ (詳細分析)</h4>
           
           {selectedTrade ? (
             <div style={{ display: "flex", flexDirection: "column", gap: "10px", flex: 1 }}>
@@ -1595,6 +1656,7 @@ export const TradeAnalysisWindowContent: React.FC = () => {
             </div>
           )}
         </div>
+        )}
       </div>
     </div>
   );

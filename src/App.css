@@ -5719,22 +5719,72 @@ html[data-theme="light"][data-glass-effect="true"] .close-btn.close-all:hover:no
 .trade-dashboard-container {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 8px;
   width: 100%;
   box-sizing: border-box;
 }
 
+/* ウルトラコンパクト・口座サマリーバー */
+.dashboard-summary-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  background-color: var(--surface-charcoal);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-md);
+  padding: 6px 10px;
+  flex-shrink: 0;
+}
+
+.summary-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.summary-label {
+  font-size: 9.5px;
+  color: var(--on-surface-variant);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.summary-val {
+  font-size: 12.5px;
+  font-weight: 700;
+  font-family: var(--font-data);
+}
+
+.summary-sub {
+  font-size: 9px;
+  font-weight: normal;
+  color: var(--on-surface-variant);
+}
+
+.summary-divider {
+  width: 1px;
+  height: 16px;
+  background-color: var(--outline-variant);
+}
+
 .dashboard-stats-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+}
+
+@media (max-width: 600px) {
+  .dashboard-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 .stat-card {
   background-color: var(--surface-charcoal);
   border: 1px solid var(--outline-variant);
   border-radius: var(--radius-md);
-  padding: 12px 16px;
+  padding: 8px 12px;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -5748,7 +5798,7 @@ html[data-theme="light"][data-glass-effect="true"] .close-btn.close-all:hover:no
 }
 
 .stat-card-val {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 700;
   font-family: var(--font-data);
 }
@@ -5760,21 +5810,27 @@ html[data-theme="light"][data-glass-effect="true"] .close-btn.close-all:hover:no
 /* 資金操作ボタンのスタイル（常時表示ボタングループ） */
 .funding-btn-row {
   display: flex;
-  gap: 6px;
+  gap: 4px;
   width: 100%;
   margin-top: auto;
   padding-top: 4px;
 }
 
+.funding-btn-row.inline {
+  width: auto;
+  margin-top: 0;
+  padding-top: 0;
+}
+
 .funding-btn {
   flex: 1;
   justify-content: center;
-  padding: 4px 2px;
-  font-size: 10px;
+  padding: 3px 2px;
+  font-size: 9.5px;
   font-weight: 600;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid var(--outline-variant);
   border-radius: var(--radius-sm);
@@ -5818,19 +5874,19 @@ html[data-theme="light"][data-glass-effect="true"] .close-btn.close-all:hover:no
 .dashboard-tables-grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 16px;
+  gap: 10px;
 }
 
 .table-panel {
   display: flex;
   flex-direction: column;
-  min-height: 200px;
+  min-height: 140px;
 }
 
 .dashboard-table-wrapper {
   width: 100%;
   overflow-x: auto;
-  max-height: 350px;
+  max-height: 380px;
   overflow-y: auto;
 }
 

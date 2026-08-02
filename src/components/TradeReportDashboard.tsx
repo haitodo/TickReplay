@@ -92,66 +92,75 @@ export const TradeReportDashboard: React.FC<TradeReportDashboardProps> = ({
 
   return (
     <div className="trade-dashboard-container">
-      {/* 口座サマリーカード */}
-      <div className="dashboard-stats-grid">
-        <div className="stat-card">
-          <div className="stat-card-label">口座残高</div>
-          <div className="stat-card-val">{balance.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</div>
-
-          <div className="funding-btn-row">
+      {/* 口座サマリーバー (ウルトラコンパクト化) */}
+      <div className="dashboard-summary-bar">
+        <div className="summary-item">
+          <span className="summary-label">口座残高:</span>
+          <span className="summary-val">{balance.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+          <div className="funding-btn-row inline" style={{ display: "flex", gap: "3px", marginLeft: "4px" }}>
             <button
               type="button"
               className="funding-btn primary-action"
+              style={{ padding: "1px 5px", fontSize: "9px", height: "18px" }}
               onClick={() => setIsDepositOpen(true)}
               title="仮想入金"
             >
-              <span className="material-symbols-outlined" style={{ fontSize: "12px" }}>add_circle</span>
-              <span>入金</span>
+              +入金
             </button>
             <button
               type="button"
               className="funding-btn"
+              style={{ padding: "1px 5px", fontSize: "9px", height: "18px" }}
               onClick={() => {
                 setActionError("");
                 setIsWithdrawOpen(true);
               }}
               title="仮想出金"
             >
-              <span className="material-symbols-outlined" style={{ fontSize: "12px" }}>remove_circle</span>
-              <span>出金</span>
+              -出金
             </button>
             <button
               type="button"
               className="funding-btn danger-action"
+              style={{ padding: "1px 5px", fontSize: "9px", height: "18px" }}
               onClick={() => setIsResetConfirmOpen(true)}
               title="口座初期化"
             >
-              <span className="material-symbols-outlined" style={{ fontSize: "12px" }}>restart_alt</span>
-              <span>初期化</span>
+              リセット
             </button>
           </div>
         </div>
-        <div className="stat-card">
-          <div className="stat-card-label">有効残高</div>
-          <div className="stat-card-val">{equity.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</div>
+
+        <div className="summary-divider" />
+
+        <div className="summary-item">
+          <span className="summary-label">有効残高:</span>
+          <span className="summary-val">{equity.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
         </div>
-        <div className="stat-card">
-          <div className="stat-card-label">評価損益</div>
-          <div className="stat-card-val">{formatPL(totalPL)}</div>
+
+        <div className="summary-divider" />
+
+        <div className="summary-item">
+          <span className="summary-label">評価損益:</span>
+          <span className="summary-val">{formatPL(totalPL)}</span>
         </div>
-        <div className="stat-card">
-          <div className="stat-card-label">証拠金維持率</div>
-          <div className="stat-card-val">{marginLevel > 0 ? `${marginLevel.toFixed(1)}%` : "N/A"}</div>
-          <div className="stat-card-sub text-[10px]" style={{ color: "var(--on-surface-variant)" }}>
-            証拠金: {margin.toLocaleString()} / 余剰: {freeMargin.toLocaleString()}
-          </div>
+
+        <div className="summary-divider" />
+
+        <div className="summary-item">
+          <span className="summary-label">維持率:</span>
+          <span className="summary-val" title={`必要証拠金: ${margin.toLocaleString()} JPY / 余剰証拠金: ${freeMargin.toLocaleString()} JPY`}>
+            {marginLevel > 0 ? `${marginLevel.toFixed(1)}%` : "N/A"}
+          </span>
         </div>
-        <div className="stat-card">
-          <div className="stat-card-label">勝率</div>
-          <div className="stat-card-val">{winRate.toFixed(1)}%</div>
-          <div className="stat-card-sub text-[10px]" style={{ color: "var(--on-surface-variant)" }}>
-            勝数: {wins} / 負数: {losses} / 総取引: {totalTrades}
-          </div>
+
+        <div className="summary-divider" />
+
+        <div className="summary-item">
+          <span className="summary-label">勝率:</span>
+          <span className="summary-val">
+            {winRate.toFixed(1)}% <span className="summary-sub">({wins}勝{losses}敗 / {totalTrades}回)</span>
+          </span>
         </div>
       </div>
 

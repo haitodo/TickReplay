@@ -166,12 +166,15 @@ pub async fn open_speed_order_window(app_handle: AppHandle) -> Result<(), AppErr
 
 #[tauri::command]
 pub async fn open_trade_analysis_window(app_handle: AppHandle) -> Result<(), AppError> {
+    let target_w = 520.0;
+    let target_h = 600.0;
+
     if let Some(window) = app_handle.get_webview_window("trade_analysis") {
         if let Some(main_win) = app_handle.get_webview_window("main") {
             if let (Ok(main_pos), Ok(main_size)) = (main_win.outer_position(), main_win.outer_size()) {
                 let scale_factor = main_win.scale_factor().unwrap_or(1.0);
-                let w_phys = (1200.0 * scale_factor) as i32;
-                let h_phys = (800.0 * scale_factor) as i32;
+                let w_phys = (target_w * scale_factor) as i32;
+                let h_phys = (target_h * scale_factor) as i32;
 
                 let target_x = main_pos.x + (main_size.width as i32 - w_phys) / 2;
                 let target_y = main_pos.y + (main_size.height as i32 - h_phys) / 2;
@@ -188,12 +191,11 @@ pub async fn open_trade_analysis_window(app_handle: AppHandle) -> Result<(), App
         }
 
         let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
-            width: 1200.0,
-            height: 800.0,
+            width: target_w,
+            height: target_h,
         }));
 
         window.show()?;
-        window.maximize()?;
         let _ = window.emit("window-visible", true);
         window.set_focus()?;
     } else {
@@ -203,7 +205,7 @@ pub async fn open_trade_analysis_window(app_handle: AppHandle) -> Result<(), App
             tauri::WebviewUrl::App("index.html?window=trade_analysis".into()),
         )
         .title("Trade Analysis")
-        .inner_size(1200.0, 800.0)
+        .inner_size(target_w, target_h)
         .resizable(true)
         .always_on_top(false)
         .maximized(false)
@@ -218,8 +220,8 @@ pub async fn open_trade_analysis_window(app_handle: AppHandle) -> Result<(), App
         if let Some(main_win) = app_handle.get_webview_window("main") {
             if let (Ok(main_pos), Ok(main_size)) = (main_win.outer_position(), main_win.outer_size()) {
                 let scale_factor = main_win.scale_factor().unwrap_or(1.0);
-                let w_phys = (1200.0 * scale_factor) as i32;
-                let h_phys = (800.0 * scale_factor) as i32;
+                let w_phys = (target_w * scale_factor) as i32;
+                let h_phys = (target_h * scale_factor) as i32;
 
                 let target_x = main_pos.x + (main_size.width as i32 - w_phys) / 2;
                 let target_y = main_pos.y + (main_size.height as i32 - h_phys) / 2;
@@ -236,7 +238,6 @@ pub async fn open_trade_analysis_window(app_handle: AppHandle) -> Result<(), App
         }
 
         window.show()?;
-        window.maximize()?;
         let _ = window.emit("window-visible", true);
         window.set_focus()?;
 
