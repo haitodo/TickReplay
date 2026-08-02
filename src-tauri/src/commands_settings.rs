@@ -59,8 +59,23 @@ pub async fn set_shortcuts_active(
 #[tauri::command]
 pub async fn save_settings(
     app_handle: AppHandle,
-    settings: ReplaySettings,
+    mut settings: ReplaySettings,
 ) -> Result<(), AppError> {
+    let existing = load_settings(app_handle.clone()).await.unwrap_or(None);
+
+    if settings.main_window_x.is_none() {
+        if let Some(ref existing_settings) = existing {
+            settings.main_window_x = existing_settings.main_window_x;
+            settings.main_window_y = existing_settings.main_window_y;
+        }
+    }
+    if settings.speed_order_window_x.is_none() {
+        if let Some(ref existing_settings) = existing {
+            settings.speed_order_window_x = existing_settings.speed_order_window_x;
+            settings.speed_order_window_y = existing_settings.speed_order_window_y;
+        }
+    }
+
     let config_dir = app_handle.path().app_config_dir()?;
     if !config_dir.exists() {
         tokio::fs::create_dir_all(&config_dir).await?;
@@ -68,6 +83,49 @@ pub async fn save_settings(
     let config_file = config_dir.join("settings.json");
     let json_str = serde_json::to_string_pretty(&settings)?;
     tokio::fs::write(config_file, json_str).await?;
+    Ok(())
+}
+
+pub async fn save_window_position_to_disk(
+    app_handle: &AppHandle,
+    label: &str,
+    x: i32,
+    y: i32,
+) -> Result<(), AppError> {
+    let config_dir = app_handle.path().app_config_dir()?;
+    let config_file = config_dir.join("settings.json");
+    
+    let mut settings = if config_file.exists() {
+        let json_str = tokio::fs::read_to_string(&config_file).await?;
+        serde_json::from_str::<ReplaySettings>(&json_str).ok()
+    } else {
+        None
+    };
+
+    if let Some(ref mut s) = settings {
+        if label == "main" {
+            if s.main_window_x == Some(x) && s.main_window_y == Some(y) {
+                return Ok(());
+            }
+            s.main_window_x = Some(x);
+            s.main_window_y = Some(y);
+        } else if label == "speed_order" {
+            if s.speed_order_window_x == Some(x) && s.speed_order_window_y == Some(y) {
+                return Ok(());
+            }
+            s.speed_order_window_x = Some(x);
+            s.speed_order_window_y = Some(y);
+        } else {
+            return Ok(());
+        }
+
+        if !config_dir.exists() {
+            tokio::fs::create_dir_all(&config_dir).await?;
+        }
+        let json_str = serde_json::to_string_pretty(s)?;
+        tokio::fs::write(config_file, json_str).await?;
+    }
+
     Ok(())
 }
 

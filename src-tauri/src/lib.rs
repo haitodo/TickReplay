@@ -47,6 +47,24 @@ pub fn run() {
         .manage(state_clone)
         .on_window_event(|window, event| {
             match event {
+                tauri::WindowEvent::Moved(pos) => {
+                    let label = window.label().to_string();
+                    let app_handle = window.app_handle().clone();
+                    let x = pos.x;
+                    let y = pos.y;
+
+                    let is_standard_main = if label == "main" {
+                        window.outer_size().map(|s| s.height > 100).unwrap_or(true)
+                    } else {
+                        true
+                    };
+
+                    if is_standard_main {
+                        tauri::async_runtime::spawn(async move {
+                            let _ = commands_settings::save_window_position_to_disk(&app_handle, &label, x, y).await;
+                        });
+                    }
+                }
                 tauri::WindowEvent::CloseRequested { api, .. } => {
                     if window.label() == "speed_order" {
                         // 完全に破棄せず非表示にすることで、次回起動を瞬時に行う
@@ -83,13 +101,32 @@ pub fn run() {
             // 高DPIや異なる拡大率（150%など）のディスプレイ環境下で初回起動した際、
             // ウィンドウサイズが適切にスケーリングされない不具合を回避するため、
             // 非表示状態のウィンドウに対して明示的に論理サイズ (LogicalSize) を設定し、
-            // 画面中央に配置したのち表示（show）する。
+            // 前回保存位置（有効時）または画面中央に配置したのち表示（show）する。
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
                     width: 520.0,
                     height: 600.0,
                 }));
-                let _ = window.center();
+
+                let settings = tauri::async_runtime::block_on(commands_settings::load_settings(app_handle.clone())).ok().flatten();
+                let scale_factor = window.scale_factor().unwrap_or(1.0);
+                let main_phys_w = (520.0 * scale_factor) as u32;
+                let main_phys_h = (600.0 * scale_factor) as u32;
+
+                let mut positioned = false;
+                if let Some(ref s) = settings {
+                    if let (Some(x), Some(y)) = (s.main_window_x, s.main_window_y) {
+                        if commands_window::is_position_valid_on_monitors(&app_handle, x, y, main_phys_w, main_phys_h) {
+                            let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+                            positioned = true;
+                        }
+                    }
+                }
+
+                if !positioned {
+                    let _ = window.center();
+                }
+
                 let _ = window.show();
 
                 // スピード発注画面を初期起動時にあらかじめ非表示（visible: false）で作成しておく（起動速度高速化のためキャッシュ化）
@@ -110,6 +147,7 @@ pub fn run() {
             
             Ok(())
         })
+
         .invoke_handler(tauri::generate_handler![
             commands::send_command,
             commands::get_mt5_terminals,

@@ -1,6 +1,47 @@
 use tauri::{AppHandle, Manager, Emitter};
 use crate::error::AppError;
 
+pub fn is_position_valid_on_monitors(
+    app_handle: &AppHandle,
+    pos_x: i32,
+    pos_y: i32,
+    win_w_phys: u32,
+    win_h_phys: u32,
+) -> bool {
+    let monitors = match app_handle.available_monitors() {
+        Ok(m) if !m.is_empty() => m,
+        _ => return false,
+    };
+
+    let win_left = pos_x;
+    let win_top = pos_y;
+    let win_right = pos_x + win_w_phys as i32;
+    let win_bottom = pos_y + win_h_phys as i32;
+
+    for monitor in monitors {
+        let mon_pos = monitor.position();
+        let mon_size = monitor.size();
+        let mon_left = mon_pos.x;
+        let mon_top = mon_pos.y;
+        let mon_right = mon_pos.x + mon_size.width as i32;
+        let mon_bottom = mon_pos.y + mon_size.height as i32;
+
+        let overlap_left = win_left.max(mon_left);
+        let overlap_right = win_right.min(mon_right);
+        let overlap_top = win_top.max(mon_top);
+        let overlap_bottom = win_bottom.min(mon_bottom);
+
+        let overlap_w = overlap_right - overlap_left;
+        let overlap_h = overlap_bottom - overlap_top;
+
+        if overlap_w >= 50 && overlap_h >= 30 && win_top >= mon_top && win_top < mon_bottom - 30 {
+            return true;
+        }
+    }
+
+    false
+}
+
 #[tauri::command]
 pub fn set_always_on_top(always: bool, window: tauri::Window) -> Result<(), AppError> {
     window.set_always_on_top(always)?;
@@ -40,7 +81,25 @@ pub fn set_remote_mode(is_remote: bool, always_on_top: bool, window: tauri::Wind
             width: 520.0,
             height: 600.0,
         }))?;
-        window.center()?;
+
+        let app_handle = window.app_handle();
+        let settings = tauri::async_runtime::block_on(crate::commands_settings::load_settings(app_handle.clone())).ok().flatten();
+        let scale_factor = window.scale_factor().unwrap_or(1.0);
+        let main_phys_w = (520.0 * scale_factor) as u32;
+        let main_phys_h = (600.0 * scale_factor) as u32;
+
+        let mut positioned = false;
+        if let Some(ref s) = settings {
+            if let (Some(x), Some(y)) = (s.main_window_x, s.main_window_y) {
+                if is_position_valid_on_monitors(app_handle, x, y, main_phys_w, main_phys_h) {
+                    let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+                    positioned = true;
+                }
+            }
+        }
+        if !positioned {
+            window.center()?;
+        }
         window.set_always_on_top(always_on_top)?;
     }
     Ok(())
@@ -50,6 +109,7 @@ pub fn set_remote_mode(is_remote: bool, always_on_top: bool, window: tauri::Wind
 pub async fn open_speed_order_window(app_handle: AppHandle) -> Result<(), AppError> {
     let target_inner_w = 320.0;
     let target_inner_h = 438.0;
+    let settings = crate::commands_settings::load_settings(app_handle.clone()).await.ok().flatten();
 
     if let Some(window) = app_handle.get_webview_window("speed_order") {
         let scale_factor = window.scale_factor().unwrap_or(1.0);
@@ -68,25 +128,41 @@ pub async fn open_speed_order_window(app_handle: AppHandle) -> Result<(), AppErr
 
         let outer_w = target_inner_w + dec_w;
         let outer_h = target_inner_h + dec_h;
+        let speed_phys_w = (outer_w * scale_factor) as u32;
+        let speed_phys_h = (outer_h * scale_factor) as u32;
 
-        if let Some(main_win) = app_handle.get_webview_window("main") {
-            if let (Ok(main_pos), Ok(main_size)) = (main_win.outer_position(), main_win.outer_size()) {
-                let main_scale = main_win.scale_factor().unwrap_or(1.0);
-                let speed_w_phys = (outer_w * main_scale) as i32;
-                let speed_h_phys = (outer_h * main_scale) as i32;
+        let mut positioned = false;
+        if let Some(ref s) = settings {
+            if let (Some(x), Some(y)) = (s.speed_order_window_x, s.speed_order_window_y) {
+                if is_position_valid_on_monitors(&app_handle, x, y, speed_phys_w, speed_phys_h) {
+                    let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+                    positioned = true;
+                }
+            }
+        }
 
-                let target_x = main_pos.x + (main_size.width as i32 - speed_w_phys) / 2;
-                let target_y = main_pos.y + (main_size.height as i32 - speed_h_phys) / 2;
+        if !positioned {
+            if let Some(main_win) = app_handle.get_webview_window("main") {
+                if let (Ok(main_pos), Ok(main_size)) = (main_win.outer_position(), main_win.outer_size()) {
+                    let main_scale = main_win.scale_factor().unwrap_or(1.0);
+                    let speed_w_phys = (outer_w * main_scale) as i32;
+                    let speed_h_phys = (outer_h * main_scale) as i32;
 
-                let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
-                    x: target_x,
-                    y: target_y,
-                }));
-            } else {
+                    let target_x = main_pos.x + (main_size.width as i32 - speed_w_phys) / 2;
+                    let target_y = main_pos.y + (main_size.height as i32 - speed_h_phys) / 2;
+
+                    if is_position_valid_on_monitors(&app_handle, target_x, target_y, speed_phys_w, speed_phys_h) {
+                        let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
+                            x: target_x,
+                            y: target_y,
+                        }));
+                        positioned = true;
+                    }
+                }
+            }
+            if !positioned {
                 let _ = window.center();
             }
-        } else {
-            let _ = window.center();
         }
 
         let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
@@ -132,25 +208,41 @@ pub async fn open_speed_order_window(app_handle: AppHandle) -> Result<(), AppErr
 
         let outer_w = target_inner_w + dec_w;
         let outer_h = target_inner_h + dec_h;
+        let speed_phys_w = (outer_w * scale_factor) as u32;
+        let speed_phys_h = (outer_h * scale_factor) as u32;
 
-        if let Some(main_win) = app_handle.get_webview_window("main") {
-            if let (Ok(main_pos), Ok(main_size)) = (main_win.outer_position(), main_win.outer_size()) {
-                let main_scale = main_win.scale_factor().unwrap_or(1.0);
-                let speed_w_phys = (outer_w * main_scale) as i32;
-                let speed_h_phys = (outer_h * main_scale) as i32;
+        let mut positioned = false;
+        if let Some(ref s) = settings {
+            if let (Some(x), Some(y)) = (s.speed_order_window_x, s.speed_order_window_y) {
+                if is_position_valid_on_monitors(&app_handle, x, y, speed_phys_w, speed_phys_h) {
+                    let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+                    positioned = true;
+                }
+            }
+        }
 
-                let target_x = main_pos.x + (main_size.width as i32 - speed_w_phys) / 2;
-                let target_y = main_pos.y + (main_size.height as i32 - speed_h_phys) / 2;
+        if !positioned {
+            if let Some(main_win) = app_handle.get_webview_window("main") {
+                if let (Ok(main_pos), Ok(main_size)) = (main_win.outer_position(), main_win.outer_size()) {
+                    let main_scale = main_win.scale_factor().unwrap_or(1.0);
+                    let speed_w_phys = (outer_w * main_scale) as i32;
+                    let speed_h_phys = (outer_h * main_scale) as i32;
 
-                let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
-                    x: target_x,
-                    y: target_y,
-                }));
-            } else {
+                    let target_x = main_pos.x + (main_size.width as i32 - speed_w_phys) / 2;
+                    let target_y = main_pos.y + (main_size.height as i32 - speed_h_phys) / 2;
+
+                    if is_position_valid_on_monitors(&app_handle, target_x, target_y, speed_phys_w, speed_phys_h) {
+                        let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
+                            x: target_x,
+                            y: target_y,
+                        }));
+                        positioned = true;
+                    }
+                }
+            }
+            if !positioned {
                 let _ = window.center();
             }
-        } else {
-            let _ = window.center();
         }
 
         window.set_size(tauri::Size::Logical(tauri::LogicalSize {
@@ -163,6 +255,7 @@ pub async fn open_speed_order_window(app_handle: AppHandle) -> Result<(), AppErr
     }
     Ok(())
 }
+
 
 #[tauri::command]
 pub async fn open_trade_analysis_window(app_handle: AppHandle) -> Result<(), AppError> {

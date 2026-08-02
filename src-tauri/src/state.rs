@@ -163,5 +163,13 @@ pub struct ReplaySettings {
     pub holding_time_mode: Option<String>,
     #[serde(default)]
     pub additional_symbols: Option<String>,
+    #[serde(default)]
+    pub main_window_x: Option<i32>,
+    #[serde(default)]
+    pub main_window_y: Option<i32>,
+    #[serde(default)]
+    pub speed_order_window_x: Option<i32>,
+    #[serde(default)]
+    pub speed_order_window_y: Option<i32>,
 }
 
