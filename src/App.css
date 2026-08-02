@@ -1232,6 +1232,7 @@ body {
 
 .news-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   text-align: left;
 }
@@ -1304,7 +1305,6 @@ body {
 
 .news-event {
   color: var(--on-surface);
-  max-width: 130px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1316,8 +1316,10 @@ body {
 }
 
 .news-val {
-  text-align: right;
+  text-align: left;
   color: var(--on-surface-variant);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .news-tr.active-news .news-val {

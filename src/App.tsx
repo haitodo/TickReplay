@@ -4257,7 +4257,7 @@ function App() {
                               <th className="news-th" style={{ width: "35px" }}>Ccy</th>
                               <th className="news-th" style={{ width: "20px" }}>Imp</th>
                               <th className="news-th">Event</th>
-                              <th className="news-th" style={{ width: "100px", textAlign: "right" }}>Value (Act/For/Pre)</th>
+                              <th className="news-th" style={{ width: "130px", textAlign: "left" }}>Value (Act/For/Pre)</th>
                               <th className="news-th" style={{ width: "60px", textAlign: "center" }}>Action</th>
                             </tr>
                           </thead>
@@ -4280,6 +4280,50 @@ function App() {
                               // 表示する時間のフォーマット (HH:mm)
                               const displayTime = displayTimeStr.substring(11, 16);
 
+                              // 任意の文字列から数値部分と単位部分（%, 通貨, Points, $, 件など）を動的に分離・判別する関数
+                              const parseValueAndUnit = (rawStr: string | undefined | null) => {
+                                if (!rawStr || rawStr === "-") {
+                                  return { num: "-", unit: "" };
+                                }
+                                const s = rawStr.trim();
+                                // 先頭が数値パターンの場合
+                                const match = s.match(/^([+-]?(?:[\d,]+(?:\.\d+)?|\.\d+)[KMBTkmbt]?)(.*)$/);
+                                if (match) {
+                                  return { num: match[1].trim() || "-", unit: match[2].trim() };
+                                }
+                                // 先頭が単位パターンの場合 (例: "$150", "¥10,000")
+                                const matchPrefix = s.match(/^([^\d+-]+)([+-]?(?:[\d,]+(?:\.\d+)?|\.\d+)[KMBTkmbt]?)$/);
+                                if (matchPrefix) {
+                                  return { num: matchPrefix[2].trim(), unit: matchPrefix[1].trim() };
+                                }
+                                return { num: s, unit: "" };
+                              };
+
+                              const actParsed = parseValueAndUnit(item.actual);
+                              const foreParsed = parseValueAndUnit(item.forecast);
+                              const prevParsed = parseValueAndUnit(item.previous);
+
+                              const actClean = actParsed.num;
+                              const foreClean = foreParsed.num;
+                              const prevClean = prevParsed.num;
+
+                              // 検出された単位の自動集約
+                              const detectedUnit = actParsed.unit || foreParsed.unit || prevParsed.unit || item.currency || "";
+
+                              const formatValWithUnit = (parsed: { num: string; unit: string }) => {
+                                if (parsed.num === "-") return "-";
+                                const u = parsed.unit || detectedUnit;
+                                if (!u) return parsed.num;
+                                return u === "%" ? `${parsed.num}%` : `${parsed.num} ${u}`;
+                              };
+
+                              const actWithUnit = formatValWithUnit(actParsed);
+                              const foreWithUnit = formatValWithUnit(foreParsed);
+                              const prevWithUnit = formatValWithUnit(prevParsed);
+
+                              // どの要素にフォーカスしてもACT/FOR/PREの全詳細が確認できる統一ツールチップ
+                              const fullValTooltip = `【指標結果詳細 (単位: ${detectedUnit || "なし"})】\n・結果 (ACT): ${actWithUnit}\n・予想 (FOR): ${foreWithUnit}\n・前回 (PRE): ${prevWithUnit}`;
+
                               return (
                                 <tr key={idx} className={`news-tr ${isPast ? "past" : ""} ${isActive ? "active-news" : ""}`}>
                                   <td className="news-td news-time">{displayTime}</td>
@@ -4290,12 +4334,12 @@ function App() {
                                     <span className={`news-dot ${impClass}`} title={`Importance: ${item.importance}`}></span>
                                   </td>
                                   <td className="news-td news-event" title={item.event}>{item.event}</td>
-                                  <td className="news-td news-val" style={{ whiteSpace: "nowrap" }}>
-                                    <span className="val-act" title="Actual">{item.actual}</span>
+                                  <td className="news-td news-val" style={{ whiteSpace: "nowrap" }} title={fullValTooltip}>
+                                    <span className="val-act" title={fullValTooltip}>{actClean}</span>
                                     <span className="val-divider">/</span>
-                                    <span className="val-fore" title="Forecast">{item.forecast}</span>
+                                    <span className="val-fore" title={fullValTooltip}>{foreClean}</span>
                                     <span className="val-divider">/</span>
-                                    <span className="val-prev" title="Previous">{item.previous}</span>
+                                    <span className="val-prev" title={fullValTooltip}>{prevClean}</span>
                                   </td>
                                   <td className="news-td" style={{ textAlign: "center", whiteSpace: "nowrap" }}>
                                     <button
