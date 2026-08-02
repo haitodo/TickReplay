@@ -286,7 +286,7 @@ function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isResetReplayConfirmOpen, setIsResetReplayConfirmOpen] = useState(false);
   const [isResetTradingConfirmOpen, setIsResetTradingConfirmOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"general" | "hotkeys" | "presets" | "news" | "theme" | "ai">("general");
+  const [activeTab, setActiveTab] = useState<"general" | "hotkeys" | "news" | "theme" | "ai">("general");
 
   // タイムステップカスタマイズ State
   const [timeSteps, setTimeSteps] = useState<TimeStepItem[]>(() => {
@@ -306,6 +306,13 @@ function App() {
 
   const [isTimeStepsModalOpen, setIsTimeStepsModalOpen] = useState<boolean>(false);
   const [editingTimeSteps, setEditingTimeSteps] = useState<TimeStepItem[]>(timeSteps);
+
+  // Transport 速度プリセット設定モーダル用 State
+  const [isSpeedPresetsModalOpen, setIsSpeedPresetsModalOpen] = useState<boolean>(false);
+  const [editingTimePresets, setEditingTimePresets] = useState<number[]>([]);
+  const [editingTickPresets, setEditingTickPresets] = useState<number[]>([]);
+  const [modalNewTimePreset, setModalNewTimePreset] = useState<string>("");
+  const [modalNewTickPreset, setModalNewTickPreset] = useState<string>("");
 
   useEffect(() => {
     localStorage.setItem("custom-time-steps", JSON.stringify(timeSteps));
@@ -406,8 +413,6 @@ function App() {
   const [hotkeys, setHotkeys] = useState<Record<string, string>>(DEFAULT_HOTKEYS);
   const [timePresets, setTimePresets] = useState<number[]>([0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0]);
   const [tickPresets, setTickPresets] = useState<number[]>([1, 2, 5, 10, 30, 60]);
-  const [newTimePreset, setNewTimePreset] = useState<string>("");
-  const [newTickPreset, setNewTickPreset] = useState<string>("");
 
   const [timezoneMode, setTimezoneMode] = useState<"JST" | "SERVER">("JST");
   
@@ -3900,13 +3905,30 @@ function App() {
                 <div className="col-left">
                   {/* Transport Panel */}
                   <div className="pro-panel">
-                    <div className="pro-panel-header">
+                    <div className="pro-panel-header" style={{ padding: "6px 12px" }}>
                       <h3 className="pro-panel-title">
                         <span className="material-symbols-outlined icon-accent">play_circle</span>
                         Transport
                       </h3>
-                      <div style={{ fontSize: "10px", color: "var(--on-surface-variant)", fontFamily: "var(--font-data)", fontWeight: 600 }}>
-                        {speedMode === "TEMPORAL" ? "TIME MODE (0.1x Step)" : "TICK MODE (1T Step)"}
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <button
+                          className="toggle-btn"
+                          style={{ padding: "2px 6px", height: "18px", fontSize: "10px", display: "inline-flex", alignItems: "center", gap: "3px" }}
+                          onClick={() => {
+                            setEditingTimePresets([...timePresets]);
+                            setEditingTickPresets([...tickPresets]);
+                            setModalNewTimePreset("");
+                            setModalNewTickPreset("");
+                            setIsSpeedPresetsModalOpen(true);
+                          }}
+                          title="再生速度・スキップティックのプリセットを編集"
+                        >
+                          <span className="material-symbols-outlined text-[12px]">tune</span>
+                          <span>Preset設定</span>
+                        </button>
+                        <div style={{ fontSize: "10px", color: "var(--on-surface-variant)", fontFamily: "var(--font-data)", fontWeight: 600 }}>
+                          {speedMode === "TEMPORAL" ? "TIME MODE" : "TICK MODE"}
+                        </div>
                       </div>
                     </div>
                     <div className="pro-panel-body transport-panel-body">
@@ -4310,12 +4332,6 @@ function App() {
                 Hotkeys
               </button>
               <button
-                className={`modal-tab-btn ${activeTab === "presets" ? "active" : ""}`}
-                onClick={() => setActiveTab("presets")}
-              >
-                Presets
-              </button>
-              <button
                 className={`modal-tab-btn ${activeTab === "news" ? "active" : ""}`}
                 onClick={() => setActiveTab("news")}
               >
@@ -4602,144 +4618,6 @@ function App() {
                     })}
                   </div>
                 </>
-              )}
-
-              {activeTab === "presets" && (
-                <div className="settings-grid">
-                  <div>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                      <h4 className="settings-section-title" style={{ margin: 0, border: "none" }}>再生速度プリセット (時間比率)</h4>
-                      <button
-                        className="pro-btn danger"
-                        style={{ padding: "2px 6px", fontSize: "10px" }}
-                        onClick={() => {
-                          const defaultTime = [1.0, 5.0, 10.0, 60.0, 300.0, 3600.0];
-                          setTimePresets(defaultTime);
-                          saveAllSettings(hotkeys, defaultTime, tickPresets);
-                        }}
-                      >
-                        <span className="material-symbols-outlined text-[12px]">restart_alt</span>
-                        時間初期化
-                      </button>
-                    </div>
-                    <div className="preset-badges-container">
-                      {timePresets.map((preset) => {
-                        const label = `${preset}x`;
-                        return (
-                          <span key={preset} className="preset-badge">
-                            {label}
-                            <button
-                              className="preset-badge-delete-btn"
-                              onClick={() => {
-                                const updated = timePresets.filter(p => p !== preset);
-                                setTimePresets(updated);
-                                saveAllSettings(hotkeys, updated, tickPresets);
-                              }}
-                              title="削除"
-                            >
-                              <span className="material-symbols-outlined text-[12px]">close</span>
-                            </button>
-                          </span>
-                        );
-                      })}
-                      {timePresets.length === 0 && <span style={{ color: "var(--on-surface-variant)", fontSize: "11px" }}>登録されたプリセットはありません。</span>}
-                    </div>
-                    <div className="preset-add-group">
-                      <input
-                        type="number"
-                        step="any"
-                        className="pro-input"
-                        style={{ flex: 1, height: "28px", padding: "4px 8px", fontSize: "12px" }}
-                        placeholder="倍率値 (例: 120)"
-                        value={newTimePreset}
-                        onChange={(e) => setNewTimePreset(e.target.value)}
-                      />
-                      <button
-                        className="pro-btn primary"
-                        style={{ height: "28px", padding: "0 10px" }}
-                        onClick={() => {
-                          const val = parseFloat(newTimePreset);
-                          if (isNaN(val) || val <= 0) return;
-                          if (timePresets.includes(val)) {
-                            setNewTimePreset("");
-                            return;
-                          }
-                          const updated = [...timePresets, val].sort((a, b) => a - b);
-                          setTimePresets(updated);
-                          setNewTimePreset("");
-                          saveAllSettings(hotkeys, updated, tickPresets);
-                        }}
-                      >
-                        追加
-                      </button>
-                    </div>
-                  </div>
-
-                  <div style={{ marginTop: "12px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                      <h4 className="settings-section-title" style={{ margin: 0, border: "none" }}>スキップティック数プリセット</h4>
-                      <button
-                        className="pro-btn danger"
-                        style={{ padding: "2px 6px", fontSize: "10px" }}
-                        onClick={() => {
-                          const defaultTick = [1, 5, 10, 50, 100, 500];
-                          setTickPresets(defaultTick);
-                          saveAllSettings(hotkeys, timePresets, defaultTick);
-                        }}
-                      >
-                        <span className="material-symbols-outlined text-[12px]">restart_alt</span>
-                        ティック初期化
-                      </button>
-                    </div>
-                    <div className="preset-badges-container">
-                      {tickPresets.map((preset) => (
-                        <span key={preset} className="preset-badge">
-                          {preset}T
-                          <button
-                            className="preset-badge-delete-btn"
-                            onClick={() => {
-                              const updated = tickPresets.filter(p => p !== preset);
-                              setTickPresets(updated);
-                              saveAllSettings(hotkeys, timePresets, updated);
-                            }}
-                            title="削除"
-                          >
-                            <span className="material-symbols-outlined text-[12px]">close</span>
-                          </button>
-                        </span>
-                      ))}
-                      {tickPresets.length === 0 && <span style={{ color: "var(--on-surface-variant)", fontSize: "11px" }}>登録されたプリセットはありません。</span>}
-                    </div>
-                    <div className="preset-add-group">
-                      <input
-                        type="number"
-                        className="pro-input"
-                        style={{ flex: 1, height: "28px", padding: "4px 8px", fontSize: "12px" }}
-                        placeholder="ティック数 (例: 200)"
-                        value={newTickPreset}
-                        onChange={(e) => setNewTickPreset(e.target.value)}
-                      />
-                      <button
-                        className="pro-btn primary"
-                        style={{ height: "28px", padding: "0 10px" }}
-                        onClick={() => {
-                          const val = parseInt(newTickPreset);
-                          if (isNaN(val) || val <= 0) return;
-                          if (tickPresets.includes(val)) {
-                            setNewTickPreset("");
-                            return;
-                          }
-                          const updated = [...tickPresets, val].sort((a, b) => a - b);
-                          setTickPresets(updated);
-                          setNewTickPreset("");
-                          saveAllSettings(hotkeys, timePresets, updated);
-                        }}
-                      >
-                        追加
-                      </button>
-                    </div>
-                  </div>
-                </div>
               )}
 
               {activeTab === "news" && (
@@ -5695,6 +5573,244 @@ function App() {
                   保存
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Transport 速度プリセット カスタマイズ モーダル */}
+      {isSpeedPresetsModalOpen && (
+        <div className="modal-overlay" onClick={() => setIsSpeedPresetsModalOpen(false)}>
+          <div className="modal-container" style={{ maxWidth: "500px" }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <span className="material-symbols-outlined icon-accent" style={{ color: "var(--primary-color)" }}>tune</span>
+                Transport 速度プリセット設定
+              </h3>
+              <button className="modal-close-btn" onClick={() => setIsSpeedPresetsModalOpen(false)}>
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <div className="modal-body" style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: "18px" }}>
+              
+              {/* 時間倍率プリセット */}
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                  <div className="form-label" style={{ fontWeight: 700, color: "var(--on-surface)", fontSize: "13px" }}>
+                    再生速度プリセット (時間比率)
+                  </div>
+                  <button
+                    className="pro-btn danger"
+                    style={{ padding: "2px 6px", fontSize: "10px" }}
+                    onClick={() => {
+                      setEditingTimePresets([1.0, 5.0, 10.0, 60.0, 300.0, 3600.0]);
+                    }}
+                  >
+                    <span className="material-symbols-outlined text-[12px]">restart_alt</span>
+                    時間初期化
+                  </button>
+                </div>
+
+                {/* クイック追加 */}
+                <div style={{ marginBottom: "8px" }}>
+                  <div style={{ fontSize: "11px", color: "var(--on-surface-variant)", marginBottom: "4px" }}>クイック追加:</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                    {[0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 300.0].map((quickVal) => {
+                      const isAdded = editingTimePresets.includes(quickVal);
+                      return (
+                        <button
+                          key={`quick-time-${quickVal}`}
+                          className={`pro-btn ${isAdded ? "secondary" : ""}`}
+                          disabled={isAdded}
+                          style={{
+                            padding: "2px 6px",
+                            fontSize: "10px",
+                            opacity: isAdded ? 0.5 : 1,
+                            cursor: isAdded ? "not-allowed" : "pointer"
+                          }}
+                          onClick={() => {
+                            if (!isAdded) {
+                              const updated = [...editingTimePresets, quickVal].sort((a, b) => a - b);
+                              setEditingTimePresets(updated);
+                            }
+                          }}
+                        >
+                          + {quickVal}x
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* バッジ一覧 */}
+                <div className="preset-badges-container" style={{ marginBottom: "8px" }}>
+                  {editingTimePresets.map((preset) => (
+                    <span key={`time-${preset}`} className="preset-badge">
+                      {preset}x
+                      <button
+                        className="preset-badge-delete-btn"
+                        onClick={() => {
+                          setEditingTimePresets(editingTimePresets.filter((p) => p !== preset));
+                        }}
+                        title="削除"
+                      >
+                        <span className="material-symbols-outlined text-[12px]">close</span>
+                      </button>
+                    </span>
+                  ))}
+                  {editingTimePresets.length === 0 && (
+                    <span style={{ color: "var(--on-surface-variant)", fontSize: "11px" }}>登録されたプリセットはありません。</span>
+                  )}
+                </div>
+
+                {/* カスタム追加 */}
+                <div className="preset-add-group">
+                  <input
+                    type="number"
+                    step="any"
+                    className="pro-input"
+                    style={{ flex: 1, height: "28px", padding: "4px 8px", fontSize: "12px" }}
+                    placeholder="倍率値 (例: 120)"
+                    value={modalNewTimePreset}
+                    onChange={(e) => setModalNewTimePreset(e.target.value)}
+                  />
+                  <button
+                    className="pro-btn primary"
+                    style={{ height: "28px", padding: "0 10px" }}
+                    onClick={() => {
+                      const val = parseFloat(modalNewTimePreset);
+                      if (isNaN(val) || val <= 0) return;
+                      if (!editingTimePresets.includes(val)) {
+                        const updated = [...editingTimePresets, val].sort((a, b) => a - b);
+                        setEditingTimePresets(updated);
+                      }
+                      setModalNewTimePreset("");
+                    }}
+                  >
+                    追加
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ height: "1px", backgroundColor: "var(--outline-variant)", margin: "0 -4px" }}></div>
+
+              {/* スキップティック数プリセット */}
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                  <div className="form-label" style={{ fontWeight: 700, color: "var(--on-surface)", fontSize: "13px" }}>
+                    スキップティック数プリセット
+                  </div>
+                  <button
+                    className="pro-btn danger"
+                    style={{ padding: "2px 6px", fontSize: "10px" }}
+                    onClick={() => {
+                      setEditingTickPresets([1, 5, 10, 50, 100, 500]);
+                    }}
+                  >
+                    <span className="material-symbols-outlined text-[12px]">restart_alt</span>
+                    ティック初期化
+                  </button>
+                </div>
+
+                {/* クイック追加 */}
+                <div style={{ marginBottom: "8px" }}>
+                  <div style={{ fontSize: "11px", color: "var(--on-surface-variant)", marginBottom: "4px" }}>クイック追加:</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                    {[1, 5, 10, 20, 50, 100, 200, 500, 1000].map((quickVal) => {
+                      const isAdded = editingTickPresets.includes(quickVal);
+                      return (
+                        <button
+                          key={`quick-tick-${quickVal}`}
+                          className={`pro-btn ${isAdded ? "secondary" : ""}`}
+                          disabled={isAdded}
+                          style={{
+                            padding: "2px 6px",
+                            fontSize: "10px",
+                            opacity: isAdded ? 0.5 : 1,
+                            cursor: isAdded ? "not-allowed" : "pointer"
+                          }}
+                          onClick={() => {
+                            if (!isAdded) {
+                              const updated = [...editingTickPresets, quickVal].sort((a, b) => a - b);
+                              setEditingTickPresets(updated);
+                            }
+                          }}
+                        >
+                          + {quickVal}T
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* バッジ一覧 */}
+                <div className="preset-badges-container" style={{ marginBottom: "8px" }}>
+                  {editingTickPresets.map((preset) => (
+                    <span key={`tick-${preset}`} className="preset-badge">
+                      {preset}T
+                      <button
+                        className="preset-badge-delete-btn"
+                        onClick={() => {
+                          setEditingTickPresets(editingTickPresets.filter((p) => p !== preset));
+                        }}
+                        title="削除"
+                      >
+                        <span className="material-symbols-outlined text-[12px]">close</span>
+                      </button>
+                    </span>
+                  ))}
+                  {editingTickPresets.length === 0 && (
+                    <span style={{ color: "var(--on-surface-variant)", fontSize: "11px" }}>登録されたプリセットはありません。</span>
+                  )}
+                </div>
+
+                {/* カスタム追加 */}
+                <div className="preset-add-group">
+                  <input
+                    type="number"
+                    className="pro-input"
+                    style={{ flex: 1, height: "28px", padding: "4px 8px", fontSize: "12px" }}
+                    placeholder="ティック数 (例: 200)"
+                    value={modalNewTickPreset}
+                    onChange={(e) => setModalNewTickPreset(e.target.value)}
+                  />
+                  <button
+                    className="pro-btn primary"
+                    style={{ height: "28px", padding: "0 10px" }}
+                    onClick={() => {
+                      const val = parseInt(modalNewTickPreset);
+                      if (isNaN(val) || val <= 0) return;
+                      if (!editingTickPresets.includes(val)) {
+                        const updated = [...editingTickPresets, val].sort((a, b) => a - b);
+                        setEditingTickPresets(updated);
+                      }
+                      setModalNewTickPreset("");
+                    }}
+                  >
+                    追加
+                  </button>
+                </div>
+              </div>
+
+            </div>
+
+            <div className="modal-footer" style={{ padding: "12px 16px", display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+              <button className="pro-btn" onClick={() => setIsSpeedPresetsModalOpen(false)}>
+                キャンセル
+              </button>
+              <button
+                className="pro-btn primary"
+                onClick={() => {
+                  const sortedTime = [...editingTimePresets].sort((a, b) => a - b);
+                  const sortedTick = [...editingTickPresets].sort((a, b) => a - b);
+                  setTimePresets(sortedTime);
+                  setTickPresets(sortedTick);
+                  saveAllSettings(hotkeys, sortedTime, sortedTick);
+                  setIsSpeedPresetsModalOpen(false);
+                }}
+              >
+                保存
+              </button>
             </div>
           </div>
         </div>
