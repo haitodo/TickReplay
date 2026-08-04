@@ -4251,6 +4251,8 @@ void ResetAccount(double initial_balance, double leverage)
 //+------------------------------------------------------------------+
 //| 取引情報および履歴情報のJSONシリアライズ                         |
 //+------------------------------------------------------------------+
+static string m_cached_history_json = "";
+
 string SerializePositionsAndHistoryToJson()
 {
    int pos_size = ArraySize(m_virtual_positions);
@@ -4293,35 +4295,40 @@ string SerializePositionsAndHistoryToJson()
    }
    json += "]";
    
-   // 取引履歴配列のシリアライズ
-   json += ",\"history\":[";
-   int hist_size = ArraySize(m_virtual_history);
-   for(int i = 0; i < hist_size; i++)
+   // 取引履歴配列のシリアライズ（変更時のみ再構築）
+   if(m_trade_json_dirty || m_cached_history_json == "")
    {
-      if(i > 0) json += ",";
-      string type_str = (m_virtual_history[i].type == POSITION_TYPE_BUY) ? "BUY" : "SELL";
-      json += StringFormat("{\"ticket\":%d,\"type\":\"%s\",\"volume\":%.2f,\"open_price\":%.5f,\"open_time\":\"%s\",\"open_time_msc\":%I64d,\"close_price\":%.5f,\"close_time\":\"%s\",\"close_time_msc\":%I64d,\"sl\":%.5f,\"tp\":%.5f,\"profit\":%.2f,\"close_reason\":\"%s\",\"mfe_pips\":%.2f,\"mae_pips\":%.2f,\"spread_entry\":%.2f,\"volatility\":%.2f,\"volume_60s\":%I64u}",
-         m_virtual_history[i].ticket,
-         type_str,
-         m_virtual_history[i].volume,
-         m_virtual_history[i].open_price,
-         TimeToString(m_virtual_history[i].open_time, TIME_DATE|TIME_SECONDS),
-         m_virtual_history[i].open_time_msc,
-         m_virtual_history[i].close_price,
-         TimeToString(m_virtual_history[i].close_time, TIME_DATE|TIME_SECONDS),
-         m_virtual_history[i].close_time_msc,
-         m_virtual_history[i].sl,
-         m_virtual_history[i].tp,
-         m_virtual_history[i].profit,
-         m_virtual_history[i].close_reason,
-         m_virtual_history[i].mfe_pips,
-         m_virtual_history[i].mae_pips,
-         m_virtual_history[i].spread_entry,
-         m_virtual_history[i].volatility,
-         m_virtual_history[i].volume_60s
-      );
+      string hist_str = ",\"history\":[";
+      int hist_size = ArraySize(m_virtual_history);
+      for(int i = 0; i < hist_size; i++)
+      {
+         if(i > 0) hist_str += ",";
+         string type_str = (m_virtual_history[i].type == POSITION_TYPE_BUY) ? "BUY" : "SELL";
+         hist_str += StringFormat("{\"ticket\":%d,\"type\":\"%s\",\"volume\":%.2f,\"open_price\":%.5f,\"open_time\":\"%s\",\"open_time_msc\":%I64d,\"close_price\":%.5f,\"close_time\":\"%s\",\"close_time_msc\":%I64d,\"sl\":%.5f,\"tp\":%.5f,\"profit\":%.2f,\"close_reason\":\"%s\",\"mfe_pips\":%.2f,\"mae_pips\":%.2f,\"spread_entry\":%.2f,\"volatility\":%.2f,\"volume_60s\":%I64u}",
+            m_virtual_history[i].ticket,
+            type_str,
+            m_virtual_history[i].volume,
+            m_virtual_history[i].open_price,
+            TimeToString(m_virtual_history[i].open_time, TIME_DATE|TIME_SECONDS),
+            m_virtual_history[i].open_time_msc,
+            m_virtual_history[i].close_price,
+            TimeToString(m_virtual_history[i].close_time, TIME_DATE|TIME_SECONDS),
+            m_virtual_history[i].close_time_msc,
+            m_virtual_history[i].sl,
+            m_virtual_history[i].tp,
+            m_virtual_history[i].profit,
+            m_virtual_history[i].close_reason,
+            m_virtual_history[i].mfe_pips,
+            m_virtual_history[i].mae_pips,
+            m_virtual_history[i].spread_entry,
+            m_virtual_history[i].volatility,
+            m_virtual_history[i].volume_60s
+         );
+      }
+      hist_str += "]";
+      m_cached_history_json = hist_str;
    }
-   json += "]";
+   json += m_cached_history_json;
    
    if(pos_size == 0)
    {

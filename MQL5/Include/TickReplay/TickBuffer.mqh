@@ -21,7 +21,24 @@ public:
    // 四捨五入（ハーフアップ）
    static double RoundHalfUp(double value, int digits)
    {
-      double factor = MathPow(10, digits);
+      static int cached_digits = -1;
+      static double cached_factor = 100000.0;
+      double factor;
+      if(digits == 5)
+      {
+         factor = 100000.0;
+      }
+      else if(digits == cached_digits)
+      {
+         factor = cached_factor;
+      }
+      else
+      {
+         factor = MathPow(10, digits);
+         cached_digits = digits;
+         cached_factor = factor;
+      }
+
       if(value >= 0.0)
          return MathFloor(value * factor + 0.5) / factor;
       else
