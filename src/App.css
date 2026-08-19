@@ -676,6 +676,39 @@ body {
   opacity: 0.9;
 }
 
+.pro-btn.primary-filled {
+  background: var(--primary-color);
+  border: none;
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 0 12px rgba(var(--primary-rgb), 0.25);
+}
+
+.pro-btn.primary-filled:hover {
+  background: var(--primary-hover);
+  color: #ffffff;
+  box-shadow: 0 0 16px rgba(var(--primary-rgb), 0.4);
+}
+
+.pro-btn-text {
+  background: none;
+  border: none;
+  color: var(--primary-color);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  transition: var(--transition-fast);
+}
+
+.pro-btn-text:hover {
+  background-color: rgba(var(--primary-rgb), 0.12);
+}
+
 .pro-btn.active-loop {
   background: rgba(var(--primary-rgb), 0.1);
   border-color: var(--primary-color);
@@ -7094,4 +7127,52 @@ input[type="number"].no-spinner {
   color: #fbbf24 !important;
   filter: drop-shadow(0 0 3px rgba(245, 158, 11, 0.6));
 }
+
+/* -------------------------------------------------------------
+ * スマート他通貨連動サジェストバー & セレクター
+ * ------------------------------------------------------------- */
+.companion-suggestion-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  margin-top: 6px;
+  background: rgba(168, 199, 250, 0.08);
+  border: 1px dashed rgba(168, 199, 250, 0.3);
+  border-radius: var(--radius-sm, 6px);
+}
+
+.companion-suggestion-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--tertiary, #a8c7fa);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn-batch-selector {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: var(--radius-sm, 6px);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--outline-variant, #333);
+  color: var(--on-surface);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-batch-selector:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--primary, #a8c7fa);
+  color: var(--primary, #a8c7fa);
+}
+
 

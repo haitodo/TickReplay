@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect } from "react";
 export interface CustomSelectOption {
   value: any;
   label: React.ReactNode;
+  triggerLabel?: React.ReactNode;
 }
 
 interface CustomSelectProps {
@@ -124,7 +125,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
         onClick={() => !disabled && setIsOpen(!isOpen)}
       >
         <span className="custom-select-value">
-          {selectedOption ? selectedOption.label : placeholder}
+          {selectedOption ? (selectedOption.triggerLabel ?? selectedOption.label) : placeholder}
         </span>
         <span className="custom-select-arrow material-symbols-outlined">
           keyboard_arrow_down

@@ -75,6 +75,11 @@ pub async fn save_settings(
             settings.speed_order_window_y = existing_settings.speed_order_window_y;
         }
     }
+    if settings.terminal_names.is_none() {
+        if let Some(ref existing_settings) = existing {
+            settings.terminal_names = existing_settings.terminal_names.clone();
+        }
+    }
 
     let config_dir = app_handle.path().app_config_dir()?;
     if !config_dir.exists() {

@@ -4,8 +4,112 @@ use crate::error::AppError;
 use crate::state::ReplayState;
 
 #[tauri::command]
-pub async fn get_mt5_terminals() -> Result<Vec<crate::mt5::Mt5TerminalInfo>, AppError> {
-    crate::mt5::get_mt5_terminals().await
+pub async fn get_mt5_terminals(
+    app_handle: AppHandle,
+) -> Result<Vec<crate::mt5::Mt5TerminalInfo>, AppError> {
+    let terminal_names = if let Ok(config_dir) = app_handle.path().app_config_dir() {
+        let config_file = config_dir.join("settings.json");
+        if config_file.exists() {
+            if let Ok(json_str) = tokio::fs::read_to_string(&config_file).await {
+                serde_json::from_str::<crate::state::ReplaySettings>(&json_str)
+                    .ok()
+                    .and_then(|s| s.terminal_names)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    crate::mt5::get_mt5_terminals(terminal_names).await
+}
+
+#[tauri::command]
+pub async fn save_terminal_name(
+    app_handle: AppHandle,
+    terminal_path: String,
+    custom_name: String,
+) -> Result<(), AppError> {
+    let config_dir = app_handle.path().app_config_dir()?;
+    if !config_dir.exists() {
+        tokio::fs::create_dir_all(&config_dir).await?;
+    }
+    let config_file = config_dir.join("settings.json");
+    let settings = if config_file.exists() {
+        let json_str = tokio::fs::read_to_string(&config_file).await?;
+        serde_json::from_str::<crate::state::ReplaySettings>(&json_str).ok()
+    } else {
+        None
+    };
+
+    let id = std::path::Path::new(&terminal_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(&terminal_path)
+        .to_string();
+
+    let mut s = settings.unwrap_or_else(|| crate::state::ReplaySettings {
+        selected_terminal: terminal_path.clone(),
+        selected_profile: String::new(),
+        source_symbol: String::new(),
+        start_time: String::new(),
+        end_time: String::new(),
+        preloaded_bars: 0,
+        auto_scroll_sync: true,
+        preload_mode: None,
+        preload_date: None,
+        preload_timeframe: None,
+        hotkeys: None,
+        time_presets: None,
+        tick_presets: None,
+        news_filters: None,
+        glass_effect: None,
+        theme_mode: None,
+        news_auto_scroll: None,
+        always_on_top: None,
+        is_shortcuts_active: None,
+        limit_tick_history: None,
+        tick_history_timeframe: None,
+        max_history_bars: None,
+        timezone_mode: None,
+        auto_skip_weekend: None,
+        pl_color_style: None,
+        order_color_style: None,
+        hedging: None,
+        enable_virtual_trading: None,
+        initial_balance: None,
+        leverage: None,
+        enable_pseudo_rate: None,
+        pseudo_base_spread: None,
+        pseudo_threshold: None,
+        pseudo_sensitivity: None,
+        show_holding_time: None,
+        holding_time_mode: None,
+        additional_symbols: None,
+        main_window_x: None,
+        main_window_y: None,
+        speed_order_window_x: None,
+        speed_order_window_y: None,
+        terminal_names: None,
+    });
+
+    let mut map = s.terminal_names.clone().unwrap_or_default();
+    if custom_name.trim().is_empty() {
+        map.remove(&id);
+        map.remove(&terminal_path);
+    } else {
+        map.insert(id.clone(), custom_name.trim().to_string());
+        map.insert(terminal_path.clone(), custom_name.trim().to_string());
+    }
+    s.terminal_names = Some(map);
+
+    let json_str = serde_json::to_string_pretty(&s)?;
+    tokio::fs::write(&config_file, json_str).await?;
+
+    Ok(())
 }
 
 #[tauri::command]

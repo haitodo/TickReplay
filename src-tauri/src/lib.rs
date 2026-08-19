@@ -151,6 +151,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::send_command,
             commands::get_mt5_terminals,
+            commands::save_terminal_name,
             commands::select_terminal,
             commands::get_profiles,
             commands::get_terminal_max_bars,

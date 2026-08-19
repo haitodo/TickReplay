@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { parseSymbolName, groupSymbolsByCategory } from "../utils/symbolUtils";
 
 export interface SymbolItem {
   name: string;
@@ -25,6 +26,7 @@ export const SymbolCombobox: React.FC<SymbolComboboxProps> = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [filterText, setFilterText] = useState(value);
+  const [selectedCategoryTab, setSelectedCategoryTab] = useState<string>("ALL");
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -33,44 +35,65 @@ export const SymbolCombobox: React.FC<SymbolComboboxProps> = ({
     setFilterText(value);
   }, [value]);
 
+  // カテゴリ分類データの作成
+  const categoryInfo = groupSymbolsByCategory(availableSymbols);
+
   // SymbolItem 形式への正規化
   const normalizedItems: SymbolItem[] = availableSymbols.map(s => {
     if (typeof s === "string") {
-      const upper = s.toUpperCase();
-      const isCustom = upper.endsWith("_CUSTOM") || upper.includes("REPLAY") || upper.endsWith(".CUSTOM");
+      const parsed = parseSymbolName(s);
       return {
         name: s,
-        source_type: isCustom ? "custom" : "broker",
-        group_name: isCustom ? "Custom" : "Standard",
+        source_type: parsed.suffix ? "custom" : "broker",
+        group_name: parsed.category,
       };
     }
     return s;
   });
 
-  // フィルタリング
+  // フィルタリング (テキスト検索 ＆ カテゴリタブ)
   const searchUpper = filterText.trim().toUpperCase();
-  const filteredItems = normalizedItems.filter(item => item.name.toUpperCase().includes(searchUpper));
+  const filteredItems = normalizedItems.filter(item => {
+    const parsed = parseSymbolName(item.name);
+    const matchesSearch = item.name.toUpperCase().includes(searchUpper);
+    if (!matchesSearch) return false;
 
-  // フォルダ（group_name）ごとのグループ化
+    if (selectedCategoryTab === "ALL") return true;
+    if (selectedCategoryTab === "Standard") {
+      return parsed.category === "Standard" || !parsed.suffix;
+    }
+    return parsed.category.toLowerCase() === selectedCategoryTab.toLowerCase();
+  });
+
+  // グループ化 (カテゴリまたはグループ名)
   const groupsMap = new Map<string, SymbolItem[]>();
   filteredItems.forEach(item => {
-    const grp = item.group_name || "Standard";
+    const parsed = parseSymbolName(item.name);
+    let grp = parsed.category;
+    if (parsed.isYear) {
+      grp = `${parsed.category}年`;
+    } else if (grp === "Standard" || !parsed.suffix) {
+      grp = item.group_name || "Standard";
+    }
+
     if (!groupsMap.has(grp)) {
       groupsMap.set(grp, []);
     }
-    // 重複除去 (同じ銘柄名が同一グループ内に複数入らないように)
     const list = groupsMap.get(grp)!;
     if (!list.some(i => i.name === item.name)) {
       list.push(item);
     }
   });
 
-  // グループ表示順のソート: Custom -> ブローカー (OANDA等) -> Default
+  // ソート
   const sortedGroupNames = Array.from(groupsMap.keys()).sort((a, b) => {
+    const isYearA = /^\d{4}年?$/.test(a);
+    const isYearB = /^\d{4}年?$/.test(b);
+    if (isYearA && isYearB) return b.localeCompare(a);
+    if (isYearA) return -1;
+    if (isYearB) return 1;
     if (a.toLowerCase() === "custom") return -1;
     if (b.toLowerCase() === "custom") return 1;
-    if (a.toLowerCase() === "default") return 1;
-    if (b.toLowerCase() === "default") return -1;
     return a.localeCompare(b);
   });
 
@@ -126,37 +149,31 @@ export const SymbolCombobox: React.FC<SymbolComboboxProps> = ({
   };
 
   const getGroupHeaderTitle = (groupName: string): string => {
+    if (/^\d{4}年?$/.test(groupName)) return `📅 ${groupName}`;
     const lower = groupName.toLowerCase();
-    if (lower === "custom") return "✨ 作成済みカスタムシンボル";
-    if (lower === "default") return "📊 デフォルト銘柄";
+    if (lower === "custom") return "✨ カスタムシンボル";
+    if (lower === "default" || lower === "standard") return "📊 通常・ブローカー銘柄";
     return `🏛️ ${groupName}`;
   };
 
   const getBadgeStyle = (item: SymbolItem) => {
-    const lowerType = item.source_type.toLowerCase();
-    const lowerGroup = item.group_name.toLowerCase();
-
-    if (lowerType === "custom" || lowerGroup === "custom") {
+    const parsed = parseSymbolName(item.name);
+    if (parsed.isYear) {
       return {
-        label: "Custom",
+        label: `${parsed.suffix}年`,
+        bg: "rgba(59, 130, 246, 0.18)",
+        color: "#60a5fa",
+      };
+    }
+    if (parsed.suffix) {
+      return {
+        label: parsed.suffix,
         bg: "rgba(var(--tertiary-rgb, 168, 199, 250), 0.15)",
         color: "var(--tertiary, #a8c7fa)",
       };
     }
-    if (lowerType === "default" || lowerGroup === "default") {
-      return {
-        label: "Default",
-        bg: "var(--surface-container-high)",
-        color: "var(--on-surface-variant)",
-      };
-    }
-
-    // ブローカーフォルダ名からのショートラベル (例: "OANDA-Japan MT5 Live" -> "OANDA")
-    let label = item.group_name.split("-")[0].split(" ")[0];
-    if (!label || label === "Standard") label = "Broker";
-
     return {
-      label,
+      label: "Broker",
       bg: "rgba(var(--secondary-rgb, 159, 202, 255), 0.15)",
       color: "var(--secondary-color, #9fcaff)",
     };
@@ -193,87 +210,188 @@ export const SymbolCombobox: React.FC<SymbolComboboxProps> = ({
         </button>
       </div>
 
-      {isOpen && allFilteredOptions.length > 0 && (
-        <ul
-          ref={listRef}
-          className="custom-select-dropdown"
+      {isOpen && (
+        <div
           style={{
             position: "absolute",
             top: "100%",
             left: 0,
             right: 0,
             zIndex: 1000,
-            maxHeight: "240px",
-            overflowY: "auto",
+            maxHeight: "320px",
+            display: "flex",
+            flexDirection: "column",
             margin: "4px 0 0 0",
-            padding: "4px 0",
-            backgroundColor: "var(--surface-container-high)",
-            border: "1px solid var(--outline-variant)",
+            backgroundColor: "var(--surface-container-high, #1e1e24)",
+            border: "1px solid var(--outline-variant, #333)",
             borderRadius: "var(--radius-sm, 6px)",
-            boxShadow: "0 4px 16px rgba(0,0,0,0.2)",
-            listStyle: "none"
+            boxShadow: "0 6px 20px rgba(0,0,0,0.35)",
+            overflow: "hidden"
           }}
         >
-          {sortedGroupNames.map((grp, grpIdx) => {
-            const items = groupsMap.get(grp) || [];
-            if (items.length === 0) return null;
-
-            return (
-              <React.Fragment key={grp}>
-                <li
-                  className="select-group-header"
+          {/* カテゴリ切り替えチップバー */}
+          {categoryInfo.allCategories.length > 1 && (
+            <div
+              style={{
+                display: "flex",
+                gap: "4px",
+                padding: "6px 8px",
+                borderBottom: "1px solid var(--outline-variant, #333)",
+                backgroundColor: "rgba(0,0,0,0.2)",
+                overflowX: "auto",
+                whiteSpace: "nowrap"
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setSelectedCategoryTab("ALL")}
+                style={{
+                  padding: "2px 8px",
+                  fontSize: "11px",
+                  borderRadius: "12px",
+                  border: "1px solid " + (selectedCategoryTab === "ALL" ? "var(--primary, #a8c7fa)" : "transparent"),
+                  backgroundColor: selectedCategoryTab === "ALL" ? "rgba(168, 199, 250, 0.15)" : "transparent",
+                  color: selectedCategoryTab === "ALL" ? "var(--primary, #a8c7fa)" : "var(--on-surface-variant)",
+                  cursor: "pointer"
+                }}
+              >
+                すべて
+              </button>
+              {categoryInfo.years.map(y => (
+                <button
+                  key={y}
+                  type="button"
+                  onClick={() => setSelectedCategoryTab(y)}
                   style={{
-                    padding: "4px 10px",
+                    padding: "2px 8px",
                     fontSize: "11px",
-                    fontWeight: "bold",
-                    color: grp.toLowerCase() === "custom" ? "var(--tertiary, #a8c7fa)" : "var(--on-surface-variant)",
-                    backgroundColor: "var(--surface-container-low, rgba(0,0,0,0.05))",
-                    marginTop: grpIdx > 0 ? "6px" : 0
+                    borderRadius: "12px",
+                    border: "1px solid " + (selectedCategoryTab === y ? "#60a5fa" : "transparent"),
+                    backgroundColor: selectedCategoryTab === y ? "rgba(96, 165, 250, 0.2)" : "transparent",
+                    color: selectedCategoryTab === y ? "#60a5fa" : "var(--on-surface-variant)",
+                    cursor: "pointer"
                   }}
                 >
-                  {getGroupHeaderTitle(grp)}
-                </li>
-                {items.map((item) => {
-                  const globalIdx = globalCounter++;
-                  const isSelected = item.name === value;
-                  const isHighlighted = globalIdx === highlightedIndex;
-                  const badge = getBadgeStyle(item);
+                  📅 {y}年
+                </button>
+              ))}
+              {categoryInfo.tags.map(t => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setSelectedCategoryTab(t)}
+                  style={{
+                    padding: "2px 8px",
+                    fontSize: "11px",
+                    borderRadius: "12px",
+                    border: "1px solid " + (selectedCategoryTab === t ? "var(--tertiary, #a8c7fa)" : "transparent"),
+                    backgroundColor: selectedCategoryTab === t ? "rgba(168, 199, 250, 0.2)" : "transparent",
+                    color: selectedCategoryTab === t ? "var(--tertiary, #a8c7fa)" : "var(--on-surface-variant)",
+                    cursor: "pointer"
+                  }}
+                >
+                  🏷️ {t}
+                </button>
+              ))}
+              {categoryInfo.hasStandard && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedCategoryTab("Standard")}
+                  style={{
+                    padding: "2px 8px",
+                    fontSize: "11px",
+                    borderRadius: "12px",
+                    border: "1px solid " + (selectedCategoryTab === "Standard" ? "var(--secondary, #9fcaff)" : "transparent"),
+                    backgroundColor: selectedCategoryTab === "Standard" ? "rgba(159, 202, 255, 0.2)" : "transparent",
+                    color: selectedCategoryTab === "Standard" ? "var(--secondary, #9fcaff)" : "var(--on-surface-variant)",
+                    cursor: "pointer"
+                  }}
+                >
+                  🏛️ 通常
+                </button>
+              )}
+            </div>
+          )}
 
-                  return (
+          {/* シンボル一覧 */}
+          {allFilteredOptions.length === 0 ? (
+            <div style={{ padding: "12px", fontSize: "12px", color: "var(--on-surface-variant)", textAlign: "center" }}>
+              該当するシンボルが見つかりません
+            </div>
+          ) : (
+            <ul
+              ref={listRef}
+              className="custom-select-dropdown"
+              style={{
+                flex: 1,
+                overflowY: "auto",
+                margin: 0,
+                padding: "4px 0",
+                listStyle: "none"
+              }}
+            >
+              {sortedGroupNames.map((grp, grpIdx) => {
+                const items = groupsMap.get(grp) || [];
+                if (items.length === 0) return null;
+
+                return (
+                  <React.Fragment key={grp}>
                     <li
-                      key={`${grp}_${item.name}`}
-                      className={`custom-select-option ${isHighlighted ? "highlighted" : ""} ${isSelected ? "selected" : ""}`}
-                      onClick={() => handleSelect(item.name)}
-                      onMouseEnter={() => setHighlightedIndex(globalIdx)}
+                      className="select-group-header"
                       style={{
-                        padding: "6px 12px",
-                        fontSize: "12px",
-                        cursor: "pointer",
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center"
+                        padding: "4px 10px",
+                        fontSize: "11px",
+                        fontWeight: "bold",
+                        color: "var(--on-surface-variant)",
+                        backgroundColor: "var(--surface-container-low, rgba(0,0,0,0.15))",
+                        marginTop: grpIdx > 0 ? "4px" : 0
                       }}
                     >
-                      <span style={{ fontWeight: 600 }}>{item.name}</span>
-                      <span
-                        className="badge-chip"
-                        style={{
-                          fontSize: "10px",
-                          padding: "1px 6px",
-                          borderRadius: "4px",
-                          backgroundColor: badge.bg,
-                          color: badge.color
-                        }}
-                      >
-                        {badge.label}
-                      </span>
+                      {getGroupHeaderTitle(grp)}
                     </li>
-                  );
-                })}
-              </React.Fragment>
-            );
-          })}
-        </ul>
+                    {items.map((item) => {
+                      const globalIdx = globalCounter++;
+                      const isSelected = item.name === value;
+                      const isHighlighted = globalIdx === highlightedIndex;
+                      const badge = getBadgeStyle(item);
+
+                      return (
+                        <li
+                          key={`${grp}_${item.name}`}
+                          className={`custom-select-option ${isHighlighted ? "highlighted" : ""} ${isSelected ? "selected" : ""}`}
+                          onClick={() => handleSelect(item.name)}
+                          onMouseEnter={() => setHighlightedIndex(globalIdx)}
+                          style={{
+                            padding: "6px 12px",
+                            fontSize: "12px",
+                            cursor: "pointer",
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center"
+                          }}
+                        >
+                          <span style={{ fontWeight: 600 }}>{item.name}</span>
+                          <span
+                            className="badge-chip"
+                            style={{
+                              fontSize: "10px",
+                              padding: "1px 6px",
+                              borderRadius: "4px",
+                              backgroundColor: badge.bg,
+                              color: badge.color
+                            }}
+                          >
+                            {badge.label}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </React.Fragment>
+                );
+              })}
+            </ul>
+          )}
+        </div>
       )}
     </div>
   );

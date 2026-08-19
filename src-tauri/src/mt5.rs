@@ -51,10 +51,61 @@ pub fn validate_terminal_path(terminal_path: &str) -> Result<(), AppError> {
     }
 }
 
-#[derive(serde::Serialize, Clone, Debug)]
+// origin.txt のエンコーディング（UTF-16LE / UTF-8）を考慮して文字列を読み取る
+pub fn read_file_string_lossy(path: &Path) -> Option<String> {
+    let bytes = fs::read(path).ok()?;
+    if bytes.is_empty() {
+        return None;
+    }
+    if bytes.len() >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE {
+        // UTF-16LE with BOM
+        let u16s: Vec<u16> = bytes[2..]
+            .chunks_exact(2)
+            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+            .collect();
+        let s = String::from_utf16_lossy(&u16s);
+        let trimmed = s.trim().to_string();
+        if trimmed.is_empty() { None } else { Some(trimmed) }
+    } else if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
+        // UTF-16BE with BOM
+        let u16s: Vec<u16> = bytes[2..]
+            .chunks_exact(2)
+            .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]]))
+            .collect();
+        let s = String::from_utf16_lossy(&u16s);
+        let trimmed = s.trim().to_string();
+        if trimmed.is_empty() { None } else { Some(trimmed) }
+    } else if bytes.len() >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF {
+        // UTF-8 with BOM
+        let s = String::from_utf8_lossy(&bytes[3..]);
+        let trimmed = s.trim().to_string();
+        if trimmed.is_empty() { None } else { Some(trimmed) }
+    } else {
+        // UTF-16LE BOMなし（byte 1 != 0, byte 2 == 0）の判定
+        if bytes.len() >= 4 && bytes[1] == 0 && bytes[3] == 0 {
+            let u16s: Vec<u16> = bytes
+                .chunks_exact(2)
+                .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+                .collect();
+            let s = String::from_utf16_lossy(&u16s);
+            let trimmed = s.trim().to_string();
+            if trimmed.is_empty() { None } else { Some(trimmed) }
+        } else {
+            let s = String::from_utf8_lossy(&bytes);
+            let trimmed = s.trim().to_string();
+            if trimmed.is_empty() { None } else { Some(trimmed) }
+        }
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Mt5TerminalInfo {
+    pub id: String,
     pub name: String,
+    pub default_name: String,
     pub path: String,
+    pub origin_path: Option<String>,
+    pub custom_name: Option<String>,
 }
 
 // MT5データフォルダをスキャンし、EAおよびスクリプトファイル・Includeファイルを自動配置する (起動時初期化用の同期処理)
@@ -120,8 +171,10 @@ pub fn setup_mt5_environment() {
 }
 
 // インストール済みのMT5端末を検出する (非同期I/O)
-pub async fn get_mt5_terminals() -> Result<Vec<Mt5TerminalInfo>, AppError> {
-    tokio::task::spawn_blocking(|| {
+pub async fn get_mt5_terminals(
+    terminal_names: Option<std::collections::HashMap<String, String>>,
+) -> Result<Vec<Mt5TerminalInfo>, AppError> {
+    tokio::task::spawn_blocking(move || {
         let base_path = std::env::var("APPDATA")
             .map(PathBuf::from)
             .map(|p| p.join("MetaQuotes").join("Terminal"))
@@ -138,13 +191,43 @@ pub async fn get_mt5_terminals() -> Result<Vec<Mt5TerminalInfo>, AppError> {
             if path.is_dir() {
                 let mql5_path = path.join("MQL5");
                 if mql5_path.exists() {
-                    let name = path.file_name()
+                    let id = path.file_name()
                         .and_then(|n| n.to_str())
                         .unwrap_or("Unknown")
                         .to_string();
+
+                    // origin.txt からインストール元フォルダ名を取得
+                    let origin_file = path.join("origin.txt");
+                    let origin_path = read_file_string_lossy(&origin_file);
+                    let default_name = if let Some(ref orig) = origin_path {
+                        let clean = orig.trim_end_matches(['\\', '/']);
+                        Path::new(clean)
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .filter(|s| !s.is_empty())
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| id.clone())
+                    } else {
+                        id.clone()
+                    };
+
+                    let path_str = path.to_string_lossy().to_string();
+                    let custom_name = terminal_names.as_ref().and_then(|map| {
+                        map.get(&id)
+                            .or_else(|| map.get(&path_str))
+                            .filter(|s| !s.trim().is_empty())
+                            .cloned()
+                    });
+
+                    let name = custom_name.clone().unwrap_or_else(|| default_name.clone());
+
                     terminals.push(Mt5TerminalInfo {
+                        id,
                         name,
-                        path: path.to_string_lossy().to_string(),
+                        default_name,
+                        path: path_str,
+                        origin_path,
+                        custom_name,
                     });
                 }
             }

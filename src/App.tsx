@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -9,11 +9,14 @@ import { TradeAnalysisWindowContent } from "./TradeAnalysisWindow";
 import { SymbolCombobox, SymbolItem } from "./components/SymbolCombobox";
 import { SymbolTagInput } from "./components/SymbolTagInput";
 import { CustomSymbolImportModal } from "./components/CustomSymbolImportModal";
+import { SymbolBatchSelectorModal } from "./components/SymbolBatchSelectorModal";
 import { AIAnalysisPanel } from "./components/AIAnalysisPanel";
 import { DateTimePickerModal } from "./components/DateTimePickerModal";
 import { TradeReportDashboard } from "./components/TradeReportDashboard";
 import { SpeedOrderWindowContent } from "./components/SpeedOrderWindowContent";
 import { DeleteSessionModal } from "./components/DeleteSessionModal";
+import { TerminalNameModal } from "./components/Modals/TerminalNameModal";
+import { parseSymbolName, getCompanionSymbols, switchSymbolSuffix } from "./utils/symbolUtils";
 import { useVolatilityDetector } from "./hooks/useVolatilityDetector";
 import { useTheme } from "./hooks/useTheme";
 import {
@@ -213,6 +216,58 @@ function App() {
   // --- 自動スキャン・設定用状態
   const [terminals, setTerminals] = useState<TerminalInfo[]>([]);
   const [selectedTerminal, setSelectedTerminal] = useState("");
+  const [isTerminalNameModalOpen, setIsTerminalNameModalOpen] = useState(false);
+  const [editingTerminal, setEditingTerminal] = useState<TerminalInfo | null>(null);
+
+  const handleOpenTerminalNameModal = (terminal?: TerminalInfo | null) => {
+    const target = terminal || terminals.find((t) => t.path === selectedTerminal) || null;
+    if (target) {
+      setEditingTerminal(target);
+      setIsTerminalNameModalOpen(true);
+    }
+  };
+
+  const handleSaveTerminalName = async (terminalPath: string, customName: string) => {
+    try {
+      await invoke("save_terminal_name", { terminalPath, customName });
+      setTerminals((prev) =>
+        prev.map((t) => {
+          if (t.path === terminalPath) {
+            const newCustomName = customName.trim() ? customName.trim() : undefined;
+            return {
+              ...t,
+              custom_name: newCustomName,
+              name: newCustomName || t.default_name || t.id || t.name,
+            };
+          }
+          return t;
+        })
+      );
+    } catch (err) {
+      console.error("Failed to save terminal name:", err);
+    }
+  };
+
+  const handleResetTerminalName = async (terminalPath: string) => {
+    try {
+      await invoke("save_terminal_name", { terminalPath, customName: "" });
+      setTerminals((prev) =>
+        prev.map((t) => {
+          if (t.path === terminalPath) {
+            return {
+              ...t,
+              custom_name: undefined,
+              name: t.default_name || t.id || t.name,
+            };
+          }
+          return t;
+        })
+      );
+    } catch (err) {
+      console.error("Failed to reset terminal name:", err);
+    }
+  };
+
   const [profiles, setProfiles] = useState<string[]>([]);
   const [selectedProfile, setSelectedProfile] = useState("");
   const [maxBarsInfo, setMaxBarsInfo] = useState<MaxBarsInfo | null>(null);
@@ -222,7 +277,34 @@ function App() {
   const hasSavedSymbolRef = useRef(false);
   const [additionalSymbols, setAdditionalSymbols] = useState("");
   const [isCustomImportOpen, setIsCustomImportOpen] = useState(false);
+  const [isBatchSelectorOpen, setIsBatchSelectorOpen] = useState(false);
   const [availableSymbols, setAvailableSymbols] = useState<SymbolItem[]>([]);
+
+  // 同一サフィックス（同一年または同一タグ）の他通貨ペアを自動検出
+  const companionSymbols = useMemo(() => {
+    const syncList = additionalSymbols ? additionalSymbols.split(",").map(s => s.trim()).filter(Boolean) : [];
+    return getCompanionSymbols(sourceSymbol, availableSymbols, syncList);
+  }, [sourceSymbol, availableSymbols, additionalSymbols]);
+
+  // ソースシンボルの年度・サフィックス変更時に同期他通貨のサフィックスを自動連動置換
+  const prevSourceRef = useRef(sourceSymbol);
+  useEffect(() => {
+    const prev = prevSourceRef.current;
+    if (prev && prev !== sourceSymbol) {
+      const prevParsed = parseSymbolName(prev);
+      const nextParsed = parseSymbolName(sourceSymbol);
+      if (prevParsed.suffix && nextParsed.suffix && prevParsed.suffix !== nextParsed.suffix) {
+        const syncList = additionalSymbols ? additionalSymbols.split(",").map(s => s.trim()).filter(Boolean) : [];
+        if (syncList.length > 0) {
+          const updated = switchSymbolSuffix(syncList, prevParsed.suffix, nextParsed.suffix, availableSymbols);
+          if (updated.join(",") !== syncList.join(",")) {
+            setAdditionalSymbols(updated.join(","));
+          }
+        }
+      }
+    }
+    prevSourceRef.current = sourceSymbol;
+  }, [sourceSymbol, additionalSymbols, availableSymbols]);
 
   const loadAvailableSymbols = async (terminalPath: string) => {
     try {
@@ -1267,6 +1349,16 @@ function App() {
       show_holding_time: customShowHoldingTime,
       holding_time_mode: customHoldingTimeMode,
       additional_symbols: customAdditionalSymbols,
+      terminal_names: (() => {
+        const map: { [key: string]: string } = {};
+        terminals.forEach((t) => {
+          if (t.custom_name && t.custom_name.trim()) {
+            if (t.id) map[t.id] = t.custom_name.trim();
+            map[t.path] = t.custom_name.trim();
+          }
+        });
+        return Object.keys(map).length > 0 ? map : undefined;
+      })(),
     };
     try {
       localStorage.setItem("speed-order-hotkeys", JSON.stringify(customHotkeys));
@@ -3123,12 +3215,70 @@ function App() {
                     </div>
                     <div className="setup-card-body">
                       <div className="form-group">
-                        <label className="form-label">MT5ターミナル</label>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                          <label className="form-label" style={{ marginBottom: 0 }}>MT5ターミナル</label>
+                          {selectedTerminal && (
+                            <button
+                              type="button"
+                              className="pro-btn-text"
+                              style={{
+                                fontSize: "11px",
+                                color: "var(--primary-color)",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "3px",
+                                cursor: "pointer",
+                                background: "none",
+                                border: "none",
+                                padding: "2px 4px",
+                                borderRadius: "4px",
+                              }}
+                              onClick={() => handleOpenTerminalNameModal()}
+                              title="選択中のMT5ターミナルに名前（別名）を設定する"
+                            >
+                              <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>edit_note</span>
+                              名前を設定
+                            </button>
+                          )}
+                        </div>
                         <CustomSelect
                           value={selectedTerminal}
                           onChange={setSelectedTerminal}
                           options={terminals.length > 0
-                            ? terminals.map(t => ({ value: t.path, label: t.name }))
+                            ? terminals.map((t) => {
+                                const displayTitle = t.custom_name || t.name;
+                                const subText = t.origin_path || (t.id ? `ID: ${t.id}` : "");
+                                return {
+                                  value: t.path,
+                                  triggerLabel: displayTitle,
+                                  label: (
+                                    <div style={{ display: "flex", flexDirection: "column", gap: "1px", width: "100%", overflow: "hidden" }}>
+                                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                        <span style={{ fontWeight: 600 }}>{displayTitle}</span>
+                                        {t.custom_name && t.default_name && (
+                                          <span style={{ fontSize: "10px", color: "var(--on-surface-variant)", opacity: 0.8 }}>
+                                            ({t.default_name})
+                                          </span>
+                                        )}
+                                      </div>
+                                      {subText && (
+                                        <span
+                                          style={{
+                                            fontSize: "9px",
+                                            color: "var(--on-surface-variant)",
+                                            opacity: 0.65,
+                                            whiteSpace: "nowrap",
+                                            overflow: "hidden",
+                                            textOverflow: "ellipsis"
+                                          }}
+                                        >
+                                          {subText}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )
+                                };
+                              })
                             : [{ value: "", label: "No Terminals Found" }]
                           }
                         />
@@ -3173,7 +3323,18 @@ function App() {
                       </div>
 
                       <div className="form-group">
-                        <label className="form-label">ソースシンボル</label>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                          <label className="form-label" style={{ margin: 0 }}>ソースシンボル</label>
+                          <button
+                            type="button"
+                            className="btn-batch-selector"
+                            onClick={() => setIsBatchSelectorOpen(true)}
+                            title="年・サフィックス別マトリクスから主通貨と同期他通貨を一括選択"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: "15px" }}>tune</span>
+                            マルチ通貨セレクター
+                          </button>
+                        </div>
                         <div className="input-with-button-container">
                           <SymbolCombobox
                             value={sourceSymbol}
@@ -3181,7 +3342,7 @@ function App() {
                               setSourceSymbol(val);
                             }}
                             availableSymbols={availableSymbols}
-                            placeholder="e.g. USDJPY または EURJPY_Custom"
+                            placeholder="e.g. USDJPY または USDJPY_2016"
                           />
                           {chartSymbol && (
                             <button
@@ -3206,13 +3367,37 @@ function App() {
                           availableSymbols={availableSymbols}
                           placeholder="銘柄を選択または入力して追加..."
                         />
+                        {companionSymbols.length > 0 && (
+                          <div className="companion-suggestion-bar">
+                            <div className="companion-suggestion-text" title={companionSymbols.join(", ")}>
+                              <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>auto_awesome</span>
+                              <span>
+                                {parseSymbolName(sourceSymbol).category ? `「${parseSymbolName(sourceSymbol).category}」の他通貨を検出:` : "同一グループ他通貨を検出:"}
+                                {" "}<strong style={{ color: "var(--on-surface)" }}>{companionSymbols.join(", ")}</strong>
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              className="pro-btn"
+                              onClick={() => {
+                                const existing = additionalSymbols ? additionalSymbols.split(",").map(s => s.trim()).filter(Boolean) : [];
+                                const merged = Array.from(new Set([...existing, ...companionSymbols]));
+                                setAdditionalSymbols(merged.join(","));
+                              }}
+                              style={{ padding: "2px 8px", fontSize: "10px", height: "22px", flexShrink: 0, backgroundColor: "rgba(168, 199, 250, 0.2)", borderColor: "var(--tertiary, #a8c7fa)", color: "var(--tertiary, #a8c7fa)" }}
+                            >
+                              + すべて同期に追加
+                            </button>
+                          </div>
+                        )}
                       </div>
 
-                      <div style={{ marginTop: "12px" }}>
+                      <div style={{ marginTop: "12px", display: "flex", gap: "8px" }}>
                         <button
                           type="button"
                           className="btn-custom-import"
                           onClick={() => setIsCustomImportOpen(true)}
+                          style={{ flex: 1 }}
                         >
                           <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>database_upload</span>
                           カスタムシンボルのインポート
@@ -5555,7 +5740,49 @@ function App() {
         isOpen={isCustomImportOpen}
         onClose={() => setIsCustomImportOpen(false)}
         terminalPath={selectedTerminal}
+        terminalName={(() => {
+          const t = terminals.find(t => t.path === selectedTerminal);
+          return t ? (t.custom_name || t.name) : undefined;
+        })()}
         onImportComplete={() => loadAvailableSymbols(selectedTerminal)}
+        onApplyToReplay={(primary, syncs, range) => {
+          setSourceSymbol(primary);
+          setAdditionalSymbols(syncs.join(","));
+          if (range) {
+            setStartTime(range.start);
+            setEndTime(range.end);
+          }
+          loadAvailableSymbols(selectedTerminal);
+        }}
+      />
+
+      {/* シンボル＆マルチ通貨セレクター モーダル */}
+      <SymbolBatchSelectorModal
+        isOpen={isBatchSelectorOpen}
+        onClose={() => setIsBatchSelectorOpen(false)}
+        availableSymbols={availableSymbols}
+        currentSourceSymbol={sourceSymbol}
+        currentAdditionalSymbols={additionalSymbols}
+        onApply={(src, syncs, range) => {
+          setSourceSymbol(src);
+          setAdditionalSymbols(syncs.join(","));
+          if (range) {
+            setStartTime(range.start);
+            setEndTime(range.end);
+          }
+        }}
+      />
+
+      {/* MT5ターミナル名設定 モーダル */}
+      <TerminalNameModal
+        isOpen={isTerminalNameModalOpen}
+        terminal={editingTerminal}
+        onSave={handleSaveTerminalName}
+        onReset={handleResetTerminalName}
+        onClose={() => {
+          setIsTerminalNameModalOpen(false);
+          setEditingTerminal(null);
+        }}
       />
 
       {/* Time Steps カスタマイズ モーダル */}
