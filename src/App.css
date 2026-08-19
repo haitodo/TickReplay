@@ -2050,6 +2050,187 @@ html[data-theme="light"][data-order-color-style="red-green"] .type-badge.sell {
   font-weight: 600;
 }
 
+/* ==========================================================================
+   HelpTooltip & Setup Guidance Styles
+   ========================================================================== */
+.help-tooltip-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin-left: 4px;
+  color: var(--on-surface-variant);
+  opacity: 0.65;
+  cursor: pointer;
+  border-radius: 50%;
+  vertical-align: middle;
+  transition: color 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
+  line-height: 1;
+}
+
+.help-tooltip-trigger:hover,
+.help-tooltip-trigger:focus-visible {
+  opacity: 1;
+  color: var(--tertiary, #a8c7fa);
+  transform: scale(1.15);
+}
+
+.help-tooltip-trigger:focus-visible {
+  outline: 1px solid var(--tertiary, #a8c7fa);
+  outline-offset: 1px;
+}
+
+.help-tooltip-popover {
+  position: fixed;
+  z-index: 99999;
+  max-width: 320px;
+  min-width: 200px;
+  width: max-content;
+  background-color: var(--surface-charcoal, #191c24);
+  background: rgba(22, 26, 35, 0.96);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--radius-md, 8px);
+  padding: 10px 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 1px rgba(255, 255, 255, 0.2);
+  color: var(--on-surface, #e2e8f0);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  line-height: 1.45;
+  pointer-events: auto;
+  animation: tooltipFadeIn 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+html[data-theme="light"] .help-tooltip-popover {
+  background: rgba(255, 255, 255, 0.98);
+  border-color: rgba(0, 0, 0, 0.15);
+  color: #1e293b;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+}
+
+@keyframes tooltipFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(3px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.help-tooltip-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--outline-variant, rgba(255, 255, 255, 0.1));
+}
+
+.help-tooltip-header-icon {
+  font-size: 13px;
+  color: var(--tertiary, #a8c7fa);
+}
+
+.help-tooltip-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--on-surface, #ffffff);
+}
+
+html[data-theme="light"] .help-tooltip-title {
+  color: #0f172a;
+}
+
+.help-tooltip-body {
+  font-size: 11px;
+  color: var(--on-surface-variant, #94a3b8);
+  line-height: 1.45;
+  word-break: break-word;
+  white-space: pre-line;
+}
+
+html[data-theme="light"] .help-tooltip-body {
+  color: #475569;
+}
+
+.help-tooltip-tip {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin-top: 6px;
+  padding: 5px 8px;
+  background-color: rgba(var(--primary-rgb, 59, 130, 246), 0.08);
+  border-left: 2px solid var(--primary-color, #3b82f6);
+  border-radius: 4px;
+  font-size: 10.5px;
+}
+
+.help-tooltip-tip-icon {
+  font-size: 13px;
+  color: #ffb74d;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.help-tooltip-tip-text {
+  line-height: 1.4;
+  color: var(--on-surface, #e2e8f0);
+  font-size: 10.5px;
+}
+
+html[data-theme="light"] .help-tooltip-tip-text {
+  color: #1e293b;
+}
+
+/* Setup Guide Banner */
+.setup-guide-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 12px;
+  background-color: rgba(59, 130, 246, 0.08);
+  border: 1px dashed rgba(59, 130, 246, 0.35);
+  border-radius: var(--radius-md, 6px);
+  font-size: 11px;
+  color: var(--on-surface, #e2e8f0);
+  line-height: 1.45;
+  margin-bottom: 6px;
+}
+
+.setup-guide-banner.subtle {
+  background-color: rgba(255, 255, 255, 0.03);
+  border-color: var(--outline-variant, rgba(255, 255, 255, 0.12));
+  font-size: 10.5px;
+  padding: 6px 10px;
+}
+
+.setup-guide-banner-icon {
+  font-size: 16px;
+  color: #60a5fa;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.setup-guide-banner-icon.warning {
+  color: #ffb74d;
+}
+
+.setup-guide-banner strong {
+  color: var(--tertiary, #a8c7fa);
+}
+
+html[data-theme="light"] .setup-guide-banner {
+  background-color: rgba(59, 130, 246, 0.06);
+  border-color: rgba(59, 130, 246, 0.3);
+  color: #1e293b;
+}
+
+
 /* System Settings Bottom Row */
 .settings-footer {
   display: flex;

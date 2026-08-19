@@ -16,6 +16,7 @@ import { TradeReportDashboard } from "./components/TradeReportDashboard";
 import { SpeedOrderWindowContent } from "./components/SpeedOrderWindowContent";
 import { DeleteSessionModal } from "./components/DeleteSessionModal";
 import { TerminalNameModal } from "./components/Modals/TerminalNameModal";
+import { HelpTooltip } from "./components/HelpTooltip";
 import { parseSymbolName, getCompanionSymbols, switchSymbolSuffix } from "./utils/symbolUtils";
 import { useVolatilityDetector } from "./hooks/useVolatilityDetector";
 import { useTheme } from "./hooks/useTheme";
@@ -3216,7 +3217,13 @@ function App() {
                     <div className="setup-card-body">
                       <div className="form-group">
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-                          <label className="form-label" style={{ marginBottom: 0 }}>MT5ターミナル</label>
+                          <label className="form-label" style={{ marginBottom: 0, display: "flex", alignItems: "center" }}>
+                            MT5ターミナル
+                            <HelpTooltip
+                              title="MT5ターミナル"
+                              content="リプレイ連携を行うMetaTrader 5の実行環境を選択します。複数インストールされている場合は、TickReplayControllerEAが配置されているターミナルを指定してください。"
+                            />
+                          </label>
                           {selectedTerminal && (
                             <button
                               type="button"
@@ -3286,7 +3293,13 @@ function App() {
 
                       <div className="form-group" style={{ marginTop: "2px" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "11px", marginBottom: "3px" }}>
-                          <span className="form-label" style={{ marginBottom: 0 }}>チャートの最大バー数</span>
+                          <span className="form-label" style={{ marginBottom: 0, display: "flex", alignItems: "center" }}>
+                            チャートの最大バー数
+                            <HelpTooltip
+                              title="チャートの最大バー数 (MT5設定)"
+                              content="MT5側で描画を許可する最大バー数です。過去検証時に長期インジケータ（200MA等）を正確に表示するため「Unlimited (無制限)」が推奨されます。"
+                            />
+                          </span>
                           {maxBarsInfo ? (
                             maxBarsInfo.is_unlimited ? (
                               <span className="max-bars-badge unlimited">
@@ -3314,7 +3327,14 @@ function App() {
                       </div>
 
                       <div className="form-group">
-                        <label className="form-label">チャートプロファイル</label>
+                        <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
+                          チャートプロファイル
+                          <HelpTooltip
+                            title="チャートプロファイル"
+                            content="リプレイ開始時にMT5側で自動的に読み込まれるチャートの組表示（複数時間足やテンプレートの組み合わせ）を選択します。"
+                            tip="MT5側で事前にプロファイルを保存しておくと、ここから一括で復元できます。"
+                          />
+                        </label>
                         <CustomSelect
                           value={selectedProfile}
                           onChange={setSelectedProfile}
@@ -3324,7 +3344,13 @@ function App() {
 
                       <div className="form-group">
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-                          <label className="form-label" style={{ margin: 0 }}>ソースシンボル</label>
+                          <label className="form-label" style={{ margin: 0, display: "flex", alignItems: "center" }}>
+                            ソースシンボル
+                            <HelpTooltip
+                              title="ソースシンボル (主通貨)"
+                              content="リプレイの主対象となる通貨ペア・銘柄です。MT5にインポート済みのカスタムシンボルや標準シンボルから選択できます。"
+                            />
+                          </label>
                           <button
                             type="button"
                             className="btn-batch-selector"
@@ -3360,7 +3386,14 @@ function App() {
                       </div>
 
                       <div className="form-group">
-                        <label className="form-label">同期他通貨シンボル</label>
+                        <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
+                          同期他通貨シンボル
+                          <HelpTooltip
+                            title="同期他通貨シンボル"
+                            content="主通貨と時間軸を完全に同期してチャート上に同時にティック更新・再生する他通貨ペアです（カンマ区切り）。"
+                            tip="通貨強弱や相関関係（ドルインデックスやクロス円など）を同時に検証したい場合に指定します。"
+                          />
+                        </label>
                         <SymbolTagInput
                           value={additionalSymbols}
                           onChange={setAdditionalSymbols}
@@ -3416,7 +3449,13 @@ function App() {
                     </div>
                     <div className="setup-card-body">
                       <div className="form-group">
-                        <label className="form-label">タイムゾーン</label>
+                        <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
+                          タイムゾーン
+                          <HelpTooltip
+                            title="表示タイムゾーン"
+                            content={"画面上で扱う日時の基準を設定します。\n・日本時間 JST: 普段見慣れた日本時間で日時指定・確認できます。\n・MT5サーバ時刻 SRV: 冬GMT+2/夏GMT+3のMT5基準時刻です。"}
+                          />
+                        </label>
                         <CustomSelect
                           value={timezoneMode}
                           onChange={(val) => setTimezoneMode(val as "JST" | "SERVER")}
@@ -3428,7 +3467,13 @@ function App() {
                       </div>
 
                       <div className="form-group">
-                        <label className="form-label">開始日時 ({timezoneMode})</label>
+                        <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
+                          開始日時 ({timezoneMode})
+                          <HelpTooltip
+                            title="リプレイ開始日時"
+                            content="ティックデータの再生を開始する日時です。カレンダーアイコンをクリックして日時を選択できます。"
+                          />
+                        </label>
                         <div className="input-with-button-container">
                           <input
                             type="text"
@@ -3450,7 +3495,13 @@ function App() {
                       </div>
 
                       <div className="form-group">
-                        <label className="form-label">終了日時 ({timezoneMode})</label>
+                        <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
+                          終了日時 ({timezoneMode})
+                          <HelpTooltip
+                            title="リプレイ終了日時"
+                            content="リプレイを終了する日時です。この日時に到達するとリプレイが自動的に完了/停止します。"
+                          />
+                        </label>
                         <div className="input-with-button-container">
                           <input
                             type="text"
@@ -3477,7 +3528,13 @@ function App() {
                           checked={autoSkipWeekend}
                           onChange={(e) => setAutoSkipWeekend(e.target.checked)}
                         />
-                        <span className="form-label" style={{ textTransform: "none", cursor: "pointer" }}>週末をスキップ (時間比率モード)</span>
+                        <span className="form-label" style={{ textTransform: "none", cursor: "pointer", display: "inline-flex", alignItems: "center" }}>
+                          週末をスキップ (時間比率モード)
+                          <HelpTooltip
+                            title="週末スキップ機能"
+                            content="時間比率モードで再生中、取引が行われない土曜・日曜の休場期間（データが存在しない空白時間）を自動的に早送りスキップし、月曜オープン時刻まで進めます。"
+                          />
+                        </span>
                       </label>
                     </div>
                   </div>
@@ -3488,12 +3545,32 @@ function App() {
                       <div className="setup-card-title">
                         <span className="material-symbols-outlined">download_for_offline</span>
                         プリロード・履歴設定
+                        <HelpTooltip
+                          title="プリロード・履歴設定とは"
+                          content="リプレイ開始直後からインジケータ（MAやVWAP等）を正確に表示するための過去データ読込設定と、メモリ消費を抑えて高速動作させるための履歴設定を行います。"
+                        />
                       </div>
                     </div>
                     <div className="setup-card-body">
+                      {/* 初心者向けガイダンスバナー */}
+                      <div className="setup-guide-banner">
+                        <span className="material-symbols-outlined setup-guide-banner-icon">info</span>
+                        <div>
+                          <strong>💡 プリロード機能とは？</strong><br />
+                          リプレイ開始直後から移動平均線(MA)やVWAP、MACD等のテクニカル指標を正しく計算・描画するため、開始日時より前の過去チャートバーをあらかじめMT5に生成・読み込む機能です。
+                        </div>
+                      </div>
+
                       <div className="setup-card-grid-2">
                         <div className="form-group">
-                          <label className="form-label">プリロードモード</label>
+                          <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
+                            プリロードモード
+                            <HelpTooltip
+                              title="プリロードモード"
+                              content={"リプレイ開始前の過去データをどう読み込むかを選択します。\n・バー数指定 (BARS): 指定時間足でN本分の過去データを自動計算（おすすめ）。\n・過去日付指定 (DATE): 指定した過去日時（年初など）から開始日時までを一括読込。"}
+                              tip="迷った場合は「バー数指定」を選択すると、必要な本数だけ効率よく読み込めます。"
+                            />
+                          </label>
                           <CustomSelect
                             value={preloadMode}
                             onChange={(val) => setPreloadMode(val as "BARS" | "DATE")}
@@ -3507,7 +3584,13 @@ function App() {
                         {preloadMode === "BARS" ? (
                           <div className="setup-card-grid-2" style={{ gap: "8px" }}>
                             <div className="form-group">
-                              <label className="form-label">プリロード時間足</label>
+                              <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
+                                プリロード時間足
+                                <HelpTooltip
+                                  title="プリロード時間足"
+                                  content="過去バー本数を計算する基準の時間足です。「自動」を指定すると最適な時間足が自動選択されます。"
+                                />
+                              </label>
                               <CustomSelect
                                 value={preloadTimeframe}
                                 onChange={setPreloadTimeframe}
@@ -3524,7 +3607,14 @@ function App() {
                               />
                             </div>
                             <div className="form-group">
-                              <label className="form-label">プレロードバー数</label>
+                              <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
+                                プレロードバー数
+                                <HelpTooltip
+                                  title="プレロードバー本数"
+                                  content="リプレイ開始直前の過去バーを何本読み込むかを指定します。"
+                                  tip="200期間移動平均線や長期インジケータを正しく表示するため、500〜1000本程度を推奨します。"
+                                />
+                              </label>
                               <input
                                 type="number"
                                 className="pro-input"
@@ -3535,7 +3625,13 @@ function App() {
                           </div>
                         ) : (
                           <div className="form-group">
-                            <label className="form-label">プリロード開始日時 ({timezoneMode})</label>
+                            <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
+                              プリロード開始日時 ({timezoneMode})
+                              <HelpTooltip
+                                title="プリロード開始日時"
+                                content="過去データを読み込む起点となる日時です。リプレイ開始日時より前の過去日時（例: 年初や前月1日など）を指定してください。"
+                              />
+                            </label>
                             <div className="input-with-button-container">
                               <input
                                 type="text"
@@ -3566,13 +3662,27 @@ function App() {
                               checked={limitTickHistory}
                               onChange={(e) => setLimitTickHistory(e.target.checked)}
                             />
-                            <span className="form-label" style={{ textTransform: "none", cursor: "pointer" }}>直近ティック履歴の制限 (高速シーク)</span>
+                            <span className="form-label" style={{ textTransform: "none", cursor: "pointer", display: "inline-flex", alignItems: "center" }}>
+                              直近ティック履歴の制限 (高速シーク)
+                              <HelpTooltip
+                                title="直近ティック履歴の制限 (高速シーク)"
+                                content={"MT5がメモリ内に保持するリアルタイムティックの範囲を制限します。\n長期間（数週間〜数ヶ月）のリプレイ時にメモリ消費を大幅に削減し、巻き戻し(シーク)や早送り時の処理速度を劇的に向上させます。"}
+                                tip="長期間リプレイや動作軽量化のため、通常は【有効（チェックON）】を推奨します。"
+                              />
+                            </span>
                           </label>
 
                           {limitTickHistory && (
                             <div className="setup-card-grid-2" style={{ marginTop: "8px" }}>
                               <div className="form-group">
-                                <label className="form-label">最大時間足</label>
+                                <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
+                                  最大時間足
+                                  <HelpTooltip
+                                    title="履歴制限の最大時間足"
+                                    content="ティック履歴を何本分のバーまで保持するかを決める基準時間足です（例: H1やD1）。"
+                                    tip="普段監視する上位足（1時間足や日足など）に合わせて設定します。"
+                                  />
+                                </label>
                                 <CustomSelect
                                   value={tickHistoryTimeframe}
                                   onChange={setTickHistoryTimeframe}
@@ -3588,7 +3698,13 @@ function App() {
                                 />
                               </div>
                               <div className="form-group">
-                                <label className="form-label">保持バー本数</label>
+                                <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
+                                  保持バー本数
+                                  <HelpTooltip
+                                    title="メモリ保持バー本数"
+                                    content="最大時間足に対してメモリに保持し続けるバーの本数です（推奨: 100〜300本）。これ以前の古いティックは順次メモリから解放され、動作が軽くなります。"
+                                  />
+                                </label>
                                 <input
                                   type="number"
                                   className="pro-input"
@@ -3619,7 +3735,13 @@ function App() {
                             checked={autoScrollSync}
                             onChange={(e) => setAutoScrollSync(e.target.checked)}
                           />
-                          <span className="setup-checkbox-label">チャート自動スクロール同期</span>
+                          <span className="setup-checkbox-label" style={{ display: "inline-flex", alignItems: "center" }}>
+                            チャート自動スクロール同期
+                            <HelpTooltip
+                              title="チャート自動スクロール同期"
+                              content="ティック進行に合わせて、MT5チャートの表示を自動的に最新ティックの現在位置へスクロール追従させます。"
+                            />
+                          </span>
                         </label>
                         <label className="setup-checkbox-item">
                           <input
@@ -3627,7 +3749,13 @@ function App() {
                             checked={newsAutoScroll}
                             onChange={(e) => setNewsAutoScroll(e.target.checked)}
                           />
-                          <span className="setup-checkbox-label">指標ニュースの自動スクロール</span>
+                          <span className="setup-checkbox-label" style={{ display: "inline-flex", alignItems: "center" }}>
+                            指標ニュースの自動スクロール
+                            <HelpTooltip
+                              title="指標ニュースの自動スクロール"
+                              content="リプレイ中の現在時刻の進行に合わせて、画面下の経済指標カレンダーを該当ニュースの位置へ自動スクロールします。"
+                            />
+                          </span>
                         </label>
                       </div>
                     </div>
@@ -3638,7 +3766,13 @@ function App() {
                   <div className="setup-card full-width">
                     <div className="setup-toggle-block">
                       <div className="setup-toggle-info">
-                        <span className="setup-toggle-title">仮想トレード機能</span>
+                        <span className="setup-toggle-title" style={{ display: "inline-flex", alignItems: "center" }}>
+                          仮想トレード機能
+                          <HelpTooltip
+                            title="仮想トレード機能"
+                            content="有効にすると、スピード発注パネル、ポジション一覧、損益計算、トレード履歴・統計レポートなどの仮想売買機能が利用可能になります。"
+                          />
+                        </span>
                         <span className="setup-toggle-desc">有効にすると、ダッシュボードや発注窓を利用したデモトレード機能が使用可能になります。</span>
                       </div>
                       <label className="speed-switch">
@@ -3664,7 +3798,13 @@ function App() {
                         </div>
                         <div className="setup-card-body">
                           <div className="form-group">
-                            <label className="form-label">初期口座残高</label>
+                            <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
+                              初期口座残高
+                              <HelpTooltip
+                                title="初期口座残高"
+                                content="デモトレード開始時の口座残高（証拠金）を設定します（円または口座の基準通貨）。"
+                              />
+                            </label>
                             <input
                               type="number"
                               step="10000"
@@ -3676,7 +3816,13 @@ function App() {
                           </div>
 
                           <div className="form-group">
-                            <label className="form-label">レバレッジ</label>
+                            <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
+                              レバレッジ
+                              <HelpTooltip
+                                title="口座レバレッジ"
+                                content="取引の最大レバレッジ倍率です（国内口座想定: 25倍、海外口座想定: 100〜500倍等）。必要証拠金やロスカット判定の計算に使用されます。"
+                              />
+                            </label>
                             <input
                               type="number"
                               step="1"
@@ -3688,7 +3834,13 @@ function App() {
                           </div>
 
                           <div className="form-group">
-                            <label className="form-label">ロット単位</label>
+                            <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
+                              ロット単位
+                              <HelpTooltip
+                                title="1ロットの通貨数量"
+                                content={"1.0ロットあたりの通貨単位です。\n・10万通貨 (Standard): 海外FXや一般的なプロ口座\n・1万通貨 (Mini): 国内FXの標準単位\n・1,000通貨 (Micro): マイクロ口座"}
+                              />
+                            </label>
                             <CustomSelect
                               value={contractSize}
                               onChange={(val) => {
@@ -3706,7 +3858,13 @@ function App() {
 
                           <div className="setup-toggle-block" style={{ marginTop: "4px", padding: "8px 10px" }}>
                             <div className="setup-toggle-info">
-                              <span className="setup-toggle-title" style={{ fontSize: "11px" }}>両建て設定</span>
+                              <span className="setup-toggle-title" style={{ fontSize: "11px", display: "inline-flex", alignItems: "center" }}>
+                                両建て設定
+                                <HelpTooltip
+                                  title="両建て (Hedging)"
+                                  content="同一通貨ペアで買い(LONG)と売り(SHORT)のポジションを同時に保有することを許可します。"
+                                />
+                              </span>
                               <span className="setup-toggle-desc" style={{ fontSize: "9px" }}>買い・売りポジションの同時保有を許可</span>
                             </div>
                             <label className="speed-switch">
@@ -3732,7 +3890,14 @@ function App() {
                         <div className="setup-card-body">
                           <div className="setup-toggle-block" style={{ padding: "8px 10px" }}>
                             <div className="setup-toggle-info">
-                              <span className="setup-toggle-title" style={{ fontSize: "11px" }}>疑似レート生成機能</span>
+                              <span className="setup-toggle-title" style={{ fontSize: "11px", display: "inline-flex", alignItems: "center" }}>
+                                疑似レート生成機能
+                                <HelpTooltip
+                                  title="疑似レート生成機能"
+                                  content="MT5の生ティックデータに対して、国内FXブローカー等の低スプレッドを再現した仮想レートで約定テストを行う機能です。"
+                                  tip="スプレッド拡大の連動シミュレーションも可能です。"
+                                />
+                              </span>
                               <span className="setup-toggle-desc" style={{ fontSize: "9px" }}>スプレッド調整等のレートで取引執行</span>
                             </div>
                             <label className="speed-switch">
@@ -3748,7 +3913,13 @@ function App() {
                           {enablePseudoRate && (
                             <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "4px" }}>
                               <div className="form-group">
-                                <label className="form-label">国内基準スプレッド</label>
+                                <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
+                                  国内基準スプレッド
+                                  <HelpTooltip
+                                    title="国内基準スプレッド (pips)"
+                                    content="平常時に適用する固定スプレッドの基準値（pips単位）です（例: USDJPYなら0.2など）。"
+                                  />
+                                </label>
                                 <input
                                   type="number"
                                   step="any"
@@ -3760,7 +3931,13 @@ function App() {
                               </div>
 
                               <div className="form-group">
-                                <label className="form-label">MT5側判定閾値</label>
+                                <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
+                                  MT5側判定閾値
+                                  <HelpTooltip
+                                    title="MT5側判定閾値 (pips)"
+                                    content="MT5の元スプレッドがこの値を超えて急拡大した場合（経済指標発表時など）に、疑似スプレッドも連動して拡大させる閾値です。"
+                                  />
+                                </label>
                                 <input
                                   type="number"
                                   step="any"
@@ -3772,7 +3949,13 @@ function App() {
                               </div>
 
                               <div className="form-group">
-                                <label className="form-label">拡大感度係数</label>
+                                <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
+                                  拡大感度係数
+                                  <HelpTooltip
+                                    title="拡大感度係数"
+                                    content="指標発表などで元スプレッドが拡大した際の連動倍率です（0.0〜2.0）。"
+                                  />
+                                </label>
                                 <input
                                   type="number"
                                   step="0.01"
@@ -4695,7 +4878,13 @@ function App() {
                     <h4 className="settings-section-title">リプレイ初期値</h4>
                     <div className="form-grid" style={{ gridTemplateColumns: "1fr" }}>
                       <div className="form-group">
-                        <label className="form-label">プリロードモード</label>
+                        <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
+                          プリロードモード
+                          <HelpTooltip
+                            title="プリロードモード"
+                            content={"リプレイ開始前の過去データをどう読み込むかを選択します。\n・バー数指定 (BARS): 指定時間足でN本分の過去データを自動計算（おすすめ）。\n・過去日付指定 (DATE): 指定した過去日時（年初など）から開始日時までを一括読込。"}
+                          />
+                        </label>
                         <CustomSelect
                           value={preloadMode}
                           onChange={(val) => setPreloadMode(val as "BARS" | "DATE")}
@@ -4709,7 +4898,13 @@ function App() {
                       {preloadMode === "BARS" ? (
                         <div style={{ display: "flex", gap: "8px" }}>
                           <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
-                            <label className="form-label">プリロード時間足</label>
+                            <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
+                              プリロード時間足
+                              <HelpTooltip
+                                title="プリロード時間足"
+                                content="過去バー本数を計算する基準の時間足です。「自動」を指定すると最適な時間足が自動選択されます。"
+                              />
+                            </label>
                             <CustomSelect
                               value={preloadTimeframe}
                               onChange={setPreloadTimeframe}
@@ -4726,7 +4921,13 @@ function App() {
                             />
                           </div>
                           <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
-                            <label className="form-label">プレロードバー数</label>
+                            <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
+                              プレロードバー数
+                              <HelpTooltip
+                                title="プレロードバー本数"
+                                content="リプレイ開始直前の過去バーを何本読み込むかを指定します（推奨: 500〜1000本）。"
+                              />
+                            </label>
                             <input
                               type="number"
                               className="pro-input"
@@ -4737,7 +4938,13 @@ function App() {
                         </div>
                       ) : (
                         <div className="form-group">
-                          <label className="form-label">過去プリロード開始日 JST</label>
+                          <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
+                            過去プリロード開始日 JST
+                            <HelpTooltip
+                              title="過去プリロード開始日"
+                              content="過去データを読み込む起点となる日時です。リプレイ開始日時より前の日時を指定してください。"
+                            />
+                          </label>
                           <div className="input-with-button-container">
                             <input
                               type="text"
@@ -4770,13 +4977,25 @@ function App() {
                           checked={limitTickHistory}
                           onChange={(e) => setLimitTickHistory(e.target.checked)}
                         />
-                        <span className="form-label" style={{ textTransform: "none", cursor: "pointer" }}>直近ティック履歴の制限 (高速シーク)</span>
+                        <span className="form-label" style={{ textTransform: "none", cursor: "pointer", display: "inline-flex", alignItems: "center" }}>
+                          直近ティック履歴の制限 (高速シーク)
+                          <HelpTooltip
+                            title="直近ティック履歴の制限 (高速シーク)"
+                            content={"MT5がメモリ内に保持するリアルタイムティックの範囲を制限します。\n長期間のリプレイ時にメモリ消費を削減し、巻き戻しやシークの処理速度を向上させます。"}
+                          />
+                        </span>
                       </label>
 
                       {limitTickHistory && (
                         <div style={{ display: "flex", gap: "12px", marginTop: "4px" }}>
                           <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
-                            <label className="form-label">最大時間足 (インジ使用)</label>
+                            <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
+                              最大時間足 (インジ使用)
+                              <HelpTooltip
+                                title="履歴制限の最大時間足"
+                                content="ティック履歴を何本分のバーまで保持するかを決める基準時間足です（例: H1やD1）。"
+                              />
+                            </label>
                             <CustomSelect
                               value={tickHistoryTimeframe}
                               onChange={setTickHistoryTimeframe}
@@ -4792,7 +5011,13 @@ function App() {
                             />
                           </div>
                           <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
-                            <label className="form-label">保持バー本数</label>
+                            <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
+                              保持バー本数
+                              <HelpTooltip
+                                title="メモリ保持バー本数"
+                                content="最大時間足に対してメモリに保持し続けるバーの本数です（推奨: 100〜300本）。"
+                              />
+                            </label>
                             <input
                               type="number"
                               className="pro-input"
