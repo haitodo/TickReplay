@@ -105,6 +105,18 @@ describe("symbolUtils", () => {
       const companions = getCompanionSymbols("USDJPY_test", allSymbols);
       expect(companions).toEqual(["EURJPY_test", "GBPJPY_test"]);
     });
+
+    it("サフィックスのない標準銘柄の場合は空配列を返すこと（デフォルト画面での横伸び防止）", () => {
+      const allSymbols = [
+        "USDJPY",
+        "EURUSD",
+        "GBPJPY",
+        "USDJPY_2016"
+      ];
+
+      const companions = getCompanionSymbols("USDJPY", allSymbols);
+      expect(companions).toEqual([]);
+    });
   });
 
   describe("switchSymbolSuffix", () => {

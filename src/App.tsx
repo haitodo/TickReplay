@@ -3369,10 +3369,10 @@ function App() {
                         />
                         {companionSymbols.length > 0 && (
                           <div className="companion-suggestion-bar">
-                            <div className="companion-suggestion-text" title={companionSymbols.join(", ")}>
-                              <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>auto_awesome</span>
+                            <div className="companion-suggestion-text" title={`検出された他通貨ペア: ${companionSymbols.join(", ")}`}>
+                              <span className="material-symbols-outlined" style={{ fontSize: "14px", flexShrink: 0 }}>auto_awesome</span>
                               <span>
-                                {parseSymbolName(sourceSymbol).category ? `「${parseSymbolName(sourceSymbol).category}」の他通貨を検出:` : "同一グループ他通貨を検出:"}
+                                {parseSymbolName(sourceSymbol).category ? `「${parseSymbolName(sourceSymbol).category}」の他通貨 (${companionSymbols.length}件):` : "他通貨:"}
                                 {" "}<strong style={{ color: "var(--on-surface)" }}>{companionSymbols.join(", ")}</strong>
                               </span>
                             </div>
@@ -3384,7 +3384,7 @@ function App() {
                                 const merged = Array.from(new Set([...existing, ...companionSymbols]));
                                 setAdditionalSymbols(merged.join(","));
                               }}
-                              style={{ padding: "2px 8px", fontSize: "10px", height: "22px", flexShrink: 0, backgroundColor: "rgba(168, 199, 250, 0.2)", borderColor: "var(--tertiary, #a8c7fa)", color: "var(--tertiary, #a8c7fa)" }}
+                              style={{ padding: "2px 8px", fontSize: "10px", height: "22px", flexShrink: 0, backgroundColor: "rgba(168, 199, 250, 0.2)", borderColor: "var(--tertiary, #a8c7fa)", color: "var(--tertiary, #a8c7fa)", whiteSpace: "nowrap" }}
                             >
                               + すべて同期に追加
                             </button>

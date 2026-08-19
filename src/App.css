@@ -7136,11 +7136,15 @@ input[type="number"].no-spinner {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 6px 10px;
+  padding: 4px 8px;
   margin-top: 6px;
   background: rgba(168, 199, 250, 0.08);
   border: 1px dashed rgba(168, 199, 250, 0.3);
   border-radius: var(--radius-sm, 6px);
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .companion-suggestion-text {
@@ -7152,13 +7156,21 @@ input[type="number"].no-spinner {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+.companion-suggestion-text span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .btn-batch-selector {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
+  gap: 4px;
+  padding: 2px 8px;
   font-size: 11px;
   font-weight: 500;
   border-radius: var(--radius-sm, 6px);
@@ -7166,6 +7178,8 @@ input[type="number"].no-spinner {
   border: 1px solid var(--outline-variant, #333);
   color: var(--on-surface);
   cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
   transition: all 0.15s ease;
 }
 
@@ -7174,5 +7188,6 @@ input[type="number"].no-spinner {
   border-color: var(--primary, #a8c7fa);
   color: var(--primary, #a8c7fa);
 }
+
 
 

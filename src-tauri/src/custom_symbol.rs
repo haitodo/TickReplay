@@ -271,11 +271,17 @@ pub fn scan_directory_for_ticks(
             .iter()
             .any(|s| s.eq_ignore_ascii_case(&suggested_symbol_name));
 
+        let group_path = if category.is_empty() || category.eq_ignore_ascii_case("custom") {
+            "Custom".to_string()
+        } else {
+            category.clone()
+        };
+
         result.push(ScannedPairGroup {
             category,
             pair_name: pair,
             suggested_symbol_name,
-            group_path: "Custom".to_string(),
+            group_path,
             files,
             already_exists_in_mt5,
         });

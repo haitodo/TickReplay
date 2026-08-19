@@ -145,6 +145,10 @@ export function getCompanionSymbols(
   currentlySelected: string[] = []
 ): string[] {
   const parsedSource = parseSymbolName(sourceSymbol);
+  // サフィックス（年やタグ）がない標準銘柄の場合は、大量のデフォルト銘柄がサジェストされてレイアウトが崩れるのを防止
+  if (!parsedSource.suffix || parsedSource.category === "Standard") {
+    return [];
+  }
   const targetCategory = parsedSource.category;
 
   const selectedUpper = new Set(currentlySelected.map(s => s.trim().toUpperCase()));

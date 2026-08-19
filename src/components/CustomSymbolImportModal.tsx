@@ -130,7 +130,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
       groups.forEach(g => {
         const key = getGroupKey(g);
         initialNames[key] = g.suggested_symbol_name;
-        initialGroups[key] = g.group_path || "Custom";
+        initialGroups[key] = g.group_path || (g.category && g.category !== "Custom" ? g.category : "Custom");
 
         g.files.forEach(f => {
           // すでにインポート済みの場合はデフォルトチェックOFF (スキップ)、未インポートならチェックON
@@ -242,7 +242,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
     scannedGroups.forEach(g => {
       const key = getGroupKey(g);
       const symName = symbolNames[key] || g.suggested_symbol_name || `${g.pair_name}_Custom`;
-      const grpPath = groupPaths[key] || "Custom";
+      const grpPath = groupPaths[key] || g.group_path || (g.category && g.category !== "Custom" ? g.category : "Custom");
 
       g.files.forEach(f => {
         if (selectedMonths[f.file_path]) {
@@ -614,7 +614,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                       {catGroups.map(group => {
                         const key = getGroupKey(group);
                         const symName = symbolNames[key] || group.suggested_symbol_name;
-                        const grpPath = groupPaths[key] || "Custom";
+                        const grpPath = groupPaths[key] || group.group_path || (group.category && group.category !== "Custom" ? group.category : "Custom");
 
                         return (
                           <div
