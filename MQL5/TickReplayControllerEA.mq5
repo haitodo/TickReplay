@@ -198,6 +198,7 @@ ENUM_TIMEFRAMES GetTimeframeFromPeriod(int p_type, int p_size);
 ENUM_TIMEFRAMES SecondsToTimeframe(int seconds);
 void CleanTempTemplates();
 int GetMaxPeriodSeconds(string profile_name);
+datetime GetBarHistoryStartTime(string symbol, ENUM_TIMEFRAMES tf, datetime ref_time, int bar_count);
 bool PreloadHistoricalRates(string source_symbol, string replay_symbol, datetime start_time, int max_period_sec);
 void PrepareAdditionalSymbol(string sym, datetime start_time, datetime end_time, int max_period_sec = 60);
 void SeekToPosition(int target_index);
@@ -2261,6 +2262,43 @@ void CleanTempTemplates()
 }
 
 //+------------------------------------------------------------------+
+//| 指定時間足で指定バー数分過去の実取引バー開始日時を取得            |
+//| （土日・祝日・休場時間を自動的にスキップして実バー数を担保）      |
+//+------------------------------------------------------------------+
+datetime GetBarHistoryStartTime(string symbol, ENUM_TIMEFRAMES tf, datetime ref_time, int bar_count)
+{
+   if(bar_count <= 0) return ref_time;
+   
+   MqlRates rates[];
+   ArrayFree(rates);
+   // ref_time - 1 から過去方向に bar_count 本のバーを取得
+   int copied = CopyRates(symbol, tf, ref_time - 1, bar_count, rates);
+   if(copied > 0)
+   {
+      datetime min_time = rates[0].time;
+      for(int i = 1; i < copied; i++)
+      {
+         if(rates[i].time < min_time)
+         {
+            min_time = rates[i].time;
+         }
+      }
+      
+      // ヒストリー不足時は、不足バー数を単純秒数換算で遡る
+      if(copied < bar_count)
+      {
+         int missing_bars = bar_count - copied;
+         min_time = min_time - (PeriodSeconds(tf) * missing_bars);
+      }
+      return min_time;
+   }
+   
+   // CopyRates取得失敗時のフォールバック（単純秒数換算）
+   int period_sec = PeriodSeconds(tf);
+   return ref_time - (period_sec * bar_count);
+}
+
+//+------------------------------------------------------------------+
 //| 歴史データの事前書き込み（プリロード）                            |
 //+------------------------------------------------------------------+
 bool PreloadHistoricalRates(string source_symbol, string replay_symbol, datetime start_time, int max_period_sec)
@@ -2295,34 +2333,30 @@ bool PreloadHistoricalRates(string source_symbol, string replay_symbol, datetime
          tf = SecondsToTimeframe(max_period_sec);
       }
       
-      MqlRates temp_rates[];
-      ArrayFree(temp_rates);
-      int copied_temp = CopyRates(source_symbol, tf, start_time - 1, InpPreloadedBars, temp_rates);
-      if(copied_temp > 0)
+      preload_start = GetBarHistoryStartTime(source_symbol, tf, start_time, InpPreloadedBars);
+      Print("[Info] CopyRatesにより算出されたプリロード開始日時: ", TimeToString(preload_start, TIME_DATE|TIME_SECONDS), " (基準時間足: ", EnumToString(tf), ", 本数: ", InpPreloadedBars, ")");
+   }
+   
+   //--- 過去ティックデータのプリロード開始日時の算出（土日・休場時間をスキップして実バー数で計算）
+   datetime tick_preload_start = preload_start;
+   if(m_limit_tick_history)
+   {
+      tick_preload_start = GetBarHistoryStartTime(source_symbol, m_tick_history_timeframe, start_time, m_max_history_bars);
+      
+      // ティック保持期間がバーのプリロード範囲よりも過去まで必要な場合は、
+      // MT5カスタムシンボルの同期不整合（バー切り詰め）を防ぐためにバーのプリロード範囲も拡張する
+      if(tick_preload_start < preload_start)
       {
-         datetime min_time = temp_rates[0].time;
-         for(int i = 1; i < copied_temp; i++)
-         {
-            if(temp_rates[i].time < min_time)
-            {
-               min_time = temp_rates[i].time;
-            }
-         }
-         preload_start = min_time;
-         
-         // ヒストリー不足時は、不足バー数を単純秒数換算で遡る
-         if(copied_temp < InpPreloadedBars)
-         {
-            int missing_bars = InpPreloadedBars - copied_temp;
-            preload_start = preload_start - (PeriodSeconds(tf) * missing_bars);
-         }
-         Print("[Info] CopyRatesにより算出されたプリロード開始日時: ", TimeToString(preload_start, TIME_DATE|TIME_SECONDS), " (本数: ", copied_temp, "/", InpPreloadedBars, ")");
+         preload_start = tick_preload_start;
       }
-      else
+   }
+   else
+   {
+      // 履歴制限オフの場合、DATEモード等での過大な取得を防ぐため最大3日間に制限
+      int max_seconds = 3 * 24 * 3600;
+      if(start_time - tick_preload_start > max_seconds)
       {
-         int period_sec = PeriodSeconds(tf);
-         preload_start = start_time - (period_sec * InpPreloadedBars);
-         Print("[Warning] CopyRates取得失敗のため単純秒数で計算したプリロード開始日時: ", TimeToString(preload_start, TIME_DATE|TIME_SECONDS));
+         tick_preload_start = start_time - max_seconds;
       }
    }
    
@@ -2394,27 +2428,6 @@ bool PreloadHistoricalRates(string source_symbol, string replay_symbol, datetime
       return false;
    }
    Print("[Info] ", copied, " 件のM1バーを事前描画データとして適用しました。");
-   
-   //--- 過去ティックデータのプリロードを追加
-   datetime tick_preload_start = preload_start;
-   if(m_limit_tick_history)
-   {
-      int history_seconds = m_max_history_bars * PeriodSeconds(m_tick_history_timeframe);
-      tick_preload_start = start_time - history_seconds;
-      if(tick_preload_start < preload_start)
-      {
-         tick_preload_start = preload_start;
-      }
-   }
-   else
-   {
-      // 履歴制限オフの場合、DATEモード等での過大な取得を防ぐため最大3日間に制限
-      int max_seconds = 3 * 24 * 3600;
-      if(start_time - tick_preload_start > max_seconds)
-      {
-         tick_preload_start = start_time - max_seconds;
-      }
-   }
    
    if(tick_preload_start < start_time)
    {
@@ -2572,14 +2585,42 @@ void SeekToPosition(int target_index)
          if(m_limit_tick_history)
          {
             datetime target_time = (datetime)(m_all_ticks[target_index].time_msc / 1000);
-            int window_seconds = m_max_history_bars * PeriodSeconds(m_tick_history_timeframe);
-            datetime cutoff_time = target_time - window_seconds;
+            int period_sec = PeriodSeconds(m_tick_history_timeframe);
+            if(period_sec <= 0) period_sec = 300;
             
-            // 基準開始時間より前の日付にならないようクランプ
-            datetime replay_start_time = (datetime)(m_all_ticks[0].time_msc / 1000);
-            if(cutoff_time < replay_start_time)
+            // メモリ内ティックデータ内で実取引バー境界を逆算
+            int bars_found = 0;
+            datetime last_bar_time = 0;
+            int cutoff_idx = 0;
+            bool reached_limit = false;
+            
+            for(int i = target_index; i >= 0; i--)
             {
-               cutoff_time = replay_start_time;
+               datetime t = (datetime)(m_all_ticks[i].time_msc / 1000);
+               datetime b_time = t - (t % period_sec);
+               if(bars_found == 0 || b_time != last_bar_time)
+               {
+                  bars_found++;
+                  last_bar_time = b_time;
+                  if(bars_found >= m_max_history_bars)
+                  {
+                     cutoff_idx = i;
+                     reached_limit = true;
+                     break;
+                  }
+               }
+            }
+            
+            datetime cutoff_time = 0;
+            if(reached_limit)
+            {
+               cutoff_time = (datetime)(m_all_ticks[cutoff_idx].time_msc / 1000);
+            }
+            else
+            {
+               // リプレイ期間内のバー数が必要本数未満の場合はリプレイ開始時点をカットオフとし、
+               // 不足分はリプレイ開始前の過去バー・過去ティックからプリロードする
+               cutoff_time = (datetime)(m_all_ticks[0].time_msc / 1000);
             }
             
             // 1. シンボルデータの完全削除
