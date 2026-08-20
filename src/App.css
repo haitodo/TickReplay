@@ -7156,29 +7156,6 @@ html[data-theme="light"] .holding-time-val {
   background: rgba(0, 0, 0, 0.2);
 }
 
-/* 急変動検知バッジ (HUD) */
-.spike-alert-badge {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-  color: #ffffff;
-  font-weight: 700;
-  font-size: 11px;
-  padding: 4px 10px;
-  border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  cursor: pointer;
-  box-shadow: 0 0 12px rgba(239, 68, 68, 0.5);
-  animation: pulseBadge 1.2s infinite alternate;
-  margin-left: 8px;
-}
-
-@keyframes pulseBadge {
-  from { transform: scale(0.98); box-shadow: 0 0 8px rgba(239, 68, 68, 0.4); }
-  to { transform: scale(1.03); box-shadow: 0 0 16px rgba(239, 68, 68, 0.8); }
-}
-
 /* 経済指標行のAIボタン */
 .news-ai-btn {
   background: rgba(255, 255, 255, 0.05);

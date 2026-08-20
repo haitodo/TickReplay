@@ -18,7 +18,6 @@ import { DeleteSessionModal } from "./components/DeleteSessionModal";
 import { TerminalNameModal } from "./components/Modals/TerminalNameModal";
 import { HelpTooltip } from "./components/HelpTooltip";
 import { parseSymbolName, getCompanionSymbols, switchSymbolSuffix } from "./utils/symbolUtils";
-import { useVolatilityDetector } from "./hooks/useVolatilityDetector";
 import { useTheme } from "./hooks/useTheme";
 import {
   getServerToJstOffsetHours,
@@ -424,11 +423,8 @@ function App() {
   const [openRouterModel, setOpenRouterModel] = useState<string>(() => localStorage.getItem("openrouter-model") || "google/gemini-2.5-flash");
   const [fredApiKey, setFredApiKey] = useState<string>(() => localStorage.getItem("fred-api-key") || "");
   const [finnhubApiKey, setFinnhubApiKey] = useState<string>(() => localStorage.getItem("finnhub-api-key") || "");
-  const [volatilityThresholdPips, setVolatilityThresholdPips] = useState<number>(() => parseInt(localStorage.getItem("volatility-threshold-pips") || "20"));
-  const [volatilityEnabled, setVolatilityEnabled] = useState<boolean>(() => localStorage.getItem("volatility-enabled") !== "false");
   const [isAIPanelOpen, setIsAIPanelOpen] = useState<boolean>(false);
   const [aiTargetTimeMsc, setAiTargetTimeMsc] = useState<number>(0);
-  const [currentPrice, setCurrentPrice] = useState<number>(0);
 
   // AI設定のlocalStorage保存同期
   useEffect(() => {
@@ -436,9 +432,7 @@ function App() {
     localStorage.setItem("openrouter-model", openRouterModel);
     localStorage.setItem("fred-api-key", fredApiKey);
     localStorage.setItem("finnhub-api-key", finnhubApiKey);
-    localStorage.setItem("volatility-threshold-pips", String(volatilityThresholdPips));
-    localStorage.setItem("volatility-enabled", String(volatilityEnabled));
-  }, [openRouterApiKey, openRouterModel, fredApiKey, finnhubApiKey, volatilityThresholdPips, volatilityEnabled]);
+  }, [openRouterApiKey, openRouterModel, fredApiKey, finnhubApiKey]);
 
   // API Key 接続テスト用 State
   const [openRouterTestResult, setOpenRouterTestResult] = useState<ApiTestResult>({ success: false, status: "idle", message: "" });
@@ -493,16 +487,7 @@ function App() {
   };
 
 
-  // ボラティリティ急変動の自動検知フック
-  const { spikeInfo, clearSpike } = useVolatilityDetector(
-    virtualTimeMsc,
-    currentPrice,
-    sourceSymbol,
-    {
-      thresholdPips: volatilityThresholdPips,
-      enabled: volatilityEnabled
-    }
-  );
+
   const {
     themeId, setThemeId,
     glassEffect, setGlassEffect,
@@ -748,8 +733,6 @@ function App() {
             return data.session_boundaries;
           });
         }
-        if (data.bid) setCurrentPrice(data.bid);
-        else if (data.account?.bid) setCurrentPrice(data.account.bid);
         if (isReconnecting) {
           if (data.speed_mode) setSpeedMode((prev) => prev !== data.speed_mode ? (data.speed_mode as "TEMPORAL" | "COUNT") : prev);
           if (data.multiplier !== undefined) {
@@ -3009,20 +2992,6 @@ function App() {
           )}
 
           {/* 4. 急変動・トレンドAI解析 (常時表示) */}
-          {spikeInfo.isSpike && (
-            <button
-              className="spike-alert-badge"
-              onClick={() => {
-                setAiTargetTimeMsc(spikeInfo.spikeTimeMsc);
-                setIsAIPanelOpen(true);
-                clearSpike();
-              }}
-              title="急変動が検出されました。クリックしてAI解析を実行"
-            >
-              ⚡ 急変動 (+{spikeInfo.pipsDelta}p) AI解析
-            </button>
-          )}
-
           <button
             className="pro-btn pro-btn-square"
             onClick={() => {
@@ -5633,28 +5602,6 @@ function App() {
                         </div>
                       </div>
 
-                      <h4 className="settings-section-title" style={{ marginTop: "16px" }}>急変動自動検知</h4>
-                      <div className="form-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-                        <div className="form-group">
-                          <label className="form-label">検知閾値 (Pips / 5分)</label>
-                          <input
-                            type="number"
-                            className="pro-input"
-                            value={volatilityThresholdPips}
-                            onChange={(e) => setVolatilityThresholdPips(parseInt(e.target.value) || 20)}
-                          />
-                        </div>
-                        <div className="form-group" style={{ display: "flex", alignItems: "center", paddingTop: "20px" }}>
-                          <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "12px" }}>
-                            <input
-                              type="checkbox"
-                              checked={volatilityEnabled}
-                              onChange={(e) => setVolatilityEnabled(e.target.checked)}
-                            />
-                            自動スパイク通知バッジを有効化
-                          </label>
-                        </div>
-                      </div>
                     </div>
                   </div>
                 </div>
