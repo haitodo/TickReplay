@@ -59,8 +59,8 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
 
   const cancelImportRef = useRef(false);
 
-  const getGroupKey = (g: { category?: string; pair_name: string }) => {
-    return `${g.category || "Custom"}_${g.pair_name}`;
+  const getGroupKey = (g: { category?: string; pair_name: string; suggested_symbol_name?: string }) => {
+    return g.suggested_symbol_name || `${g.category || "Custom"}_${g.pair_name}`;
   };
 
   // モーダル表示時に MT5 EA 接続状態を確認
@@ -567,13 +567,13 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                         <span className="material-symbols-outlined" style={{ fontSize: "18px", color: "var(--primary, #a8c7fa)" }}>
-                          {isYear ? "calendar_today" : "folder"}
+                          {isYear ? "calendar_today" : "account_balance"}
                         </span>
                         <strong style={{ fontSize: "13px" }}>
-                          {isYear ? `${cat}年` : `カテゴリ: ${cat}`}
+                          {isYear ? `${cat}年` : `ブローカー / 分類: ${cat}`}
                         </strong>
                         <span style={{ fontSize: "11px", color: "var(--text-muted, #888)" }}>
-                          ({catGroups.length} 通貨ペア / {catTotalFiles} ファイル)
+                          ({catGroups.length} シンボルグループ / {catTotalFiles} ファイル)
                         </span>
                       </div>
 
@@ -586,7 +586,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                           disabled={isImporting}
                           style={{ padding: "2px 8px", fontSize: "11px", height: "22px" }}
                         >
-                          この年/タグ全選択
+                          このグループ全選択
                         </button>
                         <button
                           type="button"

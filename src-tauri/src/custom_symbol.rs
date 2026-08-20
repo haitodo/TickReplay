@@ -92,8 +92,19 @@ pub const KNOWN_PAIRS: &[&str] = &[
     "ETHUSD", "US30", "US500", "USTEC", "JP225", "DE30", "DE40", "UK100", "WTI", "BRENT"
 ];
 
-/// ファイルパスおよび親ディレクトリ群から (ペア名, カテゴリ/サフィックス, 年月/識別ラベル) を抽出する
-pub fn analyze_zip_path(path: &Path, root_dir: &Path) -> Option<(String, String, String)> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedZipInfo {
+    pub pair: String,
+    pub broker: String,
+    pub year: String,
+    pub year_month: String,
+    pub suggested_symbol_name: String,
+    pub group_path: String,
+}
+
+/// ファイルパスおよび親ディレクトリ群から (ペア名, ブローカー, 年, 年月) を抽出し、
+/// サフィックス（-oj5k 等）を完全無視・破棄してクリーンなシンボル情報を作成する
+pub fn analyze_zip_path(path: &Path, root_dir: &Path) -> Option<ParsedZipInfo> {
     let file_stem = path.file_stem().and_then(|s| s.to_str())?;
     let upper_stem = file_stem.to_uppercase();
 
@@ -137,32 +148,28 @@ pub fn analyze_zip_path(path: &Path, root_dir: &Path) -> Option<(String, String,
         first.to_uppercase()
     });
 
-    // 2. 年月・ラベルおよび カテゴリ/サフィックスの検出
-    let mut category_opt: Option<String> = None;
+    // 2. 年月・年の検出 (サフィックスは一切見ず、YYYY-MM または 4桁西暦のみ抽出)
     let mut year_month_opt: Option<String> = None;
+    let mut year_opt: Option<String> = None;
 
-    // (a) YYYY-MM / YYYY_MM パターンの検索 (例: 2016-09, 2025_01)
     if let Some((year, month)) = find_year_month(file_stem) {
-        category_opt = Some(year.clone());
+        year_opt = Some(year.clone());
         year_month_opt = Some(format!("{}-{}", year, month));
+    } else if let Some(year) = find_year_4digits(file_stem) {
+        year_opt = Some(year.clone());
+        year_month_opt = Some(year);
     }
 
-    // (b) ファイル名に4桁西暦
-    if category_opt.is_none() {
-        if let Some(year) = find_year_4digits(file_stem) {
-            category_opt = Some(year.clone());
-            year_month_opt = Some(year);
-        }
-    }
-
-    // (c) 親ディレクトリ階層に4桁西暦 (例: D:\TickData\2016\...)
-    if category_opt.is_none() {
+    // 親ディレクトリ階層から年を検索
+    if year_opt.is_none() {
         let mut curr = path.parent();
         while let Some(dir) = curr {
             if let Some(dname) = dir.file_name().and_then(|s| s.to_str()) {
                 if let Some(year) = find_year_4digits(dname) {
-                    category_opt = Some(year);
-                    year_month_opt = Some(file_stem.to_string());
+                    year_opt = Some(year.clone());
+                    if year_month_opt.is_none() {
+                        year_month_opt = Some(year);
+                    }
                     break;
                 }
             }
@@ -173,46 +180,73 @@ pub fn analyze_zip_path(path: &Path, root_dir: &Path) -> Option<(String, String,
         }
     }
 
-    // (d) ファイル名からサフィックス抽出 (例: ticks_EURJPY-test -> test, USDJPY_demo -> demo)
-    if category_opt.is_none() {
-        let clean_stem = if upper_stem.starts_with("TICKS_") {
-            &file_stem[6..]
-        } else {
-            file_stem
-        };
-
-        let parts: Vec<&str> = clean_stem.split(&['_', '-'][..]).filter(|s| !s.is_empty()).collect();
-        if parts.len() > 1 {
-            let remaining: Vec<&str> = parts
-                .into_iter()
-                .filter(|&p| !p.eq_ignore_ascii_case(&pair) && !p.eq_ignore_ascii_case("ticks"))
-                .collect();
-            if !remaining.is_empty() {
-                let tag = remaining.join("_");
-                category_opt = Some(tag.clone());
-                year_month_opt = Some(tag);
-            }
-        }
-    }
-
-    // (e) 親ディレクトリ名からサフィックス抽出 (例: D:\TickData\test\ticks_EURJPY.zip -> test)
-    if category_opt.is_none() {
-        if let Some(parent) = path.parent() {
-            if parent != root_dir {
-                if let Some(dname) = parent.file_name().and_then(|s| s.to_str()) {
-                    if !dname.eq_ignore_ascii_case(&pair) && !dname.eq_ignore_ascii_case("ticks") {
-                        category_opt = Some(dname.to_string());
-                        year_month_opt = Some(file_stem.to_string());
-                    }
-                }
-            }
-        }
-    }
-
-    let category = category_opt.unwrap_or_else(|| "Custom".to_string());
+    let year = year_opt.unwrap_or_default();
     let year_month = year_month_opt.unwrap_or_else(|| file_stem.to_string());
 
-    Some((pair, category, year_month))
+    // 3. ブローカー名の検出（親ディレクトリのみから抽出し、ファイル名サフィックスは完全無視）
+    let mut broker_opt: Option<String> = None;
+    let mut curr = path.parent();
+    while let Some(dir) = curr {
+        if let Some(dname) = dir.file_name().and_then(|s| s.to_str()) {
+            let trimmed = dname.trim();
+            let upper = trimmed.to_uppercase();
+
+            let is_pair = KNOWN_PAIRS.iter().any(|&kp| kp == upper) || upper == pair;
+            let is_year = find_year_4digits(trimmed).map(|y| y == trimmed).unwrap_or(false);
+            let is_system_dir = upper == "TICKDATA" || upper == "TICKS" || upper == "DATA" || upper == "IMPORTS" || upper == "MQL5" || upper == "FILES";
+
+            if !is_pair && !is_year && !is_system_dir && !trimmed.is_empty() {
+                broker_opt = Some(trimmed.to_string());
+                break;
+            }
+        }
+        if dir == root_dir || dir.parent().is_none() {
+            break;
+        }
+        curr = dir.parent();
+    }
+
+    // ルートフォルダ名もチェック
+    if broker_opt.is_none() {
+        if let Some(rname) = root_dir.file_name().and_then(|s| s.to_str()) {
+            let trimmed = rname.trim();
+            let upper = trimmed.to_uppercase();
+            let is_pair = KNOWN_PAIRS.iter().any(|&kp| kp == upper) || upper == pair;
+            let is_year = find_year_4digits(trimmed).map(|y| y == trimmed).unwrap_or(false);
+            let is_system_dir = upper == "TICKDATA" || upper == "TICKS" || upper == "DATA" || upper == "IMPORTS" || upper == "MQL5" || upper == "FILES";
+
+            if !is_pair && !is_year && !is_system_dir && !trimmed.is_empty() {
+                broker_opt = Some(trimmed.to_string());
+            }
+        }
+    }
+
+    let broker = broker_opt.unwrap_or_else(|| "Custom".to_string());
+
+    // 4. 推奨シンボル名とグループパスの決定
+    let (suggested_symbol_name, group_path) = if broker.eq_ignore_ascii_case("custom") {
+        if !year.is_empty() {
+            (format!("{}_{}", pair, year), "Custom".to_string())
+        } else {
+            (format!("{}_Custom", pair), "Custom".to_string())
+        }
+    } else {
+        let broker_upper = broker.to_uppercase();
+        if !year.is_empty() {
+            (format!("{}_{}_{}", pair, broker_upper, year), format!("Custom/{}", broker))
+        } else {
+            (format!("{}_{}", pair, broker_upper), format!("Custom/{}", broker))
+        }
+    };
+
+    Some(ParsedZipInfo {
+        pair,
+        broker,
+        year,
+        year_month,
+        suggested_symbol_name,
+        group_path,
+    })
 }
 
 fn find_year_month(s: &str) -> Option<(String, String)> {
@@ -253,28 +287,30 @@ fn find_year_4digits(s: &str) -> Option<String> {
     None
 }
 
-/// 選択されたルートディレクトリから ticks_*.zip 等を再帰検索し、カテゴリ・通貨ペアごとにグループ化する
+/// 選択されたルートディレクトリから ticks_*.zip 等を再帰検索し、ブローカー・通貨ペア・年ごとにグループ化する
 pub fn scan_directory_for_ticks(
     root_dir: &Path,
     config_dir: &Path,
     existing_mt5_symbols: &[String],
 ) -> Result<Vec<ScannedPairGroup>, AppError> {
     let manifest = ImportManifest::load_from_dir(config_dir);
-    let mut final_map: HashMap<(String, String), Vec<ScannedZipFile>> = HashMap::new();
+    // Key: (broker, pair, year, suggested_symbol_name, group_path)
+    let mut final_map: HashMap<(String, String, String, String, String), Vec<ScannedZipFile>> = HashMap::new();
     walk_dir_collect(root_dir, root_dir, &mut final_map, &manifest);
 
     let mut result = Vec::new();
-    for ((category, pair), mut files) in final_map {
+    for ((broker, pair, year, suggested_symbol_name, group_path), mut files) in final_map {
         files.sort_by(|a, b| a.year_month.cmp(&b.year_month));
-        let suggested_symbol_name = format!("{}_{}", pair, category);
         let already_exists_in_mt5 = existing_mt5_symbols
             .iter()
             .any(|s| s.eq_ignore_ascii_case(&suggested_symbol_name));
 
-        let group_path = if category.is_empty() || category.eq_ignore_ascii_case("custom") {
-            "Custom".to_string()
+        let category = if !broker.eq_ignore_ascii_case("custom") {
+            broker.clone()
+        } else if !year.is_empty() {
+            year.clone()
         } else {
-            category.clone()
+            "Custom".to_string()
         };
 
         result.push(ScannedPairGroup {
@@ -287,13 +323,18 @@ pub fn scan_directory_for_ticks(
         });
     }
 
-    // ソート: カテゴリ順（年やタグ） -> 通貨ペア順
+    // ソート: ブローカー順 -> 通貨ペア順 -> 年降順
     result.sort_by(|a, b| {
         let cat_cmp = a.category.cmp(&b.category);
         if cat_cmp != std::cmp::Ordering::Equal {
             cat_cmp
         } else {
-            a.pair_name.cmp(&b.pair_name)
+            let pair_cmp = a.pair_name.cmp(&b.pair_name);
+            if pair_cmp != std::cmp::Ordering::Equal {
+                pair_cmp
+            } else {
+                b.suggested_symbol_name.cmp(&a.suggested_symbol_name)
+            }
         }
     });
 
@@ -303,7 +344,7 @@ pub fn scan_directory_for_ticks(
 fn walk_dir_collect(
     dir: &Path,
     root: &Path,
-    map: &mut HashMap<(String, String), Vec<ScannedZipFile>>,
+    map: &mut HashMap<(String, String, String, String, String), Vec<ScannedZipFile>>,
     manifest: &ImportManifest,
 ) {
     if let Ok(entries) = fs::read_dir(dir) {
@@ -312,11 +353,17 @@ fn walk_dir_collect(
             if path.is_dir() {
                 walk_dir_collect(&path, root, map, manifest);
             } else if path.is_file() && path.extension().and_then(|s| s.to_str()).map(|e| e.eq_ignore_ascii_case("zip")) == Some(true) {
-                if let Some((pair, category, year_month)) = analyze_zip_path(&path, root) {
-                    let suggested_symbol = format!("{}_{}", pair, category);
-                    let already = manifest.is_imported(&suggested_symbol, &year_month);
-                    map.entry((category, pair)).or_default().push(ScannedZipFile {
-                        year_month,
+                if let Some(parsed) = analyze_zip_path(&path, root) {
+                    let already = manifest.is_imported(&parsed.suggested_symbol_name, &parsed.year_month);
+                    let key = (
+                        parsed.broker,
+                        parsed.pair,
+                        parsed.year,
+                        parsed.suggested_symbol_name,
+                        parsed.group_path,
+                    );
+                    map.entry(key).or_default().push(ScannedZipFile {
+                        year_month: parsed.year_month,
                         file_path: path.to_string_lossy().to_string(),
                         already_imported: already,
                     });
@@ -556,30 +603,34 @@ mod tests {
     fn test_analyze_zip_path_various_patterns() {
         let root = PathBuf::from("D:\\TickData");
 
-        // パターン1: 年別・通貨ペア別 (OANDA標準形式)
-        let p1 = PathBuf::from("D:\\TickData\\2016\\EURJPY\\ticks_EURJPY-oj5k_2016-09.zip");
-        let res1 = analyze_zip_path(&p1, &root);
-        assert_eq!(res1, Some(("EURJPY".to_string(), "2016".to_string(), "2016-09".to_string())));
+        // パターン1: OANDA (サフィックス -oj5k は完全無視)
+        let p1 = PathBuf::from("D:\\TickData\\OANDA\\2016\\USDJPY\\ticks_USDJPY-oj5k_2016-09.zip");
+        let res1 = analyze_zip_path(&p1, &root).unwrap();
+        assert_eq!(res1.pair, "USDJPY");
+        assert_eq!(res1.broker, "OANDA");
+        assert_eq!(res1.year, "2016");
+        assert_eq!(res1.year_month, "2016-09");
+        assert_eq!(res1.suggested_symbol_name, "USDJPY_OANDA_2016");
+        assert_eq!(res1.group_path, "Custom/OANDA");
 
-        // パターン2: 年なし・通貨ペア別フォルダ・独自タグ
-        let p2 = PathBuf::from("D:\\TickData\\EURJPY\\ticks_EURJPY-test.zip");
-        let res2 = analyze_zip_path(&p2, &root);
-        assert_eq!(res2, Some(("EURJPY".to_string(), "test".to_string(), "test".to_string())));
+        // パターン2: Ducascopy
+        let p2 = PathBuf::from("D:\\TickData\\Ducascopy\\2016\\USDJPY\\ticks_USDJPY_2016-09.zip");
+        let res2 = analyze_zip_path(&p2, &root).unwrap();
+        assert_eq!(res2.pair, "USDJPY");
+        assert_eq!(res2.broker, "Ducascopy");
+        assert_eq!(res2.year, "2016");
+        assert_eq!(res2.year_month, "2016-09");
+        assert_eq!(res2.suggested_symbol_name, "USDJPY_DUCASCOPY_2016");
+        assert_eq!(res2.group_path, "Custom/Ducascopy");
 
-        // パターン3: タグフォルダ配下
-        let p3 = PathBuf::from("D:\\TickData\\test\\ticks_EURJPY-test.zip");
-        let res3 = analyze_zip_path(&p3, &root);
-        assert_eq!(res3, Some(("EURJPY".to_string(), "test".to_string(), "test".to_string())));
-
-        // パターン4: ルート直下
-        let p4 = PathBuf::from("D:\\TickData\\USDJPY_demo.zip");
-        let res4 = analyze_zip_path(&p4, &root);
-        assert_eq!(res4, Some(("USDJPY".to_string(), "demo".to_string(), "demo".to_string())));
-
-        // パターン5: 年フォルダ配下・ファイル名に年なし
-        let p5 = PathBuf::from("D:\\TickData\\2017\\GBPJPY\\ticks_GBPJPY.zip");
-        let res5 = analyze_zip_path(&p5, &root);
-        assert_eq!(res5, Some(("GBPJPY".to_string(), "2017".to_string(), "ticks_GBPJPY".to_string())));
+        // パターン3: ブローカーフォルダなし (Customフォールバック)
+        let p3 = PathBuf::from("D:\\TickData\\2016\\EURJPY\\ticks_EURJPY_2016-09.zip");
+        let res3 = analyze_zip_path(&p3, &root).unwrap();
+        assert_eq!(res3.pair, "EURJPY");
+        assert_eq!(res3.broker, "Custom");
+        assert_eq!(res3.year, "2016");
+        assert_eq!(res3.suggested_symbol_name, "EURJPY_2016");
+        assert_eq!(res3.group_path, "Custom");
     }
 
     #[test]

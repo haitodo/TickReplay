@@ -14,6 +14,7 @@ interface SymbolComboboxProps {
   placeholder?: string;
   className?: string;
   style?: React.CSSProperties;
+  dropdownAlign?: "left" | "right" | "auto";
 }
 
 export const SymbolCombobox: React.FC<SymbolComboboxProps> = ({
@@ -22,7 +23,8 @@ export const SymbolCombobox: React.FC<SymbolComboboxProps> = ({
   availableSymbols,
   placeholder = "e.g. USDJPY",
   className = "",
-  style
+  style,
+  dropdownAlign = "auto"
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [filterText, setFilterText] = useState(value);
@@ -215,17 +217,22 @@ export const SymbolCombobox: React.FC<SymbolComboboxProps> = ({
           style={{
             position: "absolute",
             top: "100%",
-            left: 0,
-            right: 0,
-            zIndex: 1000,
-            maxHeight: "320px",
+            ...(dropdownAlign === "right"
+              ? { right: 0, left: "auto" }
+              : dropdownAlign === "left"
+              ? { left: 0, right: "auto" }
+              : { left: 0, right: 0 }),
+            minWidth: dropdownAlign !== "auto" ? "260px" : "100%",
+            maxWidth: "340px",
+            zIndex: 1050,
+            maxHeight: "260px",
             display: "flex",
             flexDirection: "column",
             margin: "4px 0 0 0",
             backgroundColor: "var(--surface-container-high, #1e1e24)",
             border: "1px solid var(--outline-variant, #333)",
             borderRadius: "var(--radius-sm, 6px)",
-            boxShadow: "0 6px 20px rgba(0,0,0,0.35)",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
             overflow: "hidden"
           }}
         >
@@ -370,7 +377,9 @@ export const SymbolCombobox: React.FC<SymbolComboboxProps> = ({
                             alignItems: "center"
                           }}
                         >
-                          <span style={{ fontWeight: 600 }}>{item.name}</span>
+                          <span style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginRight: "8px" }} title={item.name}>
+                            {item.name}
+                          </span>
                           <span
                             className="badge-chip"
                             style={{
@@ -378,7 +387,8 @@ export const SymbolCombobox: React.FC<SymbolComboboxProps> = ({
                               padding: "1px 6px",
                               borderRadius: "4px",
                               backgroundColor: badge.bg,
-                              color: badge.color
+                              color: badge.color,
+                              flexShrink: 0
                             }}
                           >
                             {badge.label}

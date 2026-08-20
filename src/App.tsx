@@ -273,6 +273,10 @@ function App() {
   const [maxBarsInfo, setMaxBarsInfo] = useState<MaxBarsInfo | null>(null);
   const [isMaxBarsWarningOpen, setIsMaxBarsWarningOpen] = useState(false);
   const [sourceSymbol, setSourceSymbol] = useState("USDJPY");
+  const [enableDualFeed, setEnableDualFeed] = useState(false);
+  const [subSourceSymbol, setSubSourceSymbol] = useState("");
+  const [mainFeedRate, setMainFeedRate] = useState<{ bid: number; ask: number; spread: number }>({ bid: 0, ask: 0, spread: 0 });
+  const [subFeedRate, setSubFeedRate] = useState<{ active: boolean; symbol: string; bid: number; ask: number; spread: number } | null>(null);
   const [chartSymbol, setChartSymbol] = useState("");
   const hasSavedSymbolRef = useRef(false);
   const [additionalSymbols, setAdditionalSymbols] = useState("");
@@ -564,6 +568,24 @@ function App() {
             return data.account;
           });
         }
+        if (data.bid !== undefined && data.ask !== undefined) {
+          setMainFeedRate({
+            bid: data.bid,
+            ask: data.ask,
+            spread: data.spread !== undefined ? data.spread : 0,
+          });
+        }
+        if (data.dual_feed) {
+          setSubFeedRate({
+            active: true,
+            symbol: data.sub_symbol || "",
+            bid: data.sub_bid || 0,
+            ask: data.sub_ask || 0,
+            spread: data.sub_spread !== undefined ? data.sub_spread : 0,
+          });
+        } else {
+          setSubFeedRate(null);
+        }
         if (data.positions) {
           setPositions((prev: any[]) => {
             if (JSON.stringify(prev) === JSON.stringify(data.positions)) return prev;
@@ -756,6 +778,24 @@ function App() {
             if (JSON.stringify(prev) === JSON.stringify(data.account)) return prev;
             return data.account;
           });
+        }
+        if (data.bid !== undefined && data.ask !== undefined) {
+          setMainFeedRate({
+            bid: data.bid,
+            ask: data.ask,
+            spread: data.spread !== undefined ? data.spread : 0,
+          });
+        }
+        if (data.dual_feed) {
+          setSubFeedRate({
+            active: true,
+            symbol: data.sub_symbol || "",
+            bid: data.sub_bid || 0,
+            ask: data.sub_ask || 0,
+            spread: data.sub_spread !== undefined ? data.sub_spread : 0,
+          });
+        } else {
+          setSubFeedRate(null);
         }
         if (data.positions) {
           setPositions((prev: any[]) => {
@@ -978,6 +1018,12 @@ function App() {
           if (saved.source_symbol) {
             setSourceSymbol(saved.source_symbol);
             hasSavedSymbolRef.current = true;
+          }
+          if (saved.enable_dual_feed !== undefined && saved.enable_dual_feed !== null) {
+            setEnableDualFeed(saved.enable_dual_feed);
+          }
+          if (saved.sub_source_symbol) {
+            setSubSourceSymbol(saved.sub_source_symbol);
           }
           if (saved.additional_symbols !== undefined && saved.additional_symbols !== null) {
             setAdditionalSymbols(saved.additional_symbols);
@@ -1299,6 +1345,8 @@ function App() {
       selected_terminal: selectedTerminal,
       selected_profile: selectedProfile,
       source_symbol: sourceSymbol,
+      enable_dual_feed: enableDualFeed,
+      sub_source_symbol: subSourceSymbol,
       start_time: startTime,
       end_time: endTime,
       preloaded_bars: preloadedBars,
@@ -1428,6 +1476,8 @@ function App() {
       const initCmd = {
         command: "INIT",
         source_symbol: sourceSymbol,
+        enable_dual_feed: enableDualFeed,
+        sub_source_symbol: enableDualFeed ? subSourceSymbol : "",
         start_time: startTime,
         end_time: endTime,
         profile_name: selectedProfile,
@@ -2930,6 +2980,30 @@ function App() {
                 </div>
               )}
             </div>
+
+            {/* デュアルフィード レート・スプレッド表示 */}
+            {subFeedRate && subFeedRate.active && (
+              <div className="hud-group" style={{ display: "flex", gap: "8px", borderLeft: "1px solid var(--outline-variant)", paddingLeft: "10px", marginLeft: "6px" }}>
+                <div className="hud-item" style={{ alignItems: "flex-start" }}>
+                  <span className="hud-label" style={{ color: "var(--primary, #6366f1)", fontWeight: 700 }}>MAIN</span>
+                  <span className="hud-val" style={{ fontSize: "11px", fontWeight: 600 }}>
+                    {mainFeedRate.bid.toFixed(3)} / {mainFeedRate.ask.toFixed(3)}
+                    <span style={{ fontSize: "10px", color: "var(--on-surface-variant)", marginLeft: "4px" }}>
+                      ({mainFeedRate.spread.toFixed(1)}p)
+                    </span>
+                  </span>
+                </div>
+                <div className="hud-item" style={{ alignItems: "flex-start" }}>
+                  <span className="hud-label" style={{ color: "var(--tertiary, #a8c7fa)", fontWeight: 700 }}>SUB</span>
+                  <span className="hud-val" style={{ fontSize: "11px", fontWeight: 600 }}>
+                    {subFeedRate.bid.toFixed(3)} / {subFeedRate.ask.toFixed(3)}
+                    <span style={{ fontSize: "10px", color: "var(--on-surface-variant)", marginLeft: "4px" }}>
+                      ({subFeedRate.spread.toFixed(1)}p)
+                    </span>
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -3184,80 +3258,101 @@ function App() {
                       </div>
                     </div>
                     <div className="setup-card-body">
-                      <div className="form-group">
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-                          <label className="form-label" style={{ marginBottom: 0, display: "flex", alignItems: "center" }}>
-                            MT5ターミナル
-                            <HelpTooltip
-                              title="MT5ターミナル"
-                              content="リプレイ連携を行うMetaTrader 5の実行環境を選択します。複数インストールされている場合は、TickReplayControllerEAが配置されているターミナルを指定してください。"
-                            />
-                          </label>
-                          {selectedTerminal && (
-                            <button
-                              type="button"
-                              className="pro-btn-text"
-                              style={{
-                                fontSize: "11px",
-                                color: "var(--primary-color)",
-                                display: "flex",
-                                alignItems: "center",
-                                gap: "3px",
-                                cursor: "pointer",
-                                background: "none",
-                                border: "none",
-                                padding: "2px 4px",
-                                borderRadius: "4px",
-                              }}
-                              onClick={() => handleOpenTerminalNameModal()}
-                              title="選択中のMT5ターミナルに名前（別名）を設定する"
-                            >
-                              <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>edit_note</span>
-                              名前を設定
-                            </button>
-                          )}
-                        </div>
-                        <CustomSelect
-                          value={selectedTerminal}
-                          onChange={setSelectedTerminal}
-                          options={terminals.length > 0
-                            ? terminals.map((t) => {
-                                const displayTitle = t.custom_name || t.name;
-                                const subText = t.origin_path || (t.id ? `ID: ${t.id}` : "");
-                                return {
-                                  value: t.path,
-                                  triggerLabel: displayTitle,
-                                  label: (
-                                    <div style={{ display: "flex", flexDirection: "column", gap: "1px", width: "100%", overflow: "hidden" }}>
-                                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                        <span style={{ fontWeight: 600 }}>{displayTitle}</span>
-                                        {t.custom_name && t.default_name && (
-                                          <span style={{ fontSize: "10px", color: "var(--on-surface-variant)", opacity: 0.8 }}>
-                                            ({t.default_name})
+                      {/* MT5ターミナル & チャートプロファイル 横並び配置 */}
+                      <div className="setup-card-grid-2">
+                        <div className="form-group">
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px", minHeight: "18px" }}>
+                            <label className="form-label" style={{ marginBottom: 0, display: "flex", alignItems: "center" }}>
+                              MT5ターミナル
+                              <HelpTooltip
+                                title="MT5ターミナル"
+                                content="リプレイ連携を行うMetaTrader 5の実行環境を選択します。複数インストールされている場合は、TickReplayControllerEAが配置されているターミナルを指定してください。"
+                              />
+                            </label>
+                            {selectedTerminal && (
+                              <button
+                                type="button"
+                                className="pro-btn-text"
+                                style={{
+                                  fontSize: "11px",
+                                  color: "var(--primary-color)",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "3px",
+                                  cursor: "pointer",
+                                  background: "none",
+                                  border: "none",
+                                  padding: "2px 4px",
+                                  borderRadius: "4px",
+                                }}
+                                onClick={() => handleOpenTerminalNameModal()}
+                                title="選択中のMT5ターミナルに名前（別名）を設定する"
+                              >
+                                <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>edit_note</span>
+                                名前を設定
+                              </button>
+                            )}
+                          </div>
+                          <CustomSelect
+                            value={selectedTerminal}
+                            onChange={setSelectedTerminal}
+                            options={terminals.length > 0
+                              ? terminals.map((t) => {
+                                  const displayTitle = t.custom_name || t.name;
+                                  const subText = t.origin_path || (t.id ? `ID: ${t.id}` : "");
+                                  return {
+                                    value: t.path,
+                                    triggerLabel: displayTitle,
+                                    label: (
+                                      <div style={{ display: "flex", flexDirection: "column", gap: "1px", width: "100%", overflow: "hidden" }}>
+                                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                          <span style={{ fontWeight: 600 }}>{displayTitle}</span>
+                                          {t.custom_name && t.default_name && (
+                                            <span style={{ fontSize: "10px", color: "var(--on-surface-variant)", opacity: 0.8 }}>
+                                              ({t.default_name})
+                                            </span>
+                                          )}
+                                        </div>
+                                        {subText && (
+                                          <span
+                                            style={{
+                                              fontSize: "9px",
+                                              color: "var(--on-surface-variant)",
+                                              opacity: 0.65,
+                                              whiteSpace: "nowrap",
+                                              overflow: "hidden",
+                                              textOverflow: "ellipsis"
+                                            }}
+                                          >
+                                            {subText}
                                           </span>
                                         )}
                                       </div>
-                                      {subText && (
-                                        <span
-                                          style={{
-                                            fontSize: "9px",
-                                            color: "var(--on-surface-variant)",
-                                            opacity: 0.65,
-                                            whiteSpace: "nowrap",
-                                            overflow: "hidden",
-                                            textOverflow: "ellipsis"
-                                          }}
-                                        >
-                                          {subText}
-                                        </span>
-                                      )}
-                                    </div>
-                                  )
-                                };
-                              })
-                            : [{ value: "", label: "No Terminals Found" }]
-                          }
-                        />
+                                    )
+                                  };
+                                })
+                              : [{ value: "", label: "No Terminals Found" }]
+                            }
+                          />
+                        </div>
+
+                        <div className="form-group">
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px", minHeight: "18px" }}>
+                            <label className="form-label" style={{ marginBottom: 0, display: "flex", alignItems: "center" }}>
+                              チャートプロファイル
+                              <HelpTooltip
+                                title="チャートプロファイル"
+                                content="リプレイ開始時にMT5側で自動的に読み込まれるチャートの組表示（複数時間足やテンプレートの組み合わせ）を選択します。"
+                                tip="MT5側で事前にプロファイルを保存しておくと、ここから一括で復元できます。"
+                              />
+                            </label>
+                          </div>
+                          <CustomSelect
+                            value={selectedProfile}
+                            onChange={setSelectedProfile}
+                            options={profiles.map(p => ({ value: p, label: p }))}
+                          />
+                        </div>
                       </div>
 
                       <div className="form-group" style={{ marginTop: "2px" }}>
@@ -3295,101 +3390,168 @@ function App() {
                         )}
                       </div>
 
-                      <div className="form-group">
-                        <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
-                          チャートプロファイル
-                          <HelpTooltip
-                            title="チャートプロファイル"
-                            content="リプレイ開始時にMT5側で自動的に読み込まれるチャートの組表示（複数時間足やテンプレートの組み合わせ）を選択します。"
-                            tip="MT5側で事前にプロファイルを保存しておくと、ここから一括で復元できます。"
-                          />
-                        </label>
-                        <CustomSelect
-                          value={selectedProfile}
-                          onChange={setSelectedProfile}
-                          options={profiles.map(p => ({ value: p, label: p }))}
-                        />
-                      </div>
-
-                      <div className="form-group">
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-                          <label className="form-label" style={{ margin: 0, display: "flex", alignItems: "center" }}>
-                            ソースシンボル
-                            <HelpTooltip
-                              title="ソースシンボル (主通貨)"
-                              content="リプレイの主対象となる通貨ペア・銘柄です。MT5にインポート済みのカスタムシンボルや標準シンボルから選択できます。"
+                      {/* 銘柄・比較ペア設定ブロック */}
+                      <div style={{
+                        padding: "12px",
+                        borderRadius: "8px",
+                        backgroundColor: enableDualFeed ? "rgba(99, 102, 241, 0.06)" : "var(--surface-container)",
+                        border: `1px solid ${enableDualFeed ? "var(--primary, #6366f1)" : "var(--outline-variant)"}`,
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "10px",
+                        marginBottom: "12px"
+                      }}>
+                        {/* モード切り替え & セレクター起動ボタン */}
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", margin: 0, fontWeight: 600, fontSize: "12px", color: "var(--on-surface)" }}>
+                            <input
+                              type="checkbox"
+                              checked={enableDualFeed}
+                              onChange={(e) => setEnableDualFeed(e.target.checked)}
+                              style={{ width: "16px", height: "16px", accentColor: "var(--primary, #6366f1)" }}
                             />
+                            <span>デュアルフィード比較リプレイ (OTC vs ECN等)</span>
                           </label>
                           <button
                             type="button"
-                            className="btn-batch-selector"
+                            className="pro-btn"
                             onClick={() => setIsBatchSelectorOpen(true)}
-                            title="年・サフィックス別マトリクスから主通貨と同期他通貨を一括選択"
+                            style={{
+                              padding: "4px 10px",
+                              fontSize: "11px",
+                              height: "26px",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "4px",
+                              backgroundColor: "rgba(99, 102, 241, 0.15)",
+                              borderColor: "var(--primary, #6366f1)",
+                              color: "var(--primary, #a8c7fa)",
+                              fontWeight: 600
+                            }}
+                            title="年・ブローカー別マトリクスダイアログを開く"
                           >
                             <span className="material-symbols-outlined" style={{ fontSize: "15px" }}>tune</span>
-                            マルチ通貨セレクター
+                            セレクターダイアログ...
                           </button>
                         </div>
-                        <div className="input-with-button-container">
-                          <SymbolCombobox
-                            value={sourceSymbol}
-                            onChange={(val) => {
-                              setSourceSymbol(val);
-                            }}
-                            availableSymbols={availableSymbols}
-                            placeholder="e.g. USDJPY または USDJPY_2016"
-                          />
-                          {chartSymbol && (
-                            <button
-                              type="button"
-                              className="input-inline-btn"
-                              onClick={() => {
-                                setSourceSymbol(chartSymbol);
-                              }}
-                              title={`接続中のチャートのシンボル (${chartSymbol}) にリセット`}
-                            >
-                              <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>restart_alt</span>
-                            </button>
-                          )}
-                        </div>
-                      </div>
 
-                      <div className="form-group">
-                        <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
-                          同期他通貨シンボル
-                          <HelpTooltip
-                            title="同期他通貨シンボル"
-                            content="主通貨と時間軸を完全に同期してチャート上に同時にティック更新・再生する他通貨ペアです（カンマ区切り）。"
-                            tip="通貨強弱や相関関係（ドルインデックスやクロス円など）を同時に検証したい場合に指定します。"
-                          />
-                        </label>
-                        <SymbolTagInput
-                          value={additionalSymbols}
-                          onChange={setAdditionalSymbols}
-                          availableSymbols={availableSymbols}
-                          placeholder="銘柄を選択または入力して追加..."
-                        />
-                        {companionSymbols.length > 0 && (
-                          <div className="companion-suggestion-bar">
-                            <div className="companion-suggestion-text" title={`検出された他通貨ペア: ${companionSymbols.join(", ")}`}>
-                              <span className="material-symbols-outlined" style={{ fontSize: "14px", flexShrink: 0 }}>auto_awesome</span>
-                              <span>
-                                {parseSymbolName(sourceSymbol).category ? `「${parseSymbolName(sourceSymbol).category}」の他通貨 (${companionSymbols.length}件):` : "他通貨:"}
-                                {" "}<strong style={{ color: "var(--on-surface)" }}>{companionSymbols.join(", ")}</strong>
-                              </span>
+                        {/* Dual Feed 時の表示 */}
+                        {enableDualFeed ? (
+                          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                            <div style={{ display: "flex", alignItems: "flex-end", gap: "8px", position: "relative" }}>
+                              <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
+                                <div style={{ fontSize: "11px", color: "var(--primary, #6366f1)", marginBottom: "4px", fontWeight: 600 }}>
+                                  Main シンボル (メインチャート)
+                                </div>
+                                <SymbolCombobox
+                                  value={sourceSymbol}
+                                  onChange={(val) => setSourceSymbol(val)}
+                                  availableSymbols={availableSymbols}
+                                  placeholder="メイン銘柄 (例: USDJPY_OANDA_2016)"
+                                  dropdownAlign="left"
+                                />
+                              </div>
+
+                              <button
+                                type="button"
+                                className="pro-btn"
+                                onClick={() => {
+                                  const temp = sourceSymbol;
+                                  setSourceSymbol(subSourceSymbol);
+                                  setSubSourceSymbol(temp);
+                                }}
+                                title="MainとSubの銘柄を入れ替え"
+                                style={{
+                                  padding: "6px 10px",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  borderRadius: "6px",
+                                  height: "36px",
+                                  flexShrink: 0
+                                }}
+                              >
+                                <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>swap_horiz</span>
+                              </button>
+
+                              <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
+                                <div style={{ fontSize: "11px", color: "var(--tertiary, #a8c7fa)", marginBottom: "4px", fontWeight: 600 }}>
+                                  Sub シンボル (比較サブチャート)
+                                </div>
+                                <SymbolCombobox
+                                  value={subSourceSymbol}
+                                  onChange={(val) => setSubSourceSymbol(val)}
+                                  availableSymbols={availableSymbols}
+                                  placeholder="サブ比較銘柄 (例: USDJPY_DUCASCOPY_2016)"
+                                  dropdownAlign="right"
+                                />
+                              </div>
                             </div>
-                            <button
-                              type="button"
-                              className="pro-btn"
-                              onClick={() => {
-                                const existing = additionalSymbols ? additionalSymbols.split(",").map(s => s.trim()).filter(Boolean) : [];
-                                const merged = Array.from(new Set([...existing, ...companionSymbols]));
-                                setAdditionalSymbols(merged.join(","));
-                              }}
-                              style={{ padding: "2px 8px", fontSize: "10px", height: "22px", flexShrink: 0, backgroundColor: "rgba(168, 199, 250, 0.2)", borderColor: "var(--tertiary, #a8c7fa)", color: "var(--tertiary, #a8c7fa)", whiteSpace: "nowrap" }}
-                            >
-                              + すべて同期に追加
-                            </button>
+                            <div style={{ fontSize: "10.5px", color: "var(--on-surface-variant)", lineHeight: 1.4 }}>
+                              💡 <strong>設定方法</strong>: MT5のプロファイル内でサブ表示したいチャートに「<code>TickReplayRoleMarker</code>」インジケーターを適用しておくと、自動的にそのチャートにSubシンボルが表示されます。
+                            </div>
+                          </div>
+                        ) : (
+                          /* 通常 (Single) 時の表示 */
+                          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                            <div className="form-group" style={{ margin: 0 }}>
+                              <label className="form-label" style={{ fontSize: "11px", marginBottom: "3px" }}>
+                                主通貨シンボル
+                              </label>
+                              <div className="input-with-button-container">
+                                <SymbolCombobox
+                                  value={sourceSymbol}
+                                  onChange={(val) => setSourceSymbol(val)}
+                                  availableSymbols={availableSymbols}
+                                  placeholder="e.g. USDJPY または USDJPY_2016"
+                                />
+                                {chartSymbol && (
+                                  <button
+                                    type="button"
+                                    className="input-inline-btn"
+                                    onClick={() => setSourceSymbol(chartSymbol)}
+                                    title={`接続中のチャートのシンボル (${chartSymbol}) にリセット`}
+                                  >
+                                    <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>restart_alt</span>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="form-group" style={{ margin: 0 }}>
+                              <label className="form-label" style={{ fontSize: "11px", marginBottom: "3px" }}>
+                                同期他通貨シンボル
+                              </label>
+                              <SymbolTagInput
+                                value={additionalSymbols}
+                                onChange={setAdditionalSymbols}
+                                availableSymbols={availableSymbols}
+                                placeholder="銘柄を選択または入力して追加..."
+                              />
+                              {companionSymbols.length > 0 && (
+                                <div className="companion-suggestion-bar">
+                                  <div className="companion-suggestion-text" title={`検出された他通貨ペア: ${companionSymbols.join(", ")}`}>
+                                    <span className="material-symbols-outlined" style={{ fontSize: "14px", flexShrink: 0 }}>auto_awesome</span>
+                                    <span>
+                                      {parseSymbolName(sourceSymbol).category ? `「${parseSymbolName(sourceSymbol).category}」の他通貨 (${companionSymbols.length}件):` : "他通貨:"}
+                                      {" "}<strong style={{ color: "var(--on-surface)" }}>{companionSymbols.join(", ")}</strong>
+                                    </span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="pro-btn"
+                                    onClick={() => {
+                                      const existing = additionalSymbols ? additionalSymbols.split(",").map(s => s.trim()).filter(Boolean) : [];
+                                      const merged = Array.from(new Set([...existing, ...companionSymbols]));
+                                      setAdditionalSymbols(merged.join(","));
+                                    }}
+                                    style={{ padding: "2px 8px", fontSize: "10px", height: "22px", flexShrink: 0, backgroundColor: "rgba(168, 199, 250, 0.2)", borderColor: "var(--tertiary, #a8c7fa)", color: "var(--tertiary, #a8c7fa)", whiteSpace: "nowrap" }}
+                                  >
+                                    + すべて同期に追加
+                                  </button>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>
@@ -3435,59 +3597,61 @@ function App() {
                         />
                       </div>
 
-                      <div className="form-group">
-                        <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
-                          開始日時 ({timezoneMode})
-                          <HelpTooltip
-                            title="リプレイ開始日時"
-                            content="ティックデータの再生を開始する日時です。カレンダーアイコンをクリックして日時を選択できます。"
-                          />
-                        </label>
-                        <div className="input-with-button-container">
-                          <input
-                            type="text"
-                            readOnly
-                            className="pro-input input-with-button cursor-pointer"
-                            value={timezoneMode === "JST" ? startTime : getNewsTimeForDisplay(startTime, "SERVER")}
-                            onClick={() => setActivePickerField("start")}
-                            placeholder="YYYY-MM-DD HH:mm:ss"
-                          />
-                          <button
-                            type="button"
-                            className="input-inline-btn"
-                            onClick={() => setActivePickerField("start")}
-                            title="カレンダーで選択"
-                          >
-                            <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>calendar_today</span>
-                          </button>
+                      <div className="setup-card-grid-2">
+                        <div className="form-group">
+                          <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
+                            開始日時 ({timezoneMode})
+                            <HelpTooltip
+                              title="リプレイ開始日時"
+                              content="ティックデータの再生を開始する日時です。カレンダーアイコンをクリックして日時を選択できます。"
+                            />
+                          </label>
+                          <div className="input-with-button-container">
+                            <input
+                              type="text"
+                              readOnly
+                              className="pro-input input-with-button cursor-pointer"
+                              value={timezoneMode === "JST" ? startTime : getNewsTimeForDisplay(startTime, "SERVER")}
+                              onClick={() => setActivePickerField("start")}
+                              placeholder="YYYY-MM-DD HH:mm:ss"
+                            />
+                            <button
+                              type="button"
+                              className="input-inline-btn"
+                              onClick={() => setActivePickerField("start")}
+                              title="カレンダーで選択"
+                            >
+                              <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>calendar_today</span>
+                            </button>
+                          </div>
                         </div>
-                      </div>
 
-                      <div className="form-group">
-                        <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
-                          終了日時 ({timezoneMode})
-                          <HelpTooltip
-                            title="リプレイ終了日時"
-                            content="リプレイを終了する日時です。この日時に到達するとリプレイが自動的に完了/停止します。"
-                          />
-                        </label>
-                        <div className="input-with-button-container">
-                          <input
-                            type="text"
-                            readOnly
-                            className="pro-input input-with-button cursor-pointer"
-                            value={timezoneMode === "JST" ? endTime : getNewsTimeForDisplay(endTime, "SERVER")}
-                            onClick={() => setActivePickerField("end")}
-                            placeholder="YYYY-MM-DD HH:mm:ss"
-                          />
-                          <button
-                            type="button"
-                            className="input-inline-btn"
-                            onClick={() => setActivePickerField("end")}
-                            title="カレンダーで選択"
-                          >
-                            <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>calendar_today</span>
-                          </button>
+                        <div className="form-group">
+                          <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
+                            終了日時 ({timezoneMode})
+                            <HelpTooltip
+                              title="リプレイ終了日時"
+                              content="リプレイを終了する日時です。この日時に到達するとリプレイが自動的に完了/停止します。"
+                            />
+                          </label>
+                          <div className="input-with-button-container">
+                            <input
+                              type="text"
+                              readOnly
+                              className="pro-input input-with-button cursor-pointer"
+                              value={timezoneMode === "JST" ? endTime : getNewsTimeForDisplay(endTime, "SERVER")}
+                              onClick={() => setActivePickerField("end")}
+                              placeholder="YYYY-MM-DD HH:mm:ss"
+                            />
+                            <button
+                              type="button"
+                              className="input-inline-btn"
+                              onClick={() => setActivePickerField("end")}
+                              title="カレンダーで選択"
+                            >
+                              <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>calendar_today</span>
+                            </button>
+                          </div>
                         </div>
                       </div>
 
@@ -5928,15 +6092,19 @@ function App() {
         }}
       />
 
-      {/* シンボル＆マルチ通貨セレクター モーダル */}
+      {/* シンボル＆比較ペア・マルチ通貨セレクター モーダル */}
       <SymbolBatchSelectorModal
         isOpen={isBatchSelectorOpen}
         onClose={() => setIsBatchSelectorOpen(false)}
         availableSymbols={availableSymbols}
         currentSourceSymbol={sourceSymbol}
+        currentSubSourceSymbol={subSourceSymbol}
+        currentEnableDualFeed={enableDualFeed}
         currentAdditionalSymbols={additionalSymbols}
-        onApply={(src, syncs, range) => {
+        onApply={(src, sub, isDual, syncs, range) => {
           setSourceSymbol(src);
+          setSubSourceSymbol(sub);
+          setEnableDualFeed(isDual);
           setAdditionalSymbols(syncs.join(","));
           if (range) {
             setStartTime(range.start);

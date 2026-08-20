@@ -3,18 +3,29 @@ import { SymbolItem } from "../components/SymbolCombobox";
 export interface ParsedSymbol {
   originalName: string;
   basePair: string;
-  suffix: string; // e.g. "2016", "test", "Custom", or ""
-  category: string; // e.g. "2016", "test", "Custom", "Standard"
+  broker: string;
+  year: string;
+  suffix: string; // e.g. "2016", "OANDA_2016", "Custom", or ""
+  category: string; // e.g. "OANDA", "Ducascopy", "2016", "Standard"
   isYear: boolean;
 }
 
+const KNOWN_BASE_PAIRS = [
+  "USDJPY", "EURUSD", "GBPJPY", "EURJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD",
+  "EURGBP", "EURCHF", "EURAUD", "EURCAD", "EURNZD", "GBPAUD", "GBPCAD", "GBPCHF",
+  "GBPNZD", "AUDJPY", "CHFJPY", "CADJPY", "NZDJPY", "AUDCAD", "AUDCHF", "AUDNZD",
+  "CADCHF", "NZDCAD", "NZDCHF", "XAUUSD", "GOLD", "XAGUSD", "SILVER", "BTCUSD",
+  "ETHUSD", "US30", "US500", "USTEC", "JP225", "DE30", "DE40", "UK100", "WTI", "BRENT"
+];
+
 /**
- * シンボル名から ベース通貨ペア、サフィックス、年判定を抽出する
+ * シンボル名から ベース通貨ペア、ブローカー名、年、サフィックスを抽出する
  * 例:
- * - "USDJPY_2016" -> basePair: "USDJPY", suffix: "2016", isYear: true, category: "2016"
- * - "EURJPY_test" -> basePair: "EURJPY", suffix: "test", isYear: false, category: "test"
- * - "GBPJPY_Custom" -> basePair: "GBPJPY", suffix: "Custom", isYear: false, category: "Custom"
- * - "USDJPY" -> basePair: "USDJPY", suffix: "", isYear: false, category: "Standard"
+ * - "USDJPY_OANDA_2016" -> basePair: "USDJPY", broker: "OANDA", year: "2016", category: "OANDA"
+ * - "USDJPY_DUCASCOPY_2016" -> basePair: "USDJPY", broker: "DUCASCOPY", year: "2016", category: "DUCASCOPY"
+ * - "USDJPY_2016" -> basePair: "USDJPY", broker: "", year: "2016", category: "2016"
+ * - "EURJPY_test" -> basePair: "EURJPY", broker: "", year: "", category: "test"
+ * - "USDJPY" -> basePair: "USDJPY", broker: "", year: "", category: "Standard"
  */
 export function parseSymbolName(symbolName: string): ParsedSymbol {
   const clean = (symbolName || "").trim();
@@ -22,13 +33,71 @@ export function parseSymbolName(symbolName: string): ParsedSymbol {
     return {
       originalName: "",
       basePair: "",
+      broker: "",
+      year: "",
       suffix: "",
       category: "Standard",
       isYear: false
     };
   }
 
-  // アンダースコア区切りのチェック (例: USDJPY_2016, EURJPY_test)
+  const upper = clean.toUpperCase();
+
+  // 1. 既知のベース通貨ペアの最長一致検索
+  let matchedPair = "";
+  for (const kp of KNOWN_BASE_PAIRS) {
+    if (upper.startsWith(kp) && kp.length > matchedPair.length) {
+      matchedPair = kp;
+    }
+  }
+
+  if (matchedPair) {
+    const remainder = clean.substring(matchedPair.length);
+    const cleanRemainder = remainder.replace(/^[_.-]+/, "");
+
+    if (!cleanRemainder) {
+      return {
+        originalName: clean,
+        basePair: matchedPair,
+        broker: "",
+        year: "",
+        suffix: "",
+        category: "Standard",
+        isYear: false
+      };
+    }
+
+    const parts = cleanRemainder.split(/[_.-]+/).filter(Boolean);
+    let year = "";
+    let broker = "";
+    const remainingParts: string[] = [];
+
+    for (const part of parts) {
+      if (/^\d{4}$/.test(part) && Number(part) >= 1970 && Number(part) <= 2099) {
+        year = part;
+      } else {
+        remainingParts.push(part);
+      }
+    }
+
+    if (remainingParts.length > 0) {
+      broker = remainingParts.join("_");
+    }
+
+    const category = broker || year || "Custom";
+
+    return {
+      originalName: clean,
+      basePair: matchedPair,
+      broker,
+      year,
+      suffix: cleanRemainder,
+      category,
+      isYear: !!year
+    };
+  }
+
+  // アンダースコア区切りのフォールバック
   const underscoreIdx = clean.lastIndexOf("_");
   if (underscoreIdx > 0 && underscoreIdx < clean.length - 1) {
     const basePair = clean.substring(0, underscoreIdx);
@@ -38,30 +107,19 @@ export function parseSymbolName(symbolName: string): ParsedSymbol {
     return {
       originalName: clean,
       basePair: basePair.toUpperCase(),
+      broker: "",
+      year: isYear ? suffix : "",
       suffix,
       category: suffix,
       isYear
     };
   }
 
-  // ドット区切りのチェック (例: USDJPY.oj5k, EURUSD.pro)
-  const dotIdx = clean.indexOf(".");
-  if (dotIdx > 0 && dotIdx < clean.length - 1) {
-    const basePair = clean.substring(0, dotIdx);
-    const suffix = clean.substring(dotIdx + 1);
-
-    return {
-      originalName: clean,
-      basePair: basePair.toUpperCase(),
-      suffix,
-      category: suffix,
-      isYear: false
-    };
-  }
-
   return {
     originalName: clean,
     basePair: clean.toUpperCase(),
+    broker: "",
+    year: "",
     suffix: "",
     category: "Standard",
     isYear: false
@@ -216,3 +274,81 @@ export function isEuroCross(sym: string): boolean {
   const parsed = parseSymbolName(sym);
   return parsed.basePair.startsWith("EUR") && !parsed.basePair.includes("JPY") && !parsed.basePair.includes("USD");
 }
+
+export interface DualFeedBrokerOption {
+  broker: string;
+  symbolName: string;
+  item: SymbolItem;
+}
+
+export interface DualFeedPairCandidate {
+  basePair: string;
+  year: string;
+  brokers: DualFeedBrokerOption[];
+}
+
+/**
+ * 通貨ペア＋年ごとのブローカー別候補一覧を取得（デュアルフィード用）
+ */
+export function getDualFeedCandidates(symbols: (SymbolItem | string)[]): DualFeedPairCandidate[] {
+  const map: { [key: string]: DualFeedPairCandidate } = {};
+
+  symbols.forEach(s => {
+    const symName = typeof s === "string" ? s : s.name;
+    const item: SymbolItem = typeof s === "string" ? { name: s, source_type: "custom", group_name: "Custom" } : s;
+    const parsed = parseSymbolName(symName);
+
+    if (parsed.basePair) {
+      const yearKey = parsed.year || "Standard";
+      const key = `${parsed.basePair}_${yearKey}`;
+      if (!map[key]) {
+        map[key] = {
+          basePair: parsed.basePair,
+          year: parsed.year,
+          brokers: []
+        };
+      }
+      const brokerLabel = parsed.broker || (parsed.isYear ? "Custom" : parsed.category || "Standard");
+      if (!map[key].brokers.some(b => b.symbolName === symName)) {
+        map[key].brokers.push({
+          broker: brokerLabel,
+          symbolName: symName,
+          item
+        });
+      }
+    }
+  });
+
+  return Object.values(map);
+}
+
+/**
+ * 利用可能な全ブローカー名リストを取得
+ */
+export function getAllBrokers(symbols: (SymbolItem | string)[]): string[] {
+  const brokerSet = new Set<string>();
+  symbols.forEach(s => {
+    const symName = typeof s === "string" ? s : s.name;
+    const parsed = parseSymbolName(symName);
+    if (parsed.broker) {
+      brokerSet.add(parsed.broker);
+    }
+  });
+  return Array.from(brokerSet).sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * 利用可能な全西暦年リストを取得
+ */
+export function getAllYears(symbols: (SymbolItem | string)[]): string[] {
+  const yearSet = new Set<string>();
+  symbols.forEach(s => {
+    const symName = typeof s === "string" ? s : s.name;
+    const parsed = parseSymbolName(symName);
+    if (parsed.year) {
+      yearSet.add(parsed.year);
+    }
+  });
+  return Array.from(yearSet).sort((a, b) => b.localeCompare(a));
+}
+
