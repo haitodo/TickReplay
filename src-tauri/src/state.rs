@@ -41,10 +41,15 @@ pub struct ReplayState {
     pub last_status: Mutex<String>,
     // Named Pipe へコマンドを送るための送信チャネル
     pub command_tx: tokio::sync::mpsc::UnboundedSender<String>,
+    // 外部ツール（Drenhisなど）へステータスを配信するためのブロードキャストチャネル
+    pub sync_tx: tokio::sync::broadcast::Sender<String>,
 }
 
 impl ReplayState {
-    pub fn new(command_tx: tokio::sync::mpsc::UnboundedSender<String>) -> Self {
+    pub fn new(
+        command_tx: tokio::sync::mpsc::UnboundedSender<String>,
+        sync_tx: tokio::sync::broadcast::Sender<String>,
+    ) -> Self {
         let default_hotkeys = std::collections::HashMap::from([
             ("play_pause".to_string(), "Control+Alt+Space".to_string()),
             ("step_forward".to_string(), "Control+Alt+ArrowRight".to_string()),
@@ -90,6 +95,7 @@ impl ReplayState {
             }),
             last_status: Mutex::new(String::new()),
             command_tx,
+            sync_tx,
         }
     }
 }

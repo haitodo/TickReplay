@@ -29,6 +29,5 @@ zip = { version = "2.2", default-features = false, features = ["deflate"] }
 chrono = "0.4"
 rfd = "0.15"
 bytemuck = { version = "1", features = ["derive"] }
-
-
-
+tokio-tungstenite = "0.26"
+futures-util = "0.3"

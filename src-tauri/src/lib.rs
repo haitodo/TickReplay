@@ -13,6 +13,7 @@ pub mod commands_custom_symbol;
 pub mod commands_settings;
 pub mod commands_window;
 pub mod commands;
+pub mod sync_server;
 
 use std::sync::Arc;
 use tauri::{Manager, Emitter};
@@ -23,7 +24,8 @@ pub fn run() {
     mt5::setup_mt5_environment();
 
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-    let state = Arc::new(state::ReplayState::new(tx));
+    let (sync_srv, sync_tx) = sync_server::SyncServer::new();
+    let state = Arc::new(state::ReplayState::new(tx, sync_tx));
     let state_clone = state.clone();
 
     tauri::Builder::default()
@@ -96,7 +98,10 @@ pub fn run() {
             tauri::async_runtime::spawn(ipc::run_command_pipe_server(rx, state_inner.clone()));
             
             // Named Pipe のステータス受信タスクを起動
-            tauri::async_runtime::spawn(ipc::run_status_pipe_server(app_handle.clone(), state_inner));
+            tauri::async_runtime::spawn(ipc::run_status_pipe_server(app_handle.clone(), state_inner.clone()));
+            
+            // Drenhis等の外部ツール連携用 WebSocket 同期サーバーを起動
+            tauri::async_runtime::spawn(sync_srv.run(state_inner, sync_server::DEFAULT_SYNC_PORT));
             
             // 高DPIや異なる拡大率（150%など）のディスプレイ環境下で初回起動した際、
             // ウィンドウサイズが適切にスケーリングされない不具合を回避するため、

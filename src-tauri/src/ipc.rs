@@ -498,6 +498,9 @@ async fn process_status_message(
     // フロントエンドへリアルタイム通知（差分が発生した時のみ送信）
     let _ = app_handle.emit("mt5-status", trimmed);
 
+    // 外部ツール（Drenhisなど）へWebSocketブロードキャスト送信
+    let _ = state.sync_tx.send(trimmed.to_string());
+
     // キャッシュされている再生状態などを更新
     if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) {
         if let Some(status) = val.get("status").and_then(|s| s.as_str()) {
