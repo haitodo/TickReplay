@@ -12,6 +12,7 @@ pub struct SymbolItem {
 
 const EA_SOURCE: &str = include_str!("../../MQL5/TickReplayControllerEA.mq5");
 const IMPORTER_SOURCE: &str = include_str!("../../MQL5/TickReplayImporter.mq5");
+const INDICATOR_SOURCE: &str = include_str!("../../MQL5/Indicators/TickReplayRoleMarker.mq5");
 
 const MQH_CONFIG: &str = include_str!("../../MQL5/Include/TickReplay/Config.mqh");
 const MQH_WIN32PIPE: &str = include_str!("../../MQL5/Include/TickReplay/Win32Pipe.mqh");
@@ -108,6 +109,19 @@ pub struct Mt5TerminalInfo {
     pub custom_name: Option<String>,
 }
 
+// ファイルが存在し、中身が完全に一致している場合はスキップし、差分がある場合や未存在の場合のみ書き込む
+fn write_if_different(path: &Path, content: &str) -> std::io::Result<bool> {
+    if path.is_file() {
+        if let Ok(existing_bytes) = fs::read(path) {
+            if existing_bytes == content.as_bytes() {
+                return Ok(false); // 同一内容のためスキップ
+            }
+        }
+    }
+    fs::write(path, content)?;
+    Ok(true) // 書き込み完了
+}
+
 // MT5データフォルダをスキャンし、EAおよびスクリプトファイル・Includeファイルを自動配置する (起動時初期化用の同期処理)
 pub fn setup_mt5_environment() {
     let base_path = if let Ok(appdata) = std::env::var("APPDATA") {
@@ -128,22 +142,29 @@ pub fn setup_mt5_environment() {
                 if mql5_path.exists() {
                     let experts_path = mql5_path.join("Experts");
                     let scripts_path = mql5_path.join("Scripts");
+                    let indicators_path = mql5_path.join("Indicators");
                     let files_path = mql5_path.join("Files");
                     let include_path = mql5_path.join("Include").join("TickReplay");
 
                     let _ = fs::create_dir_all(&experts_path);
                     let _ = fs::create_dir_all(&scripts_path);
+                    let _ = fs::create_dir_all(&indicators_path);
                     let _ = fs::create_dir_all(&files_path);
                     let _ = fs::create_dir_all(&include_path);
 
                     let ea_file = experts_path.join("TickReplayControllerEA.mq5");
-                    if let Err(e) = fs::write(&ea_file, EA_SOURCE) {
+                    if let Err(e) = write_if_different(&ea_file, EA_SOURCE) {
                         eprintln!("EA配置失敗 {:?}: {}", ea_file, e);
                     }
 
                     let importer_file = scripts_path.join("TickReplayImporter.mq5");
-                    if let Err(e) = fs::write(&importer_file, IMPORTER_SOURCE) {
+                    if let Err(e) = write_if_different(&importer_file, IMPORTER_SOURCE) {
                         eprintln!("Importer配置失敗 {:?}: {}", importer_file, e);
+                    }
+
+                    let indicator_file = indicators_path.join("TickReplayRoleMarker.mq5");
+                    if let Err(e) = write_if_different(&indicator_file, INDICATOR_SOURCE) {
+                        eprintln!("Indicator配置失敗 {:?}: {}", indicator_file, e);
                     }
 
                     let mqh_files = [
@@ -160,7 +181,7 @@ pub fn setup_mt5_environment() {
 
                     for (fname, content) in mqh_files {
                         let target_path = include_path.join(fname);
-                        if let Err(e) = fs::write(&target_path, content) {
+                        if let Err(e) = write_if_different(&target_path, content) {
                             eprintln!("Header配置失敗 {:?}: {}", target_path, e);
                         }
                     }
@@ -532,5 +553,39 @@ pub async fn get_terminal_max_bars(terminal_path: String) -> Result<MaxBarsInfo,
     })
     .await
     .map_err(|e| AppError::Mt5(format!("MaxBars取得スレッドエラー: {}", e)))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_write_if_different() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "test_tr_diff_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = fs::create_dir_all(&temp_dir);
+        let test_file = temp_dir.join("test_write.txt");
+
+        // 1. 初回書き込み（ファイル未存在） -> 書き込み実行 (true)
+        let res1 = write_if_different(&test_file, "hello world").unwrap();
+        assert!(res1);
+        assert_eq!(fs::read_to_string(&test_file).unwrap(), "hello world");
+
+        // 2. 同一内容での書き込み -> スキップ (false)
+        let res2 = write_if_different(&test_file, "hello world").unwrap();
+        assert!(!res2);
+
+        // 3. 異なる内容での書き込み -> 更新実行 (true)
+        let res3 = write_if_different(&test_file, "hello updated").unwrap();
+        assert!(res3);
+        assert_eq!(fs::read_to_string(&test_file).unwrap(), "hello updated");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
 }
 
