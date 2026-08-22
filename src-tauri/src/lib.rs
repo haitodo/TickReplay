@@ -109,14 +109,14 @@ pub fn run() {
             // 前回保存位置（有効時）または画面中央に配置したのち表示（show）する。
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
-                    width: 520.0,
-                    height: 600.0,
+                    width: 420.0,
+                    height: 680.0,
                 }));
 
                 let settings = tauri::async_runtime::block_on(commands_settings::load_settings(app_handle.clone())).ok().flatten();
                 let scale_factor = window.scale_factor().unwrap_or(1.0);
-                let main_phys_w = (520.0 * scale_factor) as u32;
-                let main_phys_h = (600.0 * scale_factor) as u32;
+                let main_phys_w = (420.0 * scale_factor) as u32;
+                let main_phys_h = (680.0 * scale_factor) as u32;
 
                 let mut positioned = false;
                 if let Some(ref s) = settings {
