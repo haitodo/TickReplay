@@ -256,6 +256,60 @@ pub async fn open_speed_order_window(app_handle: AppHandle) -> Result<(), AppErr
     Ok(())
 }
 
+#[tauri::command]
+pub async fn open_positions_window(app_handle: AppHandle) -> Result<(), AppError> {
+    let target_inner_w = 760.0;
+    let target_inner_h = 520.0;
+    let settings = crate::commands_settings::load_settings(app_handle.clone()).await.ok().flatten();
+
+    if let Some(window) = app_handle.get_webview_window("positions") {
+        let scale_factor = window.scale_factor().unwrap_or(1.0);
+        let phys_w = (target_inner_w * scale_factor) as u32;
+        let phys_h = (target_inner_h * scale_factor) as u32;
+
+        let mut positioned = false;
+        if let Some(ref s) = settings {
+            if let (Some(x), Some(y)) = (s.positions_window_x, s.positions_window_y) {
+                if is_position_valid_on_monitors(&app_handle, x, y, phys_w, phys_h) {
+                    let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+                    positioned = true;
+                }
+            }
+        }
+        if !positioned {
+            let _ = window.center();
+        }
+
+        window.show()?;
+        let _ = window.emit("window-visible", true);
+        window.set_focus()?;
+        window.set_always_on_top(true)?;
+    } else {
+        let mut win_builder = tauri::webview::WebviewWindowBuilder::new(
+            &app_handle,
+            "positions",
+            tauri::WebviewUrl::App("index.html?window=positions".into()),
+        )
+        .title("口座・ポジション管理")
+        .inner_size(target_inner_w, target_inner_h)
+        .min_inner_size(560.0, 380.0)
+        .resizable(true)
+        .always_on_top(true)
+        .visible(false);
+
+        if let Some(main_win) = app_handle.get_webview_window("main") {
+            win_builder = win_builder.parent(&main_win)?;
+        }
+
+        let window = win_builder.build()?;
+        let _ = window.center();
+        window.show()?;
+        let _ = window.emit("window-visible", true);
+        window.set_focus()?;
+    }
+    Ok(())
+}
+
 
 #[tauri::command]
 pub async fn open_tracely_app() -> Result<(), AppError> {

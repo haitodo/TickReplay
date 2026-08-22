@@ -178,6 +178,10 @@ pub struct ReplaySettings {
     #[serde(default)]
     pub speed_order_window_y: Option<i32>,
     #[serde(default)]
+    pub positions_window_x: Option<i32>,
+    #[serde(default)]
+    pub positions_window_y: Option<i32>,
+    #[serde(default)]
     pub terminal_names: Option<std::collections::HashMap<String, String>>,
 }
 

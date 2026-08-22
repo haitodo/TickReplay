@@ -5,11 +5,18 @@
  * @param symbol 通貨ペア名（オプション）
  * @returns フォーマットされた価格レート文字列
  */
-export function formatRate(price: number | undefined | null, symbol?: string): string {
+export function formatRate(price: number | undefined | null, symbolOrIsJpy?: string | boolean): string {
   if (price === undefined || price === null || isNaN(price) || price <= 0) {
     return "-";
   }
-  const isJpy = (symbol && symbol.toUpperCase().includes("JPY")) || price > 20.0;
+  let isJpy = false;
+  if (typeof symbolOrIsJpy === "boolean") {
+    isJpy = symbolOrIsJpy;
+  } else if (typeof symbolOrIsJpy === "string") {
+    isJpy = symbolOrIsJpy.toUpperCase().includes("JPY") || price > 20.0;
+  } else {
+    isJpy = price > 20.0;
+  }
   return price.toFixed(isJpy ? 3 : 5);
 }
 

@@ -75,6 +75,12 @@ pub async fn save_settings(
             settings.speed_order_window_y = existing_settings.speed_order_window_y;
         }
     }
+    if settings.positions_window_x.is_none() {
+        if let Some(ref existing_settings) = existing {
+            settings.positions_window_x = existing_settings.positions_window_x;
+            settings.positions_window_y = existing_settings.positions_window_y;
+        }
+    }
     if settings.terminal_names.is_none() {
         if let Some(ref existing_settings) = existing {
             settings.terminal_names = existing_settings.terminal_names.clone();
@@ -120,6 +126,12 @@ pub async fn save_window_position_to_disk(
             }
             s.speed_order_window_x = Some(x);
             s.speed_order_window_y = Some(y);
+        } else if label == "positions" {
+            if s.positions_window_x == Some(x) && s.positions_window_y == Some(y) {
+                return Ok(());
+            }
+            s.positions_window_x = Some(x);
+            s.positions_window_y = Some(y);
         } else {
             return Ok(());
         }

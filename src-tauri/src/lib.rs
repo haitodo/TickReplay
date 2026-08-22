@@ -68,8 +68,8 @@ pub fn run() {
                     }
                 }
                 tauri::WindowEvent::CloseRequested { api, .. } => {
-                    if window.label() == "speed_order" {
-                        // 完全に破棄せず非表示にすることで、次回起動を瞬時に行う
+                    if window.label() == "speed_order" || window.label() == "positions" {
+                        // 完全に破棄せず非表示にすることで、次回起動を瞬時に行う（チラつき防止）
                         api.prevent_close();
                         let _ = window.hide();
                         let _ = window.emit("window-visible", false);
@@ -77,9 +77,12 @@ pub fn run() {
                 }
                 tauri::WindowEvent::Destroyed => {
                     if window.label() == "main" {
-                        // メインウィンドウが終了した際、スピード発注画面も自動で閉じる
+                        // メインウィンドウが終了した際、子ウィンドウも自動で閉じる
                         if let Some(speed_order) = window.app_handle().get_webview_window("speed_order") {
                             let _ = speed_order.close();
+                        }
+                        if let Some(positions) = window.app_handle().get_webview_window("positions") {
+                            let _ = positions.close();
                         }
                     }
                 }
@@ -145,6 +148,22 @@ pub fn run() {
 
                 speed_order_builder = speed_order_builder.parent(&window)?;
                 let _ = speed_order_builder.build()?;
+
+                // 口座・ポジション管理画面を初期起動時にあらかじめ非表示で作成しておく（起動速度高速化・チラつき防止）
+                let mut positions_builder = tauri::webview::WebviewWindowBuilder::new(
+                    &app_handle,
+                    "positions",
+                    tauri::WebviewUrl::App("index.html?window=positions".into()),
+                )
+                .title("口座・ポジション管理")
+                .inner_size(760.0, 520.0)
+                .min_inner_size(560.0, 380.0)
+                .resizable(true)
+                .always_on_top(true)
+                .visible(false);
+
+                positions_builder = positions_builder.parent(&window)?;
+                let _ = positions_builder.build()?;
             }
             
             Ok(())
@@ -163,6 +182,7 @@ pub fn run() {
             commands::set_remote_mode,
             commands::get_last_status,
             commands::open_speed_order_window,
+            commands::open_positions_window,
             commands::open_tracely_app,
             commands::open_trade_analysis_window,
             commands::read_trade_ticks,
