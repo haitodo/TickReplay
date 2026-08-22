@@ -5,15 +5,14 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import "./App.css";
 import { CustomSelect } from "./CustomSelect";
-import { TradeAnalysisWindowContent } from "./TradeAnalysisWindow";
 import { SymbolCombobox, SymbolItem } from "./components/SymbolCombobox";
 import { SymbolTagInput } from "./components/SymbolTagInput";
 import { CustomSymbolImportModal } from "./components/CustomSymbolImportModal";
 import { SymbolBatchSelectorModal } from "./components/SymbolBatchSelectorModal";
 import { AIAnalysisPanel } from "./components/AIAnalysisPanel";
 import { DateTimePickerModal } from "./components/DateTimePickerModal";
-import { TradeReportDashboard } from "./components/TradeReportDashboard";
 import { SpeedOrderWindowContent } from "./components/SpeedOrderWindowContent";
+import { PositionsWindowContent } from "./components/PositionsWindowContent";
 import { DeleteSessionModal } from "./components/DeleteSessionModal";
 import { TerminalNameModal } from "./components/Modals/TerminalNameModal";
 import { HelpTooltip } from "./components/HelpTooltip";
@@ -90,8 +89,8 @@ function App() {
   if (windowParam === "speed_order") {
     return <SpeedOrderWindowContent />;
   }
-  if (windowParam === "trade_analysis") {
-    return <TradeAnalysisWindowContent />;
+  if (windowParam === "positions") {
+    return <PositionsWindowContent />;
   }
 
   // --- 接続状態・EAからのステータス
@@ -201,7 +200,6 @@ function App() {
   const [isInitialized, setIsInitialized] = useState(false);
 
   // --- 仮想取引関連のステータス
-  const [currentViewMode, setCurrentViewMode] = useState<"replay" | "trade">("replay");
   const [account, setAccount] = useState<any>(null);
   const [positions, setPositions] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
@@ -2808,24 +2806,15 @@ function App() {
 
         {/* Action icons & Terminate */}
         <div className="nav-actions">
-          {/* 1. 画面切替 (検証時のみ) */}
+          {/* 1. 口座・ポジション管理 (検証時のみ) */}
           {(status === "ACTIVE" || status === "READY") && (
-            <div className="mode-toggle-segmented" style={{ display: "flex", gap: "2px", backgroundColor: "var(--surface-container-high)", padding: "2px", borderRadius: "var(--radius-sm)", marginRight: "4px", border: "1px solid var(--outline-variant)", userSelect: "none", flexShrink: 0 }}>
-              <button
-                className={`pro-btn ${currentViewMode === "replay" ? "active-loop" : ""}`}
-                style={{ padding: "4px 8px", fontSize: "10px", height: "24px", whiteSpace: "nowrap", flexShrink: 0 }}
-                onClick={() => setCurrentViewMode("replay")}
-              >
-                再生画面
-              </button>
-              <button
-                className={`pro-btn ${currentViewMode === "trade" ? "active-loop" : ""}`}
-                style={{ padding: "4px 8px", fontSize: "10px", height: "24px", whiteSpace: "nowrap", flexShrink: 0 }}
-                onClick={() => setCurrentViewMode("trade")}
-              >
-                取引実績
-              </button>
-            </div>
+            <button
+              className="pro-btn pro-btn-square"
+              onClick={() => invoke("open_positions_window").catch(console.error)}
+              title="口座・ポジション管理ウィンドウを起動"
+            >
+              <span className="material-symbols-outlined text-[16px]">account_balance_wallet</span>
+            </button>
           )}
 
           {/* 2. スピード発注パネルを起動 (検証時のみ) */}
@@ -2864,17 +2853,17 @@ function App() {
             </button>
           )}
 
-          {/* 3.5. 統合トレード分析画面を起動 (常時表示) */}
+          {/* 3.5. 独立トレード分析アプリ (Tracely) を起動 (常時表示) */}
           <button
             className="pro-btn pro-btn-square"
             onClick={async () => {
               try {
-                await invoke("open_trade_analysis_window");
+                await invoke("open_tracely_app");
               } catch (err) {
                 console.error(err);
               }
             }}
-            title="統合トレード分析・CSVインポートを開く"
+            title="独立トレード分析アプリ (Tracely) を起動"
           >
             <span className="material-symbols-outlined text-[16px]" style={{ color: "var(--primary-color)" }}>analytics</span>
           </button>
@@ -4190,19 +4179,7 @@ function App() {
           </div>
         ) : (
           /* B. Playback Control Dashboard */
-          currentViewMode === "trade" ? (
-            <TradeReportDashboard
-              account={account}
-              positions={positions}
-              history={history}
-              sendCommand={sendCommand}
-              setCurrentViewMode={setCurrentViewMode}
-              initialBalance={initialBalance}
-              leverage={leverage}
-              holdingTimeMode={holdingTimeMode}
-            />
-          ) : (
-            <>
+          <>
               {/* Timeline Panel */}
               <div className="pro-panel timeline-panel">
                 <div className="pro-panel-header">
@@ -4572,7 +4549,6 @@ function App() {
                 </div>
               </div>
             </>
-          )
         )}
       </main>
 

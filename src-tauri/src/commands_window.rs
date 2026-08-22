@@ -256,52 +256,45 @@ pub async fn open_speed_order_window(app_handle: AppHandle) -> Result<(), AppErr
     Ok(())
 }
 
-
 #[tauri::command]
-pub async fn open_trade_analysis_window(app_handle: AppHandle) -> Result<(), AppError> {
-    let target_w = 520.0;
-    let target_h = 600.0;
+pub async fn open_positions_window(app_handle: AppHandle) -> Result<(), AppError> {
+    let target_inner_w = 760.0;
+    let target_inner_h = 520.0;
+    let settings = crate::commands_settings::load_settings(app_handle.clone()).await.ok().flatten();
 
-    if let Some(window) = app_handle.get_webview_window("trade_analysis") {
-        if let Some(main_win) = app_handle.get_webview_window("main") {
-            if let (Ok(main_pos), Ok(main_size)) = (main_win.outer_position(), main_win.outer_size()) {
-                let scale_factor = main_win.scale_factor().unwrap_or(1.0);
-                let w_phys = (target_w * scale_factor) as i32;
-                let h_phys = (target_h * scale_factor) as i32;
+    if let Some(window) = app_handle.get_webview_window("positions") {
+        let scale_factor = window.scale_factor().unwrap_or(1.0);
+        let phys_w = (target_inner_w * scale_factor) as u32;
+        let phys_h = (target_inner_h * scale_factor) as u32;
 
-                let target_x = main_pos.x + (main_size.width as i32 - w_phys) / 2;
-                let target_y = main_pos.y + (main_size.height as i32 - h_phys) / 2;
-
-                let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
-                    x: target_x,
-                    y: target_y,
-                }));
-            } else {
-                let _ = window.center();
+        let mut positioned = false;
+        if let Some(ref s) = settings {
+            if let (Some(x), Some(y)) = (s.positions_window_x, s.positions_window_y) {
+                if is_position_valid_on_monitors(&app_handle, x, y, phys_w, phys_h) {
+                    let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+                    positioned = true;
+                }
             }
-        } else {
+        }
+        if !positioned {
             let _ = window.center();
         }
-
-        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
-            width: target_w,
-            height: target_h,
-        }));
 
         window.show()?;
         let _ = window.emit("window-visible", true);
         window.set_focus()?;
+        window.set_always_on_top(true)?;
     } else {
         let mut win_builder = tauri::webview::WebviewWindowBuilder::new(
             &app_handle,
-            "trade_analysis",
-            tauri::WebviewUrl::App("index.html?window=trade_analysis".into()),
+            "positions",
+            tauri::WebviewUrl::App("index.html?window=positions".into()),
         )
-        .title("Trade Analysis")
-        .inner_size(target_w, target_h)
+        .title("口座・ポジション管理")
+        .inner_size(target_inner_w, target_inner_h)
+        .min_inner_size(560.0, 380.0)
         .resizable(true)
-        .always_on_top(false)
-        .maximized(false)
+        .always_on_top(true)
         .visible(false);
 
         if let Some(main_win) = app_handle.get_webview_window("main") {
@@ -309,33 +302,57 @@ pub async fn open_trade_analysis_window(app_handle: AppHandle) -> Result<(), App
         }
 
         let window = win_builder.build()?;
-
-        if let Some(main_win) = app_handle.get_webview_window("main") {
-            if let (Ok(main_pos), Ok(main_size)) = (main_win.outer_position(), main_win.outer_size()) {
-                let scale_factor = main_win.scale_factor().unwrap_or(1.0);
-                let w_phys = (target_w * scale_factor) as i32;
-                let h_phys = (target_h * scale_factor) as i32;
-
-                let target_x = main_pos.x + (main_size.width as i32 - w_phys) / 2;
-                let target_y = main_pos.y + (main_size.height as i32 - h_phys) / 2;
-
-                let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
-                    x: target_x,
-                    y: target_y,
-                }));
-            } else {
-                let _ = window.center();
-            }
-        } else {
-            let _ = window.center();
-        }
-
+        let _ = window.center();
         window.show()?;
         let _ = window.emit("window-visible", true);
         window.set_focus()?;
-
-        #[cfg(debug_assertions)]
-        window.open_devtools();
     }
     Ok(())
+}
+
+
+#[tauri::command]
+pub async fn open_tracely_app() -> Result<(), AppError> {
+    // 1. 開発環境の実行バイナリ探索
+    let candidates = [
+        std::path::PathBuf::from("../Tracely/src-tauri/target/release/tracely.exe"),
+        std::path::PathBuf::from("D:/dev/Tracely/src-tauri/target/release/tracely.exe"),
+        std::path::PathBuf::from("../Tracely/src-tauri/target/debug/tracely.exe"),
+        std::path::PathBuf::from("D:/dev/Tracely/src-tauri/target/debug/tracely.exe"),
+    ];
+
+    for candidate in &candidates {
+        if candidate.is_file() {
+            let _ = std::process::Command::new(candidate).spawn();
+            return Ok(());
+        }
+    }
+
+    // 2. インストール先パス探索
+    if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+        let installed = std::path::PathBuf::from(local_app_data)
+            .join("Programs")
+            .join("Tracely")
+            .join("Tracely.exe");
+        if installed.is_file() {
+            let _ = std::process::Command::new(installed).spawn();
+            return Ok(());
+        }
+    }
+
+    // 3. 開発フォールバック: Tracelyプロジェクトディレクトリが存在すれば起動
+    let dev_dir = std::path::PathBuf::from("D:/dev/Tracely");
+    if dev_dir.is_dir() {
+        let _ = std::process::Command::new("cmd")
+            .args(["/c", "start", "powershell", "-NoExit", "-Command", "cd D:\\dev\\Tracely; npm run tauri dev"])
+            .spawn();
+        return Ok(());
+    }
+
+    Err(AppError::Other("Tracely アプリケーションが見つかりませんでした。".to_string()))
+}
+
+#[tauri::command]
+pub async fn open_trade_analysis_window() -> Result<(), AppError> {
+    open_tracely_app().await
 }

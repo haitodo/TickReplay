@@ -789,7 +789,43 @@ export const SpeedOrderWindowContent: React.FC = () => {
           <span className="material-symbols-outlined icon-accent" data-tauri-drag-region>flash_on</span>
           Speed Order
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }} data-tauri-drag-region>
+        <div style={{ display: "flex", alignItems: "center", gap: "4px" }} data-tauri-drag-region>
+          {/* 口座・ポジション管理ウィンドウ起動ボタン */}
+          <button
+            className="speed-header-icon-btn"
+            onClick={async () => {
+              try {
+                await invoke("open_positions_window");
+              } catch (err) {
+                console.error("Failed to open account & positions window:", err);
+              }
+            }}
+            title="口座・ポジション管理ウィンドウを起動"
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "var(--on-surface-variant)",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "4px",
+              borderRadius: "50%",
+              transition: "var(--transition-fast)",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = "var(--on-surface)";
+              e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.05)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = "var(--on-surface-variant)";
+              e.currentTarget.style.backgroundColor = "transparent";
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>account_balance_wallet</span>
+          </button>
+
+          {/* 3. 設定ボタン */}
           <button
             className="speed-settings-btn"
             onClick={() => setIsSettingsOpen(true)}
@@ -817,6 +853,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
           >
             <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>settings</span>
           </button>
+
           <div 
             className="speed-order-status" 
             title={`Status: ${status === "DISCONNECTED" ? "Offline (未接続)" : status === "CONNECTED" ? "Connected (接続完了)" : status === "READY" ? "Ready (準備完了)" : "Active (動作中)"}`}
@@ -977,7 +1014,12 @@ export const SpeedOrderWindowContent: React.FC = () => {
       </div>
 
       {/* 簡易口座情報バー */}
-      <div className="speed-account-bar">
+      <div
+        className="speed-account-bar"
+        onClick={() => invoke("open_positions_window").catch(console.error)}
+        style={{ cursor: "pointer", userSelect: "none" }}
+        title="クリックして口座・ポジション管理を開く"
+      >
         <div className="account-stat">
           <span className="stat-label">P/L:</span>
           <span className={`stat-val ${totalPL >= 0 ? "profit-green" : "loss-red"}`}>
@@ -990,6 +1032,14 @@ export const SpeedOrderWindowContent: React.FC = () => {
             {account ? account.equity.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : "1,000,000"}
           </span>
         </div>
+        {account && account.margin > 0 && (
+          <div className="account-stat">
+            <span className="stat-label">維持率:</span>
+            <span className="stat-val">
+              {account.margin_level ? `${account.margin_level.toFixed(0)}%` : "--"}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* 注文入力パラメータフォーム */}

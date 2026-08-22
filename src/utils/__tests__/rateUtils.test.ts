@@ -16,6 +16,11 @@ describe("formatRate", () => {
     expect(formatRate(1.085, "EURUSD")).toBe("1.08500");
   });
 
+  it("supports boolean isJpy flag", () => {
+    expect(formatRate(153.4567, true)).toBe("153.457");
+    expect(formatRate(1.085423, false)).toBe("1.08542");
+  });
+
   it("returns - for invalid or zero prices", () => {
     expect(formatRate(0)).toBe("-");
     expect(formatRate(-10)).toBe("-");
