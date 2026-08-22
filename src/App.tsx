@@ -2864,6 +2864,21 @@ function App() {
             </button>
           )}
 
+          {/* 3.5. 統合トレード分析画面を起動 (常時表示) */}
+          <button
+            className="pro-btn pro-btn-square"
+            onClick={async () => {
+              try {
+                await invoke("open_trade_analysis_window");
+              } catch (err) {
+                console.error(err);
+              }
+            }}
+            title="統合トレード分析・CSVインポートを開く"
+          >
+            <span className="material-symbols-outlined text-[16px]" style={{ color: "var(--primary-color)" }}>analytics</span>
+          </button>
+
           {/* 4. 急変動・トレンドAI解析 (常時表示) */}
           <button
             className="pro-btn pro-btn-square"
