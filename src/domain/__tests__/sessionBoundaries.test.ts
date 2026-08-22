@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   organizeSessions,
   getNextSessionIndex,
-  getPrevSessionIndex
+  getPrevSessionIndex,
+  getCurrentSession
 } from "../sessionBoundaries";
 
 describe("sessionBoundaries", () => {
@@ -45,4 +46,18 @@ describe("sessionBoundaries", () => {
     expect(getPrevSessionIndex(sessions, 250)).toBe(200);
     expect(getPrevSessionIndex(sessions, 50)).toBeNull();
   });
+
+  it("getCurrentSession returns the active session for current index", () => {
+    const sessions = [
+      { idx: 100, type: "TYO" as const },
+      { idx: 200, type: "LDN" as const },
+      { idx: 300, type: "NY" as const }
+    ];
+    expect(getCurrentSession(sessions, 50)).toBeNull();
+    expect(getCurrentSession(sessions, 100)).toEqual({ idx: 100, type: "TYO" });
+    expect(getCurrentSession(sessions, 150)).toEqual({ idx: 100, type: "TYO" });
+    expect(getCurrentSession(sessions, 250)).toEqual({ idx: 200, type: "LDN" });
+    expect(getCurrentSession(sessions, 350)).toEqual({ idx: 300, type: "NY" });
+  });
 });
+

@@ -44,7 +44,7 @@ import {
 import { THEME_PRESETS } from "./constants/themePresets";
 import { TerminalInfo } from "./types/terminal";
 import { translateErrorMessage } from "./utils/i18nUtils";
-import { organizeSessions } from "./domain/sessionBoundaries";
+import { organizeSessions, getCurrentSession } from "./domain/sessionBoundaries";
 
 
 
@@ -506,8 +506,6 @@ function App() {
   const [holdingTimeMode, setHoldingTimeMode] = useState<"pc" | "server">(
     () => (localStorage.getItem("speed-order-holding-time-mode") as "pc" | "server") || "pc"
   );
-
-  const throttledSeekRef = useRef<number | null>(null);
   const isDraggingRef = useRef(false);
   const savedConfig = useRef<any>(null); // 保存された設定キャッシュ用のRef
 
@@ -2406,83 +2404,9 @@ function App() {
     });
   };
 
-  const handleTimelineInteraction = (e: React.MouseEvent<SVGSVGElement> | React.TouchEvent<SVGSVGElement>, svgEl: SVGSVGElement) => {
-    const rect = svgEl.getBoundingClientRect();
-    const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
-    const x = clientX - rect.left;
-    const percentage = Math.max(0, Math.min(1, x / rect.width));
-    const targetIdx = Math.round(percentage * totalTicks);
-
-    setCurrentIdx(targetIdx); // 即座にスライダーつまみを動かす
-
-    // 200msでのデバウンス（ドラッグ追従負荷の軽減）
-    if (!throttledSeekRef.current) {
-      throttledSeekRef.current = window.setTimeout(() => {
-        sendSeekCommand(targetIdx);
-        throttledSeekRef.current = null;
-      }, 200);
-    }
-  };
-
-  const handleTimelineMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
-    isDraggingRef.current = true;
-    const svgEl = e.currentTarget;
-    handleTimelineInteraction(e, svgEl);
-
-    const handleMouseMove = (mvEvent: MouseEvent) => {
-      handleTimelineInteraction(mvEvent as any, svgEl);
-    };
-
-    const handleMouseUp = (muEvent: MouseEvent) => {
-      isDraggingRef.current = false;
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
-
-      if (throttledSeekRef.current) {
-        clearTimeout(throttledSeekRef.current);
-        throttledSeekRef.current = null;
-      }
-
-      const rect = svgEl.getBoundingClientRect();
-      const x = muEvent.clientX - rect.left;
-      const percentage = Math.max(0, Math.min(1, x / rect.width));
-      const finalIdx = Math.round(percentage * totalTicks);
-      sendSeekCommand(finalIdx);
-    };
-
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
-  };
-
   // セッション描画データの整理
   const sessions = organizeSessions(sessionBoundaries);
-
-  const renderTimelineRects = () => {
-    if (totalTicks <= 0 || sessions.length === 0) return null;
-    const rects = [];
-    for (let i = 0; i < sessions.length; i++) {
-      const current = sessions[i];
-      const next = sessions[i + 1];
-      const startX = (current.idx / totalTicks) * 100;
-      const endX = next ? (next.idx / totalTicks) * 100 : 100;
-      const width = endX - startX;
-
-      const color = current.type === "TYO" ? "var(--session-tyo)" : current.type === "LDN" ? "var(--session-ldn)" : "var(--session-ny)";
-
-      rects.push(
-        <rect
-          key={i}
-          x={`${startX}%`}
-          y="0"
-          width={`${width}%`}
-          height="100%"
-          fill={color}
-          opacity="0.25"
-        />
-      );
-    }
-    return rects;
-  };
+  const currentSession = getCurrentSession(sessions, currentIdx);
 
   // ミニタイムライン用のセッション背景描画
   const renderMiniSessionTrack = () => {
@@ -2774,6 +2698,16 @@ function App() {
                     <span className="hud-date">{`${formatServerTime(virtualTimeMsc).substring(0, 10).replace(/-/g, ".")} ${getDayOfWeekStr(virtualTimeMsc, false)}`}</span>
                     {formatServerTime(virtualTimeMsc).substring(11, 19)}
                   </span>
+                </div>
+              )}
+
+              {currentSession && (
+                <div
+                  className={`hud-session-badge session-${currentSession.type.toLowerCase()}`}
+                  title={`現在のアクティブ市場セッション: ${currentSession.type === "TYO" ? "東京 (TYO)" : currentSession.type === "LDN" ? "ロンドン (LDN)" : "ニューヨーク (NY)"}`}
+                >
+                  <span className={`session-badge-dot ${currentSession.type.toLowerCase()}`}></span>
+                  <span className="hud-session-text">{currentSession.type}</span>
                 </div>
               )}
             </div>
@@ -4180,269 +4114,237 @@ function App() {
         ) : (
           /* B. Playback Control Dashboard */
           <>
-              {/* Timeline Panel */}
-              <div className="pro-panel timeline-panel">
-                <div className="pro-panel-header">
-                  <h3 className="pro-panel-title" title="マーケットタイムライン概要" style={{ cursor: "pointer" }}>
-                    <span className="material-symbols-outlined icon-accent">timeline</span>
+            {/* Controls & Navigation Workspace */}
+            <div className="controls-workspace">
+              {/* Transport Panel */}
+              <div className="pro-panel transport-panel">
+                <div className="pro-panel-header" style={{ padding: "4px 8px 4px 12px", minWidth: 0, gap: "8px" }}>
+                  <h3 className="pro-panel-title" title="再生コントロール" style={{ flexShrink: 0, cursor: "pointer" }}>
+                    <span className="material-symbols-outlined icon-accent">play_circle</span>
                   </h3>
-                  <div className="timeline-header-info">
-                    <span className="timeline-meta-tick">
-                      Tick: <span className="timeline-meta-val">{currentIdx}</span> / {totalTicks}
-                    </span>
-                    <span className="timeline-meta-percent">{progressPercent.toFixed(1)}%</span>
-                    <span className="pro-panel-meta timeline-cycle-badge">24時間サイクル</span>
+
+                  {/* Presets Pills Inline (Header Move) */}
+                  <div className="transport-presets-inline" style={{ flex: 1, justifyContent: "center" }}>
+                    {speedMode === "TEMPORAL" ? (
+                      timePresets.map((preset) => {
+                        const label = `${preset}x`;
+                        const isActive = Math.abs(preset - multiplier) < 0.01;
+                        return (
+                          <button
+                            key={preset}
+                            className={`preset-pill-btn ${isActive ? "active" : ""}`}
+                            onClick={() => updateSpeed("TEMPORAL", preset, tickStep)}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })
+                    ) : (
+                      tickPresets.map((preset) => {
+                        const isActive = preset === tickStep;
+                        return (
+                          <button
+                            key={preset}
+                            className={`preset-pill-btn ${isActive ? "active" : ""}`}
+                            onClick={() => updateSpeed("COUNT", multiplier, preset)}
+                          >
+                            {preset}T
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
+                    <button
+                      className="toggle-btn"
+                      style={{ padding: "2px 6px", height: "18px", fontSize: "10px", display: "inline-flex", alignItems: "center", gap: "3px" }}
+                      onClick={() => {
+                        setEditingTimePresets([...timePresets]);
+                        setEditingTickPresets([...tickPresets]);
+                        setModalNewTimePreset("");
+                        setModalNewTickPreset("");
+                        setIsSpeedPresetsModalOpen(true);
+                      }}
+                      title="再生速度・スキップティックのプリセットを編集"
+                    >
+                      <span className="material-symbols-outlined text-[12px]">tune</span>
+                      <span>Preset設定</span>
+                    </button>
+
+                    <button
+                      className={`toggle-btn ${speedMode === "TEMPORAL" ? "active" : ""}`}
+                      style={{
+                        padding: "2px 8px",
+                        height: "18px",
+                        fontSize: "10px",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "3px",
+                        fontWeight: 600,
+                        fontFamily: "var(--font-data)"
+                      }}
+                      onClick={() => updateSpeed(speedMode === "TEMPORAL" ? "COUNT" : "TEMPORAL", multiplier, tickStep)}
+                      title="再生モード切替 (Time Mode / Tick Mode)"
+                    >
+                      <span className="material-symbols-outlined text-[12px]">
+                        {speedMode === "TEMPORAL" ? "schedule" : "tag"}
+                      </span>
+                      <span>{speedMode === "TEMPORAL" ? "TIME MODE" : "TICK MODE"}</span>
+                    </button>
                   </div>
                 </div>
-                <div className="pro-panel-body" style={{ padding: "4px 8px" }}>
-                  <div className="timeline-wrapper">
-                    <div className="timeline-track">
-                      <svg
-                        style={{ width: "100%", height: "100%", position: "absolute", inset: 0 }}
-                        onMouseDown={handleTimelineMouseDown}
+
+                <div className="pro-panel-body transport-panel-body">
+                  {/* Playback Controls Group (Compact) */}
+                  <div className="transport-playback-group">
+                    <button className="pro-btn pro-btn-compact" onClick={() => handleStep(-1)} title="Previous Step">
+                      <span className="material-symbols-outlined text-[16px]">skip_previous</span>
+                    </button>
+                    <button
+                      className={`pro-btn pro-btn-compact-play pro-glow ${isPlaying ? "active-loop" : "primary"}`}
+                      onClick={handlePlayPause}
+                      title={isPlaying ? "Pause (Space)" : "Play (Space)"}
+                    >
+                      <span className="material-symbols-outlined text-[22px]">{isPlaying ? "pause" : "play_arrow"}</span>
+                    </button>
+                    <button className="pro-btn pro-btn-compact" onClick={() => handleStep(1)} title="Next Step">
+                      <span className="material-symbols-outlined text-[16px]">skip_next</span>
+                    </button>
+                  </div>
+
+                  <div className="transport-v-divider"></div>
+
+                  {/* Single Horizontal Speed Toolbar */}
+                  <div className="transport-speed-inline-bar">
+                    {/* Integrated Multi-tier Speed Stepper */}
+                    <div className="speed-precision-stepper">
+                      <button
+                        className="stepper-btn coarse"
+                        onClick={() => handleCoarseSpeed(false)}
+                        title="プリセット切り替え Down (左のプリセットへジャンプ)"
                       >
-                        {renderTimelineRects()}
+                        &lt;&lt;
+                      </button>
+                      <button
+                        className="stepper-btn medium"
+                        onClick={() => handleMediumSpeed(false)}
+                        title={speedMode === "TEMPORAL" ? "1.0刻み Down (-1.0x)" : "10刻み Down (-10T)"}
+                      >
+                        &lt;
+                      </button>
+                      <button
+                        className="stepper-btn fine"
+                        onClick={() => handleFineSpeed(false)}
+                        title={speedMode === "TEMPORAL" ? "0.1刻み Down (-0.1x)" : "1刻み Down (-1T)"}
+                      >
+                        -
+                      </button>
+                      <div className="stepper-display">
+                        <span className="stepper-value">
+                          {speedMode === "TEMPORAL" ? `${multiplier.toFixed(1)}x` : `${tickStep}T`}
+                        </span>
+                      </div>
+                      <button
+                        className="stepper-btn fine"
+                        onClick={() => handleFineSpeed(true)}
+                        title={speedMode === "TEMPORAL" ? "0.1刻み Up (+0.1x)" : "1刻み Up (+1T)"}
+                      >
+                        +
+                      </button>
+                      <button
+                        className="stepper-btn medium"
+                        onClick={() => handleMediumSpeed(true)}
+                        title={speedMode === "TEMPORAL" ? "1.0刻み Up (+1.0x)" : "10刻み Up (+10T)"}
+                      >
+                        &gt;
+                      </button>
+                      <button
+                        className="stepper-btn coarse"
+                        onClick={() => handleCoarseSpeed(true)}
+                        title="プリセット切り替え Up (右のプリセットへジャンプ)"
+                      >
+                        &gt;&gt;
+                      </button>
+                    </div>
+                  </div>
 
-                        {loopAIdx !== -1 && totalTicks > 0 && (
-                          <>
-                            <line
-                              x1={`${(loopAIdx / totalTicks) * 100}%`}
-                              y1="0"
-                              x2={`${(loopAIdx / totalTicks) * 100}%`}
-                              y2="100%"
-                              stroke="var(--primary-color)"
-                              strokeWidth="2"
-                              strokeDasharray="4,4"
-                            />
-                            {loopBIdx !== -1 && (
-                              <>
-                                <line
-                                  x1={`${(loopBIdx / totalTicks) * 100}%`}
-                                  y1="0"
-                                  x2={`${(loopBIdx / totalTicks) * 100}%`}
-                                  y2="100%"
-                                  stroke="var(--primary-color)"
-                                  strokeWidth="2"
-                                  strokeDasharray="4,4"
-                                />
-                                <rect
-                                  x={`${(loopAIdx / totalTicks) * 100}%`}
-                                  y="0"
-                                  width={`${((loopBIdx - loopAIdx) / totalTicks) * 100}%`}
-                                  height="100%"
-                                  fill="var(--primary-color)"
-                                  opacity="0.15"
-                                />
-                              </>
-                            )}
-                          </>
-                        )}
+                  <div className="transport-v-divider"></div>
 
-                        <line
-                          x1={`${progressPercent}%`}
-                          y1="0"
-                          x2={`${progressPercent}%`}
-                          y2="100%"
-                          stroke="var(--timeline-playhead, #ffffff)"
-                          strokeWidth="2"
-                        />
-                        <circle
-                          cx={`${progressPercent}%`}
-                          cy="50%"
-                          r="4"
-                          fill="var(--primary-color)"
-                          stroke="var(--timeline-playhead-border, #ffffff)"
-                          strokeWidth="1"
-                        />
-                      </svg>
+                  {/* Loop Controls Group */}
+                  <div className="transport-loop-group">
+                    <span className="loop-group-label">Loop {loopActive && "•"}</span>
+                    <div className="loop-btn-group">
+                      <button
+                        className={`pro-btn loop-btn ${loopA !== -1 ? "active-loop" : ""}`}
+                        onClick={handleSetLoopA}
+                        title="Set Loop Point A"
+                      >
+                        A
+                      </button>
+                      <button
+                        className="pro-btn loop-btn loop-clear-btn"
+                        onClick={handleClearLoop}
+                        title="Clear Loop Points"
+                      >
+                        <span className="material-symbols-outlined text-[12px]">sync_disabled</span>
+                      </button>
+                      <button
+                        className={`pro-btn loop-btn ${loopB !== -1 ? "active-loop" : ""}`}
+                        onClick={handleSetLoopB}
+                        title="Set Loop Point B"
+                      >
+                        B
+                      </button>
                     </div>
                   </div>
                 </div>
-              {/* Controls & Navigation Workspace */}
-              <div className="controls-workspace">
-                {/* Transport Panel */}
-                <div className="pro-panel">
-                    <div className="pro-panel-header" style={{ padding: "4px 8px 4px 12px", minWidth: 0, gap: "8px" }}>
-                      <h3 className="pro-panel-title" title="再生コントロール" style={{ flexShrink: 0, cursor: "pointer" }}>
-                        <span className="material-symbols-outlined icon-accent">play_circle</span>
-                      </h3>
 
-                      {/* Presets Pills Inline (Header Move) */}
-                      <div className="transport-presets-inline" style={{ flex: 1, justifyContent: "center" }}>
-                        {speedMode === "TEMPORAL" ? (
-                          timePresets.map((preset) => {
-                            const label = `${preset}x`;
-                            const isActive = Math.abs(preset - multiplier) < 0.01;
-                            return (
-                              <button
-                                key={preset}
-                                className={`preset-pill-btn ${isActive ? "active" : ""}`}
-                                onClick={() => updateSpeed("TEMPORAL", preset, tickStep)}
-                              >
-                                {label}
-                              </button>
-                            );
-                          })
-                        ) : (
-                          tickPresets.map((preset) => {
-                            const isActive = preset === tickStep;
-                            return (
-                              <button
-                                key={preset}
-                                className={`preset-pill-btn ${isActive ? "active" : ""}`}
-                                onClick={() => updateSpeed("COUNT", multiplier, preset)}
-                              >
-                                {preset}T
-                              </button>
-                            );
-                          })
-                        )}
-                      </div>
-
-                      <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
-                        <button
-                          className="toggle-btn"
-                          style={{ padding: "2px 6px", height: "18px", fontSize: "10px", display: "inline-flex", alignItems: "center", gap: "3px" }}
-                          onClick={() => {
-                            setEditingTimePresets([...timePresets]);
-                            setEditingTickPresets([...tickPresets]);
-                            setModalNewTimePreset("");
-                            setModalNewTickPreset("");
-                            setIsSpeedPresetsModalOpen(true);
-                          }}
-                          title="再生速度・スキップティックのプリセットを編集"
-                        >
-                          <span className="material-symbols-outlined text-[12px]">tune</span>
-                          <span>Preset設定</span>
-                        </button>
-
-                        <button
-                          className={`toggle-btn ${speedMode === "TEMPORAL" ? "active" : ""}`}
-                          style={{
-                            padding: "2px 8px",
-                            height: "18px",
-                            fontSize: "10px",
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "3px",
-                            fontWeight: 600,
-                            fontFamily: "var(--font-data)"
-                          }}
-                          onClick={() => updateSpeed(speedMode === "TEMPORAL" ? "COUNT" : "TEMPORAL", multiplier, tickStep)}
-                          title="再生モード切替 (Time Mode / Tick Mode)"
-                        >
-                          <span className="material-symbols-outlined text-[12px]">
-                            {speedMode === "TEMPORAL" ? "schedule" : "tag"}
-                          </span>
-                          <span>{speedMode === "TEMPORAL" ? "TIME MODE" : "TICK MODE"}</span>
-                        </button>
-                      </div>
-                    </div>
-                    <div className="pro-panel-body transport-panel-body">
-                      {/* Playback Controls Group (Compact) */}
-                      <div className="transport-playback-group">
-                        <button className="pro-btn pro-btn-compact" onClick={() => handleStep(-1)} title="Previous Step">
-                          <span className="material-symbols-outlined text-[16px]">skip_previous</span>
-                        </button>
-                        <button
-                          className={`pro-btn pro-btn-compact-play pro-glow ${isPlaying ? "active-loop" : "primary"}`}
-                          onClick={handlePlayPause}
-                          title={isPlaying ? "Pause (Space)" : "Play (Space)"}
-                        >
-                          <span className="material-symbols-outlined text-[22px]">{isPlaying ? "pause" : "play_arrow"}</span>
-                        </button>
-                        <button className="pro-btn pro-btn-compact" onClick={() => handleStep(1)} title="Next Step">
-                          <span className="material-symbols-outlined text-[16px]">skip_next</span>
-                        </button>
-                      </div>
-
-                      <div className="transport-v-divider"></div>
-
-                      {/* Single Horizontal Speed Toolbar */}
-                      <div className="transport-speed-inline-bar">
-                        {/* Integrated Multi-tier Speed Stepper */}
-                        <div className="speed-precision-stepper">
-                          <button
-                            className="stepper-btn coarse"
-                            onClick={() => handleCoarseSpeed(false)}
-                            title="プリセット切り替え Down (左のプリセットへジャンプ)"
-                          >
-                            &lt;&lt;
-                          </button>
-                          <button
-                            className="stepper-btn medium"
-                            onClick={() => handleMediumSpeed(false)}
-                            title={speedMode === "TEMPORAL" ? "1.0刻み Down (-1.0x)" : "10刻み Down (-10T)"}
-                          >
-                            &lt;
-                          </button>
-                          <button
-                            className="stepper-btn fine"
-                            onClick={() => handleFineSpeed(false)}
-                            title={speedMode === "TEMPORAL" ? "0.1刻み Down (-0.1x)" : "1刻み Down (-1T)"}
-                          >
-                            -
-                          </button>
-                          <div className="stepper-display">
-                            <span className="stepper-value">
-                              {speedMode === "TEMPORAL" ? `${multiplier.toFixed(1)}x` : `${tickStep}T`}
-                            </span>
-                          </div>
-                          <button
-                            className="stepper-btn fine"
-                            onClick={() => handleFineSpeed(true)}
-                            title={speedMode === "TEMPORAL" ? "0.1刻み Up (+0.1x)" : "1刻み Up (+1T)"}
-                          >
-                            +
-                          </button>
-                          <button
-                            className="stepper-btn medium"
-                            onClick={() => handleMediumSpeed(true)}
-                            title={speedMode === "TEMPORAL" ? "1.0刻み Up (+1.0x)" : "10刻み Up (+10T)"}
-                          >
-                            &gt;
-                          </button>
-                          <button
-                            className="stepper-btn coarse"
-                            onClick={() => handleCoarseSpeed(true)}
-                            title="プリセット切り替え Up (右のプリセットへジャンプ)"
-                          >
-                            &gt;&gt;
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="transport-v-divider"></div>
-
-                      {/* Loop Controls Group */}
-                      <div className="transport-loop-group">
-                        <span className="loop-group-label">Loop {loopActive && "•"}</span>
-                        <div className="loop-btn-group">
-                          <button
-                            className={`pro-btn loop-btn ${loopA !== -1 ? "active-loop" : ""}`}
-                            onClick={handleSetLoopA}
-                            title="Set Loop Point A"
-                          >
-                            A
-                          </button>
-                          <button
-                            className="pro-btn loop-btn loop-clear-btn"
-                            onClick={handleClearLoop}
-                            title="Clear Loop Points"
-                          >
-                            <span className="material-symbols-outlined text-[12px]">sync_disabled</span>
-                          </button>
-                          <button
-                            className={`pro-btn loop-btn ${loopB !== -1 ? "active-loop" : ""}`}
-                            onClick={handleSetLoopB}
-                            title="Set Loop Point B"
-                          >
-                            B
-                          </button>
-                        </div>
-                      </div>
-                    </div>
+                {/* Integrated Scrubber & Progress Bar */}
+                <div className="transport-scrubber-section">
+                  <div className="transport-scrubber-track-container">
+                    <input
+                      type="range"
+                      min={0}
+                      max={totalTicks > 0 ? totalTicks : 100}
+                      value={currentIdx}
+                      onMouseDown={() => { isDraggingRef.current = true; }}
+                      onTouchStart={() => { isDraggingRef.current = true; }}
+                      onMouseUp={() => { isDraggingRef.current = false; }}
+                      onTouchEnd={() => { isDraggingRef.current = false; }}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value);
+                        setCurrentIdx(val);
+                        sendSeekCommand(val);
+                      }}
+                      className="transport-scrubber-slider"
+                      title={`Tick: ${currentIdx.toLocaleString()} / ${totalTicks.toLocaleString()} (${progressPercent.toFixed(1)}%)`}
+                    />
                   </div>
+                  <div className="transport-scrubber-info">
+                    <div className="transport-scrubber-meta">
+                      <span className="transport-scrubber-tick">
+                        Tick: <strong>{currentIdx.toLocaleString()}</strong> / {totalTicks.toLocaleString()}
+                      </span>
+                      <span className="transport-scrubber-percent font-data">
+                        {progressPercent.toFixed(1)}%
+                      </span>
+                      {loopAIdx !== -1 && (
+                        <span className="transport-loop-badge font-data">
+                          Loop A: {loopAIdx.toLocaleString()} {loopBIdx !== -1 ? `| B: ${loopBIdx.toLocaleString()}` : ""}
+                        </span>
+                      )}
+                    </div>
+                    {currentSession && (
+                      <div className={`transport-session-badge ${currentSession.type.toLowerCase()}`}>
+                        <span className={`session-badge-dot ${currentSession.type.toLowerCase()}`}></span>
+                        <span>{currentSession.type === "TYO" ? "東京セッション (TYO)" : currentSession.type === "LDN" ? "ロンドンセッション (LDN)" : "NYセッション (NY)"}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
 
                   {/* Navigation Matrix Panel */}
                   <div className="pro-panel" style={{ flex: 1, minWidth: 0 }}>
@@ -4547,7 +4449,6 @@ function App() {
                     </div>
                   </div>
                 </div>
-              </div>
             </>
         )}
       </main>
