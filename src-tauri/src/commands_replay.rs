@@ -69,13 +69,6 @@ pub async fn get_last_status(state: State<'_, Arc<ReplayState>>) -> Result<Strin
 }
 
 #[tauri::command]
-pub async fn read_replay_news(
-    state: State<'_, Arc<ReplayState>>,
-) -> Result<String, AppError> {
-    crate::ipc::read_replay_news(&state).await
-}
-
-#[tauri::command]
 pub async fn sync_presets(
     time_presets: Vec<f64>,
     tick_presets: Vec<i32>,

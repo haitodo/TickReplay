@@ -2,7 +2,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
-use crate::error::AppError;
 use crate::state::ReplayState;
 
 pub const TRBI_MAGIC: u32 = 0x54524249; // "TRBI" ASCII
@@ -547,23 +546,3 @@ async fn process_status_message(
     }
 }
 
-// エクスポートされた経済指標データを読み込む (非同期・ロック極小化)
-pub async fn read_replay_news(state: &ReplayState) -> Result<String, AppError> {
-    let files_path = {
-        let path_guard = state.files_path.lock().unwrap();
-        path_guard.clone()
-    };
-
-    let Some(files_path) = files_path else {
-        return Err(AppError::Config("MT5 Files path not configured".to_string()));
-    };
-    
-    let news_file = files_path.join("replay_news.json");
-    if !news_file.exists() {
-        return Ok("[]".to_string());
-    }
-    
-    // I/O実行中はロックを完全に手放すことで、他のタスクをブロックしないようにする
-    let content = tokio::fs::read_to_string(&news_file).await?;
-    Ok(content)
-}

@@ -227,9 +227,6 @@ void JumpToSessionStart(string session, bool is_advance);
 void CalculateSessionBoundaries(string &out_tyo_json, string &out_ldn_json, string &out_ny_json);
 void UpdateReplayGeneration();
 
-string FormatCalendarValue(long value, int digits, ENUM_CALENDAR_EVENT_UNIT unit, string currency);
-string EscapeJsonString(string str);
-bool ExportCalendarHistory(datetime start_time, datetime end_time);
 
 //--- Named Pipe IPC用ヘルパー
 void ClosePipes();
@@ -1005,9 +1002,6 @@ void ProcessCommand(string line)
       
       // チャート生成 (Main / Sub 両対応)
       CreateMTFCharts(m_replay_symbol, m_replay_symbol_sub, m_enable_dual_feed);
-      
-      // 経済指標データをエクスポート (サーバー時間基準)
-      ExportCalendarHistory(m_server_start_time, m_server_end_time);
       
       m_initialized = true;
       UpdateReplayGeneration();
@@ -3773,119 +3767,6 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
 }
 
 //+------------------------------------------------------------------+
-//| 経済指標値を文字列にフォーマットする                             |
-//+------------------------------------------------------------------+
-string FormatCalendarValue(long value, int digits, ENUM_CALENDAR_EVENT_UNIT unit, string currency)
-{
-   // 未設定や無効値（LONG_MIN, LONG_MAX, 0等）のチェック
-   if(value == LONG_MAX || value == LONG_MIN || value == 0) return "-";
-   
-   double val = (double)value / 1000000.0;
-   string unit_str = "";
-   switch(unit)
-   {
-      case CALENDAR_UNIT_PERCENT: unit_str = "%"; break;
-      case CALENDAR_UNIT_CURRENCY: unit_str = " " + currency; break;
-      default: break;
-   }
-   return DoubleToString(val, digits) + unit_str;
-}
-
-//+------------------------------------------------------------------+
-//| JSON文字列用のエスケープ処理                                      |
-//+------------------------------------------------------------------+
-string EscapeJsonString(string str)
-{
-   StringReplace(str, "\\", "\\\\");
-   StringReplace(str, "\"", "\\\"");
-   StringReplace(str, "\n", "\\n");
-   StringReplace(str, "\r", "\\r");
-   StringReplace(str, "\t", "\\t");
-   return str;
-}
-
-//+------------------------------------------------------------------+
-//| 経済指標履歴の取得とJSON書き出し                                 |
-//+------------------------------------------------------------------+
-bool ExportCalendarHistory(datetime start_time, datetime end_time)
-{
-   MqlCalendarValue values[];
-   // MQL5の経済指標履歴を取得 (サーバー時間基準)
-   int total_values = CalendarValueHistory(values, start_time, end_time);
-   if(total_values < 0)
-   {
-      Print("[Warning] CalendarValueHistory が失敗しました。エラーコード: ", GetLastError());
-      return false;
-   }
-   
-   // JSON 文字列の構築
-   string json = "[\n";
-   int export_count = 0;
-   
-   for(int i = 0; i < total_values; i++)
-   {
-      MqlCalendarEvent event;
-      if(CalendarEventById(values[i].event_id, event))
-      {
-         // タイムスタンプをJSTに変換 (フロント表示用)
-         datetime event_jst = ConvertServerToJST(values[i].time);
-         string time_str = TimeToString(event_jst, TIME_DATE|TIME_SECONDS);
-         
-         // 通貨の取得 (MqlCalendarCountryから)
-         string currency_str = "";
-         MqlCalendarCountry country;
-         if(CalendarCountryById(event.country_id, country))
-         {
-            currency_str = country.currency;
-         }
-         
-         // 各値の文字列整形
-         string actual_str = FormatCalendarValue(values[i].actual_value, event.digits, event.unit, currency_str);
-         string forecast_str = FormatCalendarValue(values[i].forecast_value, event.digits, event.unit, currency_str);
-         string prev_str = FormatCalendarValue(values[i].prev_value, event.digits, event.unit, currency_str);
-         
-         string importance_str = "LOW";
-         if(event.importance == CALENDAR_IMPORTANCE_MODERATE) importance_str = "MEDIUM";
-         else if(event.importance == CALENDAR_IMPORTANCE_HIGH) importance_str = "HIGH";
-         
-         // JSONオブジェクトの作成
-         string item_json = StringFormat(
-            "  {\n"
-            "    \"id\": %d,\n"
-            "    \"time\": \"%s\",\n"
-            "    \"currency\": \"%s\",\n"
-            "    \"event\": \"%s\",\n"
-            "    \"importance\": \"%s\",\n"
-            "    \"actual\": \"%s\",\n"
-            "    \"forecast\": \"%s\",\n"
-            "    \"previous\": \"%s\"\n"
-            "  }",
-            values[i].id, time_str, currency_str, EscapeJsonString(event.name),
-            importance_str, actual_str, forecast_str, prev_str
-         );
-         
-         if(export_count > 0) json += ",\n";
-         json += item_json;
-         export_count++;
-      }
-   }
-   json += "\n]";
-   
-   // ファイル書き出し (FILE_ANSI と CP_UTF8 を指定して UTF-8 で出力)
-   int file_handle = FileOpen("replay_news.json", FILE_WRITE|FILE_TXT|FILE_ANSI, 0, CP_UTF8);
-   if(file_handle != INVALID_HANDLE)
-   {
-      FileWriteString(file_handle, json);
-      FileClose(file_handle);
-      Print("[Info] replay_news.json のエクスポートが完了しました。件数: ", export_count);
-      return true;
-   }
-   else
-   {
-      Print("[Error] replay_news.json の書き込みに失敗しました。エラーコード: ", GetLastError());
-      return false;
-   }
-}
 
 //+------------------------------------------------------------------+
 //| リプレイのタイムライン世代（TR_Gen）を更新                       |

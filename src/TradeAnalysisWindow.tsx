@@ -251,7 +251,7 @@ const THEME_PRESETS_LIGHT: Record<string, Partial<ThemePreset>> = {
 
 export const TradeAnalysisWindowContent: React.FC = () => {
   const [history, setHistory] = useState<any[]>([]);
-  const [newsItems, setNewsItems] = useState<any[]>([]);
+  const [newsItems] = useState<any[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<number | null>(null);
 
   // レスポンシブ (コンパクト画面対応) 状態
@@ -390,17 +390,6 @@ export const TradeAnalysisWindowContent: React.FC = () => {
       }
     });
 
-    // 2. 指標カレンダーの取得
-    invoke<string>("read_replay_news").then((newsStr) => {
-      try {
-        const parsed = JSON.parse(newsStr);
-        setNewsItems(parsed);
-      } catch (e) {
-        console.error("Failed to parse news", e);
-      }
-    }).catch((err) => {
-      console.error("Failed to read replay news:", err);
-    });
 
     // 3. リアルタイムステータスの受信リッスン
     let lastHistoryStr = "";

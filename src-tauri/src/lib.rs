@@ -171,7 +171,6 @@ pub fn run() {
             commands::save_settings,
             commands::load_settings,
             commands::sync_presets,
-            commands::read_replay_news,
             commands::save_session,
             commands::get_saved_sessions,
             commands::delete_session,

@@ -568,42 +568,14 @@ body {
   pointer-events: none;
 }
 
-/* Two Columns Layout Grid */
-.cols-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+/* Controls & Navigation Workspace */
+.controls-workspace {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
   flex: 1;
   min-height: 0;
   min-width: 0;
-}
-
-@media (max-width: 1024px) {
-  .main-workspace {
-    overflow-y: hidden;
-  }
-
-  .cols-grid {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto 1fr;
-    overflow: hidden;
-  }
-}
-
-.col-left {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-height: 0;
-  min-width: 500px;
-}
-
-.col-right {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-height: 0;
-  min-width: 260px;
 }
 
 /* Buttons System */
@@ -1257,110 +1229,6 @@ body {
   white-space: nowrap;
 }
 
-/* Economic Impact News Calendar */
-.news-table-container {
-  overflow-y: auto;
-  flex: 1;
-  padding-right: 2px;
-}
-
-.news-table {
-  width: 100%;
-  table-layout: fixed;
-  border-collapse: collapse;
-  text-align: left;
-}
-
-.news-th {
-  font-family: var(--font-ui);
-  font-size: 9px;
-  font-weight: 500;
-  text-transform: uppercase;
-  color: var(--on-surface-variant);
-  letter-spacing: 0.05em;
-  border-bottom: 1px solid var(--outline-variant);
-  padding: 4px 6px;
-}
-
-.news-tr {
-  font-family: var(--font-data);
-  font-size: 11px;
-  border-bottom: 1px solid rgba(40, 42, 47, 0.4);
-  transition: background-color 0.15s ease;
-}
-
-.news-tr:hover {
-  background-color: rgba(26, 27, 33, 0.4);
-}
-
-.news-tr.past {
-  opacity: 0.35;
-}
-
-.news-td {
-  padding: 4px 6px;
-}
-
-.news-time {
-  color: var(--on-surface-variant);
-}
-
-.news-tr.active-news .news-time {
-  color: var(--primary-color);
-  font-weight: 600;
-}
-
-.news-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  display: inline-block;
-}
-
-.news-dot.tyo {
-  background-color: var(--session-tyo);
-}
-
-.news-dot.ldn {
-  background-color: var(--session-ldn);
-}
-
-.news-dot.ny {
-  background-color: var(--session-ny);
-}
-
-.news-dot.warning {
-  background-color: var(--status-warning);
-}
-
-.news-tr.active-news .news-dot.ny {
-  box-shadow: 0 0 6px var(--session-ny);
-}
-
-.news-event {
-  color: var(--on-surface);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.news-tr.active-news .news-event {
-  color: #ffffff;
-  font-weight: 600;
-}
-
-.news-val {
-  text-align: left;
-  color: var(--on-surface-variant);
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.news-tr.active-news .news-val {
-  color: var(--status-danger);
-  font-weight: 700;
-}
-
 /* Type Badges (BUY/SELL) */
 .type-badge {
   font-family: var(--font-data);
@@ -1507,176 +1375,6 @@ html[data-theme="light"][data-order-color-style="red-green"] .type-badge.sell {
   background-color: rgba(26, 188, 156, 0.12);
   color: #48c9b0;
   border: 1px solid rgba(26, 188, 156, 0.25);
-}
-
-/* Importance Dot styling */
-.news-dot.very-high,
-.news-dot.high {
-  background-color: var(--status-danger, #e74c3c);
-  box-shadow: 0 0 6px rgba(231, 76, 60, 0.6);
-}
-
-.news-dot.medium {
-  background-color: var(--status-warning, #f39c12);
-  box-shadow: 0 0 4px rgba(243, 156, 18, 0.5);
-}
-
-.news-dot.low {
-  background-color: var(--on-surface-variant, #7f8c8d);
-}
-
-/* Values alignment inside table */
-.val-act {
-  color: var(--on-surface);
-  font-weight: 600;
-}
-
-.val-fore {
-  color: var(--on-surface-variant);
-}
-
-.val-prev {
-  color: var(--on-surface-variant);
-}
-
-.val-divider {
-  color: rgba(255, 255, 255, 0.15);
-  margin: 0 2px;
-}
-
-/* News table jump button */
-.news-jump-btn {
-  background: transparent;
-  border: none;
-  color: var(--on-surface-variant);
-  cursor: pointer;
-  padding: 2px;
-  border-radius: var(--radius-sm);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: var(--transition-fast);
-}
-
-.news-jump-btn:hover {
-  color: var(--primary-color);
-  background-color: rgba(var(--primary-rgb), 0.1);
-  transform: scale(1.1);
-}
-
-/* 経済指標リストの表示位置リセット（未到達指標への追従）ボタン */
-.news-scroll-reset-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  background: rgba(var(--primary-rgb), 0.12);
-  border: 1px solid rgba(var(--primary-rgb), 0.3);
-  color: var(--primary-color);
-  font-size: 10px;
-  font-weight: 500;
-  padding: 2px 7px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  user-select: none;
-}
-
-.news-scroll-reset-btn:hover:not(:disabled) {
-  background: rgba(var(--primary-rgb), 0.22);
-  border-color: var(--primary-color);
-  transform: translateY(-1px);
-}
-
-.news-scroll-reset-btn:active:not(:disabled) {
-  transform: translateY(0);
-}
-
-.news-scroll-reset-btn:disabled {
-  opacity: 0.45;
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.1);
-  color: var(--on-surface-variant);
-  cursor: default;
-  transform: none;
-  box-shadow: none;
-}
-
-
-.news-scroll-reset-btn:active {
-  transform: translateY(0);
-}
-
-
-/* News Settings Panel */
-.news-settings-container {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  height: 100%;
-}
-
-.news-settings-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--outline-variant);
-}
-
-.news-settings-info {
-  flex: 1;
-}
-
-.news-settings-actions {
-  display: flex;
-  gap: 8px;
-  align-self: center;
-}
-
-.news-filter-matrix-wrapper {
-  overflow-y: auto;
-  flex: 1;
-  max-height: 280px;
-  background-color: rgba(0, 0, 0, 0.2);
-  border: 1px solid var(--outline-variant);
-  border-radius: var(--radius-md);
-  padding: 4px;
-}
-
-.news-filter-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-family: var(--font-ui);
-  font-size: 11px;
-}
-
-.news-filter-table th {
-  padding: 6px 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  color: var(--on-surface-variant);
-  font-size: 9px;
-  letter-spacing: 0.05em;
-  border-bottom: 1px solid var(--outline-variant);
-}
-
-.news-filter-table td {
-  padding: 6px 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-}
-
-.news-filter-ccy {
-  font-weight: 700;
-  color: var(--on-surface);
-  font-family: var(--font-data);
-}
-
-.news-filter-table input[type="checkbox"] {
-  accent-color: var(--primary-color);
-  cursor: pointer;
-  width: 14px;
-  height: 14px;
 }
 
 .setup-panel {
@@ -4382,14 +4080,6 @@ html[data-theme="light"] .preset-badge {
   color: var(--on-surface) !important;
 }
 
-html[data-theme="light"] .news-filter-matrix-wrapper {
-  background-color: rgba(241, 245, 249, 0.5) !important;
-}
-
-html[data-theme="light"] .news-filter-table td {
-  border-bottom: 1px solid var(--outline-variant) !important;
-}
-
 html[data-theme="light"] .picker-btn-grid {
   background: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%) !important;
   border: 1px solid var(--outline-variant) !important;
@@ -4518,10 +4208,6 @@ html[data-theme="light"] .btn-primary-tactile:active {
 html[data-theme="light"] .remote-timeline-track-bg {
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05) !important;
   background-color: #e2e8f0 !important;
-}
-
-html[data-theme="light"] .news-tr:hover {
-  background-color: rgba(0, 0, 0, 0.02) !important;
 }
 
 /* Light Theme - Comprehensive Button & Control Element Polish (Glass OFF & ON Base) */
@@ -7154,28 +6840,6 @@ html[data-theme="light"] .holding-time-val {
   padding: 14px 20px;
   border-top: 1px solid var(--outline-variant, rgba(255, 255, 255, 0.08));
   background: rgba(0, 0, 0, 0.2);
-}
-
-/* 経済指標行のAIボタン */
-.news-ai-btn {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: var(--on-surface-variant);
-  border-radius: 4px;
-  width: 22px;
-  height: 22px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  margin-left: 4px;
-}
-
-.news-ai-btn:hover {
-  background: rgba(var(--primary-rgb, 59, 130, 246), 0.2);
-  border-color: var(--primary-color);
-  color: var(--primary-color);
 }
 
 /* API Key Test UI Styles */

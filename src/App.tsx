@@ -25,7 +25,6 @@ import {
   formatJstTime,
   formatServerTime,
   convertServerStrToJstStr as convertServerToJstStr,
-  convertJstStrToServerStr,
   getNewsTimeForDisplay
 } from "./utils/timeUtils";
 import {
@@ -44,15 +43,9 @@ import {
   MaxBarsInfo
 } from "./utils/hotkeyUtils";
 import { THEME_PRESETS } from "./constants/themePresets";
-import {
-  DEFAULT_NEWS_FILTERS,
-  TerminalInfo,
-  ReplayNewsItem,
-  NewsFilters
-} from "./constants/newsFilters";
+import { TerminalInfo } from "./types/terminal";
 import { translateErrorMessage } from "./utils/i18nUtils";
 import { organizeSessions } from "./domain/sessionBoundaries";
-import { isEventFiltered as checkEventFiltered } from "./domain/newsFilterLogic";
 
 
 
@@ -331,8 +324,6 @@ function App() {
   const [tickHistoryTimeframe, setTickHistoryTimeframe] = useState("M5");
   const [maxHistoryBars, setMaxHistoryBars] = useState(300);
   const [autoScrollSync, setAutoScrollSync] = useState(true);
-  const [newsAutoScroll, setNewsAutoScroll] = useState(true);
-  const [isNewsScrolledToTarget, setIsNewsScrolledToTarget] = useState(true);
   const [autoSkipWeekend, setAutoSkipWeekend] = useState(true);
   const [preloadMode, setPreloadMode] = useState<"BARS" | "DATE">("BARS");
   const [preloadDate, setPreloadDate] = useState("2026-01-01 00:00:00");
@@ -390,7 +381,7 @@ function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isResetReplayConfirmOpen, setIsResetReplayConfirmOpen] = useState(false);
   const [isResetTradingConfirmOpen, setIsResetTradingConfirmOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"general" | "hotkeys" | "news" | "theme" | "ai">("general");
+  const [activeTab, setActiveTab] = useState<"general" | "hotkeys" | "theme" | "ai">("general");
 
   // タイムステップカスタマイズ State
   const [timeSteps, setTimeSteps] = useState<TimeStepItem[]>(() => {
@@ -518,16 +509,9 @@ function App() {
     () => (localStorage.getItem("speed-order-holding-time-mode") as "pc" | "server") || "pc"
   );
 
-  // 経済指標用状態
-  const [newsFilters, setNewsFilters] = useState<NewsFilters>(DEFAULT_NEWS_FILTERS);
-  const [newsItems, setNewsItems] = useState<ReplayNewsItem[]>([]);
-  const hasLoadedNewsRef = useRef(false);
-
   const throttledSeekRef = useRef<number | null>(null);
   const isDraggingRef = useRef(false);
   const savedConfig = useRef<any>(null); // 保存された設定キャッシュ用のRef
-  const newsContainerRef = useRef<HTMLDivElement>(null);
-  const lastScrolledEventKeyRef = useRef<string>("");
 
   const handlersRef = useRef<any>(null);
 
@@ -560,8 +544,6 @@ function App() {
           if (data.tick_step !== undefined) setTickStep((prev) => prev !== data.tick_step ? data.tick_step : prev);
         }
         setErrorMessage((prev) => prev !== "" ? "" : prev);
-        hasLoadedNewsRef.current = false;
-        loadReplayNews();
         if (data.account) {
           setAccount((prev: any) => {
             if (JSON.stringify(prev) === JSON.stringify(data.account)) return prev;
@@ -770,9 +752,6 @@ function App() {
           setLoopAIdx((prev) => prev !== (data.loop.a_idx !== undefined ? data.loop.a_idx : -1) ? (data.loop.a_idx !== undefined ? data.loop.a_idx : -1) : prev);
           setLoopBIdx((prev) => prev !== (data.loop.b_idx !== undefined ? data.loop.b_idx : -1) ? (data.loop.b_idx !== undefined ? data.loop.b_idx : -1) : prev);
         }
-        if (!hasLoadedNewsRef.current) {
-          loadReplayNews();
-        }
         if (data.account) {
           setAccount((prev: any) => {
             if (JSON.stringify(prev) === JSON.stringify(data.account)) return prev;
@@ -828,8 +807,6 @@ function App() {
         setLoopB((prev) => prev !== -1 ? -1 : prev);
         setLoopAIdx((prev) => prev !== -1 ? -1 : prev);
         setLoopBIdx((prev) => prev !== -1 ? -1 : prev);
-        hasLoadedNewsRef.current = false;
-        setNewsItems((prev) => prev.length > 0 ? [] : prev);
         setAccount((prev: any) => prev !== null ? null : prev);
         setPositions((prev) => prev.length > 0 ? [] : prev);
         setHistory((prev) => prev.length > 0 ? [] : prev);
@@ -1042,9 +1019,6 @@ function App() {
           if (saved.max_history_bars !== undefined && saved.max_history_bars !== null) {
             setMaxHistoryBars(saved.max_history_bars);
           }
-          if (saved.news_auto_scroll !== undefined && saved.news_auto_scroll !== null) {
-            setNewsAutoScroll(saved.news_auto_scroll);
-          }
           if (saved.preload_mode) setPreloadMode(saved.preload_mode as "BARS" | "DATE");
           if (saved.preload_date) setPreloadDate(saved.preload_date);
           if (saved.preload_timeframe) setPreloadTimeframe(saved.preload_timeframe);
@@ -1060,9 +1034,6 @@ function App() {
           if (saved.tick_presets) {
             setTickPresets(saved.tick_presets);
             loadedTickPresets = saved.tick_presets;
-          }
-          if (saved.news_filters) {
-            setNewsFilters(saved.news_filters);
           }
           if (saved.glass_effect !== undefined && saved.glass_effect !== null) {
             setGlassEffect(saved.glass_effect);
@@ -1280,10 +1251,8 @@ function App() {
     hotkeys,
     timePresets,
     tickPresets,
-    newsFilters,
     glassEffect,
     themeMode,
-    newsAutoScroll,
     alwaysOnTop,
     isShortcutsActive,
     limitTickHistory,
@@ -1317,10 +1286,8 @@ function App() {
     customHotkeys = hotkeys,
     customTimePresets = timePresets,
     customTickPresets = tickPresets,
-    customNewsFilters = newsFilters,
     customGlassEffect = glassEffect,
     customThemeMode = themeMode,
-    customNewsAutoScroll = newsAutoScroll,
     customAlwaysOnTop = alwaysOnTop,
     customIsShortcutsActive = isShortcutsActive,
     customAutoScrollSync = autoScrollSync,
@@ -1361,10 +1328,8 @@ function App() {
       hotkeys: customHotkeys,
       time_presets: customTimePresets,
       tick_presets: customTickPresets,
-      news_filters: customNewsFilters,
       glass_effect: customGlassEffect,
       theme_mode: customThemeMode,
-      news_auto_scroll: customNewsAutoScroll,
       always_on_top: customAlwaysOnTop,
       is_shortcuts_active: customIsShortcutsActive,
       timezone_mode: customTimezoneMode,
@@ -1532,7 +1497,6 @@ function App() {
     setStartTime("2026-05-01 00:00:00");
     setEndTime("2026-05-02 00:00:00");
     setAutoScrollSync(true);
-    setNewsAutoScroll(true);
     setAutoSkipWeekend(true);
     setPreloadDate("2026-01-01 00:00:00");
   };
@@ -2066,10 +2030,8 @@ function App() {
       hotkeys,
       timePresets,
       tickPresets,
-      newsFilters,
       glassEffect,
       themeMode,
-      newsAutoScroll,
       alwaysOnTop,
       isShortcutsActive,
       autoScrollSync,
@@ -2566,169 +2528,6 @@ function App() {
   };
 
 
-  const isEventFiltered = (item: ReplayNewsItem) => checkEventFiltered(item, newsFilters);
-
-  const handleNewsJump = async (eventTimeJst: string) => {
-    try {
-      const serverTimeStr = convertJstStrToServerStr(eventTimeJst);
-      const serverTimeMsc = parseTimeStrToUtcMs(serverTimeStr);
-      if (!isNaN(serverTimeMsc) && serverTimeMsc > 0) {
-        await sendCommand({
-          command: "SEEK_TIME",
-          target_time: serverTimeStr,
-          target_time_msc: serverTimeMsc
-        });
-      }
-    } catch (e) {
-      console.error("Failed to jump to event time", e);
-    }
-  };
-
-  const loadReplayNews = async () => {
-    try {
-      const res = await invoke<string>("read_replay_news");
-      const parsed = JSON.parse(res);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        // MT5から出力されたピリオド区切りの日付（例: 2026.05.01）をフロントエンドで一貫して比較できるようにハイフン区切り（例: 2026-05-01）に変換
-        const formatted = parsed.map((item: any) => ({
-          ...item,
-          time: item.time ? item.time.replace(/\./g, "-") : ""
-        }));
-        setNewsItems(formatted);
-        // 指標データが1件以上ロードされた場合のみロード済みフラグを立てる
-        hasLoadedNewsRef.current = true;
-      } else {
-        setNewsItems([]);
-        // 0件の場合はロード完了フラグを立てず、次回ステータス更新時にリトライできるようにする
-      }
-    } catch (e) {
-      console.error("Failed to load replay news", e);
-      setNewsItems([]);
-    }
-  };
-
-  const currentDisplayDateStr = timezoneMode === "JST"
-    ? formatJstTime(virtualTimeMsc).substring(0, 10)
-    : formatServerTime(virtualTimeMsc).substring(0, 10);
-
-  const getDisplayNewsTimeStr = (item: ReplayNewsItem) => {
-    return getNewsTimeForDisplay(item.time, timezoneMode);
-  };
-
-  const filteredDailyNews = newsItems.filter(item => {
-    const displayTimeStr = getDisplayNewsTimeStr(item);
-    return displayTimeStr.startsWith(currentDisplayDateStr) && isEventFiltered(item);
-  });
-
-  // 経済指標リストの自動スクロール制御
-  useEffect(() => {
-    if (!newsAutoScroll) {
-      lastScrolledEventKeyRef.current = "";
-    }
-  }, [newsAutoScroll]);
-
-  // これから発生する最初の「未到達の経済指標」のインデックスを取得
-  const getUpcomingNewsTargetIdx = useCallback(() => {
-    if (filteredDailyNews.length === 0) return -1;
-
-    const currentCompareMsc = timezoneMode === "JST"
-      ? virtualTimeMsc + getServerToJstOffsetHours(virtualTimeMsc) * 3600 * 1000
-      : virtualTimeMsc;
-
-    // 1. これから発生する最初の未到達指標（eventMsc > currentCompareMsc）をターゲットにする
-    let targetIdx = -1;
-    for (let i = 0; i < filteredDailyNews.length; i++) {
-      const item = filteredDailyNews[i];
-      const displayTimeStr = getDisplayNewsTimeStr(item);
-      const eventMsc = parseTimeStrToUtcMs(displayTimeStr);
-      if (!isNaN(eventMsc) && eventMsc > currentCompareMsc) {
-        targetIdx = i;
-        break;
-      }
-    }
-
-    // 2. すべて過去の指標である場合のみ、最後の指標をターゲットにする
-    if (targetIdx === -1 && filteredDailyNews.length > 0) {
-      targetIdx = filteredDailyNews.length - 1;
-    }
-
-    return targetIdx;
-  }, [filteredDailyNews, timezoneMode, virtualTimeMsc, getDisplayNewsTimeStr]);
-
-
-  // 手動スクロール検知ハンドラー
-  const handleNewsContainerScroll = useCallback(() => {
-    const container = newsContainerRef.current;
-    if (!container || filteredDailyNews.length === 0) return;
-    const targetIdx = getUpcomingNewsTargetIdx();
-    if (targetIdx === -1) return;
-
-    const rows = container.querySelectorAll("tbody tr");
-    const targetRow = rows[targetIdx] as HTMLElement;
-    if (!targetRow) return;
-
-    const containerRect = container.getBoundingClientRect();
-    const rowRect = targetRow.getBoundingClientRect();
-    const relativeOffsetTop = rowRect.top - containerRect.top + container.scrollTop;
-    const rowHeight = targetRow.clientHeight || 28;
-
-    // ターゲット指標がコンテナの上から3行目付近に位置する目標スクロールTop
-    const expectedTop = Math.max(0, relativeOffsetTop - rowHeight * 2);
-
-    const isAligned = Math.abs(container.scrollTop - expectedTop) <= 25;
-    setIsNewsScrolledToTarget(isAligned);
-  }, [filteredDailyNews, getUpcomingNewsTargetIdx]);
-
-  // 指定インデックスの経済指標行へスムーズスクロール（上から3行目に配置）
-  const scrollToNewsRowByIndex = useCallback((targetIdx: number, force: boolean = false) => {
-    if (targetIdx < 0 || targetIdx >= filteredDailyNews.length) return;
-    const targetItem = filteredDailyNews[targetIdx];
-    const targetKey = `${targetItem.time}_${targetItem.event}`;
-
-    if (force || lastScrolledEventKeyRef.current !== targetKey) {
-      lastScrolledEventKeyRef.current = targetKey;
-      const container = newsContainerRef.current;
-      if (container) {
-        const rows = container.querySelectorAll("tbody tr");
-        const targetRow = rows[targetIdx] as HTMLElement;
-        if (targetRow) {
-          const containerRect = container.getBoundingClientRect();
-          const rowRect = targetRow.getBoundingClientRect();
-          const relativeOffsetTop = rowRect.top - containerRect.top + container.scrollTop;
-          const rowHeight = targetRow.clientHeight || 28;
-
-          // ターゲット指標がコンテナの上から3行目付近に来るようにスクロール
-          const targetTop = Math.max(0, relativeOffsetTop - rowHeight * 2);
-
-          container.scrollTo({
-            top: targetTop,
-            behavior: "smooth",
-          });
-          setIsNewsScrolledToTarget(true);
-        }
-      }
-    }
-  }, [filteredDailyNews]);
-
-
-  // ヘッダーの「次の指標へ」ボタン操作ハンドラー
-  const handleScrollToNextUpcomingNews = () => {
-    const targetIdx = getUpcomingNewsTargetIdx();
-    if (targetIdx !== -1) {
-      scrollToNewsRowByIndex(targetIdx, true);
-      setIsNewsScrolledToTarget(true);
-    }
-  };
-
-  useEffect(() => {
-    if (!newsAutoScroll || filteredDailyNews.length === 0) return;
-    const targetIdx = getUpcomingNewsTargetIdx();
-    if (targetIdx !== -1) {
-      scrollToNewsRowByIndex(targetIdx, false);
-    }
-  }, [virtualTimeMsc, filteredDailyNews, newsAutoScroll, getUpcomingNewsTargetIdx, scrollToNewsRowByIndex]);
-
-
 
   // --- 6. レンダリング
 
@@ -3158,7 +2957,7 @@ function App() {
                   onClick={() => {
                     const nextMode = themeMode === "dark" ? "light" : "dark";
                     setThemeMode(nextMode);
-                    saveAllSettings(hotkeys, timePresets, tickPresets, newsFilters, glassEffect, nextMode);
+                    saveAllSettings(hotkeys, timePresets, tickPresets, glassEffect, nextMode);
                   }}
                   title={themeMode === "dark" ? "ライトモードに切り替え" : "ダークモードに切り替え"}
                 >
@@ -3876,20 +3675,6 @@ function App() {
                             />
                           </span>
                         </label>
-                        <label className="setup-checkbox-item">
-                          <input
-                            type="checkbox"
-                            checked={newsAutoScroll}
-                            onChange={(e) => setNewsAutoScroll(e.target.checked)}
-                          />
-                          <span className="setup-checkbox-label" style={{ display: "inline-flex", alignItems: "center" }}>
-                            指標ニュースの自動スクロール
-                            <HelpTooltip
-                              title="指標ニュースの自動スクロール"
-                              content="リプレイ中の現在時刻の進行に合わせて、画面下の経済指標カレンダーを該当ニュースの位置へ自動スクロールします。"
-                            />
-                          </span>
-                        </label>
                       </div>
                     </div>
                   </div>
@@ -4481,14 +4266,10 @@ function App() {
                     </div>
                   </div>
                 </div>
-              </div>
-
-              {/* Columns Grid */}
-              <div className="cols-grid">
-                {/* Left Column: Transport & Jump Matrix */}
-                <div className="col-left">
-                  {/* Transport Panel */}
-                  <div className="pro-panel">
+              {/* Controls & Navigation Workspace */}
+              <div className="controls-workspace">
+                {/* Transport Panel */}
+                <div className="pro-panel">
                     <div className="pro-panel-header" style={{ padding: "4px 8px 4px 12px", minWidth: 0, gap: "8px" }}>
                       <h3 className="pro-panel-title" title="再生コントロール" style={{ flexShrink: 0, cursor: "pointer" }}>
                         <span className="material-symbols-outlined icon-accent">play_circle</span>
@@ -4774,162 +4555,6 @@ function App() {
                     </div>
                   </div>
                 </div>
-
-                {/* Right Column: Economic Impact Calendar */}
-                <div className="col-right">
-                  <div className="pro-panel" style={{ flex: 1 }}>
-                    <div className="pro-panel-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <h3 className="pro-panel-title" title="経済指標リスト" style={{ cursor: "pointer" }}>
-                        <span className="material-symbols-outlined icon-accent">monitoring</span>
-                        <span>経済指標</span>
-                      </h3>
-                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                        <button
-                          className="news-scroll-reset-btn"
-                          onClick={handleScrollToNextUpcomingNews}
-                          disabled={isNewsScrolledToTarget}
-                          title={isNewsScrolledToTarget ? "既に次の未到達指標（追従位置）に固定されています" : "クリックして次の未到達指標の位置へ戻し、追従を復帰します"}
-                        >
-                          <span className="material-symbols-outlined text-[13px]">
-                            {isNewsScrolledToTarget ? "check" : "my_location"}
-                          </span>
-                          <span>{isNewsScrolledToTarget ? "追従中" : "次の指標へ"}</span>
-                        </button>
-                        {newsAutoScroll && (
-                          <span className="font-data" style={{ fontSize: "9px", color: "var(--primary-color)", backgroundColor: "rgba(var(--primary-rgb), 0.1)", padding: "2px 6px", borderRadius: "2px" }}>
-                            同期中
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="pro-panel-body" style={{ flex: 1 }}>
-                      <div ref={newsContainerRef} className="news-table-container" onScroll={handleNewsContainerScroll}>
-                        <table className="news-table">
-                          <thead>
-                            <tr>
-                              <th className="news-th" style={{ width: "45px" }}>時間</th>
-                              <th className="news-th" style={{ width: "35px" }}>通貨</th>
-                              <th className="news-th" style={{ width: "26px", textAlign: "center" }} title="重要度 (Impact)">Imp</th>
-                              <th className="news-th">指標名</th>
-                              <th className="news-th" style={{ width: "130px", textAlign: "left" }}>数値 (結果/予想/前回)</th>
-                              <th className="news-th" style={{ width: "60px", textAlign: "center" }}>操作</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {filteredDailyNews.map((item, idx) => {
-                              const displayTimeStr = getDisplayNewsTimeStr(item);
-                              const eventMsc = parseTimeStrToUtcMs(displayTimeStr);
-                              const eventServerMsc = parseTimeStrToUtcMs(convertJstStrToServerStr(item.time));
-
-                              const currentCompareMsc = timezoneMode === "JST"
-                                ? virtualTimeMsc + getServerToJstOffsetHours(virtualTimeMsc) * 3600 * 1000
-                                : virtualTimeMsc;
-
-                              const isPast = !isNaN(eventMsc) && currentCompareMsc >= eventMsc;
-                              const isActive = !isNaN(eventMsc) && Math.abs(currentCompareMsc - eventMsc) <= 15 * 60 * 1000;
-
-                              // 重要度ドットクラス
-                              const impClass = item.importance.toLowerCase().replace("_", "-");
-
-                              // 表示する時間のフォーマット (HH:mm)
-                              const displayTime = displayTimeStr.substring(11, 16);
-
-                              // 任意の文字列から数値部分と単位部分（%, 通貨, Points, $, 件など）を動的に分離・判別する関数
-                              const parseValueAndUnit = (rawStr: string | undefined | null) => {
-                                if (!rawStr || rawStr === "-") {
-                                  return { num: "-", unit: "" };
-                                }
-                                const s = rawStr.trim();
-                                // 先頭が数値パターンの場合
-                                const match = s.match(/^([+-]?(?:[\d,]+(?:\.\d+)?|\.\d+)[KMBTkmbt]?)(.*)$/);
-                                if (match) {
-                                  return { num: match[1].trim() || "-", unit: match[2].trim() };
-                                }
-                                // 先頭が単位パターンの場合 (例: "$150", "¥10,000")
-                                const matchPrefix = s.match(/^([^\d+-]+)([+-]?(?:[\d,]+(?:\.\d+)?|\.\d+)[KMBTkmbt]?)$/);
-                                if (matchPrefix) {
-                                  return { num: matchPrefix[2].trim(), unit: matchPrefix[1].trim() };
-                                }
-                                return { num: s, unit: "" };
-                              };
-
-                              const actParsed = parseValueAndUnit(item.actual);
-                              const foreParsed = parseValueAndUnit(item.forecast);
-                              const prevParsed = parseValueAndUnit(item.previous);
-
-                              const actClean = actParsed.num;
-                              const foreClean = foreParsed.num;
-                              const prevClean = prevParsed.num;
-
-                              // 検出された単位の自動集約
-                              const detectedUnit = actParsed.unit || foreParsed.unit || prevParsed.unit || item.currency || "";
-
-                              const formatValWithUnit = (parsed: { num: string; unit: string }) => {
-                                if (parsed.num === "-") return "-";
-                                const u = parsed.unit || detectedUnit;
-                                if (!u) return parsed.num;
-                                return u === "%" ? `${parsed.num}%` : `${parsed.num} ${u}`;
-                              };
-
-                              const actWithUnit = formatValWithUnit(actParsed);
-                              const foreWithUnit = formatValWithUnit(foreParsed);
-                              const prevWithUnit = formatValWithUnit(prevParsed);
-
-                              // どの要素にフォーカスしてもACT/FOR/PREの全詳細が確認できる統一ツールチップ
-                              const fullValTooltip = `【指標結果詳細 (単位: ${detectedUnit || "なし"})】\n・結果 (ACT): ${actWithUnit}\n・予想 (FOR): ${foreWithUnit}\n・前回 (PRE): ${prevWithUnit}`;
-
-                              return (
-                                <tr key={idx} className={`news-tr ${isPast ? "past" : ""} ${isActive ? "active-news" : ""}`}>
-                                  <td className="news-td news-time">{displayTime}</td>
-                                  <td className="news-td news-ccy">
-                                    <span className={`ccy-badge ${item.currency.toLowerCase()}`}>{item.currency}</span>
-                                  </td>
-                                  <td className="news-td">
-                                    <span className={`news-dot ${impClass}`} title={`Importance: ${item.importance}`}></span>
-                                  </td>
-                                  <td className="news-td news-event" title={item.event}>{item.event}</td>
-                                  <td className="news-td news-val" style={{ whiteSpace: "nowrap" }} title={fullValTooltip}>
-                                    <span className="val-act" title={fullValTooltip}>{actClean}</span>
-                                    <span className="val-divider">/</span>
-                                    <span className="val-fore" title={fullValTooltip}>{foreClean}</span>
-                                    <span className="val-divider">/</span>
-                                    <span className="val-prev" title={fullValTooltip}>{prevClean}</span>
-                                  </td>
-                                  <td className="news-td" style={{ textAlign: "center", whiteSpace: "nowrap" }}>
-                                    <button
-                                      className="news-jump-btn"
-                                      onClick={() => handleNewsJump(item.time)}
-                                      title={`${item.time} に時間ジャンプ`}
-                                    >
-                                      <span className="material-symbols-outlined text-[14px]">location_searching</span>
-                                    </button>
-                                    <button
-                                      className="news-ai-btn"
-                                      onClick={() => {
-                                        setAiTargetTimeMsc(eventServerMsc);
-                                        setIsAIPanelOpen(true);
-                                      }}
-                                      title={`${item.event} 時刻の要因をAI解析`}
-                                    >
-                                      <span className="material-symbols-outlined text-[14px]">auto_awesome</span>
-                                    </button>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                            {filteredDailyNews.length === 0 && (
-                              <tr>
-                                <td colSpan={6} style={{ textAlign: "center", color: "var(--on-surface-variant)", padding: "16px 0", fontSize: "11px" }}>
-                                  {newsItems.length === 0 ? "指標データがロードされていません。" : "表示対象の指標はありません（日付またはフィルター設定）"}
-                                </td>
-                              </tr>
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  </div>
-                </div>
               </div>
             </>
           )
@@ -4980,13 +4605,6 @@ function App() {
               >
                 <span className="material-symbols-outlined tab-icon">keyboard</span>
                 ショートカット
-              </button>
-              <button
-                className={`modal-tab-btn ${activeTab === "news" ? "active" : ""}`}
-                onClick={() => setActiveTab("news")}
-              >
-                <span className="material-symbols-outlined tab-icon">newspaper</span>
-                経済指標
               </button>
               <button
                 className={`modal-tab-btn ${activeTab === "theme" ? "active" : ""}`}
@@ -5195,19 +4813,6 @@ function App() {
                       <label className="checkbox-group">
                         <input
                           type="checkbox"
-                          checked={newsAutoScroll}
-                          onChange={(e) => {
-                            const val = e.target.checked;
-                            setNewsAutoScroll(val);
-                            saveAllSettings(hotkeys, timePresets, tickPresets, newsFilters, glassEffect, themeMode, val);
-                          }}
-                        />
-                        <span className="form-label" style={{ textTransform: "none", cursor: "pointer" }}>経済指標リストの自動スクロールを有効にする</span>
-                      </label>
-
-                      <label className="checkbox-group">
-                        <input
-                          type="checkbox"
                           checked={autoSkipWeekend}
                           onChange={(e) => handleAutoSkipWeekendToggle(e.target.checked)}
                         />
@@ -5315,137 +4920,6 @@ function App() {
                 </>
               )}
 
-              {activeTab === "news" && (
-                <div className="news-settings-container">
-                  <div className="news-settings-header">
-                    <div className="news-settings-info">
-                      <h4 className="settings-section-title" style={{ margin: 0, border: "none" }}>Economic Indicators Filter</h4>
-                      <p className="settings-info-text">
-                        取得・表示する経済指標の通貨と重要度（インパクト）を選択します。
-                      </p>
-                    </div>
-                    <div className="news-settings-actions">
-                      <button
-                        className="pro-btn"
-                        onClick={() => {
-                          setNewsFilters(DEFAULT_NEWS_FILTERS);
-                          saveAllSettings(hotkeys, timePresets, tickPresets, DEFAULT_NEWS_FILTERS);
-                        }}
-                      >
-                        <span className="material-symbols-outlined text-[12px]">restart_alt</span>
-                        Default
-                      </button>
-                      <button
-                        className="pro-btn"
-                        onClick={() => {
-                          const allChecked: NewsFilters = {};
-                          Object.keys(newsFilters).forEach(key => {
-                            allChecked[key] = { low: true, medium: true, high: true, veryHigh: true };
-                          });
-                          setNewsFilters(allChecked);
-                          saveAllSettings(hotkeys, timePresets, tickPresets, allChecked);
-                        }}
-                      >
-                        Check All
-                      </button>
-                      <button
-                        className="pro-btn danger"
-                        onClick={() => {
-                          const allCleared: NewsFilters = {};
-                          Object.keys(newsFilters).forEach(key => {
-                            allCleared[key] = { low: false, medium: false, high: false, veryHigh: false };
-                          });
-                          setNewsFilters(allCleared);
-                          saveAllSettings(hotkeys, timePresets, tickPresets, allCleared);
-                        }}
-                      >
-                        Clear All
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="news-filter-matrix-wrapper">
-                    <table className="news-filter-table">
-                      <thead>
-                        <tr>
-                          <th>Currency</th>
-                          <th style={{ textAlign: "center", width: "70px" }}>LOW</th>
-                          <th style={{ textAlign: "center", width: "70px" }}>MEDIUM</th>
-                          <th style={{ textAlign: "center", width: "70px" }}>HIGH</th>
-                          <th style={{ textAlign: "center", width: "70px" }}>VERY HIGH</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {Object.keys(newsFilters).map((ccy) => {
-                          const filter = newsFilters[ccy];
-                          return (
-                            <tr key={ccy}>
-                              <td className="news-filter-ccy">{ccy === "OTHERS" ? "Others" : ccy}</td>
-                              <td style={{ textAlign: "center" }}>
-                                <input
-                                  type="checkbox"
-                                  checked={filter.low}
-                                  onChange={(e) => {
-                                    const updated = {
-                                      ...newsFilters,
-                                      [ccy]: { ...filter, low: e.target.checked }
-                                    };
-                                    setNewsFilters(updated);
-                                    saveAllSettings(hotkeys, timePresets, tickPresets, updated);
-                                  }}
-                                />
-                              </td>
-                              <td style={{ textAlign: "center" }}>
-                                <input
-                                  type="checkbox"
-                                  checked={filter.medium}
-                                  onChange={(e) => {
-                                    const updated = {
-                                      ...newsFilters,
-                                      [ccy]: { ...filter, medium: e.target.checked }
-                                    };
-                                    setNewsFilters(updated);
-                                    saveAllSettings(hotkeys, timePresets, tickPresets, updated);
-                                  }}
-                                />
-                              </td>
-                              <td style={{ textAlign: "center" }}>
-                                <input
-                                  type="checkbox"
-                                  checked={filter.high}
-                                  onChange={(e) => {
-                                    const updated = {
-                                      ...newsFilters,
-                                      [ccy]: { ...filter, high: e.target.checked }
-                                    };
-                                    setNewsFilters(updated);
-                                    saveAllSettings(hotkeys, timePresets, tickPresets, updated);
-                                  }}
-                                />
-                              </td>
-                              <td style={{ textAlign: "center" }}>
-                                <input
-                                  type="checkbox"
-                                  checked={filter.veryHigh}
-                                  onChange={(e) => {
-                                    const updated = {
-                                      ...newsFilters,
-                                      [ccy]: { ...filter, veryHigh: e.target.checked }
-                                    };
-                                    setNewsFilters(updated);
-                                    saveAllSettings(hotkeys, timePresets, tickPresets, updated);
-                                  }}
-                                />
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
               {activeTab === "theme" && (
                 <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                   <div className="settings-section-title" style={{ fontSize: "11px", fontWeight: "600", textTransform: "uppercase", color: "var(--on-surface-variant)", letterSpacing: "0.05em" }}>
@@ -5456,7 +4930,7 @@ function App() {
                       className={`theme-mode-card ${themeMode === "dark" ? "active" : ""}`}
                       onClick={() => {
                         setThemeMode("dark");
-                        saveAllSettings(hotkeys, timePresets, tickPresets, newsFilters, glassEffect, "dark");
+                        saveAllSettings(hotkeys, timePresets, tickPresets, glassEffect, "dark");
                       }}
                     >
                       <span className="material-symbols-outlined">dark_mode</span>
@@ -5467,7 +4941,7 @@ function App() {
                       className={`theme-mode-card ${themeMode === "light" ? "active" : ""}`}
                       onClick={() => {
                         setThemeMode("light");
-                        saveAllSettings(hotkeys, timePresets, tickPresets, newsFilters, glassEffect, "light");
+                        saveAllSettings(hotkeys, timePresets, tickPresets, glassEffect, "light");
                       }}
                     >
                       <span className="material-symbols-outlined">light_mode</span>
@@ -5551,7 +5025,7 @@ function App() {
                         onChange={(e) => {
                           const nextVal = e.target.checked;
                           setGlassEffect(nextVal);
-                          saveAllSettings(hotkeys, timePresets, tickPresets, newsFilters, nextVal);
+                          saveAllSettings(hotkeys, timePresets, tickPresets, nextVal);
                         }}
                         style={{ opacity: 0, width: 0, height: 0 }}
                       />
@@ -6541,7 +6015,7 @@ function App() {
         onClose={() => setIsAIPanelOpen(false)}
         virtualTimeMsc={aiTargetTimeMsc || virtualTimeMsc}
         symbol={sourceSymbol}
-        newsItems={newsItems}
+        newsItems={[]}
         openRouterApiKey={openRouterApiKey}
         openRouterModel={openRouterModel}
         fredApiKey={fredApiKey}
