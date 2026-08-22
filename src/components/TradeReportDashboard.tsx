@@ -239,24 +239,22 @@ export const TradeReportDashboard: React.FC<TradeReportDashboardProps> = ({
               取引履歴
             </h3>
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              {history.length > 0 && (
-                <button
-                  type="button"
-                  className="pro-btn primary pro-glow"
-                  style={{ padding: "4px 8px", fontSize: "11px", display: "flex", alignItems: "center", gap: "4px" }}
-                  onClick={async () => {
-                    try {
-                      await invoke("open_trade_analysis_window");
-                    } catch (err) {
-                      console.error(err);
-                    }
-                  }}
-                  title="取引分析画面を開く"
-                >
-                  <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>analytics</span>
-                  <span>取引分析</span>
-                </button>
-              )}
+              <button
+                type="button"
+                className="pro-btn primary pro-glow"
+                style={{ padding: "4px 8px", fontSize: "11px", display: "flex", alignItems: "center", gap: "4px" }}
+                onClick={async () => {
+                  try {
+                    await invoke("open_trade_analysis_window");
+                  } catch (err) {
+                    console.error(err);
+                  }
+                }}
+                title="統合トレード分析画面（CSVインポート・統計）を開く"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>analytics</span>
+                <span>取引分析</span>
+              </button>
               <span className="pro-panel-meta">{history.length} Trades</span>
             </div>
           </div>

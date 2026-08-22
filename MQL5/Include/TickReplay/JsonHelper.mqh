@@ -101,21 +101,6 @@ public:
       }
       return StringToTime(s);
    }
-
-   static string FormatCalendarValue(long value, int digits, ENUM_CALENDAR_EVENT_UNIT unit, string currency)
-   {
-      if(value == LONG_MIN || value == LONG_MAX || value == 0) return "-";
-      
-      double val = (double)value / MathPow(10.0, digits);
-      string str_val = DoubleToString(val, digits);
-      
-      if(unit == CALENDAR_UNIT_PERCENT)
-         return str_val + "%";
-      else if(unit == CALENDAR_UNIT_CURRENCY && currency != "")
-         return str_val + " " + currency;
-         
-      return str_val;
-   }
 };
 
 #endif // __TICKREPLAY_JSONHELPER_MQH__

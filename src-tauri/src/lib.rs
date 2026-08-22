@@ -12,6 +12,8 @@ pub mod commands_mt5;
 pub mod commands_custom_symbol;
 pub mod commands_settings;
 pub mod commands_window;
+pub mod commands_drenhis;
+pub mod drenhis_db;
 pub mod commands;
 pub mod sync_server;
 
@@ -171,7 +173,6 @@ pub fn run() {
             commands::save_settings,
             commands::load_settings,
             commands::sync_presets,
-            commands::read_replay_news,
             commands::save_session,
             commands::get_saved_sessions,
             commands::delete_session,
@@ -179,7 +180,9 @@ pub fn run() {
             commands::scan_custom_symbol_files,
             commands::import_custom_symbol_chunk,
             commands::get_available_symbols,
-            commands::select_folder
+            commands::select_folder,
+            commands::check_drenhis_status,
+            commands::match_trades_with_drenhis
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

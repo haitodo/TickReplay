@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { TerminalInfo } from "../../constants/newsFilters";
+import { TerminalInfo } from "../../types/terminal";
 
 export interface TerminalNameModalProps {
   isOpen: boolean;
