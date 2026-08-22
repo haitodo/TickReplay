@@ -245,12 +245,12 @@ export const TradeReportDashboard: React.FC<TradeReportDashboardProps> = ({
                 style={{ padding: "4px 8px", fontSize: "11px", display: "flex", alignItems: "center", gap: "4px" }}
                 onClick={async () => {
                   try {
-                    await invoke("open_trade_analysis_window");
+                    await invoke("open_tracely_app");
                   } catch (err) {
                     console.error(err);
                   }
                 }}
-                title="統合トレード分析画面（CSVインポート・統計）を開く"
+                title="独立トレード分析アプリ (Tracely) を起動"
               >
                 <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>analytics</span>
                 <span>取引分析</span>

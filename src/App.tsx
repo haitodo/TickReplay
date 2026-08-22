@@ -5,7 +5,6 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import "./App.css";
 import { CustomSelect } from "./CustomSelect";
-import { TradeAnalysisWindowContent } from "./TradeAnalysisWindow";
 import { SymbolCombobox, SymbolItem } from "./components/SymbolCombobox";
 import { SymbolTagInput } from "./components/SymbolTagInput";
 import { CustomSymbolImportModal } from "./components/CustomSymbolImportModal";
@@ -89,9 +88,6 @@ function App() {
   const windowParam = urlParams.get("window");
   if (windowParam === "speed_order") {
     return <SpeedOrderWindowContent />;
-  }
-  if (windowParam === "trade_analysis") {
-    return <TradeAnalysisWindowContent />;
   }
 
   // --- 接続状態・EAからのステータス
@@ -2864,17 +2860,17 @@ function App() {
             </button>
           )}
 
-          {/* 3.5. 統合トレード分析画面を起動 (常時表示) */}
+          {/* 3.5. 独立トレード分析アプリ (Tracely) を起動 (常時表示) */}
           <button
             className="pro-btn pro-btn-square"
             onClick={async () => {
               try {
-                await invoke("open_trade_analysis_window");
+                await invoke("open_tracely_app");
               } catch (err) {
                 console.error(err);
               }
             }}
-            title="統合トレード分析・CSVインポートを開く"
+            title="独立トレード分析アプリ (Tracely) を起動"
           >
             <span className="material-symbols-outlined text-[16px]" style={{ color: "var(--primary-color)" }}>analytics</span>
           </button>

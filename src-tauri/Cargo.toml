@@ -31,4 +31,3 @@ rfd = "0.15"
 bytemuck = { version = "1", features = ["derive"] }
 tokio-tungstenite = "0.26"
 futures-util = "0.3"
-rusqlite = { version = "0.32", features = ["bundled"] }

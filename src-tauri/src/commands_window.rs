@@ -258,84 +258,47 @@ pub async fn open_speed_order_window(app_handle: AppHandle) -> Result<(), AppErr
 
 
 #[tauri::command]
-pub async fn open_trade_analysis_window(app_handle: AppHandle) -> Result<(), AppError> {
-    let target_w = 520.0;
-    let target_h = 600.0;
+pub async fn open_tracely_app() -> Result<(), AppError> {
+    // 1. 開発環境の実行バイナリ探索
+    let candidates = [
+        std::path::PathBuf::from("../Tracely/src-tauri/target/release/tracely.exe"),
+        std::path::PathBuf::from("D:/dev/Tracely/src-tauri/target/release/tracely.exe"),
+        std::path::PathBuf::from("../Tracely/src-tauri/target/debug/tracely.exe"),
+        std::path::PathBuf::from("D:/dev/Tracely/src-tauri/target/debug/tracely.exe"),
+    ];
 
-    if let Some(window) = app_handle.get_webview_window("trade_analysis") {
-        if let Some(main_win) = app_handle.get_webview_window("main") {
-            if let (Ok(main_pos), Ok(main_size)) = (main_win.outer_position(), main_win.outer_size()) {
-                let scale_factor = main_win.scale_factor().unwrap_or(1.0);
-                let w_phys = (target_w * scale_factor) as i32;
-                let h_phys = (target_h * scale_factor) as i32;
-
-                let target_x = main_pos.x + (main_size.width as i32 - w_phys) / 2;
-                let target_y = main_pos.y + (main_size.height as i32 - h_phys) / 2;
-
-                let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
-                    x: target_x,
-                    y: target_y,
-                }));
-            } else {
-                let _ = window.center();
-            }
-        } else {
-            let _ = window.center();
+    for candidate in &candidates {
+        if candidate.is_file() {
+            let _ = std::process::Command::new(candidate).spawn();
+            return Ok(());
         }
-
-        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
-            width: target_w,
-            height: target_h,
-        }));
-
-        window.show()?;
-        let _ = window.emit("window-visible", true);
-        window.set_focus()?;
-    } else {
-        let mut win_builder = tauri::webview::WebviewWindowBuilder::new(
-            &app_handle,
-            "trade_analysis",
-            tauri::WebviewUrl::App("index.html?window=trade_analysis".into()),
-        )
-        .title("Trade Analysis")
-        .inner_size(target_w, target_h)
-        .resizable(true)
-        .always_on_top(false)
-        .maximized(false)
-        .visible(false);
-
-        if let Some(main_win) = app_handle.get_webview_window("main") {
-            win_builder = win_builder.parent(&main_win)?;
-        }
-
-        let window = win_builder.build()?;
-
-        if let Some(main_win) = app_handle.get_webview_window("main") {
-            if let (Ok(main_pos), Ok(main_size)) = (main_win.outer_position(), main_win.outer_size()) {
-                let scale_factor = main_win.scale_factor().unwrap_or(1.0);
-                let w_phys = (target_w * scale_factor) as i32;
-                let h_phys = (target_h * scale_factor) as i32;
-
-                let target_x = main_pos.x + (main_size.width as i32 - w_phys) / 2;
-                let target_y = main_pos.y + (main_size.height as i32 - h_phys) / 2;
-
-                let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
-                    x: target_x,
-                    y: target_y,
-                }));
-            } else {
-                let _ = window.center();
-            }
-        } else {
-            let _ = window.center();
-        }
-
-        window.show()?;
-        let _ = window.emit("window-visible", true);
-        window.set_focus()?;
-
-        #[cfg(debug_assertions)]
-        window.open_devtools();
     }
-    Ok(())
+
+    // 2. インストール先パス探索
+    if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+        let installed = std::path::PathBuf::from(local_app_data)
+            .join("Programs")
+            .join("Tracely")
+            .join("Tracely.exe");
+        if installed.is_file() {
+            let _ = std::process::Command::new(installed).spawn();
+            return Ok(());
+        }
+    }
+
+    // 3. 開発フォールバック: Tracelyプロジェクトディレクトリが存在すれば起動
+    let dev_dir = std::path::PathBuf::from("D:/dev/Tracely");
+    if dev_dir.is_dir() {
+        let _ = std::process::Command::new("cmd")
+            .args(["/c", "start", "powershell", "-NoExit", "-Command", "cd D:\\dev\\Tracely; npm run tauri dev"])
+            .spawn();
+        return Ok(());
+    }
+
+    Err(AppError::Other("Tracely アプリケーションが見つかりませんでした。".to_string()))
+}
+
+#[tauri::command]
+pub async fn open_trade_analysis_window() -> Result<(), AppError> {
+    open_tracely_app().await
 }

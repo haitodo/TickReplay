@@ -22,6 +22,9 @@ pub enum AppError {
 
     #[error("MT5エラー: {0}")]
     Mt5(String),
+
+    #[error("その他エラー: {0}")]
+    Other(String),
 }
 
 // Tauriのコマンドハンドラーからエラーを返却した際、自動的にシリアライズされて

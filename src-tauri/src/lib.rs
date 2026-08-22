@@ -12,8 +12,6 @@ pub mod commands_mt5;
 pub mod commands_custom_symbol;
 pub mod commands_settings;
 pub mod commands_window;
-pub mod commands_drenhis;
-pub mod drenhis_db;
 pub mod commands;
 pub mod sync_server;
 
@@ -79,12 +77,9 @@ pub fn run() {
                 }
                 tauri::WindowEvent::Destroyed => {
                     if window.label() == "main" {
-                        // メインウィンドウが終了した際、スピード発注画面および分析画面も自動で閉じる
+                        // メインウィンドウが終了した際、スピード発注画面も自動で閉じる
                         if let Some(speed_order) = window.app_handle().get_webview_window("speed_order") {
                             let _ = speed_order.close();
-                        }
-                        if let Some(trade_analysis) = window.app_handle().get_webview_window("trade_analysis") {
-                            let _ = trade_analysis.close();
                         }
                     }
                 }
@@ -102,7 +97,7 @@ pub fn run() {
             // Named Pipe のステータス受信タスクを起動
             tauri::async_runtime::spawn(ipc::run_status_pipe_server(app_handle.clone(), state_inner.clone()));
             
-            // Drenhis等の外部ツール連携用 WebSocket 同期サーバーを起動
+            // Drenhis/Tracely等の外部ツール連携用 WebSocket 同期サーバーを起動
             tauri::async_runtime::spawn(sync_srv.run(state_inner, sync_server::DEFAULT_SYNC_PORT));
             
             // 高DPIや異なる拡大率（150%など）のディスプレイ環境下で初回起動した際、
@@ -168,6 +163,7 @@ pub fn run() {
             commands::set_remote_mode,
             commands::get_last_status,
             commands::open_speed_order_window,
+            commands::open_tracely_app,
             commands::open_trade_analysis_window,
             commands::read_trade_ticks,
             commands::save_settings,
@@ -180,9 +176,7 @@ pub fn run() {
             commands::scan_custom_symbol_files,
             commands::import_custom_symbol_chunk,
             commands::get_available_symbols,
-            commands::select_folder,
-            commands::check_drenhis_status,
-            commands::match_trades_with_drenhis
+            commands::select_folder
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
