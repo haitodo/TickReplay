@@ -19,13 +19,16 @@ import {
 import {
   TradeRecord,
   SavedTradeDataset,
-  AnalysisFilterState
+  AnalysisFilterState,
+  DrenhisDbStatus,
+  ProximityConfig
 } from "./domain/tradeAnalysis/types";
 import {
   calculateTradeStats,
   calculateHoldingDistribution,
   calculateTimeHeatmap,
   calculateEquityCurve,
+  calculateProximityComparisonStats,
   HOLDING_BUCKET_LABELS,
   getHoldingBucketIndex
 } from "./domain/tradeAnalysis/tradeMetrics";
@@ -166,6 +169,7 @@ export const TradeAnalysisWindowContent: React.FC = () => {
   // --- データソース管理 ---
   const [activeSource, setActiveSource] = useState<"replay" | "imported">("replay");
   const [replayHistory, setReplayHistory] = useState<any[]>([]);
+  const [replayMatchedMap, setReplayMatchedMap] = useState<Map<string | number, Partial<TradeRecord>>>(new Map());
   const [savedDatasets, setSavedDatasets] = useState<SavedTradeDataset[]>(() => {
     try {
       const stored = localStorage.getItem("saved-trade-datasets");
@@ -184,9 +188,20 @@ export const TradeAnalysisWindowContent: React.FC = () => {
     }
   });
 
+  // Drenhis 経済指標DB 連携状態
+  const [drenhisStatus, setDrenhisStatus] = useState<DrenhisDbStatus | null>(null);
+  const [customDbPath, setCustomDbPath] = useState<string>(() => localStorage.getItem("drenhis-custom-db-path") || "");
+  const [isDrenhisSettingsOpen, setIsDrenhisSettingsOpen] = useState(false);
+  const [isMatchingDrenhis, setIsMatchingDrenhis] = useState(false);
+  const [proximityConfig, setProximityConfig] = useState<ProximityConfig>({
+    window_minutes: 15,
+    importance_filter: "medium_high",
+    match_currencies: true
+  });
+
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<string | number | null>(null);
-  const [activeMainTab, setActiveMainTab] = useState<"overview" | "distribution" | "ledger">("overview");
+  const [activeMainTab, setActiveMainTab] = useState<"overview" | "proximity" | "distribution" | "ledger">("overview");
 
   // フィルター状態
   const [filterPeriod, setFilterPeriod] = useState<AnalysisFilterState["period"]>("all");
@@ -195,6 +210,7 @@ export const TradeAnalysisWindowContent: React.FC = () => {
   const [filterSymbol, setFilterSymbol] = useState("all");
   const [filterSide, setFilterSide] = useState<"all" | "BUY" | "SELL">("all");
   const [filterOutcome, setFilterOutcome] = useState<"all" | "win" | "loss">("all");
+  const [filterNewsProximity, setFilterNewsProximity] = useState<"all" | "near_news" | "regular">("all");
   const [filterSearchQuery, setFilterSearchQuery] = useState("");
   const [crossFilterHoldingBucket, setCrossFilterHoldingBucket] = useState<number | null>(null);
   const [crossFilterDay, setCrossFilterDay] = useState<number | null>(null);
@@ -208,6 +224,22 @@ export const TradeAnalysisWindowContent: React.FC = () => {
   const [themeId, setThemeId] = useState(() => localStorage.getItem("accent-theme") || "mint");
   const [themeMode, setThemeMode] = useState<"dark" | "light">(() => (localStorage.getItem("theme-mode") as "dark" | "light") || "dark");
   const [plStyle, setPlStyle] = useState(() => localStorage.getItem("pl-style") || "red-blue");
+
+  // Drenhis DB 接続状態チェック
+  const refreshDrenhisStatus = async (path?: string) => {
+    try {
+      const status = await invoke<DrenhisDbStatus>("check_drenhis_status", {
+        customPath: path !== undefined ? (path.trim() || null) : (customDbPath.trim() || null)
+      });
+      setDrenhisStatus(status);
+    } catch (e) {
+      console.error("Failed to check Drenhis DB status", e);
+    }
+  };
+
+  useEffect(() => {
+    refreshDrenhisStatus();
+  }, []);
 
   // MT5 リプレイ履歴の初期ロード & リアルタイム同期
   useEffect(() => {
@@ -271,7 +303,7 @@ export const TradeAnalysisWindowContent: React.FC = () => {
   // アクティブな生データセットの選択
   const rawTrades: TradeRecord[] = useMemo(() => {
     if (activeSource === "replay") {
-      // Replay履歴の正規化
+      // Replay履歴の正規化 + Drenhis照合結果のマージ
       return replayHistory.map((h: any, idx: number) => {
         const openMsc = h.open_time_msc || (h.open_time ? Date.parse(h.open_time.replace(/\./g, "-")) : 0);
         const closeMsc = h.close_time_msc || (h.close_time ? Date.parse(h.close_time.replace(/\./g, "-")) : 0);
@@ -281,9 +313,12 @@ export const TradeAnalysisWindowContent: React.FC = () => {
         const hourJst = d.getHours();
         const dayJst = d.getDay();
 
+        const ticket = h.ticket || idx + 1;
+        const matched = replayMatchedMap.get(ticket) || replayMatchedMap.get(String(ticket));
+
         return {
-          id: `replay_${h.ticket || idx}`,
-          ticket: h.ticket || idx + 1,
+          id: `replay_${ticket}`,
+          ticket,
           source: "replay" as const,
           sourceName: "Live Replay",
           symbol: h.symbol || "UNKNOWN",
@@ -302,14 +337,23 @@ export const TradeAnalysisWindowContent: React.FC = () => {
           dayJst,
           mfe_pips: h.mfe_pips || 0,
           mae_pips: h.mae_pips || 0,
-          comment: h.comment || undefined
+          comment: h.comment || undefined,
+          isNearNews: matched?.isNearNews ?? false,
+          nearNewsEvent: matched?.nearNewsEvent,
+          nearNewsTimeDiffSec: matched?.nearNewsTimeDiffSec,
+          nearNewsImportance: matched?.nearNewsImportance,
+          nearNewsCurrency: matched?.nearNewsCurrency,
+          nearNewsActual: matched?.nearNewsActual,
+          nearNewsForecast: matched?.nearNewsForecast,
+          nearNewsPrevious: matched?.nearNewsPrevious,
+          nearbyEvents: matched?.nearbyEvents
         };
       });
     } else {
       const activeDataset = savedDatasets.find(d => d.id === activeDatasetId);
       return activeDataset ? activeDataset.trades : [];
     }
-  }, [activeSource, replayHistory, savedDatasets, activeDatasetId]);
+  }, [activeSource, replayHistory, replayMatchedMap, savedDatasets, activeDatasetId]);
 
   // 利用可能な通貨ペア一覧
   const availableSymbols = useMemo(() => {
@@ -333,8 +377,21 @@ export const TradeAnalysisWindowContent: React.FC = () => {
       if (filterOutcome === "win" && t.profit <= 0) return false;
       if (filterOutcome === "loss" && t.profit > 0) return false;
 
-      // 4. 期間フィルター
-      if (filterPeriod === "custom") {
+      // 4. 指標近接フラグ
+      if (filterNewsProximity === "near_news" && !t.isNearNews) return false;
+      if (filterNewsProximity === "regular" && t.isNearNews) return false;
+
+      // 5. 期間フィルター
+      if (filterPeriod === "today") {
+        const todayStr = new Date().toISOString().substring(0, 10);
+        if (!t.close_time.startsWith(todayStr)) return false;
+      } else if (filterPeriod === "week") {
+        const now = Date.now();
+        if (now - t.close_time_msc > 7 * 24 * 3600 * 1000) return false;
+      } else if (filterPeriod === "month") {
+        const now = Date.now();
+        if (now - t.close_time_msc > 30 * 24 * 3600 * 1000) return false;
+      } else if (filterPeriod === "custom") {
         if (filterCustomStart) {
           const startMsc = Date.parse(filterCustomStart.replace(/\//g, "-"));
           if (!isNaN(startMsc) && t.close_time_msc < startMsc) return false;
@@ -345,31 +402,35 @@ export const TradeAnalysisWindowContent: React.FC = () => {
         }
       }
 
-      // 5. クロスフィルター (保有時間)
+      // 6. クロスフィルター (保有時間)
       if (crossFilterHoldingBucket !== null) {
         const bucket = getHoldingBucketIndex(t.durationSec || 0);
         if (bucket !== crossFilterHoldingBucket) return false;
       }
 
-      // 6. クロスフィルター (曜日・時間)
+      // 7. クロスフィルター (曜日・時間)
       if (crossFilterDay !== null && t.dayJst !== crossFilterDay) return false;
       if (crossFilterHour !== null && t.hourJst !== crossFilterHour) return false;
 
-      // 7. 検索クエリ
+      // 8. 検索クエリ
       if (filterSearchQuery.trim()) {
         const q = filterSearchQuery.toLowerCase();
         const matchTicket = String(t.ticket).toLowerCase().includes(q);
         const matchSymbol = t.symbol.toLowerCase().includes(q);
         const matchComment = (t.comment || "").toLowerCase().includes(q);
-        if (!matchTicket && !matchSymbol && !matchComment) return false;
+        const matchNews = (t.nearNewsEvent || "").toLowerCase().includes(q);
+        if (!matchTicket && !matchSymbol && !matchComment && !matchNews) return false;
       }
 
       return true;
     });
-  }, [rawTrades, filterSymbol, filterSide, filterOutcome, filterPeriod, filterCustomStart, filterCustomEnd, crossFilterHoldingBucket, crossFilterDay, crossFilterHour, filterSearchQuery]);
+  }, [rawTrades, filterSymbol, filterSide, filterOutcome, filterNewsProximity, filterPeriod, filterCustomStart, filterCustomEnd, crossFilterHoldingBucket, crossFilterDay, crossFilterHour, filterSearchQuery]);
 
   // 主要パフォーマンス統計
   const stats = useMemo(() => calculateTradeStats(filteredTrades), [filteredTrades]);
+
+  // 通常トレード vs 指標近接トレードの比較集計
+  const proximityComparison = useMemo(() => calculateProximityComparisonStats(filteredTrades), [filteredTrades]);
 
   // 保有時間バケット集計
   const holdingDistribution = useMemo(() => calculateHoldingDistribution(filteredTrades), [filteredTrades]);
@@ -409,6 +470,81 @@ export const TradeAnalysisWindowContent: React.FC = () => {
     return filteredTrades.find(t => t.ticket === selectedTicket) || null;
   }, [selectedTicket, filteredTrades]);
 
+  // Drenhis 経済指標照合ハンドラー (オンデマンド引き当て)
+  const handleMatchDrenhisEvents = async () => {
+    if (rawTrades.length === 0) return;
+    setIsMatchingDrenhis(true);
+
+    try {
+      const queries = rawTrades.map(t => ({
+        ticket: String(t.ticket),
+        symbol: t.symbol,
+        open_time_msc: t.open_time_msc,
+        close_time_msc: t.close_time_msc
+      }));
+
+      const results = await invoke<any[]>("match_trades_with_drenhis", {
+        trades: queries,
+        config: proximityConfig,
+        customPath: customDbPath.trim() ? customDbPath.trim() : null
+      });
+
+      const resultMap = new Map<string, any>();
+      results.forEach(r => resultMap.set(r.ticket, r));
+
+      if (activeSource === "replay") {
+        const updatedMap = new Map<string | number, Partial<TradeRecord>>();
+        results.forEach(r => {
+          updatedMap.set(r.ticket, {
+            isNearNews: r.is_near_news,
+            nearNewsEvent: r.closest_event?.event_name,
+            nearNewsTimeDiffSec: r.closest_event?.time_diff_sec,
+            nearNewsImportance: r.closest_event?.importance,
+            nearNewsCurrency: r.closest_event?.currency_code,
+            nearNewsActual: r.closest_event?.actual_value,
+            nearNewsForecast: r.closest_event?.forecast_value,
+            nearNewsPrevious: r.closest_event?.previous_value,
+            nearbyEvents: r.nearby_events
+          });
+        });
+        setReplayMatchedMap(updatedMap);
+      } else {
+        // 保存済みデータセットを更新
+        const updatedDatasets = savedDatasets.map(ds => {
+          if (ds.id === activeDatasetId) {
+            const updatedTrades = ds.trades.map(t => {
+              const res = resultMap.get(String(t.ticket));
+              if (res) {
+                return {
+                  ...t,
+                  isNearNews: res.is_near_news,
+                  nearNewsEvent: res.closest_event?.event_name,
+                  nearNewsTimeDiffSec: res.closest_event?.time_diff_sec,
+                  nearNewsImportance: res.closest_event?.importance,
+                  nearNewsCurrency: res.closest_event?.currency_code,
+                  nearNewsActual: res.closest_event?.actual_value,
+                  nearNewsForecast: res.closest_event?.forecast_value,
+                  nearNewsPrevious: res.closest_event?.previous_value,
+                  nearbyEvents: res.nearby_events
+                };
+              }
+              return t;
+            });
+            return { ...ds, trades: updatedTrades };
+          }
+          return ds;
+        });
+        setSavedDatasets(updatedDatasets);
+        localStorage.setItem("saved-trade-datasets", JSON.stringify(updatedDatasets));
+      }
+    } catch (e: any) {
+      console.error("Failed to match Drenhis events", e);
+      alert(`Drenhis指標照合エラー: ${e.message || e}`);
+    } finally {
+      setIsMatchingDrenhis(false);
+    }
+  };
+
   // CSVインポート成功ハンドラー
   const handleImportSuccess = (dataset: SavedTradeDataset) => {
     const updated = [dataset, ...savedDatasets.filter(d => d.id !== dataset.id)];
@@ -432,7 +568,7 @@ export const TradeAnalysisWindowContent: React.FC = () => {
   // CSVエクスポート
   const handleExportCsv = () => {
     if (filteredTrades.length === 0) return;
-    let csvContent = "\uFEFFTicket,Source,Symbol,Type,Lots,OpenTime,OpenPrice,CloseTime,ClosePrice,Profit,Pips,DurationSec\n";
+    let csvContent = "\uFEFFTicket,Source,Symbol,Type,Lots,OpenTime,OpenPrice,CloseTime,ClosePrice,Profit,Pips,DurationSec,IsNearNews,NearNewsEvent,TimeDiffSec\n";
     filteredTrades.forEach(t => {
       const row = [
         t.ticket,
@@ -446,7 +582,10 @@ export const TradeAnalysisWindowContent: React.FC = () => {
         t.close_price,
         t.profit,
         t.pips,
-        t.durationSec
+        t.durationSec,
+        t.isNearNews ? "YES" : "NO",
+        t.nearNewsEvent ? `"${t.nearNewsEvent}"` : "",
+        t.nearNewsTimeDiffSec !== undefined ? t.nearNewsTimeDiffSec : ""
       ];
       csvContent += row.join(",") + "\n";
     });
@@ -596,13 +735,13 @@ export const TradeAnalysisWindowContent: React.FC = () => {
 
   return (
     <div className="trade-analysis-app-container">
-      {/* 1. Header Bar with Source Switcher */}
+      {/* 1. Header Bar with Source Switcher & Drenhis Status */}
       <header className="trade-analysis-header glass-panel">
         <div className="trade-header-left">
           <span className="material-symbols-outlined icon-accent text-[22px]">analytics</span>
           <div>
             <h1 className="trade-header-title">Trade Performance Analytics</h1>
-            <span className="trade-header-subtitle">統合トレード分析 & 統計インスペクター</span>
+            <span className="trade-header-subtitle">統合トレード分析 & Drenhis 経済動態インスペクター</span>
           </div>
         </div>
 
@@ -621,6 +760,33 @@ export const TradeAnalysisWindowContent: React.FC = () => {
           >
             <span className="material-symbols-outlined text-[14px]">folder_open</span>
             <span>インポート履歴 ({savedDatasets.length})</span>
+          </button>
+        </div>
+
+        {/* Drenhis DB Connection Status & Proximity Match Action */}
+        <div className="drenhis-sync-controls">
+          <div
+            className={`drenhis-status-badge ${drenhisStatus?.connected ? "connected" : "disconnected"}`}
+            onClick={() => setIsDrenhisSettingsOpen(true)}
+            title={drenhisStatus?.connected ? `Drenhis DB接続中: ${drenhisStatus.total_events.toLocaleString()} 件の指標イベント (${drenhisStatus.db_path})` : "Drenhis DB未検出。クリックしてパスを設定"}
+          >
+            <span className={`status-dot ${drenhisStatus?.connected ? "connected" : "disconnected"}`} style={{ width: "7px", height: "7px" }} />
+            <span style={{ fontWeight: 600 }}>Drenhis DB:</span>
+            <span>{drenhisStatus?.connected ? `${drenhisStatus.total_events.toLocaleString()}件` : "未接続"}</span>
+            <span className="material-symbols-outlined text-[13px]" style={{ opacity: 0.7 }}>tune</span>
+          </div>
+
+          <button
+            className="pro-btn primary pro-glow"
+            style={{ padding: "4px 10px", fontSize: "11px", gap: "4px" }}
+            onClick={handleMatchDrenhisEvents}
+            disabled={!drenhisStatus?.connected || rawTrades.length === 0 || isMatchingDrenhis}
+            title="DrenhisのSQLiteから指標発表（±N分）を照合して近接フラグを自動付与"
+          >
+            <span className="material-symbols-outlined text-[15px]">
+              {isMatchingDrenhis ? "hourglass_empty" : "bolt"}
+            </span>
+            <span>{isMatchingDrenhis ? "照合中..." : "Drenhis指標を照合"}</span>
           </button>
         </div>
 
@@ -655,8 +821,8 @@ export const TradeAnalysisWindowContent: React.FC = () => {
           )}
 
           <button
-            className="pro-btn primary pro-glow"
-            style={{ padding: "4px 10px", fontSize: "11px", gap: "4px" }}
+            className="pro-btn"
+            style={{ padding: "4px 8px", fontSize: "11px", gap: "4px" }}
             onClick={() => setIsImportModalOpen(true)}
             title="FX業者の取引履歴CSVをインポート"
           >
@@ -729,18 +895,18 @@ export const TradeAnalysisWindowContent: React.FC = () => {
         </div>
 
         <div className="trade-kpi-card">
-          <span className="kpi-label">買い / 売り損益</span>
+          <span className="kpi-label">指標近接トレード (News)</span>
           <div className="kpi-value font-data text-[13px]" style={{ display: "flex", gap: "6px" }}>
-            <span className={stats.longProfit >= 0 ? "text-profit" : "text-loss"}>
-              L: ¥{stats.longProfit.toLocaleString()}
+            <span className={proximityComparison.nearNewsTrades.totalProfit >= 0 ? "text-profit" : "text-loss"}>
+              ¥{proximityComparison.nearNewsTrades.totalProfit.toLocaleString()}
             </span>
             <span style={{ opacity: 0.4 }}>/</span>
-            <span className={stats.shortProfit >= 0 ? "text-profit" : "text-loss"}>
-              S: ¥{stats.shortProfit.toLocaleString()}
+            <span style={{ color: "var(--primary-color)" }}>
+              {proximityComparison.nearNewsTrades.count}回
             </span>
           </div>
           <span className="kpi-sub">
-            L: {stats.longTrades}回 / S: {stats.shortTrades}回
+            近接時勝率: {proximityComparison.nearNewsTrades.winRate}% (PF {proximityComparison.nearNewsTrades.profitFactor})
           </span>
         </div>
       </section>
@@ -756,6 +922,13 @@ export const TradeAnalysisWindowContent: React.FC = () => {
             >
               <span className="material-symbols-outlined text-[15px]">show_chart</span>
               <span>総合チャート</span>
+            </button>
+            <button
+              className={`trade-tab-btn ${activeMainTab === "proximity" ? "active" : ""}`}
+              onClick={() => setActiveMainTab("proximity")}
+            >
+              <span className="material-symbols-outlined text-[15px]">bolt</span>
+              <span>指標インパクト分析</span>
             </button>
             <button
               className={`trade-tab-btn ${activeMainTab === "distribution" ? "active" : ""}`}
@@ -812,7 +985,7 @@ export const TradeAnalysisWindowContent: React.FC = () => {
           {/* Currency Pair Filter */}
           <select
             className="pro-input"
-            style={{ width: "110px", height: "26px", fontSize: "11px", padding: "0 6px" }}
+            style={{ width: "105px", height: "26px", fontSize: "11px", padding: "0 6px" }}
             value={filterSymbol}
             onChange={(e) => setFilterSymbol(e.target.value)}
           >
@@ -822,10 +995,22 @@ export const TradeAnalysisWindowContent: React.FC = () => {
             ))}
           </select>
 
+          {/* News Proximity Filter */}
+          <select
+            className="pro-input"
+            style={{ width: "115px", height: "26px", fontSize: "11px", padding: "0 6px", borderColor: filterNewsProximity !== "all" ? "var(--primary-color)" : undefined }}
+            value={filterNewsProximity}
+            onChange={(e) => setFilterNewsProximity(e.target.value as any)}
+          >
+            <option value="all">指標近接: 全て</option>
+            <option value="near_news">⚡ 指標近接のみ</option>
+            <option value="regular">🛡️ 通常取引のみ</option>
+          </select>
+
           {/* Side Filter */}
           <select
             className="pro-input"
-            style={{ width: "85px", height: "26px", fontSize: "11px", padding: "0 6px" }}
+            style={{ width: "80px", height: "26px", fontSize: "11px", padding: "0 6px" }}
             value={filterSide}
             onChange={(e) => setFilterSide(e.target.value as any)}
           >
@@ -837,7 +1022,7 @@ export const TradeAnalysisWindowContent: React.FC = () => {
           {/* Outcome Filter */}
           <select
             className="pro-input"
-            style={{ width: "85px", height: "26px", fontSize: "11px", padding: "0 6px" }}
+            style={{ width: "80px", height: "26px", fontSize: "11px", padding: "0 6px" }}
             value={filterOutcome}
             onChange={(e) => setFilterOutcome(e.target.value as any)}
           >
@@ -851,8 +1036,8 @@ export const TradeAnalysisWindowContent: React.FC = () => {
             <input
               type="text"
               className="pro-input"
-              style={{ width: "140px", height: "26px", fontSize: "11px", padding: "0 6px 0 24px" }}
-              placeholder="Ticket / メモ検索..."
+              style={{ width: "130px", height: "26px", fontSize: "11px", padding: "0 6px 0 24px" }}
+              placeholder="Ticket / 指標検索..."
               value={filterSearchQuery}
               onChange={(e) => setFilterSearchQuery(e.target.value)}
             />
@@ -865,7 +1050,7 @@ export const TradeAnalysisWindowContent: React.FC = () => {
           </div>
 
           {/* Reset Filters */}
-          {(filterSymbol !== "all" || filterSide !== "all" || filterOutcome !== "all" || filterSearchQuery || crossFilterHoldingBucket !== null || crossFilterDay !== null || crossFilterHour !== null) && (
+          {(filterSymbol !== "all" || filterSide !== "all" || filterOutcome !== "all" || filterNewsProximity !== "all" || filterSearchQuery || crossFilterHoldingBucket !== null || crossFilterDay !== null || crossFilterHour !== null) && (
             <button
               className="pro-btn"
               style={{ height: "26px", padding: "0 8px", fontSize: "10px", gap: "3px" }}
@@ -873,6 +1058,7 @@ export const TradeAnalysisWindowContent: React.FC = () => {
                 setFilterSymbol("all");
                 setFilterSide("all");
                 setFilterOutcome("all");
+                setFilterNewsProximity("all");
                 setFilterSearchQuery("");
                 setCrossFilterHoldingBucket(null);
                 setCrossFilterDay(null);
@@ -897,7 +1083,7 @@ export const TradeAnalysisWindowContent: React.FC = () => {
             <h3 style={{ margin: "8px 0 4px", fontSize: "16px", color: "var(--on-surface)" }}>
               {rawTrades.length === 0 ? "取引履歴データがありません" : "絞り込み条件に一致する取引がありません"}
             </h3>
-            <p style={{ margin: "0 0 16px", fontSize: "12px", color: "var(--on-surface-variant)", maxWidth: "400px", textAlign: "center" }}>
+            <p style={{ margin: "0 0 16px", fontSize: "12px", color: "var(--on-surface-variant)", maxWidth: "420px", textAlign: "center" }}>
               {rawTrades.length === 0
                 ? "MT5リプレイでトレードを実行するか、お使いのFX業者（GMO、DMM、SBI、MT4/5等）から出力した取引CSVをインポートしてください。"
                 : "フィルター設定を調整するか、「リセット」ボタンをクリックして全件表示に戻してください。"}
@@ -954,7 +1140,101 @@ export const TradeAnalysisWindowContent: React.FC = () => {
               </div>
             )}
 
-            {/* TAB 2: 時間帯・曜日ヒートマップ */}
+            {/* TAB 2: 指標インパクト分析 (Proximity Impact Dashboard) */}
+            {activeMainTab === "proximity" && (
+              <div className="trade-proximity-view">
+                {/* 比較カード */}
+                <div className="proximity-comparison-grid">
+                  {/* 通常トレードカード */}
+                  <div className="pro-panel comparison-card">
+                    <div className="pro-panel-header">
+                      <h3 className="pro-panel-title" style={{ color: "#38bdf8" }}>
+                        <span className="material-symbols-outlined">shield</span>
+                        <span>通常時トレード (Regular)</span>
+                      </h3>
+                      <span className="preview-stat-pill">{proximityComparison.regularTrades.count} 件</span>
+                    </div>
+                    <div className="pro-panel-body comparison-body">
+                      <div className="comparison-metric-row">
+                        <span className="comp-label">勝率</span>
+                        <span className="comp-val font-data">{proximityComparison.regularTrades.winRate}%</span>
+                      </div>
+                      <div className="comparison-metric-row">
+                        <span className="comp-label">実現損益</span>
+                        <span className={`comp-val font-data ${proximityComparison.regularTrades.totalProfit >= 0 ? "text-profit" : "text-loss"}`}>
+                          {proximityComparison.regularTrades.totalProfit >= 0 ? `+¥${proximityComparison.regularTrades.totalProfit.toLocaleString()}` : `-¥${Math.abs(proximityComparison.regularTrades.totalProfit).toLocaleString()}`}
+                        </span>
+                      </div>
+                      <div className="comparison-metric-row">
+                        <span className="comp-label">プロフィットファクター</span>
+                        <span className="comp-val font-data">{proximityComparison.regularTrades.profitFactor}</span>
+                      </div>
+                      <div className="comparison-metric-row">
+                        <span className="comp-label">期待値 / 回</span>
+                        <span className={`comp-val font-data ${proximityComparison.regularTrades.expectancy >= 0 ? "text-profit" : "text-loss"}`}>
+                          {proximityComparison.regularTrades.expectancy >= 0 ? `+¥${proximityComparison.regularTrades.expectancy.toLocaleString()}` : `-¥${Math.abs(proximityComparison.regularTrades.expectancy).toLocaleString()}`}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 指標近接トレードカード */}
+                  <div className="pro-panel comparison-card">
+                    <div className="pro-panel-header">
+                      <h3 className="pro-panel-title" style={{ color: "#f59e0b" }}>
+                        <span className="material-symbols-outlined">bolt</span>
+                        <span>指標発表近接時 (±{proximityConfig.window_minutes}分)</span>
+                      </h3>
+                      <span className="preview-stat-pill">{proximityComparison.nearNewsTrades.count} 件</span>
+                    </div>
+                    <div className="pro-panel-body comparison-body">
+                      <div className="comparison-metric-row">
+                        <span className="comp-label">勝率</span>
+                        <span className="comp-val font-data" style={{ color: proximityComparison.winRateDiff >= 0 ? "#10b981" : "#ef4444" }}>
+                          {proximityComparison.nearNewsTrades.winRate}% ({proximityComparison.winRateDiff >= 0 ? `+${proximityComparison.winRateDiff}` : proximityComparison.winRateDiff}%)
+                        </span>
+                      </div>
+                      <div className="comparison-metric-row">
+                        <span className="comp-label">実現損益</span>
+                        <span className={`comp-val font-data ${proximityComparison.nearNewsTrades.totalProfit >= 0 ? "text-profit" : "text-loss"}`}>
+                          {proximityComparison.nearNewsTrades.totalProfit >= 0 ? `+¥${proximityComparison.nearNewsTrades.totalProfit.toLocaleString()}` : `-¥${Math.abs(proximityComparison.nearNewsTrades.totalProfit).toLocaleString()}`}
+                        </span>
+                      </div>
+                      <div className="comparison-metric-row">
+                        <span className="comp-label">プロフィットファクター</span>
+                        <span className="comp-val font-data">{proximityComparison.nearNewsTrades.profitFactor}</span>
+                      </div>
+                      <div className="comparison-metric-row">
+                        <span className="comp-label">期待値 / 回</span>
+                        <span className={`comp-val font-data ${proximityComparison.nearNewsTrades.expectancy >= 0 ? "text-profit" : "text-loss"}`}>
+                          {proximityComparison.nearNewsTrades.expectancy >= 0 ? `+¥${proximityComparison.nearNewsTrades.expectancy.toLocaleString()}` : `-¥${Math.abs(proximityComparison.nearNewsTrades.expectancy).toLocaleString()}`}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* AI / ルールベース ガバナンス診断アドバイス */}
+                <div className="pro-panel advice-panel glass-panel">
+                  <div className="pro-panel-header">
+                    <h3 className="pro-panel-title">
+                      <span className="material-symbols-outlined text-[18px]" style={{ color: "#fbbf24" }}>psychology</span>
+                      <span>経済指標ガバナンス診断 & 取引規律アドバイス</span>
+                    </h3>
+                  </div>
+                  <div className="pro-panel-body" style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "12px 16px" }}>
+                    <span className="material-symbols-outlined text-[24px]" style={{ color: "#fbbf24", flexShrink: 0, marginTop: "2px" }}>
+                      info
+                    </span>
+                    <p style={{ margin: 0, fontSize: "12px", lineHeight: "1.6", color: "var(--on-surface)" }}>
+                      {proximityComparison.advice}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 3: 時間帯・曜日ヒートマップ */}
             {activeMainTab === "distribution" && (
               <div className="trade-distribution-view">
                 <div className="pro-panel" style={{ width: "100%" }}>
@@ -1022,7 +1302,7 @@ export const TradeAnalysisWindowContent: React.FC = () => {
               </div>
             )}
 
-            {/* TAB 3: 取引履歴ログ & 詳細インスペクター */}
+            {/* TAB 4: 取引履歴ログ & 詳細インスペクター */}
             {activeMainTab === "ledger" && (
               <div className="trade-ledger-view">
                 <div className="pro-panel ledger-table-panel" style={{ flex: 3 }}>
@@ -1041,6 +1321,7 @@ export const TradeAnalysisWindowContent: React.FC = () => {
                           <th onClick={() => requestSort("durationSec")}>保有時間</th>
                           <th onClick={() => requestSort("pips")}>獲得pips</th>
                           <th onClick={() => requestSort("profit")}>実現損益</th>
+                          <th>指標近接</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1071,6 +1352,19 @@ export const TradeAnalysisWindowContent: React.FC = () => {
                               <td className={`font-data font-bold ${t.profit >= 0 ? "text-profit" : "text-loss"}`}>
                                 {t.profit >= 0 ? `+¥${t.profit.toLocaleString()}` : `-¥${Math.abs(t.profit).toLocaleString()}`}
                               </td>
+                              <td>
+                                {t.isNearNews ? (
+                                  <span
+                                    className="news-proximity-pill"
+                                    title={`${t.nearNewsEvent || "指標"} (${t.nearNewsTimeDiffSec !== undefined && t.nearNewsTimeDiffSec < 0 ? `発表 ${Math.abs(t.nearNewsTimeDiffSec)}秒前` : `発表 ${t.nearNewsTimeDiffSec}秒後`})`}
+                                  >
+                                    <span className="material-symbols-outlined text-[13px]">bolt</span>
+                                    <span>{t.nearNewsTimeDiffSec !== undefined && t.nearNewsTimeDiffSec < 0 ? `-${Math.abs(t.nearNewsTimeDiffSec)}s` : `+${t.nearNewsTimeDiffSec}s`}</span>
+                                  </span>
+                                ) : (
+                                  <span style={{ opacity: 0.3, fontSize: "10px" }}>-</span>
+                                )}
+                              </td>
                             </tr>
                           );
                         })}
@@ -1081,7 +1375,7 @@ export const TradeAnalysisWindowContent: React.FC = () => {
 
                 {/* Selected Trade Inspector */}
                 {selectedTrade && (
-                  <div className="pro-panel ledger-inspector-panel glass-panel" style={{ flex: 1, minWidth: "260px" }}>
+                  <div className="pro-panel ledger-inspector-panel glass-panel" style={{ flex: 1, minWidth: "270px" }}>
                     <div className="pro-panel-header">
                       <h3 className="pro-panel-title">
                         <span className="material-symbols-outlined icon-accent">info</span>
@@ -1091,7 +1385,7 @@ export const TradeAnalysisWindowContent: React.FC = () => {
                         <span className="material-symbols-outlined text-[14px]">close</span>
                       </button>
                     </div>
-                    <div className="pro-panel-body" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                    <div className="pro-panel-body" style={{ display: "flex", flexDirection: "column", gap: "10px", overflowY: "auto", maxHeight: "calc(100vh - 330px)" }}>
                       <div className="inspector-badge-row">
                         <span className={`type-badge ${selectedTrade.type.toLowerCase()}`}>
                           {selectedTrade.type}
@@ -1109,6 +1403,34 @@ export const TradeAnalysisWindowContent: React.FC = () => {
                           </span>
                         </div>
                       </div>
+
+                      {/* 経済指標近接カード (Drenhis連動) */}
+                      {selectedTrade.isNearNews && (
+                        <div className="inspector-news-card">
+                          <div className="news-card-header">
+                            <span className="material-symbols-outlined text-[15px]" style={{ color: "#f59e0b" }}>bolt</span>
+                            <span style={{ fontWeight: 700, fontSize: "11px", color: "#f59e0b" }}>近接経済指標</span>
+                            {selectedTrade.nearNewsImportance && (
+                              <span className="news-imp-tag">{selectedTrade.nearNewsImportance}</span>
+                            )}
+                          </div>
+                          <div className="news-card-body">
+                            <div className="news-event-title">{selectedTrade.nearNewsEvent}</div>
+                            <div className="news-diff-time">
+                              {selectedTrade.nearNewsTimeDiffSec !== undefined && selectedTrade.nearNewsTimeDiffSec < 0
+                                ? `指標発表 ${Math.abs(selectedTrade.nearNewsTimeDiffSec)}秒 前のエントリー`
+                                : `指標発表 ${selectedTrade.nearNewsTimeDiffSec}秒 後のエントリー`}
+                            </div>
+                            {(selectedTrade.nearNewsActual || selectedTrade.nearNewsForecast || selectedTrade.nearNewsPrevious) && (
+                              <div className="news-stats-row">
+                                <div>結果: <span className="font-bold text-accent">{selectedTrade.nearNewsActual || "-"}</span></div>
+                                <div>予想: <span>{selectedTrade.nearNewsForecast || "-"}</span></div>
+                                <div>前回: <span>{selectedTrade.nearNewsPrevious || "-"}</span></div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
 
                       <div className="inspector-details-list">
                         <div className="inspector-detail-row">
@@ -1156,6 +1478,96 @@ export const TradeAnalysisWindowContent: React.FC = () => {
           </>
         )}
       </main>
+
+      {/* Drenhis DB 設定ポップアップモーダル */}
+      {isDrenhisSettingsOpen && (
+        <div className="trade-import-modal-overlay">
+          <div className="trade-import-modal-container glass-panel" style={{ maxWidth: "480px" }}>
+            <div className="trade-import-modal-header">
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <span className="material-symbols-outlined icon-accent" style={{ fontSize: "20px" }}>
+                  database
+                </span>
+                <h3 style={{ margin: 0, fontSize: "14px", fontWeight: 700 }}>
+                  Drenhis 経済指標DB 連携設定
+                </h3>
+              </div>
+              <button className="pro-btn-square" onClick={() => setIsDrenhisSettingsOpen(false)}>
+                <span className="material-symbols-outlined text-[16px]">close</span>
+              </button>
+            </div>
+
+            <div className="trade-import-modal-body">
+              <div className="preview-form-group">
+                <label className="preview-form-label">Drenhis データベースパス (news.db)</label>
+                <input
+                  type="text"
+                  className="pro-input"
+                  value={customDbPath}
+                  onChange={(e) => setCustomDbPath(e.target.value)}
+                  placeholder="未指定時は標準のAppDataパスを自動探索"
+                />
+                <span style={{ fontSize: "10px", color: "var(--on-surface-variant)" }}>
+                  標準パス: %LOCALAPPDATA%\com.drenhis.app\database\news.db
+                </span>
+              </div>
+
+              <div className="preview-form-group">
+                <label className="preview-form-label">近接判定時間枠 (発表前後)</label>
+                <div style={{ display: "flex", gap: "6px" }}>
+                  {[5, 15, 30, 60].map(m => (
+                    <button
+                      key={m}
+                      className={`pro-btn ${proximityConfig.window_minutes === m ? "primary pro-glow" : ""}`}
+                      style={{ flex: 1, padding: "6px 0", fontSize: "11px" }}
+                      onClick={() => setProximityConfig(prev => ({ ...prev, window_minutes: m }))}
+                    >
+                      ±{m}分
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="preview-form-group">
+                <label className="preview-form-label">対象重要度フィルター</label>
+                <select
+                  className="pro-input"
+                  value={proximityConfig.importance_filter}
+                  onChange={(e) => setProximityConfig(prev => ({ ...prev, importance_filter: e.target.value as any }))}
+                >
+                  <option value="all">すべての経済指標</option>
+                  <option value="medium_high">中・高重要度 (★★ / ★★★)</option>
+                  <option value="high_only">高重要度のみ (★★★ / High)</option>
+                </select>
+              </div>
+
+              <div className="preview-form-group">
+                <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={proximityConfig.match_currencies}
+                    onChange={(e) => setProximityConfig(prev => ({ ...prev, match_currencies: e.target.checked }))}
+                  />
+                  <span>取引通貨ペアに関連する通貨の指標のみ照合する</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="trade-import-modal-footer">
+              <button
+                className="pro-btn primary"
+                onClick={() => {
+                  localStorage.setItem("drenhis-custom-db-path", customDbPath);
+                  refreshDrenhisStatus(customDbPath);
+                  setIsDrenhisSettingsOpen(false);
+                }}
+              >
+                保存して接続テスト
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* CSVインポートモーダル */}
       <CsvImportModal

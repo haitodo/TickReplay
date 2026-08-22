@@ -7596,5 +7596,162 @@ input[type="number"].no-spinner {
   background: var(--surface-container);
 }
 
+/* Drenhis Sync Controls */
+.drenhis-sync-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.drenhis-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  border: 1px solid var(--outline-variant);
+  background: rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.drenhis-status-badge:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--primary-color);
+}
+
+.drenhis-status-badge.connected {
+  border-color: rgba(16, 185, 129, 0.3);
+  color: #10b981;
+}
+
+.drenhis-status-badge.disconnected {
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+}
+
+/* News Proximity Pill */
+.news-proximity-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-data);
+}
+
+/* Proximity Comparison View */
+.trade-proximity-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+}
+
+.proximity-comparison-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.comparison-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.comparison-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+}
+
+.comparison-metric-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.comp-label {
+  color: var(--on-surface-variant);
+  font-weight: 500;
+}
+
+.comp-val {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--on-surface);
+}
+
+.advice-panel {
+  border-left: 3px solid #fbbf24;
+}
+
+/* Inspector News Card */
+.inspector-news-card {
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.news-card-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.news-imp-tag {
+  background: #f59e0b;
+  color: #000;
+  font-size: 9px;
+  font-weight: 800;
+  padding: 1px 4px;
+  border-radius: 2px;
+  margin-left: auto;
+}
+
+.news-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.news-event-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--on-surface);
+}
+
+.news-diff-time {
+  font-size: 10px;
+  color: #f59e0b;
+  font-weight: 600;
+}
+
+.news-stats-row {
+  display: flex;
+  gap: 8px;
+  font-size: 10px;
+  color: var(--on-surface-variant);
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px dashed rgba(245, 158, 11, 0.2);
+}
+
 
 

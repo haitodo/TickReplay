@@ -252,3 +252,63 @@ export function calculateEquityCurve(trades: TradeRecord[]) {
 
   return points;
 }
+
+/**
+ * 通常時トレード vs 経済指標近接トレードの比較集計 & ガバナンスアドバイス生成
+ */
+export function calculateProximityComparisonStats(trades: TradeRecord[]) {
+  const regular = trades.filter(t => !t.isNearNews);
+  const nearNews = trades.filter(t => t.isNearNews === true);
+
+  const calcGroup = (group: TradeRecord[]) => {
+    const count = group.length;
+    if (count === 0) {
+      return { count: 0, winRate: 0, totalProfit: 0, profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0 };
+    }
+    const wins = group.filter(t => t.profit > 0);
+    const losses = group.filter(t => t.profit <= 0);
+    const winRate = (wins.length / count) * 100;
+    const totalProfit = group.reduce((sum, t) => sum + t.profit, 0);
+    const winSum = wins.reduce((sum, t) => sum + t.profit, 0);
+    const lossSum = Math.abs(losses.reduce((sum, t) => sum + t.profit, 0));
+    const profitFactor = lossSum > 0 ? winSum / lossSum : winSum > 0 ? 99.9 : 0;
+    const expectancy = totalProfit / count;
+    const avgWin = wins.length > 0 ? winSum / wins.length : 0;
+    const avgLoss = losses.length > 0 ? lossSum / losses.length : 0;
+
+    return {
+      count,
+      winRate: Math.round(winRate * 10) / 10,
+      totalProfit: Math.round(totalProfit),
+      profitFactor: Math.round(profitFactor * 100) / 100,
+      expectancy: Math.round(expectancy),
+      avgWin: Math.round(avgWin),
+      avgLoss: Math.round(avgLoss)
+    };
+  };
+
+  const regStats = calcGroup(regular);
+  const newsStats = calcGroup(nearNews);
+
+  const winRateDiff = Math.round((newsStats.winRate - regStats.winRate) * 10) / 10;
+  const profitFactorDiff = Math.round((newsStats.profitFactor - regStats.profitFactor) * 100) / 100;
+
+  let advice = "";
+  if (newsStats.count === 0) {
+    advice = "指標近接フラグの付与された取引がありません。「Drenhis指標を照合」ボタンを実行して引き当てを行ってください。";
+  } else if (newsStats.winRate < regStats.winRate - 5 || newsStats.profitFactor < 1.0) {
+    advice = `指標発表近接時のトレードは通常時に比べて勝率が ${Math.abs(winRateDiff)}% 低下し、PFは ${newsStats.profitFactor} です。急激なスプレッド拡大と乱高下による損失リスクが高いため、重要指標発表前後のエントリー自粛を強く推奨します。`;
+  } else if (newsStats.profitFactor > regStats.profitFactor + 0.3 && newsStats.totalProfit > 0) {
+    advice = `指標発表時の高いボラティリティを捉えて優れたプロフィットファクター (${newsStats.profitFactor}) を達成しています。スリッページ管理を徹底しつつ現在の優位性を維持してください。`;
+  } else {
+    advice = `通常トレードと指標近接トレードで顕著なパフォーマンス乖離は見られません。規律あるリスク管理が維持されています。`;
+  }
+
+  return {
+    regularTrades: regStats,
+    nearNewsTrades: newsStats,
+    winRateDiff,
+    profitFactorDiff,
+    advice
+  };
+}
