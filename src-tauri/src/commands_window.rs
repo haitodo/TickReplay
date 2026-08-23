@@ -460,6 +460,52 @@ pub async fn close_settings_window(app_handle: AppHandle) -> Result<(), AppError
 }
 
 #[tauri::command]
+pub async fn open_symbol_selector_window(app_handle: AppHandle) -> Result<(), AppError> {
+    let target_inner_w = 840.0;
+    let target_inner_h = 580.0;
+
+    if let Some(window) = app_handle.get_webview_window("symbol_selector") {
+        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
+            width: target_inner_w,
+            height: target_inner_h,
+        }));
+        let _ = window.center();
+        window.show()?;
+        let _ = window.emit("window-visible", true);
+        window.set_focus()?;
+        window.set_always_on_top(true)?;
+    } else {
+        let win_builder = tauri::webview::WebviewWindowBuilder::new(
+            &app_handle,
+            "symbol_selector",
+            tauri::WebviewUrl::App("index.html?window=symbol_selector".into()),
+        )
+        .title("シンボル選択セレクター - TickReplay")
+        .inner_size(target_inner_w, target_inner_h)
+        .min_inner_size(700.0, 450.0)
+        .resizable(true)
+        .always_on_top(true)
+        .visible(false);
+
+        let window = win_builder.build()?;
+        let _ = window.center();
+        window.show()?;
+        let _ = window.emit("window-visible", true);
+        window.set_focus()?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn close_symbol_selector_window(app_handle: AppHandle) -> Result<(), AppError> {
+    if let Some(window) = app_handle.get_webview_window("symbol_selector") {
+        let _ = window.hide();
+        let _ = window.emit("window-visible", false);
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn hide_window(app_handle: AppHandle, label: String) -> Result<(), AppError> {
     if let Some(window) = app_handle.get_webview_window(&label) {
         let _ = window.hide();

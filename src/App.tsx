@@ -7,6 +7,7 @@ import "./App.css";
 import { SymbolItem } from "./components/SymbolCombobox";
 import { CustomSymbolImportModal } from "./components/CustomSymbolImportModal";
 import { SymbolBatchSelectorModal } from "./components/SymbolBatchSelectorModal";
+import { SymbolSelectorWindowContent } from "./components/SymbolSelectorWindowContent";
 import { AIAnalysisPanel } from "./components/AIAnalysisPanel";
 import { DateTimePickerModal } from "./components/DateTimePickerModal";
 import { SpeedOrderWindowContent } from "./components/SpeedOrderWindowContent";
@@ -117,6 +118,13 @@ function App() {
     return (
       <ErrorBoundary fallbackTitle="リプレイ操作コントローラーエラー">
         <ControllerWindowContent />
+      </ErrorBoundary>
+    );
+  }
+  if (windowParam === "symbol_selector") {
+    return (
+      <ErrorBoundary fallbackTitle="シンボル選択セレクターエラー">
+        <SymbolSelectorWindowContent />
       </ErrorBoundary>
     );
   }
@@ -341,6 +349,54 @@ function App() {
   useEffect(() => {
     loadAvailableSymbols(selectedTerminal);
   }, [selectedTerminal]);
+
+  // シンボル選択セレクターウィンドウを開く
+  const handleOpenSymbolSelector = async () => {
+    try {
+      localStorage.setItem("selected-terminal-path", selectedTerminal);
+      localStorage.setItem(
+        "symbol-selector-current-state",
+        JSON.stringify({
+          sourceSymbol,
+          subSourceSymbol,
+          enableDualFeed,
+          additionalSymbols,
+          availableSymbols,
+        })
+      );
+      await emit("symbol-selector-init", {
+        sourceSymbol,
+        subSourceSymbol,
+        enableDualFeed,
+        additionalSymbols,
+        availableSymbols,
+      });
+      await invoke("open_symbol_selector_window");
+    } catch (err) {
+      console.warn("Failed to open symbol selector window via invoke, opening modal fallback:", err);
+      setIsBatchSelectorOpen(true);
+    }
+  };
+
+  // セレクターウィンドウからの選択結果適用イベントを受信
+  useEffect(() => {
+    const unlisten = listen<any>("apply-symbol-selection", (event) => {
+      const data = event.payload;
+      if (data.sourceSymbol) setSourceSymbol(data.sourceSymbol);
+      if (data.subSourceSymbol !== undefined) setSubSourceSymbol(data.subSourceSymbol);
+      if (data.enableDualFeed !== undefined) setEnableDualFeed(data.enableDualFeed);
+      if (data.syncSymbols !== undefined) {
+        setAdditionalSymbols(Array.isArray(data.syncSymbols) ? data.syncSymbols.join(",") : data.syncSymbols);
+      }
+      if (data.dateRange) {
+        if (data.dateRange.start) setStartTime(data.dateRange.start);
+        if (data.dateRange.end) setEndTime(data.dateRange.end);
+      }
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
 
   const [startTime, setStartTime] = useState("2026-05-01 00:00:00");
   const [endTime, setEndTime] = useState("2026-05-02 00:00:00");
@@ -2640,6 +2696,7 @@ function App() {
           enableDualFeed={enableDualFeed}
           setEnableDualFeed={setEnableDualFeed}
           setIsBatchSelectorOpen={setIsBatchSelectorOpen}
+          handleOpenSymbolSelector={handleOpenSymbolSelector}
           sourceSymbol={sourceSymbol}
           setSourceSymbol={setSourceSymbol}
           subSourceSymbol={subSourceSymbol}

@@ -89,6 +89,8 @@ export const ControlDashboard: React.FC<ControlDashboardProps> = ({
   virtualTimeMsc,
   timezoneMode,
 }) => {
+  const safeMultiplier = typeof multiplier === "number" ? multiplier : parseFloat(String(multiplier)) || 1.0;
+
   return (
     <div className="controls-container-compact">
       {/* 1. トランスポート (再生コントロール & 速度) */}
@@ -99,7 +101,7 @@ export const ControlDashboard: React.FC<ControlDashboardProps> = ({
             {speedMode === "TEMPORAL"
               ? timePresets.map((preset) => {
                   const label = `${preset}x`;
-                  const isActive = Math.abs(preset - multiplier) < 0.01;
+                  const isActive = Math.abs(preset - safeMultiplier) < 0.01;
                   return (
                     <button
                       key={preset}
@@ -116,7 +118,7 @@ export const ControlDashboard: React.FC<ControlDashboardProps> = ({
                     <button
                       key={preset}
                       className={`speed-pill-btn ${isActive ? "active" : ""}`}
-                      onClick={() => updateSpeed("COUNT", multiplier, preset)}
+                      onClick={() => updateSpeed("COUNT", safeMultiplier, preset)}
                     >
                       {preset}T
                     </button>
@@ -141,7 +143,7 @@ export const ControlDashboard: React.FC<ControlDashboardProps> = ({
             <button
               className={`mode-badge-btn ${speedMode === "TEMPORAL" ? "time-mode" : "tick-mode"}`}
               onClick={() =>
-                updateSpeed(speedMode === "TEMPORAL" ? "COUNT" : "TEMPORAL", multiplier, tickStep)
+                updateSpeed(speedMode === "TEMPORAL" ? "COUNT" : "TEMPORAL", safeMultiplier, tickStep)
               }
               title="速度モード切替 (時間基準 / ティック基準)"
             >
@@ -209,7 +211,7 @@ export const ControlDashboard: React.FC<ControlDashboardProps> = ({
           </button>
 
           <div className="stepper-value-display font-data">
-            {speedMode === "TEMPORAL" ? `${multiplier.toFixed(1)}x` : `${tickStep}T`}
+            {speedMode === "TEMPORAL" ? `${safeMultiplier.toFixed(1)}x` : `${tickStep}T`}
           </div>
 
           <button

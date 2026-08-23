@@ -251,7 +251,10 @@ export const SymbolCombobox: React.FC<SymbolComboboxProps> = ({
             >
               <button
                 type="button"
-                onClick={() => setSelectedCategoryTab("ALL")}
+                onClick={() => {
+                  setSelectedCategoryTab("ALL");
+                  setFilterText("");
+                }}
                 style={{
                   padding: "2px 8px",
                   fontSize: "11px",
@@ -268,7 +271,10 @@ export const SymbolCombobox: React.FC<SymbolComboboxProps> = ({
                 <button
                   key={y}
                   type="button"
-                  onClick={() => setSelectedCategoryTab(y)}
+                  onClick={() => {
+                    setSelectedCategoryTab(y);
+                    setFilterText("");
+                  }}
                   style={{
                     padding: "2px 8px",
                     fontSize: "11px",
@@ -286,7 +292,10 @@ export const SymbolCombobox: React.FC<SymbolComboboxProps> = ({
                 <button
                   key={t}
                   type="button"
-                  onClick={() => setSelectedCategoryTab(t)}
+                  onClick={() => {
+                    setSelectedCategoryTab(t);
+                    setFilterText("");
+                  }}
                   style={{
                     padding: "2px 8px",
                     fontSize: "11px",
@@ -303,7 +312,10 @@ export const SymbolCombobox: React.FC<SymbolComboboxProps> = ({
               {categoryInfo.hasStandard && (
                 <button
                   type="button"
-                  onClick={() => setSelectedCategoryTab("Standard")}
+                  onClick={() => {
+                    setSelectedCategoryTab("Standard");
+                    setFilterText("");
+                  }}
                   style={{
                     padding: "2px 8px",
                     fontSize: "11px",

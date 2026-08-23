@@ -134,8 +134,14 @@ export const ControllerWindowContent: React.FC = () => {
       if (data.virtual_time_msc !== undefined) setVirtualTimeMsc(data.virtual_time_msc);
       if (data.is_playing !== undefined) setIsPlaying(data.is_playing);
       if (data.speed_mode) setSpeedMode(data.speed_mode as "TEMPORAL" | "COUNT");
-      if (data.multiplier !== undefined) setMultiplier(data.multiplier);
-      if (data.tick_step !== undefined) setTickStep(data.tick_step);
+      if (data.multiplier !== undefined) {
+        const m = typeof data.multiplier === "number" ? data.multiplier : parseFloat(data.multiplier) || 1.0;
+        setMultiplier(m);
+      }
+      if (data.tick_step !== undefined) {
+        const ts = typeof data.tick_step === "number" ? data.tick_step : parseInt(data.tick_step, 10) || 1;
+        setTickStep(ts);
+      }
       if (data.source_symbol) setSourceSymbol(data.source_symbol);
       if (data.loop_active !== undefined) setLoopActive(data.loop_active);
       if (data.loop_a !== undefined) setLoopA(data.loop_a);

@@ -1,9 +1,10 @@
 import React from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { CustomSelect } from "../../CustomSelect";
-import { SymbolCombobox, SymbolItem } from "../SymbolCombobox";
+import { SymbolItem } from "../SymbolCombobox";
 import { SymbolTagInput } from "../SymbolTagInput";
 import { HelpTooltip } from "../HelpTooltip";
+import { parseSymbolName } from "../../utils/symbolUtils";
 import { TerminalInfo } from "../../types/terminal";
 import { MaxBarsInfo } from "../../utils/hotkeyUtils";
 import { formatJstTime, getNewsTimeForDisplay } from "../../utils/timeUtils";
@@ -23,6 +24,7 @@ export interface SetupPanelProps {
   enableDualFeed: boolean;
   setEnableDualFeed: (val: boolean) => void;
   setIsBatchSelectorOpen: (val: boolean) => void;
+  handleOpenSymbolSelector?: () => void;
   sourceSymbol: string;
   setSourceSymbol: (val: string) => void;
   subSourceSymbol: string;
@@ -95,6 +97,7 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
   enableDualFeed,
   setEnableDualFeed,
   setIsBatchSelectorOpen,
+  handleOpenSymbolSelector,
   sourceSymbol,
   setSourceSymbol,
   subSourceSymbol,
@@ -151,6 +154,8 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
   handleCheckConnection,
   handleInit,
 }) => {
+  const handleOpenSelector = handleOpenSymbolSelector || (() => setIsBatchSelectorOpen(true));
+
   // 1Lot証拠金・Pip価値・最大ロット計算
   const estRate = sourceSymbol.toUpperCase().includes("JPY") ? 150 : 1.0;
   const levSafe = leverage > 0 ? leverage : 25;
@@ -313,8 +318,8 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                     <button
                       type="button"
                       className="btn-text-accent"
-                      onClick={() => setIsBatchSelectorOpen(true)}
-                      title="年・ブローカー別マトリクスダイアログを開く"
+                      onClick={handleOpenSelector}
+                      title="シンボル選択セレクターウィンドウを開く"
                     >
                       <span className="material-symbols-outlined icon">tune</span>
                       セレクター
@@ -335,18 +340,24 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                     </label>
                   </div>
 
-                  {enableDualFeed ? (
-                    <div className="dual-symbol-grid">
-                      <div className="form-group-compact">
-                        <label className="form-label-compact text-cyan">Main シンボル</label>
-                        <SymbolCombobox
-                          value={sourceSymbol}
-                          onChange={setSourceSymbol}
-                          availableSymbols={availableSymbols}
-                          placeholder="メイン銘柄 (例: USDJPY_2026)"
-                        />
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "center", margin: "2px 0" }}>
+                  {/* 選択中シンボルサマリー ＆ セレクター起動カード */}
+                  <div
+                    style={{
+                      padding: "8px 10px",
+                      borderRadius: "6px",
+                      backgroundColor: "var(--surface-container, #1f1f26)",
+                      border: "1px solid var(--outline-variant, #2d2d34)",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "6px"
+                    }}
+                  >
+                    {enableDualFeed ? (
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: "6px", alignItems: "center" }}>
+                        <div style={{ padding: "5px 8px", backgroundColor: "rgba(0,0,0,0.25)", borderRadius: "4px", border: "1px solid var(--primary, #4f46e5)" }}>
+                          <span style={{ fontSize: "9px", color: "var(--primary, #a5b4fc)", fontWeight: 700, display: "block" }}>MAIN</span>
+                          <span style={{ fontSize: "12px", fontWeight: 700, fontFamily: "var(--font-data)" }}>{sourceSymbol || "(未選択)"}</span>
+                        </div>
                         <button
                           type="button"
                           className="btn-swap"
@@ -356,48 +367,85 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                             setSubSourceSymbol(temp);
                           }}
                           title="MainとSubの銘柄を入れ替え"
+                          style={{ padding: "2px 6px", height: "24px" }}
                         >
-                          <span className="material-symbols-outlined icon">swap_vert</span>
-                          <span>Main / Sub 入れ替え</span>
+                          <span className="material-symbols-outlined icon">swap_horiz</span>
                         </button>
+                        <div style={{ padding: "5px 8px", backgroundColor: "rgba(0,0,0,0.25)", borderRadius: "4px", border: "1px solid var(--tertiary, #06b6d4)" }}>
+                          <span style={{ fontSize: "9px", color: "var(--tertiary, #67e8f9)", fontWeight: 700, display: "block" }}>SUB</span>
+                          <span style={{ fontSize: "12px", fontWeight: 700, fontFamily: "var(--font-data)" }}>{subSourceSymbol || "(未選択)"}</span>
+                        </div>
                       </div>
-                      <div className="form-group-compact">
-                        <label className="form-label-compact text-indigo">Sub シンボル</label>
-                        <SymbolCombobox
-                          value={subSourceSymbol}
-                          onChange={setSubSourceSymbol}
-                          availableSymbols={availableSymbols}
-                          placeholder="比較銘柄 (例: USDJPY_ECN_2026)"
-                        />
+                    ) : (
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div>
+                          <span style={{ fontSize: "9.5px", color: "var(--on-surface-variant)", display: "block" }}>リプレイ対象銘柄</span>
+                          <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--on-surface)", fontFamily: "var(--font-data)" }}>
+                            {sourceSymbol || "USDJPY"}
+                          </span>
+                        </div>
+                        {sourceSymbol && (
+                          <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+                            {parseSymbolName(sourceSymbol).year && (
+                              <span style={{ fontSize: "10px", padding: "1px 5px", borderRadius: "3px", backgroundColor: "rgba(96, 165, 250, 0.15)", color: "#60a5fa" }}>
+                                {parseSymbolName(sourceSymbol).year}年
+                              </span>
+                            )}
+                            {parseSymbolName(sourceSymbol).broker && (
+                              <span style={{ fontSize: "10px", padding: "1px 5px", borderRadius: "3px", backgroundColor: "rgba(255, 255, 255, 0.05)", color: "var(--on-surface-variant)" }}>
+                                {parseSymbolName(sourceSymbol).broker}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  ) : (
-                    <div className="form-group-compact">
-                      <label className="form-label-compact">
-                        リプレイ対象銘柄
+                    )}
+
+                    {/* セレクター起動ボタン */}
+                    <button
+                      type="button"
+                      className="pro-btn primary"
+                      onClick={handleOpenSelector}
+                      style={{
+                        width: "100%",
+                        padding: "5px 10px",
+                        fontSize: "11px",
+                        fontWeight: 600,
+                        backgroundColor: "var(--primary, #4f46e5)",
+                        color: "#fff",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: "6px",
+                        borderRadius: "4px"
+                      }}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: "15px" }}>tune</span>
+                      <span>シンボル・比較ペアを選択 (セレクター)</span>
+                    </button>
+                  </div>
+
+                  {/* 同期他通貨 (マルチ通貨リプレイ) */}
+                  <div className="form-group-compact" style={{ marginTop: "4px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <label className="form-label-compact" style={{ margin: 0 }}>
+                        同期他通貨 (マルチ通貨リプレイ)
                         <HelpTooltip
-                          title="リプレイ銘柄"
-                          content="検証対象となるリアル銘柄名（またはカスタムシンボル名）を選択・入力します。"
+                          title="同期他通貨"
+                          content="メイン銘柄と同時にリプレイ進行させるサブ銘柄です（相関ペアやドルストレートの同時監視用）。"
                         />
                       </label>
-                      <SymbolCombobox
-                        value={sourceSymbol}
-                        onChange={setSourceSymbol}
-                        availableSymbols={availableSymbols}
-                        placeholder="銘柄名 (例: USDJPY, EURUSD)"
-                      />
+                      {additionalSymbols && (
+                        <button
+                          type="button"
+                          className="btn-text-accent"
+                          style={{ fontSize: "10px" }}
+                          onClick={() => setAdditionalSymbols("")}
+                        >
+                          クリア
+                        </button>
+                      )}
                     </div>
-                  )}
-
-                  {/* 同期他通貨ペア (コンパニオンシンボル) */}
-                  <div className="form-group-compact" style={{ marginTop: "4px" }}>
-                    <label className="form-label-compact">
-                      同期他通貨 (マルチ通貨リプレイ)
-                      <HelpTooltip
-                        title="同期他通貨"
-                        content="メイン銘柄と同時にリプレイ進行させるサブ銘柄です（相関ペアやドルストレートの同時監視用）。"
-                      />
-                    </label>
                     <SymbolTagInput
                       value={additionalSymbols}
                       onChange={setAdditionalSymbols}

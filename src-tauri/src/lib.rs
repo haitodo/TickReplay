@@ -68,7 +68,7 @@ pub fn run() {
                     }
                 }
                 tauri::WindowEvent::CloseRequested { api, .. } => {
-                    if window.label() == "speed_order" || window.label() == "positions" || window.label() == "settings" || window.label() == "controller" {
+                    if window.label() == "speed_order" || window.label() == "positions" || window.label() == "settings" || window.label() == "controller" || window.label() == "symbol_selector" {
                         // 完全に破棄せず非表示にすることで、次回起動を瞬時に行う（チラつき防止）
                         api.prevent_close();
                         let _ = window.hide();
@@ -95,6 +95,9 @@ pub fn run() {
                         }
                         if let Some(controller) = window.app_handle().get_webview_window("controller") {
                             let _ = controller.close();
+                        }
+                        if let Some(symbol_selector) = window.app_handle().get_webview_window("symbol_selector") {
+                            let _ = symbol_selector.close();
                         }
                         // EAにリプレイ停止・クリーンアップを送信
                         if let Some(state) = window.app_handle().try_state::<Arc<state::ReplayState>>() {
@@ -207,6 +210,21 @@ pub fn run() {
                 .visible(false);
 
                 let _ = settings_builder.build()?;
+
+                // シンボル選択セレクター画面を初期起動時にあらかじめ非表示で作成しておく
+                let symbol_selector_builder = tauri::webview::WebviewWindowBuilder::new(
+                    &app_handle,
+                    "symbol_selector",
+                    tauri::WebviewUrl::App("index.html?window=symbol_selector".into()),
+                )
+                .title("シンボル選択セレクター - TickReplay")
+                .inner_size(840.0, 580.0)
+                .min_inner_size(700.0, 450.0)
+                .resizable(true)
+                .always_on_top(true)
+                .visible(false);
+
+                let _ = symbol_selector_builder.build()?;
             }
             
             Ok(())
@@ -231,6 +249,8 @@ pub fn run() {
             commands::open_positions_window,
             commands::open_settings_window,
             commands::close_settings_window,
+            commands::open_symbol_selector_window,
+            commands::close_symbol_selector_window,
             commands::hide_window,
             commands::open_tracely_app,
             commands::open_trade_analysis_window,

@@ -58,6 +58,8 @@ export const RemoteHudBar: React.FC<RemoteHudBarProps> = ({
   handleTerminate,
   toggleRemoteMode,
 }) => {
+  const safeMultiplier = typeof multiplier === "number" ? multiplier : parseFloat(String(multiplier)) || 1.0;
+
   return (
     <div className="remote-wrapper glass-panel relative" data-tauri-drag-region>
       {/* ドラッグ移動用のつまみ（最左端） */}
@@ -192,10 +194,10 @@ export const RemoteHudBar: React.FC<RemoteHudBarProps> = ({
         {/* Speed Toggle */}
         <button
           className="remote-speed-btn"
-          onClick={() => updateSpeed(speedMode === "TEMPORAL" ? "COUNT" : "TEMPORAL", multiplier, tickStep)}
+          onClick={() => updateSpeed(speedMode === "TEMPORAL" ? "COUNT" : "TEMPORAL", safeMultiplier, tickStep)}
           title="再生速度モード切替 (時間基準 / ティック数基準)"
         >
-          {speedMode === "TEMPORAL" ? `${multiplier.toFixed(1)}x` : `${tickStep}T`}
+          {speedMode === "TEMPORAL" ? `${safeMultiplier.toFixed(1)}x` : `${tickStep}T`}
         </button>
       </div>
 
