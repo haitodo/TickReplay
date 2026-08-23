@@ -78,14 +78,14 @@ pub fn set_remote_mode(is_remote: bool, always_on_top: bool, window: tauri::Wind
         window.set_decorations(true)?;
         window.set_resizable(true)?;
         window.set_size(tauri::Size::Logical(tauri::LogicalSize {
-            width: 520.0,
+            width: 760.0,
             height: 600.0,
         }))?;
 
         let app_handle = window.app_handle();
         let settings = tauri::async_runtime::block_on(crate::commands_settings::load_settings(app_handle.clone())).ok().flatten();
         let scale_factor = window.scale_factor().unwrap_or(1.0);
-        let main_phys_w = (520.0 * scale_factor) as u32;
+        let main_phys_w = (760.0 * scale_factor) as u32;
         let main_phys_h = (600.0 * scale_factor) as u32;
 
         let mut positioned = false;
@@ -175,7 +175,7 @@ pub async fn open_speed_order_window(app_handle: AppHandle) -> Result<(), AppErr
         window.set_focus()?;
         window.set_always_on_top(true)?;
     } else {
-        let mut win_builder = tauri::webview::WebviewWindowBuilder::new(
+        let win_builder = tauri::webview::WebviewWindowBuilder::new(
             &app_handle,
             "speed_order",
             tauri::WebviewUrl::App("index.html?window=speed_order".into()),
@@ -185,10 +185,6 @@ pub async fn open_speed_order_window(app_handle: AppHandle) -> Result<(), AppErr
         .resizable(false)
         .always_on_top(true)
         .visible(false);
-
-        if let Some(main_win) = app_handle.get_webview_window("main") {
-            win_builder = win_builder.parent(&main_win)?;
-        }
 
         let window = win_builder.build()?;
 
@@ -285,7 +281,7 @@ pub async fn open_positions_window(app_handle: AppHandle) -> Result<(), AppError
         window.set_focus()?;
         window.set_always_on_top(true)?;
     } else {
-        let mut win_builder = tauri::webview::WebviewWindowBuilder::new(
+        let win_builder = tauri::webview::WebviewWindowBuilder::new(
             &app_handle,
             "positions",
             tauri::WebviewUrl::App("index.html?window=positions".into()),
@@ -297,9 +293,153 @@ pub async fn open_positions_window(app_handle: AppHandle) -> Result<(), AppError
         .always_on_top(true)
         .visible(false);
 
-        if let Some(main_win) = app_handle.get_webview_window("main") {
-            win_builder = win_builder.parent(&main_win)?;
+        let window = win_builder.build()?;
+        let _ = window.center();
+        window.show()?;
+        let _ = window.emit("window-visible", true);
+        window.set_focus()?;
+    }
+    Ok(())
+}
+
+
+#[tauri::command]
+pub fn set_main_window_mode(mode: String, window: tauri::Window) -> Result<(), AppError> {
+    let (target_w, target_h) = if mode == "replay" {
+        (430.0, 325.0)
+    } else {
+        (760.0, 600.0)
+    };
+
+    window.set_size(tauri::Size::Logical(tauri::LogicalSize {
+        width: target_w,
+        height: target_h,
+    }))?;
+
+    let app_handle = window.app_handle();
+    let scale_factor = window.scale_factor().unwrap_or(1.0);
+    let phys_w = (target_w * scale_factor) as u32;
+    let phys_h = (target_h * scale_factor) as u32;
+
+    if let Ok(pos) = window.outer_position() {
+        if !is_position_valid_on_monitors(app_handle, pos.x, pos.y, phys_w, phys_h) {
+            let _ = window.center();
         }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn open_controller_window(app_handle: AppHandle) -> Result<(), AppError> {
+    let target_inner_w = 430.0;
+    let target_inner_h = 325.0;
+    let settings = crate::commands_settings::load_settings(app_handle.clone()).await.ok().flatten();
+
+    if let Some(window) = app_handle.get_webview_window("controller") {
+        let scale_factor = window.scale_factor().unwrap_or(1.0);
+        let phys_w = (target_inner_w * scale_factor) as u32;
+        let phys_h = (target_inner_h * scale_factor) as u32;
+
+        let mut positioned = false;
+        if let Some(ref s) = settings {
+            if let (Some(x), Some(y)) = (s.controller_window_x, s.controller_window_y) {
+                if is_position_valid_on_monitors(&app_handle, x, y, phys_w, phys_h) {
+                    let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+                    positioned = true;
+                }
+            }
+        }
+        if !positioned {
+            let _ = window.center();
+        }
+
+        window.show()?;
+        let _ = window.emit("window-visible", true);
+        window.set_focus()?;
+        window.set_always_on_top(true)?;
+    } else {
+        let win_builder = tauri::webview::WebviewWindowBuilder::new(
+            &app_handle,
+            "controller",
+            tauri::WebviewUrl::App("index.html?window=controller".into()),
+        )
+        .title("リプレイ操作コントローラー - TickReplay")
+        .inner_size(target_inner_w, target_inner_h)
+        .resizable(false)
+        .always_on_top(true)
+        .visible(false);
+
+        let window = win_builder.build()?;
+        let _ = window.center();
+        window.show()?;
+        let _ = window.emit("window-visible", true);
+        window.set_focus()?;
+    }
+
+    // モニター1のメイン設定ウィンドウを非表示にする
+    if let Some(main_win) = app_handle.get_webview_window("main") {
+        let _ = main_win.hide();
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn show_setup_window(app_handle: AppHandle) -> Result<(), AppError> {
+    // コントローラーウィンドウを非表示にする
+    if let Some(controller_win) = app_handle.get_webview_window("controller") {
+        let _ = controller_win.hide();
+    }
+
+    // モニター1のメイン設定ウィンドウを表示・フォーカス
+    if let Some(main_win) = app_handle.get_webview_window("main") {
+        let _ = main_win.show();
+        let _ = main_win.set_focus();
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn open_settings_window(app_handle: AppHandle) -> Result<(), AppError> {
+    let target_inner_w = 640.0;
+    let target_inner_h = 540.0;
+    let settings = crate::commands_settings::load_settings(app_handle.clone()).await.ok().flatten();
+
+    if let Some(window) = app_handle.get_webview_window("settings") {
+        let scale_factor = window.scale_factor().unwrap_or(1.0);
+        let phys_w = (target_inner_w * scale_factor) as u32;
+        let phys_h = (target_inner_h * scale_factor) as u32;
+
+        let mut positioned = false;
+        if let Some(ref s) = settings {
+            if let (Some(x), Some(y)) = (s.settings_window_x, s.settings_window_y) {
+                if is_position_valid_on_monitors(&app_handle, x, y, phys_w, phys_h) {
+                    let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+                    positioned = true;
+                }
+            }
+        }
+        if !positioned {
+            let _ = window.center();
+        }
+
+        window.show()?;
+        let _ = window.emit("window-visible", true);
+        window.set_focus()?;
+        window.set_always_on_top(true)?;
+    } else {
+        let win_builder = tauri::webview::WebviewWindowBuilder::new(
+            &app_handle,
+            "settings",
+            tauri::WebviewUrl::App("index.html?window=settings".into()),
+        )
+        .title("環境設定 - TickReplay")
+        .inner_size(target_inner_w, target_inner_h)
+        .min_inner_size(560.0, 460.0)
+        .resizable(true)
+        .always_on_top(true)
+        .visible(false);
 
         let window = win_builder.build()?;
         let _ = window.center();
@@ -310,6 +450,69 @@ pub async fn open_positions_window(app_handle: AppHandle) -> Result<(), AppError
     Ok(())
 }
 
+#[tauri::command]
+pub async fn close_settings_window(app_handle: AppHandle) -> Result<(), AppError> {
+    if let Some(window) = app_handle.get_webview_window("settings") {
+        let _ = window.hide();
+        let _ = window.emit("window-visible", false);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn open_symbol_selector_window(app_handle: AppHandle) -> Result<(), AppError> {
+    let target_inner_w = 840.0;
+    let target_inner_h = 580.0;
+
+    if let Some(window) = app_handle.get_webview_window("symbol_selector") {
+        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
+            width: target_inner_w,
+            height: target_inner_h,
+        }));
+        let _ = window.center();
+        window.show()?;
+        let _ = window.emit("window-visible", true);
+        window.set_focus()?;
+        window.set_always_on_top(true)?;
+    } else {
+        let win_builder = tauri::webview::WebviewWindowBuilder::new(
+            &app_handle,
+            "symbol_selector",
+            tauri::WebviewUrl::App("index.html?window=symbol_selector".into()),
+        )
+        .title("シンボル選択セレクター - TickReplay")
+        .inner_size(target_inner_w, target_inner_h)
+        .min_inner_size(700.0, 450.0)
+        .resizable(true)
+        .always_on_top(true)
+        .visible(false);
+
+        let window = win_builder.build()?;
+        let _ = window.center();
+        window.show()?;
+        let _ = window.emit("window-visible", true);
+        window.set_focus()?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn close_symbol_selector_window(app_handle: AppHandle) -> Result<(), AppError> {
+    if let Some(window) = app_handle.get_webview_window("symbol_selector") {
+        let _ = window.hide();
+        let _ = window.emit("window-visible", false);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn hide_window(app_handle: AppHandle, label: String) -> Result<(), AppError> {
+    if let Some(window) = app_handle.get_webview_window(&label) {
+        let _ = window.hide();
+        let _ = window.emit("window-visible", false);
+    }
+    Ok(())
+}
 
 #[tauri::command]
 pub async fn open_tracely_app() -> Result<(), AppError> {
@@ -355,4 +558,12 @@ pub async fn open_tracely_app() -> Result<(), AppError> {
 #[tauri::command]
 pub async fn open_trade_analysis_window() -> Result<(), AppError> {
     open_tracely_app().await
+}
+
+#[tauri::command]
+pub fn exit_app(app_handle: AppHandle) {
+    if let Some(state) = app_handle.try_state::<std::sync::Arc<crate::state::ReplayState>>() {
+        let _ = state.command_tx.send("{\"command\":\"TERMINATE\"}".to_string());
+    }
+    app_handle.exit(0);
 }

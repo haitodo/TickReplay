@@ -4,25 +4,26 @@ import { listen, emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import "./App.css";
-import { CustomSelect } from "./CustomSelect";
-import { SymbolCombobox, SymbolItem } from "./components/SymbolCombobox";
-import { SymbolTagInput } from "./components/SymbolTagInput";
+import { SymbolItem } from "./components/SymbolCombobox";
 import { CustomSymbolImportModal } from "./components/CustomSymbolImportModal";
 import { SymbolBatchSelectorModal } from "./components/SymbolBatchSelectorModal";
+import { SymbolSelectorWindowContent } from "./components/SymbolSelectorWindowContent";
 import { AIAnalysisPanel } from "./components/AIAnalysisPanel";
 import { DateTimePickerModal } from "./components/DateTimePickerModal";
 import { SpeedOrderWindowContent } from "./components/SpeedOrderWindowContent";
 import { PositionsWindowContent } from "./components/PositionsWindowContent";
+import { SettingsWindowContent } from "./components/Settings/SettingsWindowContent";
 import { DeleteSessionModal } from "./components/DeleteSessionModal";
 import { TerminalNameModal } from "./components/Modals/TerminalNameModal";
-import { HelpTooltip } from "./components/HelpTooltip";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import { AppHeader } from "./components/Header/AppHeader";
+import { SetupPanel } from "./components/Setup/SetupPanel";
+import { RemoteHudBar } from "./components/Remote/RemoteHudBar";
+import { SettingsModal } from "./components/Settings/SettingsModal";
 import { parseSymbolName, getCompanionSymbols, switchSymbolSuffix } from "./utils/symbolUtils";
 import { useTheme } from "./hooks/useTheme";
 import {
   getServerToJstOffsetHours,
-  parseTimeStrToUtcMs,
-  formatJstTime,
-  formatServerTime,
   convertServerStrToJstStr as convertServerToJstStr,
   getNewsTimeForDisplay
 } from "./utils/timeUtils";
@@ -35,16 +36,13 @@ import {
 } from "./utils/apiKeyTester";
 import {
   DEFAULT_HOTKEYS,
-  HOTKEY_METADATA,
   getTauriShortcutFromEvent,
-  formatShortcutForDisplay,
   matchesHotkey,
   MaxBarsInfo
 } from "./utils/hotkeyUtils";
-import { THEME_PRESETS } from "./constants/themePresets";
 import { TerminalInfo } from "./types/terminal";
 import { translateErrorMessage } from "./utils/i18nUtils";
-import { organizeSessions } from "./domain/sessionBoundaries";
+import { organizeSessions, getCurrentSession } from "./domain/sessionBoundaries";
 
 
 
@@ -54,7 +52,7 @@ export interface TimeStepItem {
   label: string;
 }
 
-const DEFAULT_TIME_STEPS: TimeStepItem[] = [
+export const DEFAULT_TIME_STEPS: TimeStepItem[] = [
   { id: "ts-1", seconds: 10, label: "10S" },
   { id: "ts-2", seconds: 60, label: "1M" },
   { id: "ts-3", seconds: 600, label: "10M" },
@@ -74,11 +72,20 @@ const PRESET_TIME_OPTIONS: { seconds: number; label: string }[] = [
   { seconds: 14400, label: "4H" },
 ];
 
-const formatSecondsToLabel = (sec: number): string => {
+import { ControllerWindowContent } from "./components/Controls/ControllerWindowContent";
+
+export const formatSecondsToLabel = (sec: number): string => {
   if (sec < 60) return `${sec}S`;
   if (sec < 3600 && sec % 60 === 0) return `${sec / 60}M`;
   if (sec % 3600 === 0) return `${sec / 3600}H`;
   if (sec >= 3600) return `${(sec / 3600).toFixed(1)}H`;
+  return `${(sec / 60).toFixed(1)}M`;
+};
+
+export const formatTimeStepLabel = (sec: number): string => {
+  if (sec < 60) return `${sec}S`;
+  if (sec >= 86400) return `${(sec / 86400).toFixed(0)}D`;
+  if (sec >= 3600) return `${(sec / 3600).toFixed(0)}H`;
   return `${(sec / 60).toFixed(1)}M`;
 };
 
@@ -87,10 +94,39 @@ function App() {
   const urlParams = new URLSearchParams(window.location.search);
   const windowParam = urlParams.get("window");
   if (windowParam === "speed_order") {
-    return <SpeedOrderWindowContent />;
+    return (
+      <ErrorBoundary fallbackTitle="スピード発注画面エラー">
+        <SpeedOrderWindowContent />
+      </ErrorBoundary>
+    );
   }
   if (windowParam === "positions") {
-    return <PositionsWindowContent />;
+    return (
+      <ErrorBoundary fallbackTitle="口座・ポジション管理画面エラー">
+        <PositionsWindowContent />
+      </ErrorBoundary>
+    );
+  }
+  if (windowParam === "settings") {
+    return (
+      <ErrorBoundary fallbackTitle="環境設定画面エラー">
+        <SettingsWindowContent />
+      </ErrorBoundary>
+    );
+  }
+  if (windowParam === "controller") {
+    return (
+      <ErrorBoundary fallbackTitle="リプレイ操作コントローラーエラー">
+        <ControllerWindowContent />
+      </ErrorBoundary>
+    );
+  }
+  if (windowParam === "symbol_selector") {
+    return (
+      <ErrorBoundary fallbackTitle="シンボル選択セレクターエラー">
+        <SymbolSelectorWindowContent />
+      </ErrorBoundary>
+    );
   }
 
   // --- 接続状態・EAからのステータス
@@ -102,11 +138,11 @@ function App() {
   const [speedMode, setSpeedMode] = useState<"TEMPORAL" | "COUNT">("TEMPORAL");
   const [multiplier, setMultiplier] = useState(1.0);
   const [tickStep, setTickStep] = useState(1);
-  const [loopActive, setLoopActive] = useState(false);
-  const [loopA, setLoopA] = useState(-1);
-  const [loopB, setLoopB] = useState(-1);
-  const [loopAIdx, setLoopAIdx] = useState(-1);
-  const [loopBIdx, setLoopBIdx] = useState(-1);
+  const [_loopActive, setLoopActive] = useState(false);
+  const [_loopA, setLoopA] = useState(-1);
+  const [_loopB, setLoopB] = useState(-1);
+  const [_loopAIdx, setLoopAIdx] = useState(-1);
+  const [_loopBIdx, setLoopBIdx] = useState(-1);
   const [sessionBoundaries, setSessionBoundaries] = useState<any>({ TYO: [], LDN: [], NY: [] });
 
   // --- ローディング状態 (リプレイ初期化中)
@@ -268,7 +304,7 @@ function App() {
   const [subSourceSymbol, setSubSourceSymbol] = useState("");
   const [mainFeedRate, setMainFeedRate] = useState<{ bid: number; ask: number; spread: number }>({ bid: 0, ask: 0, spread: 0 });
   const [subFeedRate, setSubFeedRate] = useState<{ active: boolean; symbol: string; bid: number; ask: number; spread: number } | null>(null);
-  const [chartSymbol, setChartSymbol] = useState("");
+  const [, setChartSymbol] = useState("");
   const hasSavedSymbolRef = useRef(false);
   const [additionalSymbols, setAdditionalSymbols] = useState("");
   const [isCustomImportOpen, setIsCustomImportOpen] = useState(false);
@@ -313,6 +349,54 @@ function App() {
   useEffect(() => {
     loadAvailableSymbols(selectedTerminal);
   }, [selectedTerminal]);
+
+  // シンボル選択セレクターウィンドウを開く
+  const handleOpenSymbolSelector = async () => {
+    try {
+      localStorage.setItem("selected-terminal-path", selectedTerminal);
+      localStorage.setItem(
+        "symbol-selector-current-state",
+        JSON.stringify({
+          sourceSymbol,
+          subSourceSymbol,
+          enableDualFeed,
+          additionalSymbols,
+          availableSymbols,
+        })
+      );
+      await emit("symbol-selector-init", {
+        sourceSymbol,
+        subSourceSymbol,
+        enableDualFeed,
+        additionalSymbols,
+        availableSymbols,
+      });
+      await invoke("open_symbol_selector_window");
+    } catch (err) {
+      console.warn("Failed to open symbol selector window via invoke, opening modal fallback:", err);
+      setIsBatchSelectorOpen(true);
+    }
+  };
+
+  // セレクターウィンドウからの選択結果適用イベントを受信
+  useEffect(() => {
+    const unlisten = listen<any>("apply-symbol-selection", (event) => {
+      const data = event.payload;
+      if (data.sourceSymbol) setSourceSymbol(data.sourceSymbol);
+      if (data.subSourceSymbol !== undefined) setSubSourceSymbol(data.subSourceSymbol);
+      if (data.enableDualFeed !== undefined) setEnableDualFeed(data.enableDualFeed);
+      if (data.syncSymbols !== undefined) {
+        setAdditionalSymbols(Array.isArray(data.syncSymbols) ? data.syncSymbols.join(",") : data.syncSymbols);
+      }
+      if (data.dateRange) {
+        if (data.dateRange.start) setStartTime(data.dateRange.start);
+        if (data.dateRange.end) setEndTime(data.dateRange.end);
+      }
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
 
   const [startTime, setStartTime] = useState("2026-05-01 00:00:00");
   const [endTime, setEndTime] = useState("2026-05-02 00:00:00");
@@ -374,6 +458,22 @@ function App() {
       document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [isSubmenuOpen]);
+
+  // リプレイ状態（READY / ACTIVE）に新しく遷移した際、モニター2の操作コントローラーウィンドウを起動
+  const prevStatusRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (isRemoteMode) return;
+    if (
+      prevStatusRef.current !== null &&
+      (prevStatusRef.current === "CONNECTED" || prevStatusRef.current === "DISCONNECTED") &&
+      (status === "READY" || status === "ACTIVE")
+    ) {
+      invoke("open_controller_window").catch((err) => {
+        console.warn("Open controller window failed or not applicable in browser:", err);
+      });
+    }
+    prevStatusRef.current = status;
+  }, [status, isRemoteMode]);
 
   const [errorMessage, setErrorMessage] = useState("");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -506,8 +606,6 @@ function App() {
   const [holdingTimeMode, setHoldingTimeMode] = useState<"pc" | "server">(
     () => (localStorage.getItem("speed-order-holding-time-mode") as "pc" | "server") || "pc"
   );
-
-  const throttledSeekRef = useRef<number | null>(null);
   const isDraggingRef = useRef(false);
   const savedConfig = useRef<any>(null); // 保存された設定キャッシュ用のRef
 
@@ -522,11 +620,6 @@ function App() {
         setTotalTicks((prev) => prev !== data.total_ticks ? data.total_ticks : prev);
         setCurrentIdx((prev) => prev !== data.current_idx ? data.current_idx : prev);
         setVirtualTimeMsc((prev) => prev !== data.virtual_time_msc ? data.virtual_time_msc : prev);
-        setLoopActive((prev) => prev !== false ? false : prev);
-        setLoopA((prev) => prev !== -1 ? -1 : prev);
-        setLoopB((prev) => prev !== -1 ? -1 : prev);
-        setLoopAIdx((prev) => prev !== -1 ? -1 : prev);
-        setLoopBIdx((prev) => prev !== -1 ? -1 : prev);
         if (data.session_boundaries) {
           setSessionBoundaries((prev: any) => {
             if (JSON.stringify(prev) === JSON.stringify(data.session_boundaries)) return prev;
@@ -2406,83 +2499,9 @@ function App() {
     });
   };
 
-  const handleTimelineInteraction = (e: React.MouseEvent<SVGSVGElement> | React.TouchEvent<SVGSVGElement>, svgEl: SVGSVGElement) => {
-    const rect = svgEl.getBoundingClientRect();
-    const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
-    const x = clientX - rect.left;
-    const percentage = Math.max(0, Math.min(1, x / rect.width));
-    const targetIdx = Math.round(percentage * totalTicks);
-
-    setCurrentIdx(targetIdx); // 即座にスライダーつまみを動かす
-
-    // 200msでのデバウンス（ドラッグ追従負荷の軽減）
-    if (!throttledSeekRef.current) {
-      throttledSeekRef.current = window.setTimeout(() => {
-        sendSeekCommand(targetIdx);
-        throttledSeekRef.current = null;
-      }, 200);
-    }
-  };
-
-  const handleTimelineMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
-    isDraggingRef.current = true;
-    const svgEl = e.currentTarget;
-    handleTimelineInteraction(e, svgEl);
-
-    const handleMouseMove = (mvEvent: MouseEvent) => {
-      handleTimelineInteraction(mvEvent as any, svgEl);
-    };
-
-    const handleMouseUp = (muEvent: MouseEvent) => {
-      isDraggingRef.current = false;
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
-
-      if (throttledSeekRef.current) {
-        clearTimeout(throttledSeekRef.current);
-        throttledSeekRef.current = null;
-      }
-
-      const rect = svgEl.getBoundingClientRect();
-      const x = muEvent.clientX - rect.left;
-      const percentage = Math.max(0, Math.min(1, x / rect.width));
-      const finalIdx = Math.round(percentage * totalTicks);
-      sendSeekCommand(finalIdx);
-    };
-
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
-  };
-
   // セッション描画データの整理
   const sessions = organizeSessions(sessionBoundaries);
-
-  const renderTimelineRects = () => {
-    if (totalTicks <= 0 || sessions.length === 0) return null;
-    const rects = [];
-    for (let i = 0; i < sessions.length; i++) {
-      const current = sessions[i];
-      const next = sessions[i + 1];
-      const startX = (current.idx / totalTicks) * 100;
-      const endX = next ? (next.idx / totalTicks) * 100 : 100;
-      const width = endX - startX;
-
-      const color = current.type === "TYO" ? "var(--session-tyo)" : current.type === "LDN" ? "var(--session-ldn)" : "var(--session-ny)";
-
-      rects.push(
-        <rect
-          key={i}
-          x={`${startX}%`}
-          y="0"
-          width={`${width}%`}
-          height="100%"
-          fill={color}
-          opacity="0.25"
-        />
-      );
-    }
-    return rects;
-  };
+  const currentSession = getCurrentSession(sessions, currentIdx);
 
   // ミニタイムライン用のセッション背景描画
   const renderMiniSessionTrack = () => {
@@ -2511,19 +2530,7 @@ function App() {
     return blocks;
   };
 
-  // 進捗率
-  const progressPercent = totalTicks > 0 ? (currentIdx / totalTicks) * 100 : 0;
 
-  // --- 5.5 経済指標 & 日付計算用のヘルパー
-  const getDayOffset = () => {
-    if (!virtualTimeMsc || !startTime) return "T+0";
-    const startJstUtcMsc = parseTimeStrToUtcMs(startTime);
-    if (isNaN(startJstUtcMsc)) return "T+0";
-    const currentJstUtcMsc = virtualTimeMsc + getServerToJstOffsetHours(virtualTimeMsc) * 3600 * 1000;
-    const diffMs = currentJstUtcMsc - startJstUtcMsc;
-    const diffDays = Math.floor(diffMs / (24 * 3600 * 1000));
-    return `T${diffDays >= 0 ? "+" : ""}${diffDays}`;
-  };
 
 
 
@@ -2531,172 +2538,34 @@ function App() {
 
   if (isRemoteMode) {
     return (
-      <div className="remote-wrapper glass-panel relative" data-tauri-drag-region>
-        {/* ドラッグ移動用のつまみ（最左端） */}
-        <div
-          className="remote-grip select-none"
-          onMouseDown={handleDragStart}
-          data-tauri-drag-region
-          title="ドラッグして移動"
-        >
-          <span className="material-symbols-outlined text-[16px] pointer-events-none" data-tauri-drag-region>
-            drag_indicator
-          </span>
-        </div>
-
-        {/* 左側：ステータス＆時刻表示HUD */}
-        <div className="remote-hud" onMouseDown={handleDragStart} data-tauri-drag-region>
-          <div className="remote-hud-dot" title="EA接続ステータス"></div>
-          <div className="remote-segment select-none" data-tauri-drag-region>
-            <span className="remote-segment-time" data-tauri-drag-region>
-              {timezoneMode === "JST"
-                ? formatJstTime(virtualTimeMsc).substring(11, 19)
-                : formatServerTime(virtualTimeMsc).substring(11, 19)}
-            </span>
-            <span className="remote-segment-date" data-tauri-drag-region>
-              {timezoneMode === "JST"
-                ? `${formatJstTime(virtualTimeMsc).substring(0, 10).replace(/-/g, ".")} ${getDayOfWeekStr(virtualTimeMsc, true)}`
-                : `${formatServerTime(virtualTimeMsc).substring(0, 10).replace(/-/g, ".")} ${getDayOfWeekStr(virtualTimeMsc, false)}`}
-            </span>
-          </div>
-        </div>
-
-        {/* Center: High-Density Controls & Timeline */}
-        <div className="remote-controls-center">
-          {/* Session Jumps */}
-          <div className="remote-session-group">
-            <div className="remote-session-block border-r">
-              <span className="remote-session-label tyo select-none">TYO</span>
-              <button className="remote-btn-tactile" onClick={() => handleSessionJump("TYO", "PREV")} title="東京セッション 前日へ" style={{ marginRight: '2px' }}>
-                <span className="material-symbols-outlined text-[14px]">remove</span>
-              </button>
-              <button className="remote-btn-tactile" onClick={() => handleSessionJump("TYO", "NEXT")} title="東京セッション 翌日へ">
-                <span className="material-symbols-outlined text-[14px]">add</span>
-              </button>
-            </div>
-            <div className="remote-session-block border-r">
-              <span className="remote-session-label ldn select-none">LDN</span>
-              <button className="remote-btn-tactile" onClick={() => handleSessionJump("LDN", "PREV")} title="ロンドンセッション 前日へ" style={{ marginRight: '2px' }}>
-                <span className="material-symbols-outlined text-[14px]">remove</span>
-              </button>
-              <button className="remote-btn-tactile" onClick={() => handleSessionJump("LDN", "NEXT")} title="ロンドンセッション 翌日へ">
-                <span className="material-symbols-outlined text-[14px]">add</span>
-              </button>
-            </div>
-            <div className="remote-session-block">
-              <span className="remote-session-label ny select-none">NY</span>
-              <button className="remote-btn-tactile" onClick={() => handleSessionJump("NY", "PREV")} title="ニューヨークセッション 前日へ" style={{ marginRight: '2px' }}>
-                <span className="material-symbols-outlined text-[14px]">remove</span>
-              </button>
-              <button className="remote-btn-tactile" onClick={() => handleSessionJump("NY", "NEXT")} title="ニューヨークセッション 翌日へ">
-                <span className="material-symbols-outlined text-[14px]">add</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Time Jumps */}
-          <div className="remote-time-group">
-            <button className="remote-btn-time" onClick={() => handleTimeJump(-60)} title="1分戻る">-1M</button>
-            <button className="remote-btn-time" onClick={() => handleTimeJump(60)} title="1分進む">+1M</button>
-            <div className="remote-divider-v"></div>
-            <button className="remote-btn-time" onClick={() => handleTimeJump(-600)} title="10分戻る">-10M</button>
-            <button className="remote-btn-time" onClick={() => handleTimeJump(600)} title="10分進む">+10M</button>
-          </div>
-
-          {/* Playback Cluster */}
-          <div className="remote-playback-group">
-            <button className="remote-btn-playback" onClick={() => handleStep(-1)} title="1コマ(1ティック)戻る">
-              <span className="material-symbols-outlined text-[15px]" style={{ fontVariationSettings: "'FILL' 1" }}>skip_previous</span>
-            </button>
-            <button className={`remote-btn-playback-primary ${isPlaying ? "active-play" : ""}`} onClick={handlePlayPause} title={isPlaying ? "一時停止" : "再生"}>
-              <span className="material-symbols-outlined text-[16px] text-[#0D0F14]" style={{ fontVariationSettings: "'FILL' 1" }}>{isPlaying ? "pause" : "play_arrow"}</span>
-            </button>
-            <button className="remote-btn-playback" onClick={() => handleStep(1)} title="1コマ(1ティック)進む">
-              <span className="material-symbols-outlined text-[15px]" style={{ fontVariationSettings: "'FILL' 1" }}>skip_next</span>
-            </button>
-          </div>
-
-          {/* Speed Toggle */}
-          <button
-            className="remote-speed-btn"
-            onClick={() => updateSpeed(speedMode === "TEMPORAL" ? "COUNT" : "TEMPORAL", multiplier, tickStep)}
-            title="再生速度モード切替 (時間基準 / ティック数基準)"
-          >
-            {speedMode === "TEMPORAL" ? `${multiplier.toFixed(1)}x` : `${tickStep}T`}
-          </button>
-        </div>
-
-        {/* Right: Mini Timeline */}
-        <div className="remote-timeline-container">
-          <div className="remote-timeline-track-bg">
-            {renderMiniSessionTrack()}
-          </div>
-          <div className="remote-slider-wrapper">
-            <input
-              className="remote-slider-el"
-              max={totalTicks}
-              min={0}
-              type="range"
-              value={currentIdx}
-              onChange={(e) => {
-                const val = parseInt(e.target.value);
-                setCurrentIdx(val);
-                sendSeekCommand(val);
-              }}
-              title={`Tick Progress: ${currentIdx} / ${totalTicks}`}
-            />
-          </div>
-          <div className="remote-timeline-labels select-none">
-            <span className="remote-timeline-text">
-              {startTime
-                ? (timezoneMode === "JST" ? startTime : getNewsTimeForDisplay(startTime, "SERVER")).substring(11, 16)
-                : "00:00"}
-            </span>
-            <span className="remote-timeline-text active">
-              {timezoneMode === "JST"
-                ? formatJstTime(virtualTimeMsc).substring(11, 16)
-                : formatServerTime(virtualTimeMsc).substring(11, 16)}
-            </span>
-            <span className="remote-timeline-text">
-              {endTime
-                ? (timezoneMode === "JST" ? endTime : getNewsTimeForDisplay(endTime, "SERVER")).substring(11, 16)
-                : "24:00"}
-            </span>
-          </div>
-        </div>
-
-        {/* Far Right: Utility actions */}
-        <div className="remote-utilities">
-          <button
-            className={`remote-btn-utility ${isShortcutsActive ? "active-green" : ""}`}
-            onClick={handleShortcutsToggle}
-            title="Global Hotkeys Toggle"
-          >
-            <span className="material-symbols-outlined text-[14px]">keyboard</span>
-          </button>
-          <button
-            className={`remote-btn-utility ${alwaysOnTop ? "active-green" : ""}`}
-            onClick={handleAlwaysOnTopToggle}
-            title="Always on Top Toggle"
-          >
-            <span className="material-symbols-outlined text-[14px]">push_pin</span>
-          </button>
-          <button
-            className="remote-btn-utility danger"
-            onClick={handleTerminate}
-            title="Terminate Replay"
-          >
-            <span className="material-symbols-outlined text-[14px]">power_settings_new</span>
-          </button>
-          <button
-            className="remote-btn-utility exit"
-            onClick={() => toggleRemoteMode(false)}
-            title="通常画面に戻る"
-          >
-            <span className="material-symbols-outlined text-[14px]">desktop_windows</span>
-          </button>
-        </div>
-      </div>
+      <RemoteHudBar
+        handleDragStart={handleDragStart}
+        timezoneMode={timezoneMode}
+        virtualTimeMsc={virtualTimeMsc}
+        getDayOfWeekStr={getDayOfWeekStr}
+        handleSessionJump={handleSessionJump}
+        handleTimeJump={handleTimeJump}
+        handleStep={handleStep}
+        handlePlayPause={handlePlayPause}
+        isPlaying={isPlaying}
+        updateSpeed={updateSpeed}
+        speedMode={speedMode}
+        multiplier={multiplier}
+        tickStep={tickStep}
+        renderMiniSessionTrack={renderMiniSessionTrack}
+        totalTicks={totalTicks}
+        currentIdx={currentIdx}
+        setCurrentIdx={setCurrentIdx}
+        sendSeekCommand={sendSeekCommand}
+        startTime={startTime}
+        endTime={endTime}
+        isShortcutsActive={isShortcutsActive}
+        handleShortcutsToggle={handleShortcutsToggle}
+        alwaysOnTop={alwaysOnTop}
+        handleAlwaysOnTopToggle={handleAlwaysOnTopToggle}
+        handleTerminate={handleTerminate}
+        toggleRemoteMode={toggleRemoteMode}
+      />
     );
   }
 
@@ -2744,254 +2613,56 @@ function App() {
         </div>
       )}
 
-      {/* Top Navbar */}
-      <nav className="top-navbar">
-        <div className="nav-brand">
-          <div 
-            className="connection-status" 
-            title={`Status: ${status === "DISCONNECTED" ? "Disconnected (未接続)" : status === "CONNECTED" ? "Connected (接続完了)" : status === "READY" ? "Ready (準備完了)" : "Active (動作中)"}`}
-          >
-            <span className={`status-dot ${status.toLowerCase()}`}></span>
-          </div>
-        </div>
-
-        {/* Central HUD */}
-        <div className="hud-center">
-          <div className="hud-panel">
-            <div className="hud-group">
-              {timezoneMode === "JST" ? (
-                <div className="hud-item">
-                  <span className="hud-label">LCL</span>
-                  <span className="hud-val primary">
-                    <span className="hud-date">{`${formatJstTime(virtualTimeMsc).substring(0, 10).replace(/-/g, ".")} ${getDayOfWeekStr(virtualTimeMsc, true)}`}</span>
-                    {formatJstTime(virtualTimeMsc).substring(11, 19)}
-                  </span>
-                </div>
-              ) : (
-                <div className="hud-item">
-                  <span className="hud-label">SRV</span>
-                  <span className="hud-val primary">
-                    <span className="hud-date">{`${formatServerTime(virtualTimeMsc).substring(0, 10).replace(/-/g, ".")} ${getDayOfWeekStr(virtualTimeMsc, false)}`}</span>
-                    {formatServerTime(virtualTimeMsc).substring(11, 19)}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {/* デュアルフィード レート・スプレッド表示 */}
-            {subFeedRate && subFeedRate.active && (
-              <div className="hud-group" style={{ display: "flex", gap: "8px", borderLeft: "1px solid var(--outline-variant)", paddingLeft: "10px", marginLeft: "6px" }}>
-                <div className="hud-item" style={{ alignItems: "flex-start" }}>
-                  <span className="hud-label" style={{ color: "var(--primary, #6366f1)", fontWeight: 700 }}>MAIN</span>
-                  <span className="hud-val" style={{ fontSize: "11px", fontWeight: 600 }}>
-                    {mainFeedRate.bid.toFixed(3)} / {mainFeedRate.ask.toFixed(3)}
-                    <span style={{ fontSize: "10px", color: "var(--on-surface-variant)", marginLeft: "4px" }}>
-                      ({mainFeedRate.spread.toFixed(1)}p)
-                    </span>
-                  </span>
-                </div>
-                <div className="hud-item" style={{ alignItems: "flex-start" }}>
-                  <span className="hud-label" style={{ color: "var(--tertiary, #a8c7fa)", fontWeight: 700 }}>SUB</span>
-                  <span className="hud-val" style={{ fontSize: "11px", fontWeight: 600 }}>
-                    {subFeedRate.bid.toFixed(3)} / {subFeedRate.ask.toFixed(3)}
-                    <span style={{ fontSize: "10px", color: "var(--on-surface-variant)", marginLeft: "4px" }}>
-                      ({subFeedRate.spread.toFixed(1)}p)
-                    </span>
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Action icons & Terminate */}
-        <div className="nav-actions">
-          {/* 1. 口座・ポジション管理 (検証時のみ) */}
-          {(status === "ACTIVE" || status === "READY") && (
-            <button
-              className="pro-btn pro-btn-square"
-              onClick={() => invoke("open_positions_window").catch(console.error)}
-              title="口座・ポジション管理ウィンドウを起動"
-            >
-              <span className="material-symbols-outlined text-[16px]">account_balance_wallet</span>
-            </button>
-          )}
-
-          {/* 2. スピード発注パネルを起動 (検証時のみ) */}
-          {(status === "ACTIVE" || status === "READY") && (
-            <button
-              className="pro-btn pro-btn-square"
-              onClick={async () => {
-                try {
-                  await invoke("open_speed_order_window");
-                } catch (err) {
-                  console.error(err);
-                }
-              }}
-              title="スピード発注パネルを起動"
-            >
-              <span className="material-symbols-outlined text-[16px] pro-money-icon">currency_exchange</span>
-            </button>
-          )}
-
-          {/* 3. 現在の検証状態を保存 (検証時のみ) */}
-          {(status === "READY" || status === "ACTIVE") && (
-            <button
-              className="pro-btn pro-btn-square"
-              onClick={() => {
-                const now = new Date();
-                const pad = (n: number) => n.toString().padStart(2, '0');
-                const defaultName = `${sourceSymbol}_Replay_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
-                setSaveSessionName(currentSessionId ? currentSessionName : defaultName);
-                setSaveAsNewSnapshot(false);
-                setSessionSaveType("manual");
-                setIsSaveSessionOpen(true);
-              }}
-              title="現在の検証状態を保存"
-            >
-              <span className="material-symbols-outlined text-[16px]">save</span>
-            </button>
-          )}
-
-          {/* 3.5. 独立トレード分析アプリ (Tracely) を起動 (常時表示) */}
-          <button
-            className="pro-btn pro-btn-square"
-            onClick={async () => {
-              try {
-                await invoke("open_tracely_app");
-              } catch (err) {
-                console.error(err);
-              }
-            }}
-            title="独立トレード分析アプリ (Tracely) を起動"
-          >
-            <span className="material-symbols-outlined text-[16px]" style={{ color: "var(--primary-color)" }}>analytics</span>
-          </button>
-
-          {/* 4. 急変動・トレンドAI解析 (常時表示) */}
-          <button
-            className="pro-btn pro-btn-square"
-            onClick={() => {
-              setAiTargetTimeMsc(virtualTimeMsc);
-              setIsAIPanelOpen(true);
-            }}
-            title="急変動・トレンドAI解析"
-          >
-            <span className="material-symbols-outlined text-[16px]" style={{ color: "#3b82f6" }}>auto_awesome</span>
-          </button>
-
-          {/* 5. 環境設定 (常時表示) */}
-          <button
-            className="pro-btn pro-btn-square"
-            onClick={() => setIsSettingsOpen(true)}
-            title="環境設定"
-          >
-            <span className="material-symbols-outlined text-[16px]">settings</span>
-          </button>
-
-          {/* 6. リプレイ検証を終了する (検証時のみ) */}
-          {(status === "READY" || status === "ACTIVE") && (
-            <button
-              className="pro-btn pro-btn-square danger"
-              onClick={handleTerminate}
-              title="リプレイ検証を終了する"
-            >
-              <span className="material-symbols-outlined text-[16px]">power_settings_new</span>
-            </button>
-          )}
-
-          <div className="nav-divider"></div>
-
-          {/* 7. サブメニュー（その他補助機能） */}
-          <div className="header-submenu-container" ref={submenuRef}>
-            <button
-              className={`pro-btn pro-btn-square ${isSubmenuOpen ? "active-loop" : ""}`}
-              onClick={() => setIsSubmenuOpen(!isSubmenuOpen)}
-              title="その他・補助機能"
-            >
-              <span className="material-symbols-outlined text-[16px]">more_vert</span>
-              {(alwaysOnTop || isShortcutsActive) && (
-                <span className="header-submenu-dot-indicator" title="補助機能が有効です"></span>
-              )}
-            </button>
-
-            {isSubmenuOpen && (
-              <div className="header-submenu-dropdown">
-                <div className="header-submenu-header">補助ツール &amp; 表示設定</div>
-                <button
-                  className={`header-submenu-item ${alwaysOnTop ? "active" : ""}`}
-                  onClick={() => {
-                    handleAlwaysOnTopToggle();
-                  }}
-                  title="ウインドウを常に最前面に固定"
-                >
-                  <span className="material-symbols-outlined icon">push_pin</span>
-                  <span className="label">最前面に固定</span>
-                  <span className="status-tag">{alwaysOnTop ? "ON" : "OFF"}</span>
-                </button>
-
-                <button
-                  className={`header-submenu-item ${isShortcutsActive ? "active" : ""}`}
-                  onClick={() => {
-                    handleShortcutsToggle();
-                  }}
-                  title="キーボードショートカット有効化"
-                >
-                  <span className="material-symbols-outlined icon">keyboard</span>
-                  <span className="label">ショートカット</span>
-                  <span className="status-tag">{isShortcutsActive ? "ON" : "OFF"}</span>
-                </button>
-
-                <button
-                  className="header-submenu-item"
-                  onClick={() => {
-                    toggleRemoteMode(true);
-                    setIsSubmenuOpen(false);
-                  }}
-                  title="リモート操作モードの切替"
-                >
-                  <span className="material-symbols-outlined icon">settings_remote</span>
-                  <span className="label">リモコンモード</span>
-                </button>
-
-                <div className="header-submenu-divider"></div>
-
-                <button
-                  className="header-submenu-item"
-                  onClick={() => {
-                    const nextMode = themeMode === "dark" ? "light" : "dark";
-                    setThemeMode(nextMode);
-                    saveAllSettings(hotkeys, timePresets, tickPresets, glassEffect, nextMode);
-                  }}
-                  title={themeMode === "dark" ? "ライトモードに切り替え" : "ダークモードに切り替え"}
-                >
-                  <span className="material-symbols-outlined icon">
-                    {themeMode === "dark" ? "light_mode" : "dark_mode"}
-                  </span>
-                  <span className="label">{themeMode === "dark" ? "ライトモード" : "ダークモード"}</span>
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      </nav>
+      {/* Top Header */}
+      <AppHeader
+        status={status}
+        virtualTimeMsc={virtualTimeMsc}
+        timezoneMode={timezoneMode}
+        setTimezoneMode={setTimezoneMode}
+        currentSession={currentSession}
+        subFeedRate={subFeedRate}
+        mainFeedRate={mainFeedRate}
+        sourceSymbol={sourceSymbol}
+        alwaysOnTop={alwaysOnTop}
+        isShortcutsActive={isShortcutsActive}
+        themeMode={themeMode}
+        setThemeMode={setThemeMode}
+        saveAllSettings={saveAllSettings}
+        hotkeys={hotkeys}
+        timePresets={timePresets}
+        tickPresets={tickPresets}
+        glassEffect={glassEffect}
+        handleAlwaysOnTopToggle={handleAlwaysOnTopToggle}
+        handleShortcutsToggle={handleShortcutsToggle}
+        toggleRemoteMode={toggleRemoteMode}
+        handleTerminate={handleTerminate}
+        setIsSettingsOpen={setIsSettingsOpen}
+        setIsAIPanelOpen={setIsAIPanelOpen}
+        setAiTargetTimeMsc={setAiTargetTimeMsc}
+        setIsSaveSessionOpen={setIsSaveSessionOpen}
+        setSaveSessionName={setSaveSessionName}
+        setSaveAsNewSnapshot={setSaveAsNewSnapshot}
+        setSessionSaveType={setSessionSaveType}
+        currentSessionId={currentSessionId}
+        currentSessionName={currentSessionName}
+        getDayOfWeekStr={getDayOfWeekStr}
+      />
 
       {/* Main Workspace Area */}
       <main className="main-workspace" style={{ position: "relative" }}>
-        {/* エラーバナー (オーバーレイ表示、他パネルの位置がずれないように絶対配置) */}
         {errorMessage && (
           <div
             className="error-banner"
             style={{
               position: "absolute",
-              top: "20px",
+              top: "10px",
               left: 0,
               right: 0,
               marginLeft: "auto",
               marginRight: "auto",
               zIndex: 1000,
-              width: "calc(100% - 40px)",
-              maxWidth: "600px",
+              width: "calc(100% - 20px)",
+              maxWidth: "400px",
               boxShadow: "0 8px 24px rgba(0, 0, 0, 0.6)",
               backgroundColor: "rgba(30, 10, 10, 0.95)",
               border: "1px solid var(--status-danger)",
@@ -2999,7 +2670,7 @@ function App() {
             }}
           >
             <span className="material-symbols-outlined">error</span>
-            <span style={{ flex: 1 }}>{errorMessage}</span>
+            <span style={{ flex: 1, fontSize: "11px" }}>{errorMessage}</span>
             <button
               className="error-banner-close-btn"
               onClick={() => setErrorMessage("")}
@@ -3010,2540 +2681,157 @@ function App() {
           </div>
         )}
 
-        {(status === "DISCONNECTED" || status === "CONNECTED") ? (
-          /* A. Setup Panel */
-          <div className="setup-panel pro-panel" style={{ maxHeight: "calc(100vh - 62px)", display: "flex", flexDirection: "column" }}>
-            <div className="pro-panel-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <h3 className="pro-panel-title">
-                <span className="material-symbols-outlined icon-accent">settings_input_component</span>
-                リプレイ環境のセットアップ
-              </h3>
-              <div className="mode-toggle-segmented" style={{ display: "flex", gap: "2px", backgroundColor: "var(--surface-container-high)", padding: "2px", borderRadius: "var(--radius-sm)", border: "1px solid var(--outline-variant)", userSelect: "none" }}>
-                <button
-                  type="button"
-                  className={`pro-btn ${setupTab === "replay" ? "active-loop" : ""}`}
-                  style={{ padding: "4px 10px", fontSize: "10px", height: "24px" }}
-                  onClick={() => setSetupTab("replay")}
-                >
-                  リプレイ設定
-                </button>
-                <button
-                  type="button"
-                  className={`pro-btn ${setupTab === "trading" ? "active-loop" : ""}`}
-                  style={{ padding: "4px 10px", fontSize: "10px", height: "24px" }}
-                  onClick={() => setSetupTab("trading")}
-                >
-                  取引設定
-                </button>
-                <button
-                  type="button"
-                  className={`pro-btn ${setupTab === "resume" ? "active-loop" : ""}`}
-                  style={{ padding: "4px 10px", fontSize: "10px", height: "24px" }}
-                  onClick={() => {
-                    setSetupTab("resume");
-                    loadSavedSessions();
-                  }}
-                >
-                  セッション再開
-                </button>
-              </div>
-            </div>
-
-            <div className="pro-panel-body" style={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden", flex: 1 }}>
-              <div className="setup-cards-scroll-container" style={{ overflowY: "auto", paddingRight: "6px", flex: 1, minHeight: 0, marginBottom: "8px" }}>
-                <div className="setup-grid-container" style={{ display: setupTab === "replay" ? "grid" : "none" }}>
-                  {/* グループ1: 接続設定 */}
-                  <div className="setup-card">
-                    <div className="setup-card-header">
-                      <div className="setup-card-title">
-                        <span className="material-symbols-outlined">settings_ethernet</span>
-                        接続設定
-                      </div>
-                    </div>
-                    <div className="setup-card-body">
-                      {/* MT5ターミナル & チャートプロファイル 横並び配置 */}
-                      <div className="setup-card-grid-2">
-                        <div className="form-group">
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px", minHeight: "18px" }}>
-                            <label className="form-label" style={{ marginBottom: 0, display: "flex", alignItems: "center" }}>
-                              MT5ターミナル
-                              <HelpTooltip
-                                title="MT5ターミナル"
-                                content="リプレイ連携を行うMetaTrader 5の実行環境を選択します。複数インストールされている場合は、TickReplayControllerEAが配置されているターミナルを指定してください。"
-                              />
-                            </label>
-                            {selectedTerminal && (
-                              <button
-                                type="button"
-                                className="pro-btn-text"
-                                style={{
-                                  fontSize: "11px",
-                                  color: "var(--primary-color)",
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: "3px",
-                                  cursor: "pointer",
-                                  background: "none",
-                                  border: "none",
-                                  padding: "2px 4px",
-                                  borderRadius: "4px",
-                                }}
-                                onClick={() => handleOpenTerminalNameModal()}
-                                title="選択中のMT5ターミナルに名前（別名）を設定する"
-                              >
-                                <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>edit_note</span>
-                                名前を設定
-                              </button>
-                            )}
-                          </div>
-                          <CustomSelect
-                            value={selectedTerminal}
-                            onChange={setSelectedTerminal}
-                            options={terminals.length > 0
-                              ? terminals.map((t) => {
-                                  const displayTitle = t.custom_name || t.name;
-                                  const subText = t.origin_path || (t.id ? `ID: ${t.id}` : "");
-                                  return {
-                                    value: t.path,
-                                    triggerLabel: displayTitle,
-                                    label: (
-                                      <div style={{ display: "flex", flexDirection: "column", gap: "1px", width: "100%", overflow: "hidden" }}>
-                                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                          <span style={{ fontWeight: 600 }}>{displayTitle}</span>
-                                          {t.custom_name && t.default_name && (
-                                            <span style={{ fontSize: "10px", color: "var(--on-surface-variant)", opacity: 0.8 }}>
-                                              ({t.default_name})
-                                            </span>
-                                          )}
-                                        </div>
-                                        {subText && (
-                                          <span
-                                            style={{
-                                              fontSize: "9px",
-                                              color: "var(--on-surface-variant)",
-                                              opacity: 0.65,
-                                              whiteSpace: "nowrap",
-                                              overflow: "hidden",
-                                              textOverflow: "ellipsis"
-                                            }}
-                                          >
-                                            {subText}
-                                          </span>
-                                        )}
-                                      </div>
-                                    )
-                                  };
-                                })
-                              : [{ value: "", label: "No Terminals Found" }]
-                            }
-                          />
-                        </div>
-
-                        <div className="form-group">
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px", minHeight: "18px" }}>
-                            <label className="form-label" style={{ marginBottom: 0, display: "flex", alignItems: "center" }}>
-                              チャートプロファイル
-                              <HelpTooltip
-                                title="チャートプロファイル"
-                                content="リプレイ開始時にMT5側で自動的に読み込まれるチャートの組表示（複数時間足やテンプレートの組み合わせ）を選択します。"
-                                tip="MT5側で事前にプロファイルを保存しておくと、ここから一括で復元できます。"
-                              />
-                            </label>
-                          </div>
-                          <CustomSelect
-                            value={selectedProfile}
-                            onChange={setSelectedProfile}
-                            options={profiles.map(p => ({ value: p, label: p }))}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="form-group" style={{ marginTop: "2px" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "11px", marginBottom: "3px" }}>
-                          <span className="form-label" style={{ marginBottom: 0, display: "flex", alignItems: "center" }}>
-                            チャートの最大バー数
-                            <HelpTooltip
-                              title="チャートの最大バー数 (MT5設定)"
-                              content="MT5側で描画を許可する最大バー数です。過去検証時に長期インジケータ（200MA等）を正確に表示するため「Unlimited (無制限)」が推奨されます。"
-                            />
-                          </span>
-                          {maxBarsInfo ? (
-                            maxBarsInfo.is_unlimited ? (
-                              <span className="max-bars-badge unlimited">
-                                <span className="material-symbols-outlined" style={{ fontSize: "13px" }}>check_circle</span>
-                                Unlimited (無制限)
-                              </span>
-                            ) : (
-                              <span className="max-bars-badge limited">
-                                <span className="material-symbols-outlined" style={{ fontSize: "13px" }}>warning</span>
-                                {maxBarsInfo.max_bars > 0 ? `${maxBarsInfo.max_bars.toLocaleString()} 本` : maxBarsInfo.raw_value} (制限あり)
-                              </span>
-                            )
-                          ) : (
-                            <span className="max-bars-badge loading">確認中...</span>
-                          )}
-                        </div>
-                        {maxBarsInfo && !maxBarsInfo.is_unlimited && (
-                          <div className="max-bars-warning-note">
-                            <span className="material-symbols-outlined" style={{ fontSize: "15px", color: "#ffb74d", marginTop: "1px", flexShrink: 0 }}>info</span>
-                            <span>
-                              ※ 最大バー数が無制限でない場合、過去データ検証時にインジケータ（MAやVWAP等）が正しく表示されない可能性があります。MT5の <strong>[ツール] → [オプション] → [チャート]</strong> で「チャートの最大バー数」を <strong>「Unlimited (無制限)」</strong> に設定してください。
-                            </span>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* 銘柄・比較ペア設定ブロック */}
-                      <div style={{
-                        padding: "12px",
-                        borderRadius: "8px",
-                        backgroundColor: enableDualFeed ? "rgba(99, 102, 241, 0.06)" : "var(--surface-container)",
-                        border: `1px solid ${enableDualFeed ? "var(--primary, #6366f1)" : "var(--outline-variant)"}`,
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "10px",
-                        marginBottom: "12px"
-                      }}>
-                        {/* モード切り替え & セレクター起動ボタン */}
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", margin: 0, fontWeight: 600, fontSize: "12px", color: "var(--on-surface)" }}>
-                            <input
-                              type="checkbox"
-                              checked={enableDualFeed}
-                              onChange={(e) => setEnableDualFeed(e.target.checked)}
-                              style={{ width: "16px", height: "16px", accentColor: "var(--primary, #6366f1)" }}
-                            />
-                            <span>デュアルフィード比較リプレイ (OTC vs ECN等)</span>
-                          </label>
-                          <button
-                            type="button"
-                            className="pro-btn"
-                            onClick={() => setIsBatchSelectorOpen(true)}
-                            style={{
-                              padding: "4px 10px",
-                              fontSize: "11px",
-                              height: "26px",
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "4px",
-                              backgroundColor: "rgba(99, 102, 241, 0.15)",
-                              borderColor: "var(--primary, #6366f1)",
-                              color: "var(--primary, #a8c7fa)",
-                              fontWeight: 600
-                            }}
-                            title="年・ブローカー別マトリクスダイアログを開く"
-                          >
-                            <span className="material-symbols-outlined" style={{ fontSize: "15px" }}>tune</span>
-                            セレクターダイアログ...
-                          </button>
-                        </div>
-
-                        {/* Dual Feed 時の表示 */}
-                        {enableDualFeed ? (
-                          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                            <div style={{ display: "flex", alignItems: "flex-end", gap: "8px", position: "relative" }}>
-                              <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
-                                <div style={{ fontSize: "11px", color: "var(--primary, #6366f1)", marginBottom: "4px", fontWeight: 600 }}>
-                                  Main シンボル (メインチャート)
-                                </div>
-                                <SymbolCombobox
-                                  value={sourceSymbol}
-                                  onChange={(val) => setSourceSymbol(val)}
-                                  availableSymbols={availableSymbols}
-                                  placeholder="メイン銘柄 (例: USDJPY_OANDA_2016)"
-                                  dropdownAlign="left"
-                                />
-                              </div>
-
-                              <button
-                                type="button"
-                                className="pro-btn"
-                                onClick={() => {
-                                  const temp = sourceSymbol;
-                                  setSourceSymbol(subSourceSymbol);
-                                  setSubSourceSymbol(temp);
-                                }}
-                                title="MainとSubの銘柄を入れ替え"
-                                style={{
-                                  padding: "6px 10px",
-                                  display: "flex",
-                                  alignItems: "center",
-                                  justifyContent: "center",
-                                  borderRadius: "6px",
-                                  height: "36px",
-                                  flexShrink: 0
-                                }}
-                              >
-                                <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>swap_horiz</span>
-                              </button>
-
-                              <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
-                                <div style={{ fontSize: "11px", color: "var(--tertiary, #a8c7fa)", marginBottom: "4px", fontWeight: 600 }}>
-                                  Sub シンボル (比較サブチャート)
-                                </div>
-                                <SymbolCombobox
-                                  value={subSourceSymbol}
-                                  onChange={(val) => setSubSourceSymbol(val)}
-                                  availableSymbols={availableSymbols}
-                                  placeholder="サブ比較銘柄 (例: USDJPY_DUCASCOPY_2016)"
-                                  dropdownAlign="right"
-                                />
-                              </div>
-                            </div>
-                            <div style={{ fontSize: "10.5px", color: "var(--on-surface-variant)", lineHeight: 1.4 }}>
-                              💡 <strong>設定方法</strong>: MT5のプロファイル内でサブ表示したいチャートに「<code>TickReplayRoleMarker</code>」インジケーターを適用しておくと、自動的にそのチャートにSubシンボルが表示されます。
-                            </div>
-                          </div>
-                        ) : (
-                          /* 通常 (Single) 時の表示 */
-                          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                            <div className="form-group" style={{ margin: 0 }}>
-                              <label className="form-label" style={{ fontSize: "11px", marginBottom: "3px" }}>
-                                主通貨シンボル
-                              </label>
-                              <div className="input-with-button-container">
-                                <SymbolCombobox
-                                  value={sourceSymbol}
-                                  onChange={(val) => setSourceSymbol(val)}
-                                  availableSymbols={availableSymbols}
-                                  placeholder="e.g. USDJPY または USDJPY_2016"
-                                />
-                                {chartSymbol && (
-                                  <button
-                                    type="button"
-                                    className="input-inline-btn"
-                                    onClick={() => setSourceSymbol(chartSymbol)}
-                                    title={`接続中のチャートのシンボル (${chartSymbol}) にリセット`}
-                                  >
-                                    <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>restart_alt</span>
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="form-group" style={{ margin: 0 }}>
-                              <label className="form-label" style={{ fontSize: "11px", marginBottom: "3px" }}>
-                                同期他通貨シンボル
-                              </label>
-                              <SymbolTagInput
-                                value={additionalSymbols}
-                                onChange={setAdditionalSymbols}
-                                availableSymbols={availableSymbols}
-                                placeholder="銘柄を選択または入力して追加..."
-                              />
-                              {companionSymbols.length > 0 && (
-                                <div className="companion-suggestion-bar">
-                                  <div className="companion-suggestion-text" title={`検出された他通貨ペア: ${companionSymbols.join(", ")}`}>
-                                    <span className="material-symbols-outlined" style={{ fontSize: "14px", flexShrink: 0 }}>auto_awesome</span>
-                                    <span>
-                                      {parseSymbolName(sourceSymbol).category ? `「${parseSymbolName(sourceSymbol).category}」の他通貨 (${companionSymbols.length}件):` : "他通貨:"}
-                                      {" "}<strong style={{ color: "var(--on-surface)" }}>{companionSymbols.join(", ")}</strong>
-                                    </span>
-                                  </div>
-                                  <button
-                                    type="button"
-                                    className="pro-btn"
-                                    onClick={() => {
-                                      const existing = additionalSymbols ? additionalSymbols.split(",").map(s => s.trim()).filter(Boolean) : [];
-                                      const merged = Array.from(new Set([...existing, ...companionSymbols]));
-                                      setAdditionalSymbols(merged.join(","));
-                                    }}
-                                    style={{ padding: "2px 8px", fontSize: "10px", height: "22px", flexShrink: 0, backgroundColor: "rgba(168, 199, 250, 0.2)", borderColor: "var(--tertiary, #a8c7fa)", color: "var(--tertiary, #a8c7fa)", whiteSpace: "nowrap" }}
-                                  >
-                                    + すべて同期に追加
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      <div style={{ marginTop: "12px", display: "flex", gap: "8px" }}>
-                        <button
-                          type="button"
-                          className="btn-custom-import"
-                          onClick={() => setIsCustomImportOpen(true)}
-                          style={{ flex: 1 }}
-                        >
-                          <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>database_upload</span>
-                          カスタムシンボルのインポート
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* グループ2: 期間・時間帯設定 */}
-                  <div className="setup-card">
-                    <div className="setup-card-header">
-                      <div className="setup-card-title">
-                        <span className="material-symbols-outlined">calendar_month</span>
-                        期間・時間帯設定
-                      </div>
-                    </div>
-                    <div className="setup-card-body">
-                      <div className="form-group">
-                        <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
-                          タイムゾーン
-                          <HelpTooltip
-                            title="表示タイムゾーン"
-                            content={"画面上で扱う日時の基準を設定します。\n・日本時間 JST: 普段見慣れた日本時間で日時指定・確認できます。\n・MT5サーバ時刻 SRV: 冬GMT+2/夏GMT+3のMT5基準時刻です。"}
-                          />
-                        </label>
-                        <CustomSelect
-                          value={timezoneMode}
-                          onChange={(val) => setTimezoneMode(val as "JST" | "SERVER")}
-                          options={[
-                            { value: "JST", label: "日本時間 JST" },
-                            { value: "SERVER", label: "MT5サーバ時刻 SRV" }
-                          ]}
-                        />
-                      </div>
-
-                      <div className="setup-card-grid-2">
-                        <div className="form-group">
-                          <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
-                            開始日時 ({timezoneMode})
-                            <HelpTooltip
-                              title="リプレイ開始日時"
-                              content="ティックデータの再生を開始する日時です。カレンダーアイコンをクリックして日時を選択できます。"
-                            />
-                          </label>
-                          <div className="input-with-button-container">
-                            <input
-                              type="text"
-                              readOnly
-                              className="pro-input input-with-button cursor-pointer"
-                              value={timezoneMode === "JST" ? startTime : getNewsTimeForDisplay(startTime, "SERVER")}
-                              onClick={() => setActivePickerField("start")}
-                              placeholder="YYYY-MM-DD HH:mm:ss"
-                            />
-                            <button
-                              type="button"
-                              className="input-inline-btn"
-                              onClick={() => setActivePickerField("start")}
-                              title="カレンダーで選択"
-                            >
-                              <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>calendar_today</span>
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="form-group">
-                          <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
-                            終了日時 ({timezoneMode})
-                            <HelpTooltip
-                              title="リプレイ終了日時"
-                              content="リプレイを終了する日時です。この日時に到達するとリプレイが自動的に完了/停止します。"
-                            />
-                          </label>
-                          <div className="input-with-button-container">
-                            <input
-                              type="text"
-                              readOnly
-                              className="pro-input input-with-button cursor-pointer"
-                              value={timezoneMode === "JST" ? endTime : getNewsTimeForDisplay(endTime, "SERVER")}
-                              onClick={() => setActivePickerField("end")}
-                              placeholder="YYYY-MM-DD HH:mm:ss"
-                            />
-                            <button
-                              type="button"
-                              className="input-inline-btn"
-                              onClick={() => setActivePickerField("end")}
-                              title="カレンダーで選択"
-                            >
-                              <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>calendar_today</span>
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-
-                      <label className="checkbox-group" style={{ marginTop: "4px" }}>
-                        <input
-                          type="checkbox"
-                          checked={autoSkipWeekend}
-                          onChange={(e) => setAutoSkipWeekend(e.target.checked)}
-                        />
-                        <span className="form-label" style={{ textTransform: "none", cursor: "pointer", display: "inline-flex", alignItems: "center" }}>
-                          週末をスキップ (時間比率モード)
-                          <HelpTooltip
-                            title="週末スキップ機能"
-                            content="時間比率モードで再生中、取引が行われない土曜・日曜の休場期間（データが存在しない空白時間）を自動的に早送りスキップし、月曜オープン時刻まで進めます。"
-                          />
-                        </span>
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* グループ3: プリロード＆履歴設定 */}
-                  <div className="setup-card full-width">
-                    <div className="setup-card-header">
-                      <div className="setup-card-title">
-                        <span className="material-symbols-outlined">download_for_offline</span>
-                        プリロード・履歴設定
-                        <HelpTooltip
-                          title="プリロード・履歴設定とは"
-                          content="リプレイ開始直後からインジケータ（MAやVWAP等）を正確に表示するための過去データ読込設定と、メモリ消費を抑えて高速動作させるための履歴設定を行います。"
-                        />
-                      </div>
-                    </div>
-                    <div className="setup-card-body">
-                      {/* 初心者向けガイダンスバナー */}
-                      <div className="setup-guide-banner">
-                        <span className="material-symbols-outlined setup-guide-banner-icon">info</span>
-                        <div>
-                          <strong>💡 プリロード機能とは？</strong><br />
-                          リプレイ開始直後から移動平均線(MA)やVWAP、MACD等のテクニカル指標を正しく計算・描画するため、開始日時より前の過去チャートバーをあらかじめMT5に生成・読み込む機能です。
-                        </div>
-                      </div>
-
-                      <div className="setup-card-grid-2">
-                        <div className="form-group">
-                          <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
-                            プリロードモード
-                            <HelpTooltip
-                              title="プリロードモード"
-                              content={"リプレイ開始前の過去データをどう読み込むかを選択します。\n・バー数指定 (BARS): 指定時間足でN本分の過去データを自動計算（おすすめ）。\n・過去日付指定 (DATE): 指定した過去日時（年初など）から開始日時までを一括読込。"}
-                              tip="迷った場合は「バー数指定」を選択すると、必要な本数だけ効率よく読み込めます。"
-                            />
-                          </label>
-                          <CustomSelect
-                            value={preloadMode}
-                            onChange={(val) => setPreloadMode(val as "BARS" | "DATE")}
-                            options={[
-                              { value: "BARS", label: "バー数指定" },
-                              { value: "DATE", label: "過去日付指定" }
-                            ]}
-                          />
-                        </div>
-
-                        {preloadMode === "BARS" ? (
-                          <div className="setup-card-grid-2" style={{ gap: "8px" }}>
-                            <div className="form-group">
-                              <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
-                                プリロード時間足
-                                <HelpTooltip
-                                  title="プリロード時間足"
-                                  content="過去バー本数を計算する基準の時間足です。「自動」を指定すると最適な時間足が自動選択されます。"
-                                />
-                              </label>
-                              <CustomSelect
-                                value={preloadTimeframe}
-                                onChange={setPreloadTimeframe}
-                                options={[
-                                  { value: "AUTO", label: "自動" },
-                                  { value: "M1", label: "1分足 (M1)" },
-                                  { value: "M5", label: "5分足 (M5)" },
-                                  { value: "M15", label: "15分足 (M15)" },
-                                  { value: "M30", label: "30分足 (M30)" },
-                                  { value: "H1", label: "1時間足 (H1)" },
-                                  { value: "H4", label: "4時間足 (H4)" },
-                                  { value: "D1", label: "日足 (D1)" }
-                                ]}
-                              />
-                            </div>
-                            <div className="form-group">
-                              <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
-                                プレロードバー数
-                                <HelpTooltip
-                                  title="プレロードバー本数"
-                                  content="リプレイ開始直前の過去バーを何本読み込むかを指定します。"
-                                  tip="200期間移動平均線や長期インジケータを正しく表示するため、500〜1000本程度を推奨します。"
-                                />
-                              </label>
-                              <input
-                                type="number"
-                                className="pro-input"
-                                value={preloadedBars}
-                                onChange={(e) => setPreloadedBars(parseInt(e.target.value) || 0)}
-                              />
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="form-group">
-                            <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
-                              プリロード開始日時 ({timezoneMode})
-                              <HelpTooltip
-                                title="プリロード開始日時"
-                                content="過去データを読み込む起点となる日時です。リプレイ開始日時より前の過去日時（例: 年初や前月1日など）を指定してください。"
-                              />
-                            </label>
-                            <div className="input-with-button-container">
-                              <input
-                                type="text"
-                                readOnly
-                                className="pro-input input-with-button cursor-pointer"
-                                value={timezoneMode === "JST" ? preloadDate : getNewsTimeForDisplay(preloadDate, "SERVER")}
-                                onClick={() => setActivePickerField("preload")}
-                                placeholder="YYYY-MM-DD HH:mm:ss"
-                              />
-                              <button
-                                type="button"
-                                className="input-inline-btn"
-                                onClick={() => setActivePickerField("preload")}
-                                title="カレンダーで選択"
-                              >
-                                <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>calendar_today</span>
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      <div style={{ borderTop: "1px solid var(--outline-variant)", paddingTop: "10px", marginTop: "4px" }}>
-                        <div className="form-group">
-                          <label className="checkbox-group">
-                            <input
-                              type="checkbox"
-                              checked={limitTickHistory}
-                              onChange={(e) => setLimitTickHistory(e.target.checked)}
-                            />
-                            <span className="form-label" style={{ textTransform: "none", cursor: "pointer", display: "inline-flex", alignItems: "center" }}>
-                              直近ティック履歴の制限 (高速シーク)
-                              <HelpTooltip
-                                title="直近ティック履歴の制限 (高速シーク)"
-                                content={"MT5がメモリ内に保持するリアルタイムティックの範囲を制限します。\n長期間（数週間〜数ヶ月）のリプレイ時にメモリ消費を大幅に削減し、巻き戻し(シーク)や早送り時の処理速度を劇的に向上させます。"}
-                                tip="長期間リプレイや動作軽量化のため、通常は【有効（チェックON）】を推奨します。"
-                              />
-                            </span>
-                          </label>
-
-                          {limitTickHistory && (
-                            <div className="setup-card-grid-2" style={{ marginTop: "8px" }}>
-                              <div className="form-group">
-                                <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
-                                  最大時間足
-                                  <HelpTooltip
-                                    title="履歴制限の最大時間足"
-                                    content="ティック履歴を何本分のバーまで保持するかを決める基準時間足です（例: H1やD1）。"
-                                    tip="普段監視する上位足（1時間足や日足など）に合わせて設定します。"
-                                  />
-                                </label>
-                                <CustomSelect
-                                  value={tickHistoryTimeframe}
-                                  onChange={setTickHistoryTimeframe}
-                                  options={[
-                                    { value: "M1", label: "1分足 (M1)" },
-                                    { value: "M5", label: "5分足 (M5)" },
-                                    { value: "M15", label: "15分足 (M15)" },
-                                    { value: "M30", label: "30分足 (M30)" },
-                                    { value: "H1", label: "1時間足 (H1)" },
-                                    { value: "H4", label: "4時間足 (H4)" },
-                                    { value: "D1", label: "日足 (D1)" }
-                                  ]}
-                                />
-                              </div>
-                              <div className="form-group">
-                                <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
-                                  保持バー本数
-                                  <HelpTooltip
-                                    title="メモリ保持バー本数"
-                                    content="最大時間足に対してメモリに保持し続けるバーの本数です（推奨: 100〜300本）。これ以前の古いティックは順次メモリから解放され、動作が軽くなります。"
-                                  />
-                                </label>
-                                <input
-                                  type="number"
-                                  className="pro-input"
-                                  value={maxHistoryBars}
-                                  onChange={(e) => setMaxHistoryBars(parseInt(e.target.value) || 0)}
-                                />
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* グループ4: 表示・同期オプション */}
-                  <div className="setup-card full-width">
-                    <div className="setup-card-header">
-                      <div className="setup-card-title">
-                        <span className="material-symbols-outlined">settings_suggest</span>
-                        表示・同期オプション
-                      </div>
-                    </div>
-                    <div className="setup-card-body">
-                      <div className="setup-card-grid-2">
-                        <label className="setup-checkbox-item">
-                          <input
-                            type="checkbox"
-                            checked={autoScrollSync}
-                            onChange={(e) => setAutoScrollSync(e.target.checked)}
-                          />
-                          <span className="setup-checkbox-label" style={{ display: "inline-flex", alignItems: "center" }}>
-                            チャート自動スクロール同期
-                            <HelpTooltip
-                              title="チャート自動スクロール同期"
-                              content="ティック進行に合わせて、MT5チャートの表示を自動的に最新ティックの現在位置へスクロール追従させます。"
-                            />
-                          </span>
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div className="setup-grid-container" style={{ display: setupTab === "trading" ? "grid" : "none" }}>
-                  {/* グループ1: 仮想トレード機能の有効化トグル */}
-                  <div className="setup-card full-width">
-                    <div className="setup-toggle-block">
-                      <div className="setup-toggle-info">
-                        <span className="setup-toggle-title" style={{ display: "inline-flex", alignItems: "center" }}>
-                          仮想トレード機能
-                          <HelpTooltip
-                            title="仮想トレード機能"
-                            content="有効にすると、スピード発注パネル、ポジション一覧、損益計算、トレード履歴・統計レポートなどの仮想売買機能が利用可能になります。"
-                          />
-                        </span>
-                        <span className="setup-toggle-desc">有効にすると、ダッシュボードや発注窓を利用したデモトレード機能が使用可能になります。</span>
-                      </div>
-                      <label className="speed-switch">
-                        <input
-                          type="checkbox"
-                          checked={enableVirtualTrading}
-                          onChange={(e) => setEnableVirtualTrading(e.target.checked)}
-                        />
-                        <span className="speed-switch-slider"></span>
-                      </label>
-                    </div>
-                  </div>
-
-                  {enableVirtualTrading && (
-                    <>
-                      {/* グループ2: 口座・取引設定 */}
-                      <div className="setup-card">
-                        <div className="setup-card-header">
-                          <div className="setup-card-title">
-                            <span className="material-symbols-outlined">account_balance_wallet</span>
-                            口座・取引設定
-                          </div>
-                        </div>
-                        <div className="setup-card-body">
-                          <div className="form-group">
-                            <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
-                              初期口座残高
-                              <HelpTooltip
-                                title="初期口座残高"
-                                content="デモトレード開始時の口座残高（証拠金）を設定します（円または口座の基準通貨）。"
-                              />
-                            </label>
-                            <input
-                              type="number"
-                              step="10000"
-                              min="0"
-                              className="pro-input"
-                              value={initialBalance}
-                              onChange={(e) => setInitialBalance(Math.max(0, parseInt(e.target.value) || 0))}
-                            />
-                          </div>
-
-                          <div className="form-group">
-                            <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
-                              レバレッジ
-                              <HelpTooltip
-                                title="口座レバレッジ"
-                                content="取引の最大レバレッジ倍率です（国内口座想定: 25倍、海外口座想定: 100〜500倍等）。必要証拠金やロスカット判定の計算に使用されます。"
-                              />
-                            </label>
-                            <input
-                              type="number"
-                              step="1"
-                              min="1"
-                              className="pro-input"
-                              value={leverage}
-                              onChange={(e) => setLeverage(Math.max(1, parseInt(e.target.value) || 1))}
-                            />
-                          </div>
-
-                          <div className="form-group">
-                            <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
-                              ロット単位
-                              <HelpTooltip
-                                title="1ロットの通貨数量"
-                                content={"1.0ロットあたりの通貨単位です。\n・10万通貨 (Standard): 海外FXや一般的なプロ口座\n・1万通貨 (Mini): 国内FXの標準単位\n・1,000通貨 (Micro): マイクロ口座"}
-                              />
-                            </label>
-                            <CustomSelect
-                              value={contractSize}
-                              onChange={(val) => {
-                                const intVal = typeof val === "number" ? val : parseInt(val, 10);
-                                setContractSize(intVal);
-                                localStorage.setItem("speed-order-contract-size", String(intVal));
-                              }}
-                              options={[
-                                { value: 100000, label: "10万通貨 (Standard)" },
-                                { value: 10000, label: "1万通貨 (Mini)" },
-                                { value: 1000, label: "1,000通貨 (Micro)" }
-                              ]}
-                            />
-                          </div>
-
-                          <div className="setup-toggle-block" style={{ marginTop: "4px", padding: "8px 10px" }}>
-                            <div className="setup-toggle-info">
-                              <span className="setup-toggle-title" style={{ fontSize: "11px", display: "inline-flex", alignItems: "center" }}>
-                                両建て設定
-                                <HelpTooltip
-                                  title="両建て (Hedging)"
-                                  content="同一通貨ペアで買い(LONG)と売り(SHORT)のポジションを同時に保有することを許可します。"
-                                />
-                              </span>
-                              <span className="setup-toggle-desc" style={{ fontSize: "9px" }}>買い・売りポジションの同時保有を許可</span>
-                            </div>
-                            <label className="speed-switch">
-                              <input
-                                type="checkbox"
-                                checked={hedging}
-                                onChange={(e) => setHedging(e.target.checked)}
-                              />
-                              <span className="speed-switch-slider"></span>
-                            </label>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* グループ3: 疑似レート生成設定 */}
-                      <div className="setup-card">
-                        <div className="setup-card-header">
-                          <div className="setup-card-title">
-                            <span className="material-symbols-outlined">tune</span>
-                            疑似レート生成設定
-                          </div>
-                        </div>
-                        <div className="setup-card-body">
-                          <div className="setup-toggle-block" style={{ padding: "8px 10px" }}>
-                            <div className="setup-toggle-info">
-                              <span className="setup-toggle-title" style={{ fontSize: "11px", display: "inline-flex", alignItems: "center" }}>
-                                疑似レート生成機能
-                                <HelpTooltip
-                                  title="疑似レート生成機能"
-                                  content="MT5の生ティックデータに対して、国内FXブローカー等の低スプレッドを再現した仮想レートで約定テストを行う機能です。"
-                                  tip="スプレッド拡大の連動シミュレーションも可能です。"
-                                />
-                              </span>
-                              <span className="setup-toggle-desc" style={{ fontSize: "9px" }}>スプレッド調整等のレートで取引執行</span>
-                            </div>
-                            <label className="speed-switch">
-                              <input
-                                type="checkbox"
-                                checked={enablePseudoRate}
-                                onChange={(e) => setEnablePseudoRate(e.target.checked)}
-                              />
-                              <span className="speed-switch-slider"></span>
-                            </label>
-                          </div>
-
-                          {enablePseudoRate && (
-                            <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "4px" }}>
-                              <div className="form-group">
-                                <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
-                                  国内基準スプレッド
-                                  <HelpTooltip
-                                    title="国内基準スプレッド (pips)"
-                                    content="平常時に適用する固定スプレッドの基準値（pips単位）です（例: USDJPYなら0.2など）。"
-                                  />
-                                </label>
-                                <input
-                                  type="number"
-                                  step="any"
-                                  min="0"
-                                  className="pro-input"
-                                  value={pseudoBaseSpread}
-                                  onChange={(e) => setPseudoBaseSpread(parseFloat(e.target.value) || 0)}
-                                />
-                              </div>
-
-                              <div className="form-group">
-                                <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
-                                  MT5側判定閾値
-                                  <HelpTooltip
-                                    title="MT5側判定閾値 (pips)"
-                                    content="MT5の元スプレッドがこの値を超えて急拡大した場合（経済指標発表時など）に、疑似スプレッドも連動して拡大させる閾値です。"
-                                  />
-                                </label>
-                                <input
-                                  type="number"
-                                  step="any"
-                                  min="0"
-                                  className="pro-input"
-                                  value={pseudoThreshold}
-                                  onChange={(e) => setPseudoThreshold(parseFloat(e.target.value) || 0)}
-                                />
-                              </div>
-
-                              <div className="form-group">
-                                <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
-                                  拡大感度係数
-                                  <HelpTooltip
-                                    title="拡大感度係数"
-                                    content="指標発表などで元スプレッドが拡大した際の連動倍率です（0.0〜2.0）。"
-                                  />
-                                </label>
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  max="2"
-                                  className="pro-input"
-                                  value={pseudoSensitivity}
-                                  onChange={(e) => setPseudoSensitivity(parseFloat(e.target.value) || 0)}
-                                />
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
-
-                {/* 保存されたセッション再開タブ */}
-                {setupTab === "resume" && (() => {
-                  // 固有のセッショングループごとにセッションを分類
-                  const groupedSessions: { [key: string]: any[] } = {};
-                  savedSessions.forEach((session) => {
-                    const gid = session.group_session_id || session.id;
-                    if (!groupedSessions[gid]) {
-                      groupedSessions[gid] = [];
-                    }
-                    groupedSessions[gid].push(session);
-                  });
-
-                  // 各グループ内のセッションを保存日時の降順（新しい順）にソート
-                  Object.keys(groupedSessions).forEach((gid) => {
-                    groupedSessions[gid].sort((a, b) => {
-                      return new Date(b.saved_at).getTime() - new Date(a.saved_at).getTime();
-                    });
-                  });
-
-                  // グループ自身を、そのグループの最新セッションの保存日時降順（新しい順）にソート
-                  const sortedGroupIds = Object.keys(groupedSessions).sort((a, b) => {
-                    const aLatest = groupedSessions[a][0];
-                    const bLatest = groupedSessions[b][0];
-                    return new Date(bLatest.saved_at).getTime() - new Date(aLatest.saved_at).getTime();
-                  });
-
-                  return (
-                    <div className="saved-sessions-container" style={{ display: "flex", flexDirection: "column", gap: "10px", padding: "4px" }}>
-                      {savedSessions.length > 0 && (
-                        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "2px" }}>
-                          <button
-                            className="pro-btn danger"
-                            style={{ padding: "4px 8px", fontSize: "10px", height: "24px" }}
-                            onClick={handleClearAllSessions}
-                          >
-                            <span className="material-symbols-outlined" style={{ fontSize: "12px" }}>delete_sweep</span>
-                            全セッション削除
-                          </button>
-                        </div>
-                      )}
-
-                      {savedSessions.length === 0 ? (
-                        <div className="no-sessions-fallback" style={{ padding: "40px 20px", textAlign: "center", backgroundColor: "var(--surface-container)", borderRadius: "var(--radius-sm)", border: "1px dashed var(--outline-variant)", color: "var(--on-surface-variant)" }}>
-                          <span className="material-symbols-outlined" style={{ fontSize: "48px", opacity: 0.5, marginBottom: "8px" }}>drafts</span>
-                          <p style={{ fontSize: "12px" }}>保存されたセッションはありません。</p>
-                        </div>
-                      ) : (
-                        sortedGroupIds.map((gid) => {
-                          const groupList = groupedSessions[gid];
-                          const latestSession = groupList[0];
-
-                          const progressPercent = latestSession.progress.total_ticks > 0
-                            ? ((latestSession.progress.current_idx / latestSession.progress.total_ticks) * 100).toFixed(1)
-                            : "0.0";
-                          const balanceStr = latestSession.virtual_trade
-                            ? `${latestSession.virtual_trade.balance.toLocaleString()} JPY`
-                            : "口座データなし";
-                          const posCount = latestSession.virtual_trade?.positions?.length || 0;
-                          const histCount = latestSession.virtual_trade?.history?.length || 0;
-                          const jstTimeStr = latestSession.progress.virtual_time_msc > 0
-                            ? formatJstTime(latestSession.progress.virtual_time_msc)
-                            : "時刻情報なし";
-
-                          const isExpanded = !!expandedGroups[gid];
-
-                          return (
-                            <div
-                              key={gid}
-                              className="session-card"
-                              style={{
-                                padding: "12px 14px",
-                                backgroundColor: "var(--surface-container)",
-                                borderRadius: "var(--radius-sm)",
-                                border: "1px solid var(--outline-variant)",
-                                display: "flex",
-                                flexDirection: "column",
-                                gap: "8px",
-                                transition: "all 0.2s ease"
-                              }}
-                            >
-                              <div className="session-card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                                <div>
-                                  <h4 style={{ margin: 0, fontSize: "13px", fontWeight: 600, color: "var(--on-surface)", display: "flex", alignItems: "center", gap: "6px" }}>
-                                    {latestSession.name}
-                                    {groupList.length > 1 && (
-                                      <span style={{ fontSize: "10px", color: "var(--primary-color)", fontWeight: "normal" }}>
-                                        (履歴 {groupList.length} 件)
-                                      </span>
-                                    )}
-                                  </h4>
-                                  <span style={{ fontSize: "9px", color: "var(--on-surface-variant)" }}>
-                                    最終保存: {new Date(latestSession.saved_at).toLocaleString("ja-JP")}
-                                  </span>
-                                </div>
-                                <span
-                                  className="session-badge"
-                                  style={{
-                                    padding: "2px 6px",
-                                    fontSize: "9px",
-                                    fontWeight: 600,
-                                    borderRadius: "4px",
-                                    backgroundColor: "rgba(var(--primary-rgb), 0.15)",
-                                    color: "var(--primary-color)",
-                                    border: "1px solid rgba(var(--primary-rgb), 0.3)"
-                                  }}
-                                >
-                                  {latestSession.settings.source_symbol} ({latestSession.settings.selected_profile})
-                                </span>
-                              </div>
-
-                              <div className="session-card-body" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", fontSize: "10px", color: "var(--on-surface-variant)" }}>
-                                <div>
-                                  <div><strong>進行状況:</strong> {latestSession.progress.current_idx.toLocaleString()} / {latestSession.progress.total_ticks.toLocaleString()} ({progressPercent}%)</div>
-                                  <div><strong>仮想時刻:</strong> {jstTimeStr}</div>
-                                </div>
-                                <div>
-                                  <div><strong>残高:</strong> {balanceStr}</div>
-                                  <div><strong>ポジション:</strong> 保有 {posCount} / 決済 {histCount}</div>
-                                </div>
-                              </div>
-
-                              <div className="session-card-footer" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid var(--outline-variant)", paddingTop: "8px", marginTop: "4px" }}>
-                                {groupList.length > 1 ? (
-                                  <button
-                                    className="pro-btn"
-                                    style={{ padding: "4px 8px", fontSize: "10px", height: "22px", display: "flex", alignItems: "center", gap: "2px" }}
-                                    onClick={() => setExpandedGroups(prev => ({ ...prev, [gid]: !prev[gid] }))}
-                                  >
-                                    <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>
-                                      {isExpanded ? "expand_less" : "expand_more"}
-                                    </span>
-                                    {isExpanded ? "履歴を非表示" : `履歴を表示 (${groupList.length - 1}件)`}
-                                  </button>
-                                ) : (
-                                  <div></div>
-                                )}
-                                <div style={{ display: "flex", gap: "8px" }}>
-                                  <button
-                                    className="pro-btn danger"
-                                    style={{ padding: "4px 8px", fontSize: "10px", height: "22px" }}
-                                    onClick={() => {
-                                      handleDeleteSessions(
-                                        groupList.map(s => s.id),
-                                        `このセッションおよび関連するすべての履歴（全 ${groupList.length} 件）を完全に削除しますか？この操作は取り消せません。`
-                                      );
-                                    }}
-                                  >
-                                    <span className="material-symbols-outlined" style={{ fontSize: "11px" }}>delete</span>
-                                    全削除
-                                  </button>
-                                  <button
-                                    className="pro-btn primary"
-                                    style={{ padding: "4px 12px", fontSize: "10px", height: "22px" }}
-                                    onClick={() => handleResumeSession(latestSession)}
-                                  >
-                                    <span className="material-symbols-outlined" style={{ fontSize: "11px" }}>play_arrow</span>
-                                    再開
-                                  </button>
-                                </div>
-                              </div>
-
-                              {/* 履歴リスト（アコーディオン） */}
-                              {isExpanded && (
-                                <div
-                                  className="session-history-list"
-                                  style={{
-                                    marginTop: "6px",
-                                    padding: "8px 10px",
-                                    backgroundColor: "rgba(0, 0, 0, 0.15)",
-                                    borderRadius: "var(--radius-sm)",
-                                    border: "1px solid rgba(255, 255, 255, 0.05)",
-                                    display: "flex",
-                                    flexDirection: "column",
-                                    gap: "6px"
-                                  }}
-                                >
-                                  <div style={{ fontSize: "9px", fontWeight: 600, color: "var(--on-surface-variant)", borderBottom: "1px solid rgba(255, 255, 255, 0.05)", paddingBottom: "4px", marginBottom: "2px" }}>
-                                    保存履歴 (時系列順 - 新しい順)
-                                  </div>
-                                  {groupList.map((snap, index) => {
-                                    const snapPercent = snap.progress.total_ticks > 0
-                                      ? ((snap.progress.current_idx / snap.progress.total_ticks) * 100).toFixed(1)
-                                      : "0.0";
-                                    const snapJstTime = snap.progress.virtual_time_msc > 0
-                                      ? formatJstTime(snap.progress.virtual_time_msc)
-                                      : "時刻情報なし";
-                                    const snapBalance = snap.virtual_trade
-                                      ? `${snap.virtual_trade.balance.toLocaleString()} JPY`
-                                      : "口座データなし";
-                                    const isSnapLatest = index === 0;
-
-                                    return (
-                                      <div
-                                        key={snap.id}
-                                        style={{
-                                          display: "flex",
-                                          justifyContent: "space-between",
-                                          alignItems: "center",
-                                          fontSize: "10px",
-                                          padding: "4px 6px",
-                                          borderRadius: "4px",
-                                          backgroundColor: isSnapLatest ? "rgba(255, 255, 255, 0.05)" : "transparent"
-                                        }}
-                                      >
-                                        <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                                          <div style={{ fontWeight: 500, color: "var(--on-surface)", display: "flex", alignItems: "center", gap: "4px" }}>
-                                            <span>{snap.name}</span>
-                                            {isSnapLatest && (
-                                              <span style={{ fontSize: "8px", padding: "1px 4px", borderRadius: "3px", backgroundColor: "rgba(var(--primary-rgb), 0.2)", color: "var(--primary-color)" }}>
-                                                最新
-                                              </span>
-                                            )}
-                                          </div>
-                                          <div style={{ fontSize: "9px", color: "var(--on-surface-variant)" }}>
-                                            保存時刻: {new Date(snap.saved_at).toLocaleString("ja-JP")} | 進行: {snapPercent}% | 仮想時刻: {snapJstTime} | 残高: {snapBalance}
-                                          </div>
-                                        </div>
-                                        <div style={{ display: "flex", gap: "6px", flexShrink: 0 }}>
-                                          <button
-                                            className="pro-btn danger"
-                                            style={{ padding: "2px 6px", fontSize: "9px", height: "18px" }}
-                                            onClick={() => {
-                                              handleDeleteSessions(
-                                                [snap.id],
-                                                `この履歴（スナップショット「${snap.name}」）を削除しますか？この操作は取り消せません。`
-                                              );
-                                            }}
-                                          >
-                                            削除
-                                          </button>
-                                          <button
-                                            className="pro-btn primary"
-                                            style={{ padding: "2px 8px", fontSize: "9px", height: "18px" }}
-                                            onClick={() => handleResumeSession(snap)}
-                                          >
-                                            再開
-                                          </button>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  );
-                })()}
-              </div>
-
-              {setupTab !== "resume" && (
-                <div style={{ display: "flex", gap: "8px", marginTop: "4px", flexShrink: 0 }}>
-                  <button
-                    type="button"
-                    className="pro-btn pro-btn-square"
-                    style={{ height: "38px", width: "38px", padding: 0, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}
-                    onClick={setupTab === "replay" ? handleResetReplaySettings : handleResetTradingSettings}
-                    title={setupTab === "replay" ? "リプレイ設定をデフォルトに戻す" : "取引設定をデフォルトに戻す"}
-                  >
-                    <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>restart_alt</span>
-                  </button>
-                  <button
-                    className="pro-btn primary pro-glow"
-                    style={{ flex: 1, padding: "8px 10px", fontSize: "13px" }}
-                    onClick={status === "DISCONNECTED" ? handleCheckConnection : handleInit}
-                  >
-                    {status === "DISCONNECTED" ? "Waiting for EA... (Click to Refresh)" : "リプレイ開始"}
-                  </button>
-                </div>
-              )}
-
-              {status === "DISCONNECTED" && (
-                <div className="setup-hint" style={{ marginTop: "8px", flexShrink: 0 }}>
-                  <p>MT5チャートに <strong>TickReplayControllerEA</strong> を適用してください。</p>
-                  <p>EAは選択されたターミナルの Experts フォルダに自動配置されています。</p>
-                </div>
-              )}
-            </div>
-          </div>
-        ) : (
-          /* B. Playback Control Dashboard */
-          <>
-              {/* Timeline Panel */}
-              <div className="pro-panel timeline-panel">
-                <div className="pro-panel-header">
-                  <h3 className="pro-panel-title" title="マーケットタイムライン概要" style={{ cursor: "pointer" }}>
-                    <span className="material-symbols-outlined icon-accent">timeline</span>
-                  </h3>
-                  <div className="timeline-header-info">
-                    <span className="timeline-meta-tick">
-                      Tick: <span className="timeline-meta-val">{currentIdx}</span> / {totalTicks}
-                    </span>
-                    <span className="timeline-meta-percent">{progressPercent.toFixed(1)}%</span>
-                    <span className="pro-panel-meta timeline-cycle-badge">24時間サイクル</span>
-                  </div>
-                </div>
-                <div className="pro-panel-body" style={{ padding: "4px 8px" }}>
-                  <div className="timeline-wrapper">
-                    <div className="timeline-track">
-                      <svg
-                        style={{ width: "100%", height: "100%", position: "absolute", inset: 0 }}
-                        onMouseDown={handleTimelineMouseDown}
-                      >
-                        {renderTimelineRects()}
-
-                        {loopAIdx !== -1 && totalTicks > 0 && (
-                          <>
-                            <line
-                              x1={`${(loopAIdx / totalTicks) * 100}%`}
-                              y1="0"
-                              x2={`${(loopAIdx / totalTicks) * 100}%`}
-                              y2="100%"
-                              stroke="var(--primary-color)"
-                              strokeWidth="2"
-                              strokeDasharray="4,4"
-                            />
-                            {loopBIdx !== -1 && (
-                              <>
-                                <line
-                                  x1={`${(loopBIdx / totalTicks) * 100}%`}
-                                  y1="0"
-                                  x2={`${(loopBIdx / totalTicks) * 100}%`}
-                                  y2="100%"
-                                  stroke="var(--primary-color)"
-                                  strokeWidth="2"
-                                  strokeDasharray="4,4"
-                                />
-                                <rect
-                                  x={`${(loopAIdx / totalTicks) * 100}%`}
-                                  y="0"
-                                  width={`${((loopBIdx - loopAIdx) / totalTicks) * 100}%`}
-                                  height="100%"
-                                  fill="var(--primary-color)"
-                                  opacity="0.15"
-                                />
-                              </>
-                            )}
-                          </>
-                        )}
-
-                        <line
-                          x1={`${progressPercent}%`}
-                          y1="0"
-                          x2={`${progressPercent}%`}
-                          y2="100%"
-                          stroke="var(--timeline-playhead, #ffffff)"
-                          strokeWidth="2"
-                        />
-                        <circle
-                          cx={`${progressPercent}%`}
-                          cy="50%"
-                          r="4"
-                          fill="var(--primary-color)"
-                          stroke="var(--timeline-playhead-border, #ffffff)"
-                          strokeWidth="1"
-                        />
-                      </svg>
-                    </div>
-                  </div>
-                </div>
-              {/* Controls & Navigation Workspace */}
-              <div className="controls-workspace">
-                {/* Transport Panel */}
-                <div className="pro-panel">
-                    <div className="pro-panel-header" style={{ padding: "4px 8px 4px 12px", minWidth: 0, gap: "8px" }}>
-                      <h3 className="pro-panel-title" title="再生コントロール" style={{ flexShrink: 0, cursor: "pointer" }}>
-                        <span className="material-symbols-outlined icon-accent">play_circle</span>
-                      </h3>
-
-                      {/* Presets Pills Inline (Header Move) */}
-                      <div className="transport-presets-inline" style={{ flex: 1, justifyContent: "center" }}>
-                        {speedMode === "TEMPORAL" ? (
-                          timePresets.map((preset) => {
-                            const label = `${preset}x`;
-                            const isActive = Math.abs(preset - multiplier) < 0.01;
-                            return (
-                              <button
-                                key={preset}
-                                className={`preset-pill-btn ${isActive ? "active" : ""}`}
-                                onClick={() => updateSpeed("TEMPORAL", preset, tickStep)}
-                              >
-                                {label}
-                              </button>
-                            );
-                          })
-                        ) : (
-                          tickPresets.map((preset) => {
-                            const isActive = preset === tickStep;
-                            return (
-                              <button
-                                key={preset}
-                                className={`preset-pill-btn ${isActive ? "active" : ""}`}
-                                onClick={() => updateSpeed("COUNT", multiplier, preset)}
-                              >
-                                {preset}T
-                              </button>
-                            );
-                          })
-                        )}
-                      </div>
-
-                      <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
-                        <button
-                          className="toggle-btn"
-                          style={{ padding: "2px 6px", height: "18px", fontSize: "10px", display: "inline-flex", alignItems: "center", gap: "3px" }}
-                          onClick={() => {
-                            setEditingTimePresets([...timePresets]);
-                            setEditingTickPresets([...tickPresets]);
-                            setModalNewTimePreset("");
-                            setModalNewTickPreset("");
-                            setIsSpeedPresetsModalOpen(true);
-                          }}
-                          title="再生速度・スキップティックのプリセットを編集"
-                        >
-                          <span className="material-symbols-outlined text-[12px]">tune</span>
-                          <span>Preset設定</span>
-                        </button>
-
-                        <button
-                          className={`toggle-btn ${speedMode === "TEMPORAL" ? "active" : ""}`}
-                          style={{
-                            padding: "2px 8px",
-                            height: "18px",
-                            fontSize: "10px",
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "3px",
-                            fontWeight: 600,
-                            fontFamily: "var(--font-data)"
-                          }}
-                          onClick={() => updateSpeed(speedMode === "TEMPORAL" ? "COUNT" : "TEMPORAL", multiplier, tickStep)}
-                          title="再生モード切替 (Time Mode / Tick Mode)"
-                        >
-                          <span className="material-symbols-outlined text-[12px]">
-                            {speedMode === "TEMPORAL" ? "schedule" : "tag"}
-                          </span>
-                          <span>{speedMode === "TEMPORAL" ? "TIME MODE" : "TICK MODE"}</span>
-                        </button>
-                      </div>
-                    </div>
-                    <div className="pro-panel-body transport-panel-body">
-                      {/* Playback Controls Group (Compact) */}
-                      <div className="transport-playback-group">
-                        <button className="pro-btn pro-btn-compact" onClick={() => handleStep(-1)} title="Previous Step">
-                          <span className="material-symbols-outlined text-[16px]">skip_previous</span>
-                        </button>
-                        <button
-                          className={`pro-btn pro-btn-compact-play pro-glow ${isPlaying ? "active-loop" : "primary"}`}
-                          onClick={handlePlayPause}
-                          title={isPlaying ? "Pause (Space)" : "Play (Space)"}
-                        >
-                          <span className="material-symbols-outlined text-[22px]">{isPlaying ? "pause" : "play_arrow"}</span>
-                        </button>
-                        <button className="pro-btn pro-btn-compact" onClick={() => handleStep(1)} title="Next Step">
-                          <span className="material-symbols-outlined text-[16px]">skip_next</span>
-                        </button>
-                      </div>
-
-                      <div className="transport-v-divider"></div>
-
-                      {/* Single Horizontal Speed Toolbar */}
-                      <div className="transport-speed-inline-bar">
-                        {/* Integrated Multi-tier Speed Stepper */}
-                        <div className="speed-precision-stepper">
-                          <button
-                            className="stepper-btn coarse"
-                            onClick={() => handleCoarseSpeed(false)}
-                            title="プリセット切り替え Down (左のプリセットへジャンプ)"
-                          >
-                            &lt;&lt;
-                          </button>
-                          <button
-                            className="stepper-btn medium"
-                            onClick={() => handleMediumSpeed(false)}
-                            title={speedMode === "TEMPORAL" ? "1.0刻み Down (-1.0x)" : "10刻み Down (-10T)"}
-                          >
-                            &lt;
-                          </button>
-                          <button
-                            className="stepper-btn fine"
-                            onClick={() => handleFineSpeed(false)}
-                            title={speedMode === "TEMPORAL" ? "0.1刻み Down (-0.1x)" : "1刻み Down (-1T)"}
-                          >
-                            -
-                          </button>
-                          <div className="stepper-display">
-                            <span className="stepper-value">
-                              {speedMode === "TEMPORAL" ? `${multiplier.toFixed(1)}x` : `${tickStep}T`}
-                            </span>
-                          </div>
-                          <button
-                            className="stepper-btn fine"
-                            onClick={() => handleFineSpeed(true)}
-                            title={speedMode === "TEMPORAL" ? "0.1刻み Up (+0.1x)" : "1刻み Up (+1T)"}
-                          >
-                            +
-                          </button>
-                          <button
-                            className="stepper-btn medium"
-                            onClick={() => handleMediumSpeed(true)}
-                            title={speedMode === "TEMPORAL" ? "1.0刻み Up (+1.0x)" : "10刻み Up (+10T)"}
-                          >
-                            &gt;
-                          </button>
-                          <button
-                            className="stepper-btn coarse"
-                            onClick={() => handleCoarseSpeed(true)}
-                            title="プリセット切り替え Up (右のプリセットへジャンプ)"
-                          >
-                            &gt;&gt;
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="transport-v-divider"></div>
-
-                      {/* Loop Controls Group */}
-                      <div className="transport-loop-group">
-                        <span className="loop-group-label">Loop {loopActive && "•"}</span>
-                        <div className="loop-btn-group">
-                          <button
-                            className={`pro-btn loop-btn ${loopA !== -1 ? "active-loop" : ""}`}
-                            onClick={handleSetLoopA}
-                            title="Set Loop Point A"
-                          >
-                            A
-                          </button>
-                          <button
-                            className="pro-btn loop-btn loop-clear-btn"
-                            onClick={handleClearLoop}
-                            title="Clear Loop Points"
-                          >
-                            <span className="material-symbols-outlined text-[12px]">sync_disabled</span>
-                          </button>
-                          <button
-                            className={`pro-btn loop-btn ${loopB !== -1 ? "active-loop" : ""}`}
-                            onClick={handleSetLoopB}
-                            title="Set Loop Point B"
-                          >
-                            B
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Navigation Matrix Panel */}
-                  <div className="pro-panel" style={{ flex: 1, minWidth: 0 }}>
-                    <div className="pro-panel-header" style={{ padding: "6px 8px", minWidth: 0, gap: "6px" }}>
-                      <h3 className="pro-panel-title" title="時間移動マトリクス" style={{ flexShrink: 0, cursor: "pointer" }}>
-                        <span className="material-symbols-outlined icon-accent">grid_view</span>
-                      </h3>
-                      <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
-                        <button
-                          className="toggle-btn"
-                          style={{ padding: "2px 5px", height: "18px", fontSize: "10px", display: "inline-flex", alignItems: "center", gap: "2px" }}
-                          onClick={() => {
-                            setEditingTimeSteps([...timeSteps]);
-                            setIsTimeStepsModalOpen(true);
-                          }}
-                          title="タイムステップを編集 (最大5つ)"
-                        >
-                          <span className="material-symbols-outlined text-[12px]">tune</span>
-                          <span>Step設定</span>
-                        </button>
-                        <span style={{ fontSize: "9.5px", color: "var(--on-surface-variant)", marginLeft: "2px" }}>日付:</span>
-                        <button className="toggle-btn" style={{ padding: 0, width: "16px", height: "16px", display: "inline-flex", alignItems: "center", justifyContent: "center" }} onClick={() => handleSessionJump("ANY", "PREV")} title="前日">
-                          <span className="material-symbols-outlined text-[12px]" style={{ lineHeight: 1 }}>chevron_left</span>
-                        </button>
-                        <span className="font-data" style={{ fontSize: "10px", color: "var(--primary-color)", backgroundColor: "rgba(var(--primary-rgb), 0.12)", padding: "1px 5px", borderRadius: "3px", fontWeight: 600 }}>
-                          {getDayOffset()}
-                        </span>
-                        <button className="toggle-btn" style={{ padding: 0, width: "16px", height: "16px", display: "inline-flex", alignItems: "center", justifyContent: "center" }} onClick={() => handleSessionJump("ANY", "NEXT")} title="翌日">
-                          <span className="material-symbols-outlined text-[12px]" style={{ lineHeight: 1 }}>chevron_right</span>
-                        </button>
-                      </div>
-                    </div>
-                    <div className="pro-panel-body nav-matrix-compact-body">
-                      {/* Row 1: Session Jump */}
-                      <div className="session-jump-grid">
-                        {/* Tokyo */}
-                        <div className="session-stepper-card tyo">
-                          <button className="session-stepper-btn" onClick={() => handleSessionJump("TYO", "PREV")} title="前の東京セッション">
-                            <span className="material-symbols-outlined">remove</span>
-                          </button>
-                          <button className="session-pill tyo" onClick={() => handleSessionJump("TYO", "NEXT")} title="東京セッションへ移動">
-                            <span className="session-pill-dot tyo"></span>
-                            <div className="session-pill-text">
-                              <span className="session-pill-name">Tokyo</span>
-                              <span className="session-pill-time">09:00</span>
-                            </div>
-                          </button>
-                          <button className="session-stepper-btn" onClick={() => handleSessionJump("TYO", "NEXT")} title="次の東京セッション">
-                            <span className="material-symbols-outlined">add</span>
-                          </button>
-                        </div>
-
-                        {/* London */}
-                        <div className="session-stepper-card ldn">
-                          <button className="session-stepper-btn" onClick={() => handleSessionJump("LDN", "PREV")} title="前のロンドンセッション">
-                            <span className="material-symbols-outlined">remove</span>
-                          </button>
-                          <button className="session-pill ldn" onClick={() => handleSessionJump("LDN", "NEXT")} title="ロンドンセッションへ移動">
-                            <span className="session-pill-dot ldn"></span>
-                            <div className="session-pill-text">
-                              <span className="session-pill-name">London</span>
-                              <span className="session-pill-time">16:00</span>
-                            </div>
-                          </button>
-                          <button className="session-stepper-btn" onClick={() => handleSessionJump("LDN", "NEXT")} title="次のロンドンセッション">
-                            <span className="material-symbols-outlined">add</span>
-                          </button>
-                        </div>
-
-                        {/* New York */}
-                        <div className="session-stepper-card ny">
-                          <button className="session-stepper-btn" onClick={() => handleSessionJump("NY", "PREV")} title="前のニューヨークセッション">
-                            <span className="material-symbols-outlined">remove</span>
-                          </button>
-                          <button className="session-pill ny" onClick={() => handleSessionJump("NY", "NEXT")} title="ニューヨークセッションへ移動">
-                            <span className="session-pill-dot ny"></span>
-                            <div className="session-pill-text">
-                              <span className="session-pill-name">New York</span>
-                              <span className="session-pill-time">21:00</span>
-                            </div>
-                          </button>
-                          <button className="session-stepper-btn" onClick={() => handleSessionJump("NY", "NEXT")} title="次のニューヨークセッション">
-                            <span className="material-symbols-outlined">add</span>
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Row 2: Time Steps */}
-                      <div className="time-steps-horizontal-grid" style={{ gridTemplateColumns: `repeat(${timeSteps.length}, minmax(0, 1fr))` }}>
-                        {timeSteps.map((step) => (
-                          <div className="time-step-card" key={step.id}>
-                            <button className="time-step-btn" onClick={() => handleTimeJump(-step.seconds)} title={`-${step.label}`}>
-                              <span className="material-symbols-outlined">remove</span>
-                            </button>
-                            <span className="time-step-val">{step.label}</span>
-                            <button className="time-step-btn" onClick={() => handleTimeJump(step.seconds)} title={`+${step.label}`}>
-                              <span className="material-symbols-outlined">add</span>
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </>
-        )}
+        <SetupPanel
+          status={status}
+          setupTab={setupTab}
+          setSetupTab={setSetupTab}
+          terminals={terminals}
+          selectedTerminal={selectedTerminal}
+          setSelectedTerminal={setSelectedTerminal}
+          handleOpenTerminalNameModal={handleOpenTerminalNameModal}
+          profiles={profiles}
+          selectedProfile={selectedProfile}
+          setSelectedProfile={setSelectedProfile}
+          maxBarsInfo={maxBarsInfo}
+          enableDualFeed={enableDualFeed}
+          setEnableDualFeed={setEnableDualFeed}
+          setIsBatchSelectorOpen={setIsBatchSelectorOpen}
+          handleOpenSymbolSelector={handleOpenSymbolSelector}
+          sourceSymbol={sourceSymbol}
+          setSourceSymbol={setSourceSymbol}
+          subSourceSymbol={subSourceSymbol}
+          setSubSourceSymbol={setSubSourceSymbol}
+          availableSymbols={availableSymbols}
+          additionalSymbols={additionalSymbols}
+          setAdditionalSymbols={setAdditionalSymbols}
+          companionSymbols={companionSymbols}
+          setIsCustomImportOpen={setIsCustomImportOpen}
+          startTime={startTime}
+          endTime={endTime}
+          timezoneMode={timezoneMode}
+          setActivePickerField={setActivePickerField}
+          preloadMode={preloadMode}
+          setPreloadMode={setPreloadMode}
+          preloadTimeframe={preloadTimeframe}
+          setPreloadTimeframe={setPreloadTimeframe}
+          preloadedBars={preloadedBars}
+          setPreloadedBars={setPreloadedBars}
+          preloadDate={preloadDate}
+          limitTickHistory={limitTickHistory}
+          setLimitTickHistory={setLimitTickHistory}
+          tickHistoryTimeframe={tickHistoryTimeframe}
+          setTickHistoryTimeframe={setTickHistoryTimeframe}
+          maxHistoryBars={maxHistoryBars}
+          setMaxHistoryBars={setMaxHistoryBars}
+          autoScrollSync={autoScrollSync}
+          setAutoScrollSync={setAutoScrollSync}
+          autoSkipWeekend={autoSkipWeekend}
+          setAutoSkipWeekend={setAutoSkipWeekend}
+          initialBalance={initialBalance}
+          setInitialBalance={setInitialBalance}
+          leverage={leverage}
+          setLeverage={setLeverage}
+          contractSize={contractSize}
+          setContractSize={setContractSize}
+          enablePseudoRate={enablePseudoRate}
+          setEnablePseudoRate={setEnablePseudoRate}
+          pseudoBaseSpread={pseudoBaseSpread}
+          setPseudoBaseSpread={setPseudoBaseSpread}
+          pseudoThreshold={pseudoThreshold}
+          setPseudoThreshold={setPseudoThreshold}
+          pseudoSensitivity={pseudoSensitivity}
+          setPseudoSensitivity={setPseudoSensitivity}
+          savedSessions={savedSessions}
+          expandedGroups={expandedGroups}
+          setExpandedGroups={setExpandedGroups}
+          handleClearAllSessions={handleClearAllSessions}
+          handleDeleteSessions={handleDeleteSessions}
+          handleResumeSession={handleResumeSession}
+          loadSavedSessions={loadSavedSessions}
+          handleResetReplaySettings={handleResetReplaySettings}
+          handleResetTradingSettings={handleResetTradingSettings}
+          handleCheckConnection={handleCheckConnection}
+          handleInit={handleInit}
+        />
       </main>
 
-      {/* Status Bar Footer */}
-      <footer className="status-bar">
-        <div className="status-bar-left">
-          SYSTEM_ACTIVE_V2.4 // OBSIDIAN FLUX
-        </div>
-        <div className="status-bar-right">
-          <span className="status-bar-item">
-            <span className="status-bar-dot"></span>
-            Mode: Desktop
-          </span>
-          <span className="status-bar-item">
-            <span className="status-bar-dot active"></span>
-            Engine: Active
-          </span>
-        </div>
-      </footer>
-      {/* Settings Modal */}
-      {isSettingsOpen && (
-        <div className="modal-overlay" onClick={() => { if (!recordingAction) setIsSettingsOpen(false); }}>
-          <div className="modal-container system-settings-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">
-                <span className="material-symbols-outlined icon-accent">settings</span>
-                システム・操作設定
-              </h3>
-              <button className="modal-close-btn" onClick={() => { if (!recordingAction) setIsSettingsOpen(false); }} disabled={!!recordingAction}>
-                <span className="material-symbols-outlined">close</span>
-              </button>
-            </div>
-
-            <div className="modal-tabs">
-              <button
-                className={`modal-tab-btn ${activeTab === "general" ? "active" : ""}`}
-                onClick={() => setActiveTab("general")}
-              >
-                <span className="material-symbols-outlined tab-icon">tune</span>
-                一般設定
-              </button>
-              <button
-                className={`modal-tab-btn ${activeTab === "hotkeys" ? "active" : ""}`}
-                onClick={() => setActiveTab("hotkeys")}
-              >
-                <span className="material-symbols-outlined tab-icon">keyboard</span>
-                ショートカット
-              </button>
-              <button
-                className={`modal-tab-btn ${activeTab === "theme" ? "active" : ""}`}
-                onClick={() => setActiveTab("theme")}
-              >
-                <span className="material-symbols-outlined tab-icon">palette</span>
-                テーマ・表示
-              </button>
-              <button
-                className={`modal-tab-btn ${activeTab === "ai" ? "active" : ""}`}
-                onClick={() => setActiveTab("ai")}
-              >
-                <span className="material-symbols-outlined tab-icon">auto_awesome</span>
-                AI・データ分析
-              </button>
-            </div>
-
-            <div className="modal-body">
-              {activeTab === "general" && (
-                <div className="settings-grid">
-                  <div>
-                    <h4 className="settings-section-title">リプレイ初期値</h4>
-                    <div className="form-grid" style={{ gridTemplateColumns: "1fr" }}>
-                      <div className="form-group">
-                        <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
-                          プリロードモード
-                          <HelpTooltip
-                            title="プリロードモード"
-                            content={"リプレイ開始前の過去データをどう読み込むかを選択します。\n・バー数指定 (BARS): 指定時間足でN本分の過去データを自動計算（おすすめ）。\n・過去日付指定 (DATE): 指定した過去日時（年初など）から開始日時までを一括読込。"}
-                          />
-                        </label>
-                        <CustomSelect
-                          value={preloadMode}
-                          onChange={(val) => setPreloadMode(val as "BARS" | "DATE")}
-                          options={[
-                            { value: "BARS", label: "バー数指定" },
-                            { value: "DATE", label: "過去日付指定" }
-                          ]}
-                        />
-                      </div>
-
-                      {preloadMode === "BARS" ? (
-                        <div style={{ display: "flex", gap: "8px" }}>
-                          <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
-                            <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
-                              プリロード時間足
-                              <HelpTooltip
-                                title="プリロード時間足"
-                                content="過去バー本数を計算する基準の時間足です。「自動」を指定すると最適な時間足が自動選択されます。"
-                              />
-                            </label>
-                            <CustomSelect
-                              value={preloadTimeframe}
-                              onChange={setPreloadTimeframe}
-                              options={[
-                                { value: "AUTO", label: "自動" },
-                                { value: "M1", label: "1分足 (M1)" },
-                                { value: "M5", label: "5分足 (M5)" },
-                                { value: "M15", label: "15分足 (M15)" },
-                                { value: "M30", label: "30分足 (M30)" },
-                                { value: "H1", label: "1時間足 (H1)" },
-                                { value: "H4", label: "4時間足 (H4)" },
-                                { value: "D1", label: "日足 (D1)" }
-                              ]}
-                            />
-                          </div>
-                          <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
-                            <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
-                              プレロードバー数
-                              <HelpTooltip
-                                title="プレロードバー本数"
-                                content="リプレイ開始直前の過去バーを何本読み込むかを指定します（推奨: 500〜1000本）。"
-                              />
-                            </label>
-                            <input
-                              type="number"
-                              className="pro-input"
-                              value={preloadedBars}
-                              onChange={(e) => setPreloadedBars(parseInt(e.target.value) || 0)}
-                            />
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="form-group">
-                          <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
-                            過去プリロード開始日 JST
-                            <HelpTooltip
-                              title="過去プリロード開始日"
-                              content="過去データを読み込む起点となる日時です。リプレイ開始日時より前の日時を指定してください。"
-                            />
-                          </label>
-                          <div className="input-with-button-container">
-                            <input
-                              type="text"
-                              readOnly
-                              className="pro-input input-with-button cursor-pointer"
-                              value={preloadDate}
-                              onClick={() => setActivePickerField("preload")}
-                              placeholder="YYYY-MM-DD HH:mm:ss"
-                            />
-                            <button
-                              type="button"
-                              className="input-inline-btn"
-                              onClick={() => setActivePickerField("preload")}
-                              title="カレンダーで選択"
-                            >
-                              <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>calendar_today</span>
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div style={{ marginTop: "12px" }}>
-                    <h4 className="settings-section-title">ティック履歴制限設定</h4>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                      <label className="checkbox-group">
-                        <input
-                          type="checkbox"
-                          checked={limitTickHistory}
-                          onChange={(e) => setLimitTickHistory(e.target.checked)}
-                        />
-                        <span className="form-label" style={{ textTransform: "none", cursor: "pointer", display: "inline-flex", alignItems: "center" }}>
-                          直近ティック履歴の制限 (高速シーク)
-                          <HelpTooltip
-                            title="直近ティック履歴の制限 (高速シーク)"
-                            content={"MT5がメモリ内に保持するリアルタイムティックの範囲を制限します。\n長期間のリプレイ時にメモリ消費を削減し、巻き戻しやシークの処理速度を向上させます。"}
-                          />
-                        </span>
-                      </label>
-
-                      {limitTickHistory && (
-                        <div style={{ display: "flex", gap: "12px", marginTop: "4px" }}>
-                          <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
-                            <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
-                              最大時間足 (インジ使用)
-                              <HelpTooltip
-                                title="履歴制限の最大時間足"
-                                content="ティック履歴を何本分のバーまで保持するかを決める基準時間足です（例: H1やD1）。"
-                              />
-                            </label>
-                            <CustomSelect
-                              value={tickHistoryTimeframe}
-                              onChange={setTickHistoryTimeframe}
-                              options={[
-                                { value: "M1", label: "1分足 (M1)" },
-                                { value: "M5", label: "5分足 (M5)" },
-                                { value: "M15", label: "15分足 (M15)" },
-                                { value: "M30", label: "30分足 (M30)" },
-                                { value: "H1", label: "1時間足 (H1)" },
-                                { value: "H4", label: "4時間足 (H4)" },
-                                { value: "D1", label: "日足 (D1)" }
-                              ]}
-                            />
-                          </div>
-                          <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
-                            <label className="form-label" style={{ display: "flex", alignItems: "center" }}>
-                              保持バー本数
-                              <HelpTooltip
-                                title="メモリ保持バー本数"
-                                content="最大時間足に対してメモリに保持し続けるバーの本数です（推奨: 100〜300本）。"
-                              />
-                            </label>
-                            <input
-                              type="number"
-                              className="pro-input"
-                              value={maxHistoryBars}
-                              onChange={(e) => setMaxHistoryBars(parseInt(e.target.value) || 0)}
-                            />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div style={{ marginTop: "12px" }}>
-                    <h4 className="settings-section-title">タイムゾーン設定</h4>
-                    <div className="form-grid" style={{ gridTemplateColumns: "1fr" }}>
-                      <div className="form-group" style={{ marginBottom: 0 }}>
-                        <label className="form-label">表示時刻の基準</label>
-                        <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                          <div className="pro-input" style={{ backgroundColor: "var(--surface-container-low)", opacity: 0.8, display: "flex", alignItems: "center", height: "38px", userSelect: "none" }}>
-                            {timezoneMode === "JST" ? "日本時間 JST" : "MT5サーバ時刻 SRV"}
-                          </div>
-                          <span style={{ fontSize: "10px", color: "var(--on-surface-variant)" }}>
-                            ※タイムゾーンの変更はセットアップ画面（リプレイ環境のセットアップ）でのみ可能です。
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div style={{ marginTop: "8px" }}>
-                    <h4 className="settings-section-title">動作設定</h4>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                      <label className="checkbox-group">
-                        <input
-                          type="checkbox"
-                          checked={autoScrollSync}
-                          onChange={(e) => setAutoScrollSync(e.target.checked)}
-                        />
-                        <span className="form-label" style={{ textTransform: "none", cursor: "pointer" }}>チャート自動スクロールを同期する</span>
-                      </label>
-
-                      <label className="checkbox-group">
-                        <input
-                          type="checkbox"
-                          checked={autoSkipWeekend}
-                          onChange={(e) => handleAutoSkipWeekendToggle(e.target.checked)}
-                        />
-                        <span className="form-label" style={{ textTransform: "none", cursor: "pointer" }}>時間比率モード時に週末などの休場期間を自動スキップする</span>
-                      </label>
-
-                      <label className="checkbox-group">
-                        <input
-                          type="checkbox"
-                          checked={alwaysOnTop}
-                          onChange={handleAlwaysOnTopToggle}
-                        />
-                        <span className="form-label" style={{ textTransform: "none", cursor: "pointer" }}>常に最前面に表示する</span>
-                      </label>
-
-                      <label className="checkbox-group">
-                        <input
-                          type="checkbox"
-                          checked={isShortcutsActive}
-                          onChange={handleShortcutsToggle}
-                        />
-                        <span className="form-label" style={{ textTransform: "none", cursor: "pointer" }}>グローバルショートカットキーを有効にする (MT5非フォーカス時も有効)</span>
-                      </label>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {activeTab === "hotkeys" && (
-                <>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div className="settings-info-text" style={{ flex: 1, marginRight: "12px", padding: "8px 12px" }}>
-                      設定したい機能の「録音」ボタンをクリックし、割り当てたいキーの組み合わせを押してください。<br />
-                      <strong>Escキー</strong>を押すと録音をキャンセルします。
-                    </div>
-                    <button className="pro-btn danger" onClick={handleResetAllHotkeys}>
-                      <span className="material-symbols-outlined text-[14px]">restart_alt</span>
-                      初期設定に戻す
-                    </button>
-                  </div>
-
-                  <div className="hotkey-list">
-                    {Object.keys(DEFAULT_HOTKEYS).map(actionKey => {
-                      const meta = HOTKEY_METADATA[actionKey] || { name: actionKey, desc: "" };
-                      const currentKey = hotkeys[actionKey] || "";
-                      const isRecording = recordingAction === actionKey;
-
-                      // 重複チェック
-                      const getDuplicateHotkeys = () => {
-                        const counts: Record<string, number> = {};
-                        Object.values(hotkeys).forEach(val => {
-                          if (val && val.trim() !== "") {
-                            counts[val] = (counts[val] || 0) + 1;
-                          }
-                        });
-                        return counts;
-                      };
-                      const dupCounts = getDuplicateHotkeys();
-                      const isDuplicate = currentKey && dupCounts[currentKey] > 1;
-
-                      return (
-                        <div key={actionKey} className={`hotkey-item ${isDuplicate ? "duplicate" : ""}`}>
-                          <div className="hotkey-name-info">
-                            <span className="hotkey-name">{meta.name}</span>
-                            <span className="hotkey-desc">{meta.desc}</span>
-                          </div>
-
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "8px" }}>
-                            {isDuplicate && (
-                              <span className="material-symbols-outlined hotkey-warning-badge" title="他の機能とキー設定が重複しています">
-                                warning
-                              </span>
-                            )}
-                            <button
-                              className={`hotkey-btn-record ${isRecording ? "recording" : ""}`}
-                              onClick={() => {
-                                if (isRecording) {
-                                  setRecordingAction(null);
-                                } else {
-                                  setRecordingAction(actionKey);
-                                }
-                              }}
-                            >
-                              <span className="material-symbols-outlined text-[14px]">
-                                {isRecording ? "keyboard_voice" : "keyboard"}
-                              </span>
-                              {isRecording ? "キー入力待ち..." : formatShortcutForDisplay(currentKey)}
-                            </button>
-                          </div>
-
-                          <div className="hotkey-actions">
-                            <button
-                              className="pro-btn pro-btn-square"
-                              onClick={() => handleClearHotkey(actionKey)}
-                              disabled={!currentKey}
-                              title="割り当て解除"
-                            >
-                              <span className="material-symbols-outlined text-[14px]">backspace</span>
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
-
-              {activeTab === "theme" && (
-                <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                  <div className="settings-section-title" style={{ fontSize: "11px", fontWeight: "600", textTransform: "uppercase", color: "var(--on-surface-variant)", letterSpacing: "0.05em" }}>
-                    テーマモード
-                  </div>
-                  <div className="theme-mode-picker-grid">
-                    <div
-                      className={`theme-mode-card ${themeMode === "dark" ? "active" : ""}`}
-                      onClick={() => {
-                        setThemeMode("dark");
-                        saveAllSettings(hotkeys, timePresets, tickPresets, glassEffect, "dark");
-                      }}
-                    >
-                      <span className="material-symbols-outlined">dark_mode</span>
-                      <span className="theme-name-ja">ダークモード</span>
-                      <span className="theme-name-en">Dark Mode</span>
-                    </div>
-                    <div
-                      className={`theme-mode-card ${themeMode === "light" ? "active" : ""}`}
-                      onClick={() => {
-                        setThemeMode("light");
-                        saveAllSettings(hotkeys, timePresets, tickPresets, glassEffect, "light");
-                      }}
-                    >
-                      <span className="material-symbols-outlined">light_mode</span>
-                      <span className="theme-name-ja">ライトモード</span>
-                      <span className="theme-name-en">Light Mode</span>
-                    </div>
-                  </div>
-                  <div style={{ height: "1px", backgroundColor: "var(--outline-variant)", margin: "4px 0" }} />
-                  <div className="settings-section-title" style={{ fontSize: "11px", fontWeight: "600", textTransform: "uppercase", color: "var(--on-surface-variant)", letterSpacing: "0.05em" }}>
-                    アクセントカラー
-                  </div>
-                  <div className="settings-info-text">
-                    UIのアクセントカラーを変更して、ツール全体の雰囲気をカスタマイズできます。<br />
-                    お好みの色をクリックすると即座に反映され、設定は自動的に保存されます。
-                  </div>
-                  <div className="theme-picker-grid">
-                    {THEME_PRESETS.map((theme) => {
-                      const isActive = themeId === theme.id;
-                      return (
-                        <div
-                          key={theme.id}
-                          className={`theme-picker-card ${isActive ? "active" : ""}`}
-                          onClick={() => setThemeId(theme.id)}
-                        >
-                          <div
-                            className="theme-color-circle"
-                            style={{ backgroundColor: theme.color }}
-                          />
-                          <span className="theme-name-ja">{theme.nameJa}</span>
-                          <span className="theme-name-en">{theme.nameEn}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div style={{ height: "1px", backgroundColor: "var(--outline-variant)", margin: "8px 0" }} />
-                  <div className="settings-section-title" style={{ fontSize: "11px", fontWeight: "600", textTransform: "uppercase", color: "var(--on-surface-variant)", letterSpacing: "0.05em" }}>
-                    損益配色設定
-                  </div>
-                  <div className="settings-info-text">
-                    口座実績やポジション一覧の損益・pips表示の配色パターンを選択します。
-                  </div>
-                  <div className="theme-mode-picker-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-                    <div
-                      className={`theme-mode-card ${plColorStyle === "red-blue" ? "active" : ""}`}
-                      onClick={() => {
-                        setPlColorStyle("red-blue");
-                      }}
-                    >
-                      <span className="material-symbols-outlined" style={{ color: plColorStyle === "red-blue" ? "var(--on-primary)" : "#ef4444" }}>trending_up</span>
-                      <span className="theme-name-ja">利益: 赤 / 損失: 青</span>
-                      <span className="theme-name-en">Profit: Red / Loss: Blue</span>
-                    </div>
-                    <div
-                      className={`theme-mode-card ${plColorStyle === "green-red" ? "active" : ""}`}
-                      onClick={() => {
-                        setPlColorStyle("green-red");
-                      }}
-                    >
-                      <span className="material-symbols-outlined" style={{ color: plColorStyle === "green-red" ? "var(--on-primary)" : "#10b981" }}>trending_up</span>
-                      <span className="theme-name-ja">利益: 緑 / 損失: 赤</span>
-                      <span className="theme-name-en">Profit: Green / Loss: Red</span>
-                    </div>
-                  </div>
-                  <div style={{ height: "1px", backgroundColor: "var(--outline-variant)", margin: "8px 0" }} />
-                  <div className="settings-section-title" style={{ marginTop: "4px", fontSize: "11px", fontWeight: "600", textTransform: "uppercase", color: "var(--on-surface-variant)", letterSpacing: "0.05em" }}>
-                    追加エフェクト
-                  </div>
-                  <div className="glass-toggle-container" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", backgroundColor: "var(--surface-container-low)", borderRadius: "var(--radius-md)", border: "1px solid var(--outline-variant)" }}>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                      <span style={{ fontSize: "12px", fontWeight: "600", color: "var(--on-surface)" }}>
-                        ガラス・アクリル風質感 (不透明・軽量)
-                      </span>
-                      <span style={{ fontSize: "10px", color: "var(--on-surface-variant)" }}>
-                        透過やブラーを行わずに、不透明のグラデーションと境界ハイライトでガラスアクリル風の質感を表現します（PC負荷なし）。
-                      </span>
-                    </div>
-                    <label className="pro-switch" style={{ position: "relative", display: "inline-block", width: "40px", height: "20px" }}>
-                      <input
-                        type="checkbox"
-                        checked={glassEffect}
-                        onChange={(e) => {
-                          const nextVal = e.target.checked;
-                          setGlassEffect(nextVal);
-                          saveAllSettings(hotkeys, timePresets, tickPresets, nextVal);
-                        }}
-                        style={{ opacity: 0, width: 0, height: 0 }}
-                      />
-                      <span className="pro-switch-slider" style={{ position: "absolute", cursor: "pointer", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "var(--outline-variant)", transition: "0.2s", borderRadius: "20px" }} />
-                    </label>
-                  </div>
-                </div>
-              )}
-
-              {activeTab === "ai" && (
-                <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-                  <div className="api-test-header-bar">
-                    <div>
-                      <div style={{ fontSize: "12px", fontWeight: "600", color: "var(--on-surface)" }}>
-                        APIキー動作確認・接続テスト
-                      </div>
-                      <div style={{ fontSize: "10px", color: "var(--on-surface-variant)", marginTop: "2px" }}>
-                        設定された各種APIキーが正常に疎通・機能しているかテストできます。
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      className="pro-btn primary"
-                      style={{ height: "30px", fontSize: "11px", gap: "6px" }}
-                      onClick={handleTestAllApis}
-                      disabled={isTestingAllApis}
-                    >
-                      <span className={`material-symbols-outlined text-[14px] ${isTestingAllApis ? "api-spin-icon" : ""}`}>
-                        {isTestingAllApis ? "sync" : "checklist"}
-                      </span>
-                      {isTestingAllApis ? "一括テスト中..." : "すべてのAPIキーを一括テスト"}
-                    </button>
-                  </div>
-
-                  <div className="settings-grid">
-                    <div>
-                      <h4 className="settings-section-title">OpenRouter LLM設定</h4>
-                      <div className="form-grid" style={{ gridTemplateColumns: "1fr" }}>
-                        <div className="form-group">
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-                            <label className="form-label" style={{ marginBottom: 0 }}>OpenRouter API Key</label>
-                            <button
-                              type="button"
-                              className="pro-btn"
-                              style={{ height: "24px", padding: "0 8px", fontSize: "10px", gap: "4px" }}
-                              onClick={handleTestOpenRouter}
-                              disabled={openRouterTestResult.status === "testing" || isTestingAllApis}
-                            >
-                              <span className={`material-symbols-outlined text-[12px] ${openRouterTestResult.status === "testing" ? "api-spin-icon" : ""}`}>
-                                {openRouterTestResult.status === "testing" ? "sync" : "bolt"}
-                              </span>
-                              動作確認
-                            </button>
-                          </div>
-                          <input
-                            type="password"
-                            className="pro-input"
-                            value={openRouterApiKey}
-                            onChange={(e) => setOpenRouterApiKey(e.target.value)}
-                            placeholder="sk-or-v1-..."
-                          />
-                          <span style={{ fontSize: "10px", color: "var(--on-surface-variant)", marginTop: "2px" }}>
-                            OpenRouterのAPI Key（sk-or-v1-で始まるキー）を入力します。
-                          </span>
-                          {openRouterTestResult.status !== "idle" && (
-                            <div className={`api-test-result ${openRouterTestResult.status}`}>
-                              <div style={{ display: "flex", alignItems: "center", gap: "6px", flex: 1 }}>
-                                <span className="material-symbols-outlined text-[14px]">
-                                  {openRouterTestResult.status === "testing" ? "sync" : openRouterTestResult.success ? "check_circle" : "error"}
-                                </span>
-                                <span>{openRouterTestResult.message}</span>
-                              </div>
-                              {openRouterTestResult.latency !== undefined && (
-                                <span className="api-test-latency">{openRouterTestResult.latency}ms</span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="form-group">
-                          <label className="form-label">LLMモデル指定</label>
-                          <CustomSelect
-                            value={openRouterModel}
-                            onChange={(val) => setOpenRouterModel(val)}
-                            options={[
-                              { value: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash (推奨・高速)" },
-                              { value: "anthropic/claude-3.5-sonnet", label: "Claude 3.5 Sonnet (高精度)" },
-                              { value: "openai/gpt-4o-mini", label: "GPT-4o Mini (軽量)" },
-                              { value: "deepseek/deepseek-chat", label: "DeepSeek V3" }
-                            ]}
-                          />
-                          <input
-                            type="text"
-                            className="pro-input"
-                            style={{ marginTop: "6px" }}
-                            value={openRouterModel}
-                            onChange={(e) => setOpenRouterModel(e.target.value)}
-                            placeholder="モデル名を直接入力 (例: google/gemini-2.5-flash)"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div>
-                      <h4 className="settings-section-title">補足データソース (任意)</h4>
-                      <div className="form-grid" style={{ gridTemplateColumns: "1fr" }}>
-                        <div className="form-group">
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-                            <label className="form-label" style={{ marginBottom: 0 }}>FRED API Key (FRB金利取得)</label>
-                            <button
-                              type="button"
-                              className="pro-btn"
-                              style={{ height: "24px", padding: "0 8px", fontSize: "10px", gap: "4px" }}
-                              onClick={handleTestFred}
-                              disabled={fredTestResult.status === "testing" || isTestingAllApis}
-                            >
-                              <span className={`material-symbols-outlined text-[12px] ${fredTestResult.status === "testing" ? "api-spin-icon" : ""}`}>
-                                {fredTestResult.status === "testing" ? "sync" : "bolt"}
-                              </span>
-                              動作確認
-                            </button>
-                          </div>
-                          <input
-                            type="text"
-                            className="pro-input"
-                            value={fredApiKey}
-                            onChange={(e) => setFredApiKey(e.target.value)}
-                            placeholder="FRED API Key (任意)"
-                          />
-                          {fredTestResult.status !== "idle" && (
-                            <div className={`api-test-result ${fredTestResult.status}`}>
-                              <div style={{ display: "flex", alignItems: "center", gap: "6px", flex: 1 }}>
-                                <span className="material-symbols-outlined text-[14px]">
-                                  {fredTestResult.status === "testing" ? "sync" : fredTestResult.success ? "check_circle" : "error"}
-                                </span>
-                                <span>{fredTestResult.message}</span>
-                              </div>
-                              {fredTestResult.latency !== undefined && (
-                                <span className="api-test-latency">{fredTestResult.latency}ms</span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="form-group">
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-                            <label className="form-label" style={{ marginBottom: 0 }}>Finnhub API Key (FXニュース用)</label>
-                            <button
-                              type="button"
-                              className="pro-btn"
-                              style={{ height: "24px", padding: "0 8px", fontSize: "10px", gap: "4px" }}
-                              onClick={handleTestFinnhub}
-                              disabled={finnhubTestResult.status === "testing" || isTestingAllApis}
-                            >
-                              <span className={`material-symbols-outlined text-[12px] ${finnhubTestResult.status === "testing" ? "api-spin-icon" : ""}`}>
-                                {finnhubTestResult.status === "testing" ? "sync" : "bolt"}
-                              </span>
-                              動作確認
-                            </button>
-                          </div>
-                          <input
-                            type="text"
-                            className="pro-input"
-                            value={finnhubApiKey}
-                            onChange={(e) => setFinnhubApiKey(e.target.value)}
-                            placeholder="Finnhub API Key (任意)"
-                          />
-                          {finnhubTestResult.status !== "idle" && (
-                            <div className={`api-test-result ${finnhubTestResult.status}`}>
-                              <div style={{ display: "flex", alignItems: "center", gap: "6px", flex: 1 }}>
-                                <span className="material-symbols-outlined text-[14px]">
-                                  {finnhubTestResult.status === "testing" ? "sync" : finnhubTestResult.success ? "check_circle" : "error"}
-                                </span>
-                                <span>{finnhubTestResult.message}</span>
-                              </div>
-                              {finnhubTestResult.latency !== undefined && (
-                                <span className="api-test-latency">{finnhubTestResult.latency}ms</span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="form-group" style={{ marginTop: "4px" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <label className="form-label" style={{ marginBottom: 0 }}>GDELT ニュース API (キー不要)</label>
-                            <button
-                              type="button"
-                              className="pro-btn"
-                              style={{ height: "24px", padding: "0 8px", fontSize: "10px", gap: "4px" }}
-                              onClick={handleTestGdelt}
-                              disabled={gdeltTestResult.status === "testing" || isTestingAllApis}
-                            >
-                              <span className={`material-symbols-outlined text-[12px] ${gdeltTestResult.status === "testing" ? "api-spin-icon" : ""}`}>
-                                {gdeltTestResult.status === "testing" ? "sync" : "bolt"}
-                              </span>
-                              動作確認
-                            </button>
-                          </div>
-                          {gdeltTestResult.status !== "idle" && (
-                            <div className={`api-test-result ${gdeltTestResult.status}`}>
-                              <div style={{ display: "flex", alignItems: "center", gap: "6px", flex: 1 }}>
-                                <span className="material-symbols-outlined text-[14px]">
-                                  {gdeltTestResult.status === "testing" ? "sync" : gdeltTestResult.success ? "check_circle" : "error"}
-                                </span>
-                                <span>{gdeltTestResult.message}</span>
-                              </div>
-                              {gdeltTestResult.latency !== undefined && (
-                                <span className="api-test-latency">{gdeltTestResult.latency}ms</span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="modal-footer">
-              <button
-                className="pro-btn primary"
-                onClick={() => {
-                  saveAllSettings();
-                  setIsSettingsOpen(false);
-                }}
-                disabled={!!recordingAction}
-              >
-                閉じる
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {activePickerField && (
-        <DateTimePickerModal
-          fieldLabel={
-            activePickerField === "preload" ? `過去プリロード開始日 (${timezoneMode})` :
-              activePickerField === "start" ? `開始日時 (${timezoneMode})` :
-                `終了日時 (${timezoneMode})`
-          }
-          value={
-            activePickerField === "preload" ? (timezoneMode === "JST" ? preloadDate : getNewsTimeForDisplay(preloadDate, "SERVER")) :
-              activePickerField === "start" ? (timezoneMode === "JST" ? startTime : getNewsTimeForDisplay(startTime, "SERVER")) :
-                (timezoneMode === "JST" ? endTime : getNewsTimeForDisplay(endTime, "SERVER"))
-          }
-          onChange={(newVal) => {
-            const finalVal = timezoneMode === "JST" ? newVal : convertServerToJstStr(newVal);
-            if (activePickerField === "preload") setPreloadDate(finalVal);
-            else if (activePickerField === "start") setStartTime(finalVal);
-            else setEndTime(finalVal);
-          }}
-          onClose={() => setActivePickerField(null)}
-        />
-      )}
-
-      {/* Session Delete Confirmation Modal */}
-      <DeleteSessionModal
-        isOpen={isDeleteSessionConfirmOpen}
-        message={deleteConfirmMessage}
-        onConfirm={executeDeleteSession}
-        onClose={() => setIsDeleteSessionConfirmOpen(false)}
+      {/* Modals & Dialogs */}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        recordingAction={recordingAction}
+        setRecordingAction={setRecordingAction}
+        hotkeys={hotkeys}
+        handleResetAllHotkeys={handleResetAllHotkeys}
+        handleClearHotkey={handleClearHotkey}
+        limitTickHistory={limitTickHistory}
+        setLimitTickHistory={setLimitTickHistory}
+        tickHistoryTimeframe={tickHistoryTimeframe}
+        setTickHistoryTimeframe={setTickHistoryTimeframe}
+        maxHistoryBars={maxHistoryBars}
+        setMaxHistoryBars={setMaxHistoryBars}
+        autoScrollSync={autoScrollSync}
+        setAutoScrollSync={setAutoScrollSync}
+        autoSkipWeekend={autoSkipWeekend}
+        handleAutoSkipWeekendToggle={handleAutoSkipWeekendToggle}
+        alwaysOnTop={alwaysOnTop}
+        handleAlwaysOnTopToggle={handleAlwaysOnTopToggle}
+        isShortcutsActive={isShortcutsActive}
+        handleShortcutsToggle={handleShortcutsToggle}
+        themeId={themeId}
+        setThemeId={setThemeId}
+        themeMode={themeMode}
+        setThemeMode={setThemeMode}
+        glassEffect={glassEffect}
+        plColorStyle={plColorStyle}
+        setPlColorStyle={setPlColorStyle}
+        openRouterApiKey={openRouterApiKey}
+        setOpenRouterApiKey={setOpenRouterApiKey}
+        openRouterModel={openRouterModel}
+        setOpenRouterModel={setOpenRouterModel}
+        fredApiKey={fredApiKey}
+        setFredApiKey={setFredApiKey}
+        finnhubApiKey={finnhubApiKey}
+        setFinnhubApiKey={setFinnhubApiKey}
+        openRouterTestResult={openRouterTestResult}
+        fredTestResult={fredTestResult}
+        finnhubTestResult={finnhubTestResult}
+        gdeltTestResult={gdeltTestResult}
+        isTestingAllApis={isTestingAllApis}
+        handleTestOpenRouter={handleTestOpenRouter}
+        handleTestFred={handleTestFred}
+        handleTestFinnhub={handleTestFinnhub}
+        handleTestGdelt={handleTestGdelt}
+        handleTestAllApis={handleTestAllApis}
+        saveAllSettings={saveAllSettings}
+        timePresets={timePresets}
+        tickPresets={tickPresets}
       />
 
-      {/* Session Clear All Confirmation Modal */}
-      {isClearAllSessionsConfirmOpen && (
-        <div className="modal-overlay" onClick={() => setIsClearAllSessionsConfirmOpen(false)}>
-          <div className="modal-container" style={{ maxWidth: "400px" }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <span className="material-symbols-outlined" style={{ color: "var(--status-danger)" }}>delete_sweep</span>
-                全セッションデータの削除
-              </h3>
-              <button className="modal-close-btn" onClick={() => setIsClearAllSessionsConfirmOpen(false)}>
-                <span className="material-symbols-outlined">close</span>
-              </button>
-            </div>
-            <div className="modal-body" style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "12px", lineHeight: "1.6" }}>
-              <div style={{ fontSize: "12px", textAlign: "center" }}>
-                保存されているすべてのセッションデータを完全に削除してもよろしいですか？この操作は取り消せません。
-              </div>
-            </div>
-            <div className="modal-footer" style={{ padding: "12px 16px", display: "flex", gap: "8px", width: "100%", boxSizing: "border-box" }}>
-              <button
-                className="pro-btn"
-                style={{ flex: 1 }}
-                onClick={() => setIsClearAllSessionsConfirmOpen(false)}
-              >
-                キャンセル
-              </button>
-              <button
-                className="pro-btn danger-filled"
-                style={{ flex: 1 }}
-                onClick={executeClearAllSessions}
-              >
-                一括削除
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* AI Analysis Panel */}
+      <AIAnalysisPanel
+        isOpen={isAIPanelOpen}
+        onClose={() => setIsAIPanelOpen(false)}
+        virtualTimeMsc={aiTargetTimeMsc || virtualTimeMsc}
+        symbol={sourceSymbol}
+        newsItems={[]}
+        openRouterApiKey={openRouterApiKey}
+        openRouterModel={openRouterModel}
+        fredApiKey={fredApiKey}
+        finnhubApiKey={finnhubApiKey}
+        timezoneMode={timezoneMode}
+      />
 
-      {/* Replay Settings Reset Confirmation Modal */}
-      {isResetReplayConfirmOpen && (
-        <div className="modal-overlay" onClick={() => setIsResetReplayConfirmOpen(false)}>
-          <div className="modal-container" style={{ maxWidth: "400px" }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <span className="material-symbols-outlined text-accent" style={{ color: "var(--primary-color)" }}>restart_alt</span>
-                リプレイ設定のリセット
-              </h3>
-              <button className="modal-close-btn" onClick={() => setIsResetReplayConfirmOpen(false)}>
-                <span className="material-symbols-outlined">close</span>
-              </button>
-            </div>
-            <div className="modal-body" style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "12px", lineHeight: "1.6" }}>
-              <div style={{ fontSize: "12px", textAlign: "center" }}>
-                リプレイ設定（ターミナル、プロファイル、通貨ペア、各種時間など）をデフォルト値にリセットしますか？
-              </div>
-            </div>
-            <div className="modal-footer" style={{ padding: "12px 16px", display: "flex", gap: "8px", width: "100%", boxSizing: "border-box" }}>
-              <button
-                className="pro-btn"
-                style={{ flex: 1 }}
-                onClick={() => setIsResetReplayConfirmOpen(false)}
-              >
-                キャンセル
-              </button>
-              <button
-                className="pro-btn primary"
-                style={{ flex: 1 }}
-                onClick={() => {
-                  executeResetReplaySettings();
-                  setIsResetReplayConfirmOpen(false);
-                }}
-              >
-                リセット
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Max Bars Warning Modal */}
-      {isMaxBarsWarningOpen && (
-        <div className="modal-overlay" onClick={() => setIsMaxBarsWarningOpen(false)}>
-          <div className="modal-container" style={{ maxWidth: "460px" }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title" style={{ display: "flex", alignItems: "center", gap: "6px", color: "#ffb74d" }}>
-                <span className="material-symbols-outlined" style={{ color: "#ffb74d" }}>warning</span>
-                チャート最大バー数の確認
-              </h3>
-              <button className="modal-close-btn" onClick={() => setIsMaxBarsWarningOpen(false)}>
-                <span className="material-symbols-outlined">close</span>
-              </button>
-            </div>
-            <div className="modal-body" style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "12px", lineHeight: "1.6" }}>
-              <div style={{ fontSize: "13px", fontWeight: "600", color: "var(--on-surface)" }}>
-                MT5の「チャートの最大バー数」が Unlimited（無制限）に設定されていません。
-              </div>
-              <div style={{ backgroundColor: "rgba(255, 183, 77, 0.1)", border: "1px dashed rgba(255, 183, 77, 0.4)", borderRadius: "6px", padding: "10px 12px", fontSize: "12px" }}>
-                <div><strong>現在の設定:</strong> {maxBarsInfo ? (maxBarsInfo.max_bars > 0 ? `${maxBarsInfo.max_bars.toLocaleString()} 本` : maxBarsInfo.raw_value) : "未検出"}</div>
-              </div>
-              <div style={{ fontSize: "12px", color: "var(--on-surface-variant)" }}>
-                最大バー数が制限されている場合、過去データ検証時にインジケータ（移動平均線やVWAP等）の計算本数が不足し、チャート上に正しく描画されないことがあります。
-              </div>
-              <div style={{ fontSize: "12px", backgroundColor: "rgba(255, 255, 255, 0.04)", padding: "10px 12px", borderRadius: "6px", border: "1px solid var(--outline-variant)" }}>
-                💡 <strong>推奨設定手順:</strong><br />
-                MT5のメニュー <strong>[ツール] → [オプション] → [チャート]</strong> タブを開き、<strong>「チャートの最大バー数」</strong> を <strong>「Unlimited」</strong> に変更して「OK」を押してください。
-              </div>
-            </div>
-            <div className="modal-footer" style={{ padding: "12px 16px", display: "flex", gap: "8px", width: "100%", boxSizing: "border-box" }}>
-              <button
-                type="button"
-                className="pro-btn"
-                style={{ flex: 1 }}
-                onClick={() => setIsMaxBarsWarningOpen(false)}
-              >
-                キャンセル（設定変更）
-              </button>
-              <button
-                type="button"
-                className="pro-btn primary"
-                style={{ flex: 1, backgroundColor: "#ffb74d", color: "#1c1b1f", fontWeight: "bold" }}
-                onClick={() => {
-                  setIsMaxBarsWarningOpen(false);
-                  executeInitReplay();
-                }}
-              >
-                このまま開始する
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Trading Settings Reset Confirmation Modal */}
-      {isResetTradingConfirmOpen && (
-        <div className="modal-overlay" onClick={() => setIsResetTradingConfirmOpen(false)}>
-          <div className="modal-container" style={{ maxWidth: "400px" }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <span className="material-symbols-outlined text-accent" style={{ color: "var(--primary-color)" }}>restart_alt</span>
-                取引設定のリセット
-              </h3>
-              <button className="modal-close-btn" onClick={() => setIsResetTradingConfirmOpen(false)}>
-                <span className="material-symbols-outlined">close</span>
-              </button>
-            </div>
-            <div className="modal-body" style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "12px", lineHeight: "1.6" }}>
-              <div style={{ fontSize: "12px", textAlign: "center" }}>
-                取引設定（初期残高、レバレッジ、ロット単位、疑似レート生成設定など）をデフォルト値にリセットしますか？
-              </div>
-            </div>
-            <div className="modal-footer" style={{ padding: "12px 16px", display: "flex", gap: "8px", width: "100%", boxSizing: "border-box" }}>
-              <button
-                className="pro-btn"
-                style={{ flex: 1 }}
-                onClick={() => setIsResetTradingConfirmOpen(false)}
-              >
-                キャンセル
-              </button>
-              <button
-                className="pro-btn primary"
-                style={{ flex: 1 }}
-                onClick={() => {
-                  executeResetTradingSettings();
-                  setIsResetTradingConfirmOpen(false);
-                }}
-              >
-                リセット
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Save Session Modal */}
-      {isSaveSessionOpen && (
-        <div className="modal-overlay" onClick={() => setIsSaveSessionOpen(false)}>
-          <div className="modal-container" style={{ maxWidth: "400px" }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <span className="material-symbols-outlined icon-accent" style={{ color: "var(--primary-color)" }}>save</span>
-                {sessionSaveType === "terminate" ? "セッションを保存して終了" : "現在の状態を保存"}
-              </h3>
-              <button className="modal-close-btn" onClick={() => setIsSaveSessionOpen(false)}>
-                <span className="material-symbols-outlined">close</span>
-              </button>
-            </div>
-            <div className="modal-body" style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "12px" }}>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label" style={{ marginBottom: "6px" }}>セッション名</label>
-                <input
-                  type="text"
-                  className="pro-input"
-                  value={saveSessionName}
-                  onChange={(e) => setSaveSessionName(e.target.value)}
-                  placeholder="セッション名を入力してください"
-                  style={{ width: "100%", boxSizing: "border-box" }}
-                />
-              </div>
-              {currentSessionId && (
-                <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "4px" }}>
-                  <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "12px", color: "var(--on-surface)" }}>
-                    <input
-                      type="checkbox"
-                      checked={saveAsNewSnapshot}
-                      onChange={(e) => setSaveAsNewSnapshot(e.target.checked)}
-                      style={{ cursor: "pointer" }}
-                    />
-                    新規スナップショットとして保存
-                  </label>
-                  <span style={{ fontSize: "10px", color: "var(--on-surface-variant)", marginLeft: "20px", lineHeight: "1.4" }}>
-                    {saveAsNewSnapshot
-                      ? "現在の履歴を上書きせず、同じセッション内に新しい履歴（スナップショット）として保存します。"
-                      : `既存の保存データ（${currentSessionName}）に上書き保存します。`}
-                  </span>
-                </div>
-              )}
-            </div>
-            <div className="modal-footer" style={{ padding: "12px 16px", display: "flex", gap: "8px", width: "100%", boxSizing: "border-box" }}>
-              {sessionSaveType === "terminate" && (
-                <button
-                  className="pro-btn danger"
-                  style={{ marginRight: "auto" }}
-                  onClick={async () => {
-                    setIsSaveSessionOpen(false);
-                    await executeTerminate();
-                  }}
-                >
-                  保存せずに終了
-                </button>
-              )}
-              <button
-                className="pro-btn"
-                onClick={() => setIsSaveSessionOpen(false)}
-              >
-                キャンセル
-              </button>
-              <button
-                className="pro-btn primary"
-                disabled={!saveSessionName.trim()}
-                onClick={async () => {
-                  await executeSaveSession();
-                  setIsSaveSessionOpen(false);
-                  if (sessionSaveType === "terminate") {
-                    await executeTerminate();
-                  }
-                }}
-              >
-                保存
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* カスタムシンボル構築・インポート モーダル */}
+      {/* Custom Symbol Import Modal */}
       <CustomSymbolImportModal
         isOpen={isCustomImportOpen}
         onClose={() => setIsCustomImportOpen(false)}
         terminalPath={selectedTerminal}
         terminalName={(() => {
-          const t = terminals.find(t => t.path === selectedTerminal);
-          return t ? (t.custom_name || t.name) : undefined;
+          const t = terminals.find((t) => t.path === selectedTerminal);
+          return t ? t.custom_name || t.name : undefined;
         })()}
         onImportComplete={() => loadAvailableSymbols(selectedTerminal)}
         onApplyToReplay={(primary, syncs, range) => {
@@ -5557,7 +2845,7 @@ function App() {
         }}
       />
 
-      {/* シンボル＆比較ペア・マルチ通貨セレクター モーダル */}
+      {/* Batch Symbol Selector Modal */}
       <SymbolBatchSelectorModal
         isOpen={isBatchSelectorOpen}
         onClose={() => setIsBatchSelectorOpen(false)}
@@ -5578,7 +2866,7 @@ function App() {
         }}
       />
 
-      {/* MT5ターミナル名設定 モーダル */}
+      {/* Terminal Name Modal */}
       <TerminalNameModal
         isOpen={isTerminalNameModalOpen}
         terminal={editingTerminal}
@@ -5590,44 +2878,324 @@ function App() {
         }}
       />
 
-      {/* Time Steps カスタマイズ モーダル */}
-      {isTimeStepsModalOpen && (
-        <div className="modal-overlay" onClick={() => setIsTimeStepsModalOpen(false)}>
-          <div className="modal-container" style={{ maxWidth: "460px" }} onClick={(e) => e.stopPropagation()}>
+      {/* DateTime Picker Modal */}
+      {activePickerField && (
+        <DateTimePickerModal
+          fieldLabel={
+            activePickerField === "preload"
+              ? `過去プリロード開始日 (${timezoneMode})`
+              : activePickerField === "start"
+              ? `開始日時 (${timezoneMode})`
+              : `終了日時 (${timezoneMode})`
+          }
+          value={
+            activePickerField === "preload"
+              ? timezoneMode === "JST"
+                ? preloadDate
+                : getNewsTimeForDisplay(preloadDate, "SERVER")
+              : activePickerField === "start"
+              ? timezoneMode === "JST"
+                ? startTime
+                : getNewsTimeForDisplay(startTime, "SERVER")
+              : timezoneMode === "JST"
+              ? endTime
+              : getNewsTimeForDisplay(endTime, "SERVER")
+          }
+          onChange={(newVal) => {
+            const finalVal = timezoneMode === "JST" ? newVal : convertServerToJstStr(newVal);
+            if (activePickerField === "preload") setPreloadDate(finalVal);
+            else if (activePickerField === "start") setStartTime(finalVal);
+            else setEndTime(finalVal);
+          }}
+          onClose={() => setActivePickerField(null)}
+        />
+      )}
+
+      {/* Delete Session Modal */}
+      <DeleteSessionModal
+        isOpen={isDeleteSessionConfirmOpen}
+        message={deleteConfirmMessage}
+        onConfirm={executeDeleteSession}
+        onClose={() => setIsDeleteSessionConfirmOpen(false)}
+      />
+
+      {/* Clear All Sessions Modal */}
+      {isClearAllSessionsConfirmOpen && (
+        <div className="modal-overlay" onClick={() => setIsClearAllSessionsConfirmOpen(false)}>
+          <div className="modal-container" style={{ maxWidth: "400px" }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3 className="modal-title" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <span className="material-symbols-outlined icon-accent" style={{ color: "var(--primary-color)" }}>tune</span>
-                Time Steps カスタマイズ (最大5つ)
+                <span className="material-symbols-outlined" style={{ color: "var(--status-danger)" }}>
+                  delete_sweep
+                </span>
+                全セッションデータの削除
+              </h3>
+              <button className="modal-close-btn" onClick={() => setIsClearAllSessionsConfirmOpen(false)}>
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <div className="modal-body" style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "12px", lineHeight: "1.6" }}>
+              <div style={{ fontSize: "12px", textAlign: "center" }}>
+                保存されているすべてのセッションデータを完全に削除してもよろしいですか？この操作は取り消せません。
+              </div>
+            </div>
+            <div className="modal-footer" style={{ padding: "12px 16px", display: "flex", gap: "8px", width: "100%", boxSizing: "border-box" }}>
+              <button className="pro-btn" style={{ flex: 1 }} onClick={() => setIsClearAllSessionsConfirmOpen(false)}>
+                キャンセル
+              </button>
+              <button className="pro-btn danger-filled" style={{ flex: 1 }} onClick={executeClearAllSessions}>
+                一括削除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset Replay Modal */}
+      {isResetReplayConfirmOpen && (
+        <div className="modal-overlay" onClick={() => setIsResetReplayConfirmOpen(false)}>
+          <div className="modal-container" style={{ maxWidth: "400px" }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <span className="material-symbols-outlined text-accent" style={{ color: "var(--primary-color)" }}>
+                  restart_alt
+                </span>
+                リプレイ設定のリセット
+              </h3>
+              <button className="modal-close-btn" onClick={() => setIsResetReplayConfirmOpen(false)}>
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <div className="modal-body" style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "12px", lineHeight: "1.6" }}>
+              <div style={{ fontSize: "12px", textAlign: "center" }}>
+                リプレイ設定をデフォルト値にリセットしますか？
+              </div>
+            </div>
+            <div className="modal-footer" style={{ padding: "12px 16px", display: "flex", gap: "8px", width: "100%", boxSizing: "border-box" }}>
+              <button className="pro-btn" style={{ flex: 1 }} onClick={() => setIsResetReplayConfirmOpen(false)}>
+                キャンセル
+              </button>
+              <button
+                className="pro-btn primary"
+                style={{ flex: 1 }}
+                onClick={() => {
+                  executeResetReplaySettings();
+                  setIsResetReplayConfirmOpen(false);
+                }}
+              >
+                リセット
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset Trading Modal */}
+      {isResetTradingConfirmOpen && (
+        <div className="modal-overlay" onClick={() => setIsResetTradingConfirmOpen(false)}>
+          <div className="modal-container" style={{ maxWidth: "400px" }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <span className="material-symbols-outlined text-accent" style={{ color: "var(--primary-color)" }}>
+                  restart_alt
+                </span>
+                取引設定のリセット
+              </h3>
+              <button className="modal-close-btn" onClick={() => setIsResetTradingConfirmOpen(false)}>
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <div className="modal-body" style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "12px", lineHeight: "1.6" }}>
+              <div style={{ fontSize: "12px", textAlign: "center" }}>
+                取引設定をデフォルト値にリセットしますか？
+              </div>
+            </div>
+            <div className="modal-footer" style={{ padding: "12px 16px", display: "flex", gap: "8px", width: "100%", boxSizing: "border-box" }}>
+              <button className="pro-btn" style={{ flex: 1 }} onClick={() => setIsResetTradingConfirmOpen(false)}>
+                キャンセル
+              </button>
+              <button
+                className="pro-btn primary"
+                style={{ flex: 1 }}
+                onClick={() => {
+                  executeResetTradingSettings();
+                  setIsResetTradingConfirmOpen(false);
+                }}
+              >
+                リセット
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Max Bars Warning Modal */}
+      {isMaxBarsWarningOpen && (
+        <div className="modal-overlay" onClick={() => setIsMaxBarsWarningOpen(false)}>
+          <div className="modal-container" style={{ maxWidth: "400px" }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title" style={{ display: "flex", alignItems: "center", gap: "6px", color: "#ffb74d" }}>
+                <span className="material-symbols-outlined" style={{ color: "#ffb74d" }}>
+                  warning
+                </span>
+                チャート最大バー数の確認
+              </h3>
+              <button className="modal-close-btn" onClick={() => setIsMaxBarsWarningOpen(false)}>
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <div className="modal-body" style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: "10px", lineHeight: "1.5" }}>
+              <div style={{ fontSize: "12px", fontWeight: "600", color: "var(--on-surface)" }}>
+                MT5の「チャートの最大バー数」が無制限に設定されていません。
+              </div>
+              <div style={{ backgroundColor: "rgba(255, 183, 77, 0.1)", border: "1px dashed rgba(255, 183, 77, 0.4)", borderRadius: "6px", padding: "8px 10px", fontSize: "11px" }}>
+                <div>
+                  <strong>現在の設定:</strong>{" "}
+                  {maxBarsInfo ? (maxBarsInfo.max_bars > 0 ? `${maxBarsInfo.max_bars.toLocaleString()} 本` : maxBarsInfo.raw_value) : "未検出"}
+                </div>
+              </div>
+              <div style={{ fontSize: "11px", color: "var(--on-surface-variant)" }}>
+                ※ 過去データ検証時にインジケータを正確に計算するため、MT5の [ツール] → [オプション] → [チャート] で「無制限」に設定することを推奨します。
+              </div>
+            </div>
+            <div className="modal-footer" style={{ padding: "12px 16px", display: "flex", gap: "8px", width: "100%", boxSizing: "border-box" }}>
+              <button type="button" className="pro-btn" style={{ flex: 1 }} onClick={() => setIsMaxBarsWarningOpen(false)}>
+                戻る
+              </button>
+              <button
+                type="button"
+                className="pro-btn primary"
+                style={{ flex: 1, backgroundColor: "#ffb74d", color: "#1c1b1f", fontWeight: "bold" }}
+                onClick={() => {
+                  setIsMaxBarsWarningOpen(false);
+                  executeInitReplay();
+                }}
+              >
+                開始する
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Save Session Modal */}
+      {isSaveSessionOpen && (
+        <div className="modal-overlay" onClick={() => setIsSaveSessionOpen(false)}>
+          <div className="modal-container" style={{ maxWidth: "400px" }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <span className="material-symbols-outlined icon-accent" style={{ color: "var(--primary-color)" }}>
+                  save
+                </span>
+                {sessionSaveType === "terminate" ? "セッションを保存して終了" : "現在の状態を保存"}
+              </h3>
+              <button className="modal-close-btn" onClick={() => setIsSaveSessionOpen(false)}>
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <div className="modal-body" style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: "10px" }}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label" style={{ marginBottom: "4px" }}>
+                  セッション名
+                </label>
+                <input
+                  type="text"
+                  className="input-compact"
+                  value={saveSessionName}
+                  onChange={(e) => setSaveSessionName(e.target.value)}
+                  placeholder="セッション名を入力してください"
+                />
+              </div>
+              {currentSessionId && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "4px", marginTop: "2px" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontSize: "11.5px", color: "var(--on-surface)" }}>
+                    <input
+                      type="checkbox"
+                      checked={saveAsNewSnapshot}
+                      onChange={(e) => setSaveAsNewSnapshot(e.target.checked)}
+                    />
+                    新規スナップショットとして保存
+                  </label>
+                  <span style={{ fontSize: "9.5px", color: "var(--on-surface-variant)", marginLeft: "18px" }}>
+                    {saveAsNewSnapshot
+                      ? "現在の履歴を上書きせず、新しい履歴として保存します。"
+                      : `既存データ（${currentSessionName}）に上書き保存します。`}
+                  </span>
+                </div>
+              )}
+            </div>
+            <div className="modal-footer" style={{ padding: "12px 16px", display: "flex", gap: "8px", width: "100%", boxSizing: "border-box" }}>
+              {sessionSaveType === "terminate" && (
+                <button
+                  className="pro-btn danger"
+                  style={{ marginRight: "auto" }}
+                  onClick={async () => {
+                    setIsSaveSessionOpen(false);
+                    await executeTerminate();
+                  }}
+                >
+                  保存せず終了
+                </button>
+              )}
+              <button className="pro-btn" onClick={() => setIsSaveSessionOpen(false)}>
+                キャンセル
+              </button>
+              <button
+                className="pro-btn primary"
+                disabled={!saveSessionName.trim()}
+                onClick={async () => {
+                  await executeSaveSession();
+                  setIsSaveSessionOpen(false);
+                  if (sessionSaveType === "terminate") {
+                    await executeTerminate();
+                  }
+                }}
+              >
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Time Steps Modal */}
+      {isTimeStepsModalOpen && (
+        <div className="modal-overlay" onClick={() => setIsTimeStepsModalOpen(false)}>
+          <div className="modal-container" style={{ maxWidth: "420px" }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <span className="material-symbols-outlined icon-accent" style={{ color: "var(--primary-color)" }}>
+                  tune
+                </span>
+                Time Steps 設定 (最大5枠)
               </h3>
               <button className="modal-close-btn" onClick={() => setIsTimeStepsModalOpen(false)}>
                 <span className="material-symbols-outlined">close</span>
               </button>
             </div>
-            <div className="modal-body" style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: "16px" }}>
-              
-              {/* Quick Add Presets */}
+            <div className="modal-body" style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: "12px" }}>
               <div>
-                <div className="form-label" style={{ marginBottom: "6px" }}>クイック追加プリセット:</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                <div className="form-label" style={{ marginBottom: "4px" }}>
+                  プリセットから追加:
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
                   {PRESET_TIME_OPTIONS.map((preset) => {
                     const isAlreadyAdded = editingTimeSteps.some((item) => item.seconds === preset.seconds);
                     const isMax = editingTimeSteps.length >= 5;
                     return (
                       <button
                         key={preset.label}
-                        className={`pro-btn ${isAlreadyAdded ? "secondary" : ""}`}
+                        className="chip-btn"
                         disabled={isAlreadyAdded || isMax}
                         style={{
-                          padding: "3px 8px",
-                          fontSize: "11px",
-                          opacity: isAlreadyAdded || isMax ? 0.5 : 1,
-                          cursor: isAlreadyAdded || isMax ? "not-allowed" : "pointer"
+                          opacity: isAlreadyAdded || isMax ? 0.4 : 1,
+                          cursor: isAlreadyAdded || isMax ? "not-allowed" : "pointer",
                         }}
                         onClick={() => {
                           if (editingTimeSteps.length < 5 && !isAlreadyAdded) {
                             const updated = [
                               ...editingTimeSteps,
-                              { id: `ts-${Date.now()}-${Math.random()}`, seconds: preset.seconds, label: preset.label }
+                              { id: `ts-${Date.now()}-${Math.random()}`, seconds: preset.seconds, label: preset.label },
                             ].sort((a, b) => a.seconds - b.seconds);
                             setEditingTimeSteps(updated);
                           }
@@ -5640,93 +3208,68 @@ function App() {
                 </div>
               </div>
 
-              {/* Current Steps Edit List */}
               <div>
-                <div className="form-label" style={{ marginBottom: "8px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>設定中のステップ (最大5枠 / 現在 {editingTimeSteps.length}枠):</span>
-                  {editingTimeSteps.length < 5 && (
-                    <button
-                      className="pro-btn"
-                      style={{ padding: "2px 8px", fontSize: "11px" }}
-                      onClick={() => {
-                        const updated = [
-                          ...editingTimeSteps,
-                          { id: `ts-${Date.now()}`, seconds: 300, label: "5M" }
-                        ].sort((a, b) => a.seconds - b.seconds);
-                        setEditingTimeSteps(updated);
-                      }}
-                    >
-                      + カスタム追加
-                    </button>
-                  )}
+                <div className="form-label" style={{ marginBottom: "6px" }}>
+                  設定中のステップ ({editingTimeSteps.length}/5):
                 </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                   {editingTimeSteps.map((step, index) => (
                     <div
                       key={step.id || index}
                       style={{
                         display: "flex",
                         alignItems: "center",
-                        gap: "8px",
-                        backgroundColor: "var(--surface-obsidian)",
-                        padding: "6px 10px",
+                        gap: "6px",
+                        backgroundColor: "#161922",
+                        padding: "4px 8px",
                         borderRadius: "var(--radius-sm)",
-                        border: "1px solid var(--outline-variant)"
+                        border: "1px solid rgba(255, 255, 255, 0.06)",
                       }}
                     >
-                      <span className="font-data" style={{ fontSize: "12px", color: "var(--on-surface-variant)", width: "18px" }}>
+                      <span className="font-data" style={{ fontSize: "11px", color: "var(--on-surface-variant)", width: "16px" }}>
                         #{index + 1}
                       </span>
-                      <div style={{ display: "flex", alignItems: "center", gap: "4px", flex: 1 }}>
-                        <span style={{ fontSize: "11px", color: "var(--on-surface-variant)" }}>秒数:</span>
-                        <input
-                          type="number"
-                          className="pro-input"
-                          style={{ width: "70px", padding: "2px 6px", fontSize: "12px", textAlign: "right" }}
-                          value={step.seconds}
-                          min={1}
-                          max={86400}
-                          onChange={(e) => {
-                            const val = Math.max(1, parseInt(e.target.value) || 1);
-                            const updated = [...editingTimeSteps];
-                            updated[index] = {
-                              ...updated[index],
-                              seconds: val,
-                              label: formatSecondsToLabel(val)
-                            };
-                            setEditingTimeSteps(updated);
-                          }}
-                        />
-                        <span style={{ fontSize: "11px", color: "var(--on-surface-variant)" }}>秒</span>
-                      </div>
-
-                      <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                        <span style={{ fontSize: "11px", color: "var(--on-surface-variant)" }}>表示名:</span>
-                        <input
-                          type="text"
-                          className="pro-input"
-                          style={{ width: "55px", padding: "2px 6px", fontSize: "12px", fontWeight: 700 }}
-                          value={step.label}
-                          onChange={(e) => {
-                            const updated = [...editingTimeSteps];
-                            updated[index] = { ...updated[index], label: e.target.value };
-                            setEditingTimeSteps(updated);
-                          }}
-                        />
-                      </div>
-
+                      <input
+                        type="number"
+                        className="input-compact"
+                        style={{ width: "65px", textAlign: "right" }}
+                        value={step.seconds}
+                        min={1}
+                        max={86400}
+                        onChange={(e) => {
+                          const val = Math.max(1, parseInt(e.target.value) || 1);
+                          const updated = [...editingTimeSteps];
+                          updated[index] = {
+                            ...updated[index],
+                            seconds: val,
+                            label: formatSecondsToLabel(val),
+                          };
+                          setEditingTimeSteps(updated);
+                        }}
+                      />
+                      <span style={{ fontSize: "10px", color: "var(--on-surface-variant)" }}>秒</span>
+                      <input
+                        type="text"
+                        className="input-compact"
+                        style={{ width: "50px", fontWeight: 700, marginLeft: "auto" }}
+                        value={step.label}
+                        onChange={(e) => {
+                          const updated = [...editingTimeSteps];
+                          updated[index] = { ...updated[index], label: e.target.value };
+                          setEditingTimeSteps(updated);
+                        }}
+                      />
                       <button
-                        className="pro-btn danger pro-btn-square"
-                        style={{ width: "24px", height: "24px", padding: 0 }}
+                        className="btn-danger-compact"
+                        style={{ width: "22px", height: "22px", padding: 0, justifyContent: "center" }}
                         disabled={editingTimeSteps.length <= 1}
-                        title="削除"
                         onClick={() => {
                           if (editingTimeSteps.length > 1) {
                             setEditingTimeSteps(editingTimeSteps.filter((_, i) => i !== index));
                           }
                         }}
                       >
-                        <span className="material-symbols-outlined text-[13px]">delete</span>
+                        <span className="material-symbols-outlined text-[12px]">delete</span>
                       </button>
                     </div>
                   ))}
@@ -5734,27 +3277,25 @@ function App() {
               </div>
             </div>
 
-            <div className="modal-footer" style={{ padding: "12px 16px", display: "flex", gap: "8px", justifyContent: "space-between" }}>
+            <div className="modal-footer" style={{ padding: "10px 16px", display: "flex", gap: "8px", justifyContent: "space-between" }}>
               <button
-                className="pro-btn secondary"
+                className="pro-btn"
                 onClick={() => setEditingTimeSteps([...DEFAULT_TIME_STEPS].sort((a, b) => a.seconds - b.seconds))}
-                title="デフォルトに戻す"
               >
                 初期化
               </button>
-              <div style={{ display: "flex", gap: "8px" }}>
+              <div style={{ display: "flex", gap: "6px" }}>
                 <button className="pro-btn" onClick={() => setIsTimeStepsModalOpen(false)}>
                   キャンセル
                 </button>
                 <button
                   className="pro-btn primary"
                   onClick={() => {
-                    const sorted = [...editingTimeSteps].sort((a, b) => a.seconds - b.seconds);
-                    setTimeSteps(sorted);
+                    setTimeSteps(editingTimeSteps);
                     setIsTimeStepsModalOpen(false);
                   }}
                 >
-                  保存
+                  反映
                 </button>
               </div>
             </div>
@@ -5762,113 +3303,71 @@ function App() {
         </div>
       )}
 
-      {/* Transport 速度プリセット カスタマイズ モーダル */}
+      {/* Speed Presets Modal */}
       {isSpeedPresetsModalOpen && (
         <div className="modal-overlay" onClick={() => setIsSpeedPresetsModalOpen(false)}>
-          <div className="modal-container" style={{ maxWidth: "500px" }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal-container" style={{ maxWidth: "420px" }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3 className="modal-title" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <span className="material-symbols-outlined icon-accent" style={{ color: "var(--primary-color)" }}>tune</span>
-                Transport 速度プリセット設定
+                <span className="material-symbols-outlined icon-accent" style={{ color: "var(--primary-color)" }}>
+                  tune
+                </span>
+                速度プリセット設定
               </h3>
               <button className="modal-close-btn" onClick={() => setIsSpeedPresetsModalOpen(false)}>
                 <span className="material-symbols-outlined">close</span>
               </button>
             </div>
-            <div className="modal-body" style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: "18px" }}>
-              
-              {/* 時間倍率プリセット */}
+            <div className="modal-body" style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: "12px" }}>
+              {/* Time Presets */}
               <div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                  <div className="form-label" style={{ fontWeight: 700, color: "var(--on-surface)", fontSize: "13px" }}>
-                    再生速度プリセット (時間比率)
-                  </div>
-                  <button
-                    className="pro-btn danger"
-                    style={{ padding: "2px 6px", fontSize: "10px" }}
-                    onClick={() => {
-                      setEditingTimePresets([1.0, 5.0, 10.0, 60.0, 300.0, 3600.0]);
-                    }}
-                  >
-                    <span className="material-symbols-outlined text-[12px]">restart_alt</span>
-                    時間初期化
-                  </button>
+                <div className="form-label" style={{ marginBottom: "4px" }}>
+                  時間比率モード (倍率):
                 </div>
-
-                {/* クイック追加 */}
-                <div style={{ marginBottom: "8px" }}>
-                  <div style={{ fontSize: "11px", color: "var(--on-surface-variant)", marginBottom: "4px" }}>クイック追加:</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
-                    {[0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 300.0].map((quickVal) => {
-                      const isAdded = editingTimePresets.includes(quickVal);
-                      return (
-                        <button
-                          key={`quick-time-${quickVal}`}
-                          className={`pro-btn ${isAdded ? "secondary" : ""}`}
-                          disabled={isAdded}
-                          style={{
-                            padding: "2px 6px",
-                            fontSize: "10px",
-                            opacity: isAdded ? 0.5 : 1,
-                            cursor: isAdded ? "not-allowed" : "pointer"
-                          }}
-                          onClick={() => {
-                            if (!isAdded) {
-                              const updated = [...editingTimePresets, quickVal].sort((a, b) => a - b);
-                              setEditingTimePresets(updated);
-                            }
-                          }}
-                        >
-                          + {quickVal}x
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* バッジ一覧 */}
-                <div className="preset-badges-container" style={{ marginBottom: "8px" }}>
-                  {editingTimePresets.map((preset) => (
-                    <span key={`time-${preset}`} className="preset-badge">
-                      {preset}x
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginBottom: "6px" }}>
+                  {editingTimePresets.map((val, idx) => (
+                    <span
+                      key={idx}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "3px",
+                        background: "#161922",
+                        border: "1px solid rgba(255, 255, 255, 0.08)",
+                        borderRadius: "12px",
+                        padding: "2px 8px",
+                        fontSize: "11px",
+                      }}
+                    >
+                      {val}x
                       <button
-                        className="preset-badge-delete-btn"
-                        onClick={() => {
-                          setEditingTimePresets(editingTimePresets.filter((p) => p !== preset));
-                        }}
-                        title="削除"
+                        type="button"
+                        style={{ background: "none", border: "none", color: "#f87171", cursor: "pointer", padding: 0 }}
+                        onClick={() => setEditingTimePresets(editingTimePresets.filter((_, i) => i !== idx))}
                       >
-                        <span className="material-symbols-outlined text-[12px]">close</span>
+                        ×
                       </button>
                     </span>
                   ))}
-                  {editingTimePresets.length === 0 && (
-                    <span style={{ color: "var(--on-surface-variant)", fontSize: "11px" }}>登録されたプリセットはありません。</span>
-                  )}
                 </div>
-
-                {/* カスタム追加 */}
-                <div className="preset-add-group">
+                <div style={{ display: "flex", gap: "4px" }}>
                   <input
                     type="number"
-                    step="any"
-                    className="pro-input"
-                    style={{ flex: 1, height: "28px", padding: "4px 8px", fontSize: "12px" }}
-                    placeholder="倍率値 (例: 120)"
+                    step="0.1"
+                    className="input-compact"
+                    placeholder="例: 15.0"
                     value={modalNewTimePreset}
                     onChange={(e) => setModalNewTimePreset(e.target.value)}
                   />
                   <button
+                    type="button"
                     className="pro-btn primary"
-                    style={{ height: "28px", padding: "0 10px" }}
                     onClick={() => {
-                      const val = parseFloat(modalNewTimePreset);
-                      if (isNaN(val) || val <= 0) return;
-                      if (!editingTimePresets.includes(val)) {
-                        const updated = [...editingTimePresets, val].sort((a, b) => a - b);
-                        setEditingTimePresets(updated);
+                      const num = parseFloat(modalNewTimePreset);
+                      if (!isNaN(num) && num > 0 && !editingTimePresets.includes(num)) {
+                        setEditingTimePresets([...editingTimePresets, num].sort((a, b) => a - b));
+                        setModalNewTimePreset("");
                       }
-                      setModalNewTimePreset("");
                     }}
                   >
                     追加
@@ -5876,120 +3375,73 @@ function App() {
                 </div>
               </div>
 
-              <div style={{ height: "1px", backgroundColor: "var(--outline-variant)", margin: "0 -4px" }}></div>
-
-              {/* スキップティック数プリセット */}
+              {/* Tick Presets */}
               <div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                  <div className="form-label" style={{ fontWeight: 700, color: "var(--on-surface)", fontSize: "13px" }}>
-                    スキップティック数プリセット
-                  </div>
-                  <button
-                    className="pro-btn danger"
-                    style={{ padding: "2px 6px", fontSize: "10px" }}
-                    onClick={() => {
-                      setEditingTickPresets([1, 5, 10, 50, 100, 500]);
-                    }}
-                  >
-                    <span className="material-symbols-outlined text-[12px]">restart_alt</span>
-                    ティック初期化
-                  </button>
+                <div className="form-label" style={{ marginBottom: "4px" }}>
+                  ティック数モード (枚数):
                 </div>
-
-                {/* クイック追加 */}
-                <div style={{ marginBottom: "8px" }}>
-                  <div style={{ fontSize: "11px", color: "var(--on-surface-variant)", marginBottom: "4px" }}>クイック追加:</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
-                    {[1, 5, 10, 20, 50, 100, 200, 500, 1000].map((quickVal) => {
-                      const isAdded = editingTickPresets.includes(quickVal);
-                      return (
-                        <button
-                          key={`quick-tick-${quickVal}`}
-                          className={`pro-btn ${isAdded ? "secondary" : ""}`}
-                          disabled={isAdded}
-                          style={{
-                            padding: "2px 6px",
-                            fontSize: "10px",
-                            opacity: isAdded ? 0.5 : 1,
-                            cursor: isAdded ? "not-allowed" : "pointer"
-                          }}
-                          onClick={() => {
-                            if (!isAdded) {
-                              const updated = [...editingTickPresets, quickVal].sort((a, b) => a - b);
-                              setEditingTickPresets(updated);
-                            }
-                          }}
-                        >
-                          + {quickVal}T
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* バッジ一覧 */}
-                <div className="preset-badges-container" style={{ marginBottom: "8px" }}>
-                  {editingTickPresets.map((preset) => (
-                    <span key={`tick-${preset}`} className="preset-badge">
-                      {preset}T
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginBottom: "6px" }}>
+                  {editingTickPresets.map((val, idx) => (
+                    <span
+                      key={idx}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "3px",
+                        background: "#161922",
+                        border: "1px solid rgba(255, 255, 255, 0.08)",
+                        borderRadius: "12px",
+                        padding: "2px 8px",
+                        fontSize: "11px",
+                      }}
+                    >
+                      {val}T
                       <button
-                        className="preset-badge-delete-btn"
-                        onClick={() => {
-                          setEditingTickPresets(editingTickPresets.filter((p) => p !== preset));
-                        }}
-                        title="削除"
+                        type="button"
+                        style={{ background: "none", border: "none", color: "#f87171", cursor: "pointer", padding: 0 }}
+                        onClick={() => setEditingTickPresets(editingTickPresets.filter((_, i) => i !== idx))}
                       >
-                        <span className="material-symbols-outlined text-[12px]">close</span>
+                        ×
                       </button>
                     </span>
                   ))}
-                  {editingTickPresets.length === 0 && (
-                    <span style={{ color: "var(--on-surface-variant)", fontSize: "11px" }}>登録されたプリセットはありません。</span>
-                  )}
                 </div>
-
-                {/* カスタム追加 */}
-                <div className="preset-add-group">
+                <div style={{ display: "flex", gap: "4px" }}>
                   <input
                     type="number"
-                    className="pro-input"
-                    style={{ flex: 1, height: "28px", padding: "4px 8px", fontSize: "12px" }}
-                    placeholder="ティック数 (例: 200)"
+                    step="1"
+                    className="input-compact"
+                    placeholder="例: 20"
                     value={modalNewTickPreset}
                     onChange={(e) => setModalNewTickPreset(e.target.value)}
                   />
                   <button
+                    type="button"
                     className="pro-btn primary"
-                    style={{ height: "28px", padding: "0 10px" }}
                     onClick={() => {
-                      const val = parseInt(modalNewTickPreset);
-                      if (isNaN(val) || val <= 0) return;
-                      if (!editingTickPresets.includes(val)) {
-                        const updated = [...editingTickPresets, val].sort((a, b) => a - b);
-                        setEditingTickPresets(updated);
+                      const num = parseInt(modalNewTickPreset);
+                      if (!isNaN(num) && num > 0 && !editingTickPresets.includes(num)) {
+                        setEditingTickPresets([...editingTickPresets, num].sort((a, b) => a - b));
+                        setModalNewTickPreset("");
                       }
-                      setModalNewTickPreset("");
                     }}
                   >
                     追加
                   </button>
                 </div>
               </div>
-
             </div>
 
-            <div className="modal-footer" style={{ padding: "12px 16px", display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+            <div className="modal-footer" style={{ padding: "10px 16px", display: "flex", gap: "8px", justifyContent: "flex-end" }}>
               <button className="pro-btn" onClick={() => setIsSpeedPresetsModalOpen(false)}>
                 キャンセル
               </button>
               <button
                 className="pro-btn primary"
                 onClick={() => {
-                  const sortedTime = [...editingTimePresets].sort((a, b) => a - b);
-                  const sortedTick = [...editingTickPresets].sort((a, b) => a - b);
-                  setTimePresets(sortedTime);
-                  setTickPresets(sortedTick);
-                  saveAllSettings(hotkeys, sortedTime, sortedTick);
+                  setTimePresets(editingTimePresets);
+                  setTickPresets(editingTickPresets);
+                  saveAllSettings(hotkeys, editingTimePresets, editingTickPresets, glassEffect, themeMode);
                   setIsSpeedPresetsModalOpen(false);
                 }}
               >
@@ -5999,20 +3451,6 @@ function App() {
           </div>
         </div>
       )}
-
-      {/* 急変動・トレンドAI解析スライドインパネル */}
-      <AIAnalysisPanel
-        isOpen={isAIPanelOpen}
-        onClose={() => setIsAIPanelOpen(false)}
-        virtualTimeMsc={aiTargetTimeMsc || virtualTimeMsc}
-        symbol={sourceSymbol}
-        newsItems={[]}
-        openRouterApiKey={openRouterApiKey}
-        openRouterModel={openRouterModel}
-        fredApiKey={fredApiKey}
-        finnhubApiKey={finnhubApiKey}
-        timezoneMode={timezoneMode}
-      />
     </div>
   );
 }

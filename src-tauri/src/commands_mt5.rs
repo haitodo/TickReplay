@@ -95,6 +95,10 @@ pub async fn save_terminal_name(
         speed_order_window_y: None,
         positions_window_x: None,
         positions_window_y: None,
+        controller_window_x: None,
+        controller_window_y: None,
+        settings_window_x: None,
+        settings_window_y: None,
         terminal_names: None,
     });
 

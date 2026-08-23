@@ -68,11 +68,17 @@ pub fn run() {
                     }
                 }
                 tauri::WindowEvent::CloseRequested { api, .. } => {
-                    if window.label() == "speed_order" || window.label() == "positions" {
+                    if window.label() == "speed_order" || window.label() == "positions" || window.label() == "settings" || window.label() == "controller" || window.label() == "symbol_selector" {
                         // 完全に破棄せず非表示にすることで、次回起動を瞬時に行う（チラつき防止）
                         api.prevent_close();
                         let _ = window.hide();
                         let _ = window.emit("window-visible", false);
+                        if window.label() == "controller" {
+                            if let Some(main_win) = window.app_handle().get_webview_window("main") {
+                                let _ = main_win.show();
+                                let _ = main_win.set_focus();
+                            }
+                        }
                     }
                 }
                 tauri::WindowEvent::Destroyed => {
@@ -83,6 +89,19 @@ pub fn run() {
                         }
                         if let Some(positions) = window.app_handle().get_webview_window("positions") {
                             let _ = positions.close();
+                        }
+                        if let Some(settings) = window.app_handle().get_webview_window("settings") {
+                            let _ = settings.close();
+                        }
+                        if let Some(controller) = window.app_handle().get_webview_window("controller") {
+                            let _ = controller.close();
+                        }
+                        if let Some(symbol_selector) = window.app_handle().get_webview_window("symbol_selector") {
+                            let _ = symbol_selector.close();
+                        }
+                        // EAにリプレイ停止・クリーンアップを送信
+                        if let Some(state) = window.app_handle().try_state::<Arc<state::ReplayState>>() {
+                            let _ = state.command_tx.send("{\"command\":\"TERMINATE\"}".to_string());
                         }
                     }
                 }
@@ -109,13 +128,13 @@ pub fn run() {
             // 前回保存位置（有効時）または画面中央に配置したのち表示（show）する。
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
-                    width: 520.0,
+                    width: 760.0,
                     height: 600.0,
                 }));
 
                 let settings = tauri::async_runtime::block_on(commands_settings::load_settings(app_handle.clone())).ok().flatten();
                 let scale_factor = window.scale_factor().unwrap_or(1.0);
-                let main_phys_w = (520.0 * scale_factor) as u32;
+                let main_phys_w = (760.0 * scale_factor) as u32;
                 let main_phys_h = (600.0 * scale_factor) as u32;
 
                 let mut positioned = false;
@@ -134,8 +153,22 @@ pub fn run() {
 
                 let _ = window.show();
 
+                // リプレイ操作コントローラー画面を初期起動時にあらかじめ非表示で作成（キャッシュ化）
+                let controller_builder = tauri::webview::WebviewWindowBuilder::new(
+                    &app_handle,
+                    "controller",
+                    tauri::WebviewUrl::App("index.html?window=controller".into()),
+                )
+                .title("リプレイ操作コントローラー - TickReplay")
+                .inner_size(430.0, 325.0)
+                .resizable(false)
+                .always_on_top(true)
+                .visible(false);
+
+                let _ = controller_builder.build()?;
+
                 // スピード発注画面を初期起動時にあらかじめ非表示（visible: false）で作成しておく（起動速度高速化のためキャッシュ化）
-                let mut speed_order_builder = tauri::webview::WebviewWindowBuilder::new(
+                let speed_order_builder = tauri::webview::WebviewWindowBuilder::new(
                     &app_handle,
                     "speed_order",
                     tauri::WebviewUrl::App("index.html?window=speed_order".into()),
@@ -146,11 +179,10 @@ pub fn run() {
                 .always_on_top(true)
                 .visible(false);
 
-                speed_order_builder = speed_order_builder.parent(&window)?;
                 let _ = speed_order_builder.build()?;
 
                 // 口座・ポジション管理画面を初期起動時にあらかじめ非表示で作成しておく（起動速度高速化・チラつき防止）
-                let mut positions_builder = tauri::webview::WebviewWindowBuilder::new(
+                let positions_builder = tauri::webview::WebviewWindowBuilder::new(
                     &app_handle,
                     "positions",
                     tauri::WebviewUrl::App("index.html?window=positions".into()),
@@ -162,8 +194,37 @@ pub fn run() {
                 .always_on_top(true)
                 .visible(false);
 
-                positions_builder = positions_builder.parent(&window)?;
                 let _ = positions_builder.build()?;
+
+                // 環境設定画面を初期起動時にあらかじめ非表示で作成しておく（起動速度高速化・チラつき防止）
+                let settings_builder = tauri::webview::WebviewWindowBuilder::new(
+                    &app_handle,
+                    "settings",
+                    tauri::WebviewUrl::App("index.html?window=settings".into()),
+                )
+                .title("環境設定 - TickReplay")
+                .inner_size(640.0, 540.0)
+                .min_inner_size(560.0, 460.0)
+                .resizable(true)
+                .always_on_top(true)
+                .visible(false);
+
+                let _ = settings_builder.build()?;
+
+                // シンボル選択セレクター画面を初期起動時にあらかじめ非表示で作成しておく
+                let symbol_selector_builder = tauri::webview::WebviewWindowBuilder::new(
+                    &app_handle,
+                    "symbol_selector",
+                    tauri::WebviewUrl::App("index.html?window=symbol_selector".into()),
+                )
+                .title("シンボル選択セレクター - TickReplay")
+                .inner_size(840.0, 580.0)
+                .min_inner_size(700.0, 450.0)
+                .resizable(true)
+                .always_on_top(true)
+                .visible(false);
+
+                let _ = symbol_selector_builder.build()?;
             }
             
             Ok(())
@@ -180,9 +241,17 @@ pub fn run() {
             commands::set_shortcuts_active,
             commands::set_always_on_top,
             commands::set_remote_mode,
+            commands::set_main_window_mode,
             commands::get_last_status,
+            commands::open_controller_window,
+            commands::show_setup_window,
             commands::open_speed_order_window,
             commands::open_positions_window,
+            commands::open_settings_window,
+            commands::close_settings_window,
+            commands::open_symbol_selector_window,
+            commands::close_symbol_selector_window,
+            commands::hide_window,
             commands::open_tracely_app,
             commands::open_trade_analysis_window,
             commands::read_trade_ticks,
@@ -196,7 +265,8 @@ pub fn run() {
             commands::scan_custom_symbol_files,
             commands::import_custom_symbol_chunk,
             commands::get_available_symbols,
-            commands::select_folder
+            commands::select_folder,
+            commands::exit_app
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

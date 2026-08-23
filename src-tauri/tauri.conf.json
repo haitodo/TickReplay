@@ -13,7 +13,7 @@
     "windows": [
       {
         "title": "TickReplay",
-        "width": 520,
+        "width": 760,
         "height": 600,
         "transparent": true,
         "visible": false

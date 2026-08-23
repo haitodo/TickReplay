@@ -45,3 +45,11 @@ export const getPrevSessionIndex = (sessions: SessionBoundaryInfo[], currentIdx:
   const prevList = sessions.filter(s => s.idx < currentIdx);
   return prevList.length > 0 ? prevList[prevList.length - 1].idx : null;
 };
+
+/**
+ * 現在のインデックスにおけるアクティブなセッション情報を取得
+ */
+export const getCurrentSession = (sessions: SessionBoundaryInfo[], currentIdx: number): SessionBoundaryInfo | null => {
+  const pastSessions = sessions.filter(s => s.idx <= currentIdx);
+  return pastSessions.length > 0 ? pastSessions[pastSessions.length - 1] : null;
+};
