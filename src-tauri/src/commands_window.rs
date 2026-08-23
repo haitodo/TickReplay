@@ -79,14 +79,14 @@ pub fn set_remote_mode(is_remote: bool, always_on_top: bool, window: tauri::Wind
         window.set_resizable(true)?;
         window.set_size(tauri::Size::Logical(tauri::LogicalSize {
             width: 420.0,
-            height: 680.0,
+            height: 580.0,
         }))?;
 
         let app_handle = window.app_handle();
         let settings = tauri::async_runtime::block_on(crate::commands_settings::load_settings(app_handle.clone())).ok().flatten();
         let scale_factor = window.scale_factor().unwrap_or(1.0);
         let main_phys_w = (420.0 * scale_factor) as u32;
-        let main_phys_h = (680.0 * scale_factor) as u32;
+        let main_phys_h = (580.0 * scale_factor) as u32;
 
         let mut positioned = false;
         if let Some(ref s) = settings {
