@@ -5,20 +5,18 @@ import { DEFAULT_HOTKEYS, matchesHotkey } from "../utils/hotkeyUtils";
 import { listen, emit } from "@tauri-apps/api/event";
 
 import { CustomSelect } from "../CustomSelect";
-import { THEME_PRESETS, THEME_PRESETS_LIGHT } from "../constants/themePresets";
+import { useTheme } from "../hooks/useTheme";
 import { getContractSizeLabel } from "../domain/contractUtils";
 
 export const SpeedOrderWindowContent: React.FC = () => {
+  useTheme();
+
   const [status, setStatus] = useState<string>("DISCONNECTED");
   const [bid, setBid] = useState<number>(0);
   const [ask, setAsk] = useState<number>(0);
   const [bidFlash, setBidFlash] = useState<"up" | "down" | null>(null);
   const [askFlash, setAskFlash] = useState<"up" | "down" | null>(null);
 
-  // テーマおよびエフェクトの同期用状態
-  const [themeId, setThemeId] = useState<string>(() => localStorage.getItem("accent-theme") || "cream");
-  const [themeMode, setThemeMode] = useState<"dark" | "light">(() => (localStorage.getItem("theme-mode") as "dark" | "light") || "dark");
-  const [glassEffect, setGlassEffect] = useState<boolean>(() => localStorage.getItem("glass-effect") === "true");
   const [showHistory, setShowHistory] = useState<boolean>(() => {
     return localStorage.getItem("speed-order-show-history") === "true";
   });
@@ -83,6 +81,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
   const [holdingTimeMode, setHoldingTimeMode] = useState<"pc" | "server">(
     () => (localStorage.getItem("speed-order-holding-time-mode") as "pc" | "server") || "pc"
   );
+  const [sourceSymbol, setSourceSymbol] = useState<string>(() => localStorage.getItem("speed-order-symbol") || "");
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [virtualTimeMsc, setVirtualTimeMsc] = useState<number>(0);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
@@ -218,6 +217,10 @@ export const SpeedOrderWindowContent: React.FC = () => {
               if (data.ask) setAsk(data.ask);
               if (data.account) setAccount(data.account);
               if (data.positions) setPositions(data.positions);
+              if (data.source_symbol) {
+                setSourceSymbol(data.source_symbol);
+                localStorage.setItem("speed-order-symbol", data.source_symbol);
+              }
               if (data.is_playing !== undefined) setIsPlaying(data.is_playing);
               if (data.virtual_time_msc !== undefined) setVirtualTimeMsc(data.virtual_time_msc);
             }
@@ -233,15 +236,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
   // 他ウィンドウ（メイン画面）でのlocalStorage更新を検知して同期
   useEffect(() => {
     const handleStorage = (e: StorageEvent) => {
-      if (e.key === "accent-theme" && e.newValue) {
-        setThemeId(e.newValue);
-      } else if (e.key === "theme-mode" && e.newValue) {
-        setThemeMode(e.newValue as "dark" | "light");
-      } else if (e.key === "glass-effect") {
-        setGlassEffect(e.newValue === "true");
-      } else if (e.key === "pl-color-style" && e.newValue) {
-        setPlColorStyle(e.newValue as "red-blue" | "green-red");
-      } else if (e.key === "speed-order-hedging" && e.newValue) {
+      if (e.key === "speed-order-hedging" && e.newValue) {
         setHedging(e.newValue === "true");
       } else if (e.key === "speed-order-show-holding-time" && e.newValue) {
         setShowHoldingTime(e.newValue !== "false");
@@ -277,59 +272,6 @@ export const SpeedOrderWindowContent: React.FC = () => {
     window.addEventListener("storage", handleStorage);
     return () => window.removeEventListener("storage", handleStorage);
   }, []);
-
-  // テーマモード（ダーク／ライト）の適用
-  useEffect(() => {
-    if (themeMode === "light") {
-      document.documentElement.setAttribute("data-theme", "light");
-    } else {
-      document.documentElement.setAttribute("data-theme", "dark");
-    }
-  }, [themeMode]);
-
-  // 損益配色適用エフェクト
-  useEffect(() => {
-    document.documentElement.setAttribute("data-pl-style", plColorStyle);
-  }, [plColorStyle]);
-
-  // テーマカラーの適用
-  useEffect(() => {
-    const selected = THEME_PRESETS.find(t => t.id === themeId) || THEME_PRESETS[0];
-    let color = selected.color;
-    let rgb = selected.rgb;
-    let hover = selected.hover;
-    let onPrimary = selected.onPrimary;
-    let light = selected.light;
-    let border = selected.border;
-
-    if (themeMode === "light") {
-      const lightAdjusted = THEME_PRESETS_LIGHT[selected.id];
-      if (lightAdjusted) {
-        color = lightAdjusted.color ?? color;
-        rgb = lightAdjusted.rgb ?? rgb;
-        hover = lightAdjusted.hover ?? hover;
-        onPrimary = lightAdjusted.onPrimary ?? onPrimary;
-        light = lightAdjusted.light ?? light;
-        border = lightAdjusted.border ?? border;
-      }
-    }
-
-    document.documentElement.style.setProperty('--primary-color', color);
-    document.documentElement.style.setProperty('--primary-rgb', rgb);
-    document.documentElement.style.setProperty('--primary-hover', hover);
-    document.documentElement.style.setProperty('--on-primary', onPrimary);
-    document.documentElement.style.setProperty('--primary-light', light);
-    document.documentElement.style.setProperty('--primary-border', border);
-  }, [themeId, themeMode]);
-
-  // ガラスエフェクトの適用
-  useEffect(() => {
-    if (glassEffect) {
-      document.documentElement.setAttribute('data-glass-effect', 'true');
-    } else {
-      document.documentElement.removeAttribute('data-glass-effect');
-    }
-  }, [glassEffect]);
 
   const sendCommand = async (cmd: any) => {
     try {
@@ -428,6 +370,15 @@ export const SpeedOrderWindowContent: React.FC = () => {
             setPositions((prev: any[]) => {
               if (JSON.stringify(prev) === JSON.stringify(data.positions)) return prev;
               return data.positions;
+            });
+          }
+          if (data.source_symbol) {
+            setSourceSymbol((prev) => {
+              if (prev !== data.source_symbol) {
+                localStorage.setItem("speed-order-symbol", data.source_symbol);
+                return data.source_symbol;
+              }
+              return prev;
             });
           }
           if (data.is_playing !== undefined) setIsPlaying((prev) => prev !== data.is_playing ? data.is_playing : prev);
@@ -666,13 +617,23 @@ export const SpeedOrderWindowContent: React.FC = () => {
   const handleCloseBuy = () => sendCommand({ command: "ORDER_CLOSE_BUY" });
   const handleCloseSell = () => sendCommand({ command: "ORDER_CLOSE_SELL" });
 
-  // JPYペア判定
-  const currentSymbol = positions[0]?.symbol || "";
-  const isJpy = currentSymbol.toUpperCase().includes("JPY") || bid > 20.0;
+  // 通貨ペア・銘柄種別判定
+  const currentSymbol = sourceSymbol || positions[0]?.symbol || "";
+  const isJpy = currentSymbol.toUpperCase().includes("JPY") || (currentSymbol === "" && bid > 20.0);
+  const isGold = currentSymbol.toUpperCase().includes("XAU") || currentSymbol.toUpperCase().includes("GOLD");
+  const isCrypto = currentSymbol.toUpperCase().includes("BTC") || currentSymbol.toUpperCase().includes("ETH");
+  const isIndex = currentSymbol.toUpperCase().includes("225") || currentSymbol.toUpperCase().includes("US30") || currentSymbol.toUpperCase().includes("NAS");
 
   const getPriceParts = (p: number) => {
     if (p <= 0) return { base: "--", big: "--", fraction: "-" };
-    if (isJpy) {
+    if (isCrypto || isIndex) {
+      const str = p.toFixed(2);
+      const len = str.length;
+      const fraction = str.substring(len - 1);
+      const big = str.substring(len - 3, len - 1);
+      const base = str.substring(0, len - 3);
+      return { base, big, fraction };
+    } else if (isGold || isJpy) {
       const str = p.toFixed(3);
       const len = str.length;
       const fraction = str.substring(len - 1);
@@ -721,7 +682,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
   const totalSellProfit = sellPositions.reduce((sum, p) => sum + p.profit, 0);
 
   // pipsの計算 (現在のBid/Askレートと平均建値の価格差からpips値を直接算出)
-  const pipMultiplier = isJpy ? 100 : 10000;
+  const pipMultiplier = isCrypto || isIndex ? 1 : isGold ? 10 : isJpy ? 100 : 10000;
   const buyPips = totalBuyLots > 0 ? (bid - avgBuyRate) * pipMultiplier : 0;
   const sellPips = totalSellLots > 0 ? (avgSellRate - ask) * pipMultiplier : 0;
   const spreadValue = (ask > 0 && bid > 0) ? ((ask - bid) * pipMultiplier).toFixed(1) : "--";
@@ -786,11 +747,11 @@ export const SpeedOrderWindowContent: React.FC = () => {
       {/* ヘッダー */}
       <div className="speed-order-header" data-tauri-drag-region>
         <div className="speed-order-title" data-tauri-drag-region>
-          <span className="material-symbols-outlined icon-accent" data-tauri-drag-region>flash_on</span>
+          <span className="material-symbols-outlined icon-accent" data-tauri-drag-region>monetization_on</span>
           Speed Order
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "4px" }} data-tauri-drag-region>
-          {/* 口座・ポジション管理ウィンドウ起動ボタン */}
+          {/* 口座・ポジション管理（ポジション一覧）ウィンドウ起動ボタン */}
           <button
             className="speed-header-icon-btn"
             onClick={async () => {
@@ -800,7 +761,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
                 console.error("Failed to open account & positions window:", err);
               }
             }}
-            title="口座・ポジション管理ウィンドウを起動"
+            title="口座・ポジション管理（ポジション一覧）ウィンドウを起動"
             style={{
               background: "transparent",
               border: "none",
@@ -825,7 +786,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
             <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>account_balance_wallet</span>
           </button>
 
-          {/* 3. 設定ボタン */}
+          {/* 設定ボタン */}
           <button
             className="speed-settings-btn"
             onClick={() => setIsSettingsOpen(true)}
@@ -1032,14 +993,6 @@ export const SpeedOrderWindowContent: React.FC = () => {
             {account ? account.equity.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : "1,000,000"}
           </span>
         </div>
-        {account && account.margin > 0 && (
-          <div className="account-stat">
-            <span className="stat-label">維持率:</span>
-            <span className="stat-val">
-              {account.margin_level ? `${account.margin_level.toFixed(0)}%` : "--"}
-            </span>
-          </div>
-        )}
       </div>
 
       {/* 注文入力パラメータフォーム */}

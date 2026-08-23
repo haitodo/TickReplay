@@ -61,7 +61,7 @@ export const RemoteHudBar: React.FC<RemoteHudBarProps> = ({
   const safeMultiplier = typeof multiplier === "number" ? multiplier : parseFloat(String(multiplier)) || 1.0;
 
   return (
-    <div className="remote-wrapper glass-panel relative" data-tauri-drag-region>
+    <div className="remote-wrapper relative" data-tauri-drag-region>
       {/* ドラッグ移動用のつまみ（最左端） */}
       <div
         className="remote-grip select-none"
@@ -180,7 +180,7 @@ export const RemoteHudBar: React.FC<RemoteHudBarProps> = ({
             onClick={handlePlayPause}
             title={isPlaying ? "一時停止" : "再生"}
           >
-            <span className="material-symbols-outlined text-[16px] text-[#0D0F14]" style={{ fontVariationSettings: "'FILL' 1" }}>
+            <span className="material-symbols-outlined text-[16px]" style={{ fontVariationSettings: "'FILL' 1", color: "var(--on-primary)" }}>
               {isPlaying ? "pause" : "play_arrow"}
             </span>
           </button>

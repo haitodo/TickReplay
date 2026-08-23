@@ -818,23 +818,12 @@ void ProcessCommand(string line)
       else
          m_auto_skip_weekend = true;
 
-      string pseudo_rate_val = GetJsonKeyValue(line, "enable_pseudo_rate");
-      if(pseudo_rate_val != "")
-         m_pseudo_rate_enabled = (pseudo_rate_val == "true" || pseudo_rate_val == "1");
-      else
-         m_pseudo_rate_enabled = false;
-
-      string base_spread_val = GetJsonKeyValue(line, "pseudo_base_spread");
-      if(base_spread_val != "")
-         m_domestic_base_spread = StringToDouble(base_spread_val);
-
-      string threshold_val = GetJsonKeyValue(line, "pseudo_threshold");
-      if(threshold_val != "")
-         m_mt5_threshold = StringToDouble(threshold_val);
-
-      string sensitivity_val = GetJsonKeyValue(line, "pseudo_sensitivity");
-      if(sensitivity_val != "")
-         m_sensitivity_coeff = StringToDouble(sensitivity_val);
+      m_pseudo_rate_enabled = GetJsonBool(line, "enable_pseudo_rate");
+      m_domestic_base_spread = GetJsonDouble(line, "pseudo_base_spread");
+      m_mt5_threshold = GetJsonDouble(line, "pseudo_threshold");
+      m_sensitivity_coeff = GetJsonDouble(line, "pseudo_sensitivity");
+      Print(StringFormat("[Info] INIT Pseudo rate: Enabled=%s, BaseSpread=%.6f, Threshold=%.6f, Sensitivity=%.3f",
+         (m_pseudo_rate_enabled?"ON":"OFF"), m_domestic_base_spread, m_mt5_threshold, m_sensitivity_coeff));
       
       m_source_symbol = (source_symbol != "") ? source_symbol : _Symbol;
       m_replay_symbol = m_source_symbol + "_Replay";
@@ -1268,36 +1257,22 @@ void ProcessCommand(string line)
        int ticket = (int)GetJsonDouble(line, "ticket");
        ExportTradeTicksJson(ticket);
     }
-     else if(command == "SET_PSEUDO_RATE")
-     {
-        string pseudo_rate_val = GetJsonKeyValue(line, "enable_pseudo_rate");
-        if(pseudo_rate_val != "")
-           m_pseudo_rate_enabled = (pseudo_rate_val == "true" || pseudo_rate_val == "1");
+      else if(command == "SET_PSEUDO_RATE")
+      {
+         m_pseudo_rate_enabled = GetJsonBool(line, "enable_pseudo_rate");
+         m_domestic_base_spread = GetJsonDouble(line, "pseudo_base_spread");
+         m_mt5_threshold = GetJsonDouble(line, "pseudo_threshold");
+         m_sensitivity_coeff = GetJsonDouble(line, "pseudo_sensitivity");
 
-        string base_spread_val = GetJsonKeyValue(line, "pseudo_base_spread");
-        if(base_spread_val != "")
-           m_domestic_base_spread = StringToDouble(base_spread_val);
+         Print(StringFormat("[Info] Pseudo rate updated: Enabled=%s, BaseSpread=%.6f, Threshold=%.6f, Sensitivity=%.3f",
+            (m_pseudo_rate_enabled?"ON":"OFF"), m_domestic_base_spread, m_mt5_threshold, m_sensitivity_coeff));
 
-        string threshold_val = GetJsonKeyValue(line, "pseudo_threshold");
-        if(threshold_val != "")
-           m_mt5_threshold = StringToDouble(threshold_val);
-
-        string sensitivity_val = GetJsonKeyValue(line, "pseudo_sensitivity");
-        if(sensitivity_val != "")
-           m_sensitivity_coeff = StringToDouble(sensitivity_val);
-
-        Print(StringFormat("[Info] Pseudo rate updated: Enabled=%s, BaseSpread=%.5f, Threshold=%.5f, Sensitivity=%.2f",
-           (m_pseudo_rate_enabled?"ON":"OFF"), m_domestic_base_spread, m_mt5_threshold, m_sensitivity_coeff));
-
-        if(m_total_ticks > 0 && m_current_idx > 0 && m_current_idx <= m_total_ticks)
-        {
-           EvaluatePositionsByTick(m_all_ticks[m_current_idx - 1]);
-        }
-        else
-        {
-           WriteStatusFile();
-        }
-     }
+         if(m_total_ticks > 0 && m_current_idx > 0 && m_current_idx <= m_total_ticks)
+         {
+            EvaluatePositionsByTick(m_all_ticks[m_current_idx - 1]);
+         }
+         WriteStatusFile();
+      }
    else if(command == "ACCOUNT_RESET")
    {
       double initial_balance = GetJsonDouble(line, "initial_balance");

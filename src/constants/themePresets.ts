@@ -1,188 +1,89 @@
-export interface ThemePreset {
-  id: string;
+export type ThemeType = 'dark' | 'dim' | 'light' | 'sepia' | 'warm-sepia';
+
+export interface ThemeConfig {
+  id: ThemeType;
   nameJa: string;
   nameEn: string;
-  color: string;      // --primary-color
-  rgb: string;        // --primary-rgb
-  hover: string;      // --primary-hover
-  onPrimary: string;  // --on-primary
-  light: string;      // --primary-light
-  border: string;     // --primary-border
+  subname: string;
+  icon: string;
+  description: string;
+  environment: string;
+  bgHex: string;
+  cardHex: string;
+  textHex: string;
+  accentHex: string;
 }
 
-export const THEME_PRESETS: ThemePreset[] = [
+export const THEME_LIST: ThemeConfig[] = [
   {
-    id: "mint",
-    nameJa: "サイバーミント",
-    nameEn: "Cyber Mint",
-    color: "#4adfc8",
-    rgb: "74, 223, 200",
-    hover: "#37cbb4",
-    onPrimary: "#003730",
-    light: "#69f9e1",
-    border: "#19c3ad"
+    id: 'dark',
+    nameJa: 'ダーク',
+    nameEn: 'Dark',
+    subname: 'Modern Deep Slate',
+    icon: '🌙',
+    description: 'まぶしさを抑えた落ち着いた深みのあるスレートダーク。文字色も純白を避け、チカチカしないソフトホワイト（Slate-200）を採用。',
+    environment: '夜間・暗所での長時間の集中作業に最適',
+    bgHex: '#0a0e17',
+    cardHex: '#131d31',
+    textHex: '#e2e8f0',
+    accentHex: '#6366f1'
   },
   {
-    id: "blue",
-    nameJa: "オーシャンブルー",
-    nameEn: "Ocean Blue",
-    color: "#38bdf8",
-    rgb: "56, 189, 248",
-    hover: "#0ea5e9",
-    onPrimary: "#0369a1",
-    light: "#7dd3fc",
-    border: "#0284c7"
+    id: 'dim',
+    nameJa: 'ディム',
+    nameEn: 'Dim',
+    subname: 'Slate Navy / 低コントラスト',
+    icon: '🌌',
+    description: 'コントラストを抑えた優しいスレートネイビー。瞳の筋肉の緊張をほぐし、長時間のチャート分析でも最も疲れにくい配色。',
+    environment: '夕暮れ・薄暗い室内・長時間のデータ監視に最適',
+    bgHex: '#161c28',
+    cardHex: '#222d42',
+    textHex: '#cbd5e1',
+    accentHex: '#818cf8'
   },
   {
-    id: "orange",
-    nameJa: "サンセットオレンジ",
-    nameEn: "Sunset Orange",
-    color: "#fb923c",
-    rgb: "251, 146, 60",
-    hover: "#f97316",
-    onPrimary: "#7c2d12",
-    light: "#fdba74",
-    border: "#ea580c"
+    id: 'light',
+    nameJa: 'ライト',
+    nameEn: 'Light',
+    subname: 'Soft Slate Light / 非グレア',
+    icon: '☀️',
+    description: '白一色のまぶしさを防ぐ Slate-50 ベース。文字は真っ黒ではなく濃紺チャコールで、高い視認性と自然な読みやすさを両立。',
+    environment: '日中・明るいオフィス・屋外光のある環境に最適',
+    bgHex: '#f8fafc',
+    cardHex: '#ffffff',
+    textHex: '#0f172a',
+    accentHex: '#4f46e5'
   },
   {
-    id: "purple",
-    nameJa: "ラベンダーパープル",
-    nameEn: "Lavender Purple",
-    color: "#c084fc",
-    rgb: "192, 132, 252",
-    hover: "#a855f7",
-    onPrimary: "#581c87",
-    light: "#d8b4fe",
-    border: "#9333ea"
+    id: 'sepia',
+    nameJa: 'ダークセピア',
+    nameEn: 'Dark Sepia',
+    subname: 'Warm Dark / 低刺激ウォームダーク',
+    icon: '📜',
+    description: '明るさを抑えた深煎りエスプレッソ＆柔らかなクリーム文字。ブルーライトをカットし、光の刺激に敏感な目にも非常に優しいダークウォーム配色。',
+    environment: '夜間・光の刺激を避けたい長時間のデータ分析に最適',
+    bgHex: '#18130e',
+    cardHex: '#2a2018',
+    textHex: '#e6dac6',
+    accentHex: '#d97706'
   },
   {
-    id: "pink",
-    nameJa: "サクラピンク",
-    nameEn: "Sakura Pink",
-    color: "#f472b6",
-    rgb: "244, 114, 182",
-    hover: "#ec4899",
-    onPrimary: "#831843",
-    light: "#f9a8d4",
-    border: "#db2777"
-  },
-  {
-    id: "gold",
-    nameJa: "レモンゴールド",
-    nameEn: "Lemon Gold",
-    color: "#fbbf24",
-    rgb: "251, 191, 36",
-    hover: "#f59e0b",
-    onPrimary: "#78350f",
-    light: "#fde047",
-    border: "#d97706"
-  },
-  {
-    id: "green",
-    nameJa: "フォレストグリーン",
-    nameEn: "Forest Green",
-    color: "#4ade80",
-    rgb: "74, 222, 128",
-    hover: "#22c55e",
-    onPrimary: "#14532d",
-    light: "#86efac",
-    border: "#16a34a"
-  },
-  {
-    id: "white",
-    nameJa: "プラチナホワイト",
-    nameEn: "Platinum White",
-    color: "#ffffff",
-    rgb: "255, 255, 255",
-    hover: "#e2e2e9",
-    onPrimary: "#0d0f14",
-    light: "#ffffff",
-    border: "#cbd5e1"
-  },
-  {
-    id: "cream",
-    nameJa: "ウォームクリーム",
-    nameEn: "Warm Cream",
-    color: "#f5e6ca",
-    rgb: "245, 230, 202",
-    hover: "#e8d4b3",
-    onPrimary: "#1c1917",
-    light: "#fdf6e2",
-    border: "#d7c39d"
+    id: 'warm-sepia',
+    nameJa: 'ウォームセピア',
+    nameEn: 'Warm Sepia',
+    subname: 'Muted Parchment / 落ち着いた明るめセピア',
+    icon: '📖',
+    description: '白すぎず落ち着いたクラシック羊皮紙色と深煎り珈琲ブラウン文字。ブルーライトを抑えつつ適度な明度で読みやすい上質ペーパートーン。',
+    environment: '日中・読書灯の下・自然光の入る部屋での快適な分析に最適',
+    bgHex: '#c2b189',
+    cardHex: '#cbb991',
+    textHex: '#120d06',
+    accentHex: '#8a4208'
   }
 ];
 
-export const THEME_PRESETS_LIGHT: Record<string, Partial<ThemePreset>> = {
-  mint: {
-    color: "#0d9488",
-    rgb: "13, 148, 136",
-    hover: "#0f766e",
-    onPrimary: "#ffffff",
-    light: "#14b8a6",
-    border: "#0d9488"
-  },
-  blue: {
-    color: "#0284c7",
-    rgb: "2, 132, 199",
-    hover: "#0369a1",
-    onPrimary: "#ffffff",
-    light: "#38bdf8",
-    border: "#0284c7"
-  },
-  orange: {
-    color: "#ea580c",
-    rgb: "234, 88, 12",
-    hover: "#c2410c",
-    onPrimary: "#ffffff",
-    light: "#fb923c",
-    border: "#ea580c"
-  },
-  purple: {
-    color: "#7c3aed",
-    rgb: "124, 58, 237",
-    hover: "#6d28d9",
-    onPrimary: "#ffffff",
-    light: "#a78bfa",
-    border: "#7c3aed"
-  },
-  pink: {
-    color: "#db2777",
-    rgb: "219, 39, 119",
-    hover: "#be185d",
-    onPrimary: "#ffffff",
-    light: "#f472b6",
-    border: "#db2777"
-  },
-  gold: {
-    color: "#d97706",
-    rgb: "217, 119, 6",
-    hover: "#b45309",
-    onPrimary: "#ffffff",
-    light: "#fbbf24",
-    border: "#d97706"
-  },
-  green: {
-    color: "#16a34a",
-    rgb: "22, 163, 74",
-    hover: "#15803d",
-    onPrimary: "#ffffff",
-    light: "#4ade80",
-    border: "#16a34a"
-  },
-  white: {
-    color: "#1e293b",
-    rgb: "30, 41, 59",
-    hover: "#0f172a",
-    onPrimary: "#ffffff",
-    light: "#475569",
-    border: "#1e293b"
-  },
-  cream: {
-    color: "#78350f",
-    rgb: "120, 53, 15",
-    hover: "#451a03",
-    onPrimary: "#ffffff",
-    light: "#b45309",
-    border: "#78350f"
-  }
-};
+// 後方互換性用のヘルパー
+export const THEMES_BY_ID: Record<ThemeType, ThemeConfig> = THEME_LIST.reduce((acc, cur) => {
+  acc[cur.id] = cur;
+  return acc;
+}, {} as Record<ThemeType, ThemeConfig>);

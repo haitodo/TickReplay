@@ -439,7 +439,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                   : "MetaTrader 5 (EA) 未接続: インポートを実行するにはMT5を起動してEAをアクティブにしてください"}
               </span>
               {terminalName && (
-                <span style={{ fontSize: "11px", opacity: 0.85, marginLeft: "4px", backgroundColor: "rgba(0,0,0,0.2)", padding: "1px 6px", borderRadius: "4px" }}>
+                <span style={{ fontSize: "11px", opacity: 0.85, marginLeft: "4px", backgroundColor: "var(--surface-container-high)", padding: "1px 6px", borderRadius: "4px" }}>
                   対象: {terminalName}
                 </span>
               )}
@@ -492,17 +492,17 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
           </div>
 
           {errorMessage && (
-            <div style={{ padding: "8px 12px", borderRadius: "6px", backgroundColor: "rgba(239, 68, 68, 0.15)", border: "1px solid rgba(239, 68, 68, 0.4)", color: "#f87171", fontSize: "12px" }}>
+            <div style={{ padding: "8px 12px", borderRadius: "6px", backgroundColor: "var(--status-danger-bg)", border: "1px solid var(--status-danger)", color: "var(--status-danger)", fontSize: "12px" }}>
               {errorMessage}
             </div>
           )}
 
           {/* 全体一括操作バー */}
           {scannedGroups.length > 0 && (
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 10px", backgroundColor: "rgba(255,255,255,0.02)", borderRadius: "6px", border: "1px solid var(--outline-variant)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 10px", backgroundColor: "var(--surface-variant)", borderRadius: "6px", border: "1px solid var(--outline-variant)" }}>
               <div style={{ fontSize: "12px", color: "var(--on-surface-variant)" }}>
                 <span>検出: <strong>{scannedGroups.length}</strong> シンボル / <strong>{totalFilesCount}</strong> ファイル</span>
-                <span style={{ marginLeft: "12px", color: "var(--primary, #a8c7fa)" }}>選択中: <strong>{selectedFilesCount}</strong> 件</span>
+                <span style={{ marginLeft: "12px", color: "var(--primary-color)" }}>選択中: <strong>{selectedFilesCount}</strong> 件</span>
               </div>
               <div style={{ display: "flex", gap: "6px" }}>
                 <button
@@ -777,17 +777,17 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
 
           {/* 進捗とログ */}
           {isImporting && (
-            <div style={{ padding: "12px", borderRadius: "8px", backgroundColor: "rgba(0,0,0,0.3)", border: "1px solid var(--outline-variant)" }}>
+            <div style={{ padding: "12px", borderRadius: "8px", backgroundColor: "var(--surface-variant)", border: "1px solid var(--outline-variant)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", marginBottom: "6px" }}>
                 <span>インポート処理中: {importProgress.currentLabel}</span>
                 <span>{importProgress.current} / {importProgress.total} 件</span>
               </div>
-              <div style={{ width: "100%", height: "8px", backgroundColor: "rgba(255,255,255,0.1)", borderRadius: "4px", overflow: "hidden", marginBottom: "8px" }}>
+              <div style={{ width: "100%", height: "8px", backgroundColor: "var(--surface-container-high)", borderRadius: "4px", overflow: "hidden", marginBottom: "8px" }}>
                 <div
                   style={{
                     width: `${(importProgress.current / (importProgress.total || 1)) * 100}%`,
                     height: "100%",
-                    backgroundColor: "var(--primary, #4a90e2)",
+                    backgroundColor: "var(--primary-color)",
                     transition: "width 0.3s ease"
                   }}
                 />
@@ -797,7 +797,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                   type="button"
                   className="pro-btn"
                   onClick={handleStopImport}
-                  style={{ padding: "4px 12px", fontSize: "11px", backgroundColor: "#dc2626", color: "#fff", border: "none" }}
+                  style={{ padding: "4px 12px", fontSize: "11px", backgroundColor: "var(--status-danger)", color: "#fff", border: "none" }}
                 >
                   インポート停止
                 </button>
@@ -806,7 +806,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
           )}
 
           {logs.length > 0 && (
-            <div style={{ maxHeight: "120px", overflowY: "auto", padding: "8px", borderRadius: "6px", backgroundColor: "#0f0f13", fontSize: "11px", fontFamily: "monospace", display: "flex", flexDirection: "column", gap: "2px" }}>
+            <div style={{ maxHeight: "120px", overflowY: "auto", padding: "8px", borderRadius: "6px", backgroundColor: "var(--surface-container-low)", border: "1px solid var(--outline-variant)", color: "var(--on-surface)", fontSize: "11px", fontFamily: "var(--font-data, monospace)", display: "flex", flexDirection: "column", gap: "2px" }}>
               {logs.map((log, i) => (
                 <div key={i}>{log}</div>
               ))}

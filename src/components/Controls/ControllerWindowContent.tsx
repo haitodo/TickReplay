@@ -372,11 +372,11 @@ export const ControllerWindowContent: React.FC = () => {
         <div className="ctrl-header-right" ref={exitMenuRef} style={{ position: "relative" }}>
           <button
             type="button"
-            className="ctrl-icon-btn"
+            className="ctrl-icon-btn ctrl-speed-order-btn"
             onClick={() => invoke("open_speed_order_window").catch(console.error)}
             title="スピード発注画面を開く"
           >
-            <span className="material-symbols-outlined icon text-cyan">shopping_cart</span>
+            <span className="material-symbols-outlined icon">monetization_on</span>
           </button>
           <button
             type="button"

@@ -256,7 +256,7 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
             alignItems: "center",
             padding: "14px 20px",
             borderBottom: "1px solid var(--outline-variant)",
-            backgroundColor: "rgba(0,0,0,0.2)"
+            backgroundColor: "var(--surface-container)"
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
@@ -379,10 +379,10 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                   <div style={{
                     padding: "10px",
                     borderRadius: "6px",
-                    backgroundColor: "rgba(0,0,0,0.3)",
-                    border: "1px solid var(--primary, #6366f1)"
+                    backgroundColor: "var(--surface-variant)",
+                    border: "1px solid var(--primary-color)"
                   }}>
-                    <div style={{ fontSize: "10.5px", color: "var(--primary, #6366f1)", fontWeight: 700, marginBottom: "3px" }}>
+                    <div style={{ fontSize: "10.5px", color: "var(--primary-color)", fontWeight: 700, marginBottom: "3px" }}>
                       MAIN (メインチャートに表示)
                     </div>
                     <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--on-surface)" }}>
@@ -403,10 +403,10 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                   <div style={{
                     padding: "10px",
                     borderRadius: "6px",
-                    backgroundColor: "rgba(0,0,0,0.3)",
-                    border: "1px solid var(--tertiary, #a8c7fa)"
+                    backgroundColor: "var(--surface-variant)",
+                    border: "1px solid var(--secondary-color, #06b6d4)"
                   }}>
-                    <div style={{ fontSize: "10.5px", color: "var(--tertiary, #a8c7fa)", fontWeight: 700, marginBottom: "3px" }}>
+                    <div style={{ fontSize: "10.5px", color: "var(--secondary-color, #06b6d4)", fontWeight: 700, marginBottom: "3px" }}>
                       SUB (目印インジケーターのあるチャートに表示)
                     </div>
                     <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--on-surface)" }}>
@@ -711,7 +711,7 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
               <div style={{
                 padding: "10px 14px",
                 borderRadius: "8px",
-                backgroundColor: "rgba(0,0,0,0.25)",
+                backgroundColor: "var(--surface-container-low)",
                 border: "1px solid var(--outline-variant)",
                 display: "grid",
                 gridTemplateColumns: "1fr 2fr",
@@ -719,7 +719,7 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                 alignItems: "center"
               }}>
                 <div>
-                  <span style={{ fontSize: "10.5px", color: "var(--primary, #a8c7fa)", fontWeight: 700, display: "block" }}>
+                  <span style={{ fontSize: "10.5px", color: "var(--primary-color)", fontWeight: 700, display: "block" }}>
                     主通貨（リプレイ対象）
                   </span>
                   <strong style={{ fontSize: "14px", color: "var(--on-surface)" }}>
@@ -835,13 +835,13 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
           )}
 
           {/* 自動期間設定チェックボックス */}
-          <div style={{ marginTop: "4px", padding: "8px 12px", backgroundColor: "rgba(0,0,0,0.2)", borderRadius: "6px", border: "1px solid var(--outline-variant)" }}>
+          <div style={{ marginTop: "4px", padding: "8px 12px", backgroundColor: "var(--surface-container-low)", borderRadius: "6px", border: "1px solid var(--outline-variant)" }}>
             <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", margin: 0, fontSize: "12px", color: "var(--on-surface)" }}>
               <input
                 type="checkbox"
                 checked={autoApplyDateRange}
                 onChange={(e) => setAutoApplyDateRange(e.target.checked)}
-                style={{ width: "15px", height: "15px", accentColor: "var(--primary, #6366f1)" }}
+                style={{ width: "15px", height: "15px", accentColor: "var(--primary-color)" }}
               />
               <span>選択した年度の全期間 (YYYY-01-01 〜 YYYY-12-31) をリプレイ日時設定に自動反映する</span>
             </label>
@@ -853,7 +853,7 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
           style={{
             padding: "12px 20px",
             borderTop: "1px solid var(--outline-variant)",
-            backgroundColor: "rgba(0,0,0,0.2)",
+            backgroundColor: "var(--surface-container)",
             display: "flex",
             justifyContent: "flex-end",
             alignItems: "center",

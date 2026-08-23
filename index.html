@@ -6,21 +6,31 @@
       if (window.__REACT_DEVTOOLS_GLOBAL_HOOK__ && window.__REACT_DEVTOOLS_GLOBAL_HOOK__.isDisabled) {
         delete window.__REACT_DEVTOOLS_GLOBAL_HOOK__;
       }
-      // 起動時の白画面ちらつき防止のため、保存されたテーマを即座に適用する
+      // 起動時のちらつき防止のため、保存されたテーマを即座に適用する
       try {
-        var mode = localStorage.getItem("theme-mode") || "dark";
-        document.documentElement.setAttribute("data-theme", mode);
+        var theme = localStorage.getItem("tickreplay_theme") || localStorage.getItem("theme") || localStorage.getItem("theme-mode") || "dark";
+        if (!["dark", "dim", "light", "sepia", "warm-sepia"].includes(theme)) theme = "dark";
+        document.documentElement.setAttribute("data-theme", theme);
       } catch (e) {}
     </script>
     <style>
-      /* 初期表示時の白いちらつき（フラッシュ）を防ぐための背景色設定 */
+      /* 初期表示時のちらつき（フラッシュ）を防ぐための背景色設定 */
       html, body {
-        background-color: #0D0F14; /* ダークテーマのデフォルト背景色 */
+        background-color: #0a0e17; /* ダークテーマ */
         margin: 0;
         padding: 0;
       }
+      html[data-theme="dim"], html[data-theme="dim"] body {
+        background-color: #161c28; /* ディム */
+      }
       html[data-theme="light"], html[data-theme="light"] body {
-        background-color: #fdf6e2; /* ライトテーマ（ウォームクリーム）のデフォルト背景色 */
+        background-color: #f8fafc; /* ライト */
+      }
+      html[data-theme="sepia"], html[data-theme="sepia"] body {
+        background-color: #18130e; /* ダークセピア */
+      }
+      html[data-theme="warm-sepia"], html[data-theme="warm-sepia"] body {
+        background-color: #c2b189; /* ウォームセピア */
       }
     </style>
     <meta charset="UTF-8" />

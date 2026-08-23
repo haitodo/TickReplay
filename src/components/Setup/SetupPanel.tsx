@@ -345,8 +345,8 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                     style={{
                       padding: "8px 10px",
                       borderRadius: "6px",
-                      backgroundColor: "var(--surface-container, #1f1f26)",
-                      border: "1px solid var(--outline-variant, #2d2d34)",
+                      backgroundColor: "var(--surface-container)",
+                      border: "1px solid var(--outline-variant)",
                       display: "flex",
                       flexDirection: "column",
                       gap: "6px"
@@ -354,8 +354,8 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                   >
                     {enableDualFeed ? (
                       <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: "6px", alignItems: "center" }}>
-                        <div style={{ padding: "5px 8px", backgroundColor: "rgba(0,0,0,0.25)", borderRadius: "4px", border: "1px solid var(--primary, #4f46e5)" }}>
-                          <span style={{ fontSize: "9px", color: "var(--primary, #a5b4fc)", fontWeight: 700, display: "block" }}>MAIN</span>
+                        <div style={{ padding: "5px 8px", backgroundColor: "var(--surface-variant)", borderRadius: "4px", border: "1px solid var(--primary-color)" }}>
+                          <span style={{ fontSize: "9px", color: "var(--primary-color)", fontWeight: 700, display: "block" }}>MAIN</span>
                           <span style={{ fontSize: "12px", fontWeight: 700, fontFamily: "var(--font-data)" }}>{sourceSymbol || "(未選択)"}</span>
                         </div>
                         <button
@@ -371,8 +371,8 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                         >
                           <span className="material-symbols-outlined icon">swap_horiz</span>
                         </button>
-                        <div style={{ padding: "5px 8px", backgroundColor: "rgba(0,0,0,0.25)", borderRadius: "4px", border: "1px solid var(--tertiary, #06b6d4)" }}>
-                          <span style={{ fontSize: "9px", color: "var(--tertiary, #67e8f9)", fontWeight: 700, display: "block" }}>SUB</span>
+                        <div style={{ padding: "5px 8px", backgroundColor: "var(--surface-variant)", borderRadius: "4px", border: "1px solid var(--secondary-color, #06b6d4)" }}>
+                          <span style={{ fontSize: "9px", color: "var(--secondary-color, #06b6d4)", fontWeight: 700, display: "block" }}>SUB</span>
                           <span style={{ fontSize: "12px", fontWeight: 700, fontFamily: "var(--font-data)" }}>{subSourceSymbol || "(未選択)"}</span>
                         </div>
                       </div>
@@ -387,12 +387,12 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                         {sourceSymbol && (
                           <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
                             {parseSymbolName(sourceSymbol).year && (
-                              <span style={{ fontSize: "10px", padding: "1px 5px", borderRadius: "3px", backgroundColor: "rgba(96, 165, 250, 0.15)", color: "#60a5fa" }}>
+                              <span style={{ fontSize: "10px", padding: "1px 5px", borderRadius: "3px", backgroundColor: "rgba(var(--primary-rgb), 0.15)", color: "var(--primary-color)" }}>
                                 {parseSymbolName(sourceSymbol).year}年
                               </span>
                             )}
                             {parseSymbolName(sourceSymbol).broker && (
-                              <span style={{ fontSize: "10px", padding: "1px 5px", borderRadius: "3px", backgroundColor: "rgba(255, 255, 255, 0.05)", color: "var(--on-surface-variant)" }}>
+                              <span style={{ fontSize: "10px", padding: "1px 5px", borderRadius: "3px", backgroundColor: "var(--surface-container-high)", color: "var(--on-surface-variant)" }}>
                                 {parseSymbolName(sourceSymbol).broker}
                               </span>
                             )}
@@ -704,6 +704,33 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                   <div className="header-title-wrapper">
                     <span className="material-symbols-outlined header-icon">stacked_line_chart</span>
                     <span className="header-title">スプレッド方式 &amp; コスト設定</span>
+                    <HelpTooltip
+                      title="疑似スプレッドとは"
+                      placement="auto"
+                      iconSize={14}
+                      content={
+                        <div style={{ lineHeight: 1.7, fontSize: "12px" }}>
+                          <p style={{ margin: "0 0 8px" }}>
+                            MT5のヒストリカルデータはスプレッドが0や非常に小さい値になっていることがあります。
+                            このオプションを有効にすると、国内ブローカーに近いリアルなスプレッドをシミュレートできます。
+                          </p>
+                          <p style={{ margin: "0 0 6px", fontWeight: 600 }}>📐 計算式</p>
+                          <p style={{ margin: "0 0 4px" }}>
+                            <strong>MT5スプレッド ≦ 拡大しきい値 の場合：</strong><br />
+                            <code style={{ background: "rgba(255,255,255,0.1)", padding: "1px 4px", borderRadius: 3 }}>
+                              適用スプレッド = 平常時スプレッド
+                            </code>
+                          </p>
+                          <p style={{ margin: "0" }}>
+                            <strong>MT5スプレッド ＞ 拡大しきい値 の場合：</strong><br />
+                            <code style={{ background: "rgba(255,255,255,0.1)", padding: "1px 4px", borderRadius: 3 }}>
+                              適用スプレッド = 平常時スプレッド + 感度係数 × (MT5スプレッド − しきい値)
+                            </code>
+                          </p>
+                        </div>
+                      }
+                      tip="指標発表などでMT5のスプレッドが急拡大した場合も、感度係数で国内業者風に穏やかに反映できます。"
+                    />
                   </div>
                 </div>
 
@@ -720,27 +747,101 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                   {enablePseudoRate ? (
                     <div className="pseudo-spread-grid">
                       <div className="form-group-compact">
-                        <label className="form-label-compact">平常時スプレッド (Pips)</label>
+                        <label className="form-label-compact" style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          平常時スプレッド (Pips)
+                          <HelpTooltip
+                            title="平常時スプレッド"
+                            placement="auto"
+                            iconSize={12}
+                            content={
+                              <div style={{ lineHeight: 1.7, fontSize: "12px" }}>
+                                <p style={{ margin: "0 0 6px" }}>
+                                  MT5のスプレッドが「拡大しきい値」以下のとき（平常時）に適用される固定スプレッドです。
+                                </p>
+                                <p style={{ margin: "0 0 4px", fontWeight: 600 }}>推奨値の目安：</p>
+                                <ul style={{ margin: "0", paddingLeft: 16 }}>
+                                  <li>USDJPY：0.2〜0.3 pips</li>
+                                  <li>EURUSD：0.3〜0.5 pips</li>
+                                  <li>GBPJPY：0.8〜1.0 pips</li>
+                                  <li>XAUUSD（Gold）：1.5〜2.0 pips</li>
+                                </ul>
+                              </div>
+                            }
+                          />
+                        </label>
                         <input
                           type="number"
-                          step="0.001"
+                          step="0.1"
+                          min="0"
                           className="input-compact font-data"
                           value={pseudoBaseSpread}
                           onChange={(e) => setPseudoBaseSpread(parseFloat(e.target.value) || 0)}
                         />
                       </div>
                       <div className="form-group-compact">
-                        <label className="form-label-compact">拡大しきい値</label>
+                        <label className="form-label-compact" style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          拡大しきい値 (Pips)
+                          <HelpTooltip
+                            title="拡大しきい値"
+                            placement="auto"
+                            iconSize={12}
+                            content={
+                              <div style={{ lineHeight: 1.7, fontSize: "12px" }}>
+                                <p style={{ margin: "0 0 6px" }}>
+                                  MT5の生スプレッドがこの値を超えたとき、スプレッドの拡大計算が始まります。
+                                  通常時のMT5スプレッドがこの値以下であれば、常に「平常時スプレッド」が適用されます。
+                                </p>
+                                <p style={{ margin: "0 0 4px", fontWeight: 600 }}>推奨値の目安：</p>
+                                <ul style={{ margin: "0", paddingLeft: 16 }}>
+                                  <li>USDJPY：1.5〜2.0 pips</li>
+                                  <li>EURUSD：1.0〜1.5 pips</li>
+                                  <li>GBPJPY：2.0〜3.0 pips</li>
+                                  <li>XAUUSD（Gold）：4.0〜6.0 pips</li>
+                                </ul>
+                                <p style={{ margin: "6px 0 0", color: "var(--color-warning, #f59e0b)" }}>
+                                  ⚠️ 0に設定するとすべてのティックで拡大計算が適用されるため、スプレッドが常に広くなります。
+                                </p>
+                              </div>
+                            }
+                          />
+                        </label>
                         <input
                           type="number"
-                          step="0.001"
+                          step="0.1"
+                          min="0"
                           className="input-compact font-data"
                           value={pseudoThreshold}
                           onChange={(e) => setPseudoThreshold(parseFloat(e.target.value) || 0)}
                         />
                       </div>
                       <div className="form-group-compact" style={{ gridColumn: "span 2" }}>
-                        <label className="form-label-compact">拡大感度係数 (0.0〜2.0)</label>
+                        <label className="form-label-compact" style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          拡大感度係数 (0.0〜2.0)
+                          <HelpTooltip
+                            title="拡大感度係数"
+                            placement="auto"
+                            iconSize={12}
+                            content={
+                              <div style={{ lineHeight: 1.7, fontSize: "12px" }}>
+                                <p style={{ margin: "0 0 6px" }}>
+                                  MT5スプレッドが「拡大しきい値」を超えたとき、その超過分に掛ける倍率です。
+                                </p>
+                                <p style={{ margin: "0 0 4px" }}>
+                                  <strong>例（USDJPY、しきい値=1.5pips、感度=1.025、MT5スプレッド=3.0pips）：</strong><br />
+                                  <code style={{ background: "rgba(255,255,255,0.1)", padding: "1px 4px", borderRadius: 3 }}>
+                                    0.2 + 1.025 × (3.0 − 1.5) ≈ 1.74 pips
+                                  </code>
+                                </p>
+                                <ul style={{ margin: "6px 0 0", paddingLeft: 16 }}>
+                                  <li><strong>1.0</strong>：MT5スプレッド急拡大をそのまま反映</li>
+                                  <li><strong>1.025</strong>：推奨値。わずかに上乗せして穏やかに拡大</li>
+                                  <li><strong>0.5未満</strong>：急拡大の影響を大幅に抑制</li>
+                                  <li><strong>0.0</strong>：急拡大しても平常時スプレッドのまま</li>
+                                </ul>
+                              </div>
+                            }
+                          />
+                        </label>
                         <input
                           type="number"
                           step="0.01"

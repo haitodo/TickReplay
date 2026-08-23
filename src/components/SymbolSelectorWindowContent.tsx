@@ -689,8 +689,8 @@ export const SymbolSelectorWindowContent: React.FC = () => {
               style={{
                 padding: "8px 12px",
                 borderRadius: "6px",
-                backgroundColor: "var(--surface-container, #1a1a20)",
-                border: "1px solid var(--outline-variant, #2d2d34)",
+                backgroundColor: "var(--surface-container)",
+                border: "1px solid var(--outline-variant)",
                 display: "grid",
                 gridTemplateColumns: "1fr auto 1fr",
                 gap: "10px",
@@ -698,8 +698,8 @@ export const SymbolSelectorWindowContent: React.FC = () => {
               }}
             >
               {/* Main Card */}
-              <div style={{ padding: "6px 10px", borderRadius: "4px", backgroundColor: "rgba(0,0,0,0.2)", border: "1px solid var(--primary, #4f46e5)" }}>
-                <div style={{ fontSize: "9.5px", color: "var(--primary, #a5b4fc)", fontWeight: 700 }}>
+              <div style={{ padding: "6px 10px", borderRadius: "4px", backgroundColor: "var(--surface-variant)", border: "1px solid var(--primary-color)" }}>
+                <div style={{ fontSize: "9.5px", color: "var(--primary-color)", fontWeight: 700 }}>
                   MAIN (メインチャート)
                 </div>
                 <div style={{ fontSize: "12px", fontWeight: 700, marginTop: "2px" }}>
@@ -720,8 +720,8 @@ export const SymbolSelectorWindowContent: React.FC = () => {
               </button>
 
               {/* Sub Card */}
-              <div style={{ padding: "6px 10px", borderRadius: "4px", backgroundColor: "rgba(0,0,0,0.2)", border: "1px solid var(--tertiary, #06b6d4)" }}>
-                <div style={{ fontSize: "9.5px", color: "var(--tertiary, #67e8f9)", fontWeight: 700 }}>
+              <div style={{ padding: "6px 10px", borderRadius: "4px", backgroundColor: "var(--surface-variant)", border: "1px solid var(--secondary-color, #06b6d4)" }}>
+                <div style={{ fontSize: "9.5px", color: "var(--secondary-color, #06b6d4)", fontWeight: 700 }}>
                   SUB (マーカーチャート)
                 </div>
                 <div style={{ fontSize: "12px", fontWeight: 700, marginTop: "2px" }}>

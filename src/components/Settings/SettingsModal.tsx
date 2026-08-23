@@ -1,7 +1,7 @@
 import React from "react";
 import { CustomSelect } from "../../CustomSelect";
 import { DEFAULT_HOTKEYS, HOTKEY_METADATA, formatShortcutForDisplay } from "../../utils/hotkeyUtils";
-import { THEME_PRESETS } from "../../constants/themePresets";
+import { THEME_LIST, ThemeType } from "../../constants/themePresets";
 import { ApiTestResult } from "../../utils/apiKeyTester";
 
 export interface SettingsModalProps {
@@ -28,11 +28,11 @@ export interface SettingsModalProps {
   handleAlwaysOnTopToggle: () => void;
   isShortcutsActive: boolean;
   handleShortcutsToggle: () => void;
-  themeId: string;
-  setThemeId: (id: string) => void;
-  themeMode: "dark" | "light";
-  setThemeMode: (mode: "dark" | "light") => void;
-  glassEffect: boolean;
+  theme?: ThemeType;
+  setTheme?: (theme: ThemeType) => void;
+  themeId?: string;
+  setThemeId?: (id: string) => void;
+  themeMode?: "dark" | "light";
   plColorStyle: "red-blue" | "green-red";
   setPlColorStyle: (val: "red-blue" | "green-red") => void;
   openRouterApiKey: string;
@@ -57,8 +57,7 @@ export interface SettingsModalProps {
     nextHotkeys?: Record<string, string>,
     nextTimePresets?: number[],
     nextTickPresets?: number[],
-    nextGlass?: boolean,
-    nextThemeMode?: "dark" | "light"
+    nextTheme?: any
   ) => void;
   timePresets: number[];
   tickPresets: number[];
@@ -88,11 +87,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   handleAlwaysOnTopToggle,
   isShortcutsActive,
   handleShortcutsToggle,
+  theme,
+  setTheme,
   themeId,
   setThemeId,
-  themeMode,
-  setThemeMode,
-  glassEffect,
   plColorStyle,
   setPlColorStyle,
   openRouterApiKey,
@@ -316,45 +314,69 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           {/* 3. テーマ設定 */}
           {activeTab === "theme" && (
             <div className="settings-section-stack">
-              <div className="settings-group">
-                <h4 className="settings-group-title">テーマモード</h4>
-                <div className="theme-mode-grid">
-                  <div
-                    className={`theme-mode-btn ${themeMode === "dark" ? "active" : ""}`}
-                    onClick={() => {
-                      setThemeMode("dark");
-                      saveAllSettings(hotkeys, timePresets, tickPresets, glassEffect, "dark");
-                    }}
-                  >
-                    <span className="material-symbols-outlined icon">dark_mode</span>
-                    <span>ダークモード</span>
-                  </div>
-                  <div
-                    className={`theme-mode-btn ${themeMode === "light" ? "active" : ""}`}
-                    onClick={() => {
-                      setThemeMode("light");
-                      saveAllSettings(hotkeys, timePresets, tickPresets, glassEffect, "light");
-                    }}
-                  >
-                    <span className="material-symbols-outlined icon">light_mode</span>
-                    <span>ライトモード</span>
-                  </div>
-                </div>
+              <div className="theme-intro-header">
+                <p className="theme-intro-text">
+                  👀 <strong>眼精疲労軽減・視覚保護設計:</strong> 米国主要テック企業の最新デザインガイドラインに基づき、白文字の眩しさ（ハレーション）や過剰コントラストによる目の疲れ・チカチカを防止する最適な配色を採用しています。
+                </p>
               </div>
 
               <div className="settings-group">
-                <h4 className="settings-group-title">アクセントカラー</h4>
-                <div className="accent-color-grid">
-                  {THEME_PRESETS.map((theme) => {
-                    const isActive = themeId === theme.id;
+                <h4 className="settings-group-title">カラーテーマ選択 (5大プリセット)</h4>
+                <div className="theme-cards-grid">
+                  {THEME_LIST.map((themeItem) => {
+                    const currentTheme = theme || themeId || "dark";
+                    const isActive = currentTheme === themeItem.id;
                     return (
                       <div
-                        key={theme.id}
-                        className={`accent-card ${isActive ? "active" : ""}`}
-                        onClick={() => setThemeId(theme.id)}
+                        key={themeItem.id}
+                        className={`theme-card ${isActive ? "active" : ""}`}
+                        onClick={() => {
+                          if (setTheme) setTheme(themeItem.id);
+                          else if (setThemeId) setThemeId(themeItem.id);
+                          saveAllSettings(hotkeys, timePresets, tickPresets, themeItem.id);
+                        }}
                       >
-                        <div className="accent-circle" style={{ backgroundColor: theme.color }} />
-                        <span className="accent-name">{theme.nameJa}</span>
+                        <div className="theme-card-header">
+                          <div className="theme-card-title-group">
+                            <span className="theme-icon">{themeItem.icon}</span>
+                            <div>
+                              <span className="theme-name">{themeItem.nameJa} ({themeItem.nameEn})</span>
+                              <span className="theme-subname">{themeItem.subname}</span>
+                            </div>
+                          </div>
+                          {isActive ? (
+                            <span className="theme-badge active">✓ 適用中</span>
+                          ) : (
+                            <span className="theme-badge inactive">選択</span>
+                          )}
+                        </div>
+
+                        {/* カラーパレットプレビュー */}
+                        <div className="theme-swatch-bar">
+                          <div className="swatch-item" title={`背景: ${themeItem.bgHex}`}>
+                            <span className="swatch-circle" style={{ backgroundColor: themeItem.bgHex, border: "1px solid rgba(128,128,128,0.4)" }} />
+                            <span className="swatch-label">BG</span>
+                          </div>
+                          <div className="swatch-item" title={`カード: ${themeItem.cardHex}`}>
+                            <span className="swatch-circle" style={{ backgroundColor: themeItem.cardHex, border: "1px solid rgba(128,128,128,0.4)" }} />
+                            <span className="swatch-label">Card</span>
+                          </div>
+                          <div className="swatch-item" title={`文字: ${themeItem.textHex}`}>
+                            <span className="swatch-circle" style={{ backgroundColor: themeItem.textHex }} />
+                            <span className="swatch-label">Text</span>
+                          </div>
+                          <div className="swatch-item" title={`アクセント: ${themeItem.accentHex}`}>
+                            <span className="swatch-circle" style={{ backgroundColor: themeItem.accentHex }} />
+                            <span className="swatch-label">Accent</span>
+                          </div>
+                        </div>
+
+                        <p className="theme-desc">{themeItem.description}</p>
+
+                        <div className="theme-env-badge">
+                          <span className="env-icon">💡</span>
+                          <span>{themeItem.environment}</span>
+                        </div>
                       </div>
                     );
                   })}
