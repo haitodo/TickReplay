@@ -5,20 +5,18 @@ import { DEFAULT_HOTKEYS, matchesHotkey } from "../utils/hotkeyUtils";
 import { listen, emit } from "@tauri-apps/api/event";
 
 import { CustomSelect } from "../CustomSelect";
-import { THEME_PRESETS, THEME_PRESETS_LIGHT } from "../constants/themePresets";
+import { useTheme } from "../hooks/useTheme";
 import { getContractSizeLabel } from "../domain/contractUtils";
 
 export const SpeedOrderWindowContent: React.FC = () => {
+  useTheme();
+
   const [status, setStatus] = useState<string>("DISCONNECTED");
   const [bid, setBid] = useState<number>(0);
   const [ask, setAsk] = useState<number>(0);
   const [bidFlash, setBidFlash] = useState<"up" | "down" | null>(null);
   const [askFlash, setAskFlash] = useState<"up" | "down" | null>(null);
 
-  // テーマおよびエフェクトの同期用状態
-  const [themeId, setThemeId] = useState<string>(() => localStorage.getItem("accent-theme") || "cream");
-  const [themeMode, setThemeMode] = useState<"dark" | "light">(() => (localStorage.getItem("theme-mode") as "dark" | "light") || "dark");
-  const [glassEffect, setGlassEffect] = useState<boolean>(() => localStorage.getItem("glass-effect") === "true");
   const [showHistory, setShowHistory] = useState<boolean>(() => {
     return localStorage.getItem("speed-order-show-history") === "true";
   });
@@ -233,15 +231,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
   // 他ウィンドウ（メイン画面）でのlocalStorage更新を検知して同期
   useEffect(() => {
     const handleStorage = (e: StorageEvent) => {
-      if (e.key === "accent-theme" && e.newValue) {
-        setThemeId(e.newValue);
-      } else if (e.key === "theme-mode" && e.newValue) {
-        setThemeMode(e.newValue as "dark" | "light");
-      } else if (e.key === "glass-effect") {
-        setGlassEffect(e.newValue === "true");
-      } else if (e.key === "pl-color-style" && e.newValue) {
-        setPlColorStyle(e.newValue as "red-blue" | "green-red");
-      } else if (e.key === "speed-order-hedging" && e.newValue) {
+      if (e.key === "speed-order-hedging" && e.newValue) {
         setHedging(e.newValue === "true");
       } else if (e.key === "speed-order-show-holding-time" && e.newValue) {
         setShowHoldingTime(e.newValue !== "false");
@@ -277,59 +267,6 @@ export const SpeedOrderWindowContent: React.FC = () => {
     window.addEventListener("storage", handleStorage);
     return () => window.removeEventListener("storage", handleStorage);
   }, []);
-
-  // テーマモード（ダーク／ライト）の適用
-  useEffect(() => {
-    if (themeMode === "light") {
-      document.documentElement.setAttribute("data-theme", "light");
-    } else {
-      document.documentElement.setAttribute("data-theme", "dark");
-    }
-  }, [themeMode]);
-
-  // 損益配色適用エフェクト
-  useEffect(() => {
-    document.documentElement.setAttribute("data-pl-style", plColorStyle);
-  }, [plColorStyle]);
-
-  // テーマカラーの適用
-  useEffect(() => {
-    const selected = THEME_PRESETS.find(t => t.id === themeId) || THEME_PRESETS[0];
-    let color = selected.color;
-    let rgb = selected.rgb;
-    let hover = selected.hover;
-    let onPrimary = selected.onPrimary;
-    let light = selected.light;
-    let border = selected.border;
-
-    if (themeMode === "light") {
-      const lightAdjusted = THEME_PRESETS_LIGHT[selected.id];
-      if (lightAdjusted) {
-        color = lightAdjusted.color ?? color;
-        rgb = lightAdjusted.rgb ?? rgb;
-        hover = lightAdjusted.hover ?? hover;
-        onPrimary = lightAdjusted.onPrimary ?? onPrimary;
-        light = lightAdjusted.light ?? light;
-        border = lightAdjusted.border ?? border;
-      }
-    }
-
-    document.documentElement.style.setProperty('--primary-color', color);
-    document.documentElement.style.setProperty('--primary-rgb', rgb);
-    document.documentElement.style.setProperty('--primary-hover', hover);
-    document.documentElement.style.setProperty('--on-primary', onPrimary);
-    document.documentElement.style.setProperty('--primary-light', light);
-    document.documentElement.style.setProperty('--primary-border', border);
-  }, [themeId, themeMode]);
-
-  // ガラスエフェクトの適用
-  useEffect(() => {
-    if (glassEffect) {
-      document.documentElement.setAttribute('data-glass-effect', 'true');
-    } else {
-      document.documentElement.removeAttribute('data-glass-effect');
-    }
-  }, [glassEffect]);
 
   const sendCommand = async (cmd: any) => {
     try {

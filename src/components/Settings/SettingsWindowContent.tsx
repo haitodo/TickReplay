@@ -9,7 +9,7 @@ import {
   formatShortcutForDisplay,
   getTauriShortcutFromEvent,
 } from "../../utils/hotkeyUtils";
-import { THEME_PRESETS } from "../../constants/themePresets";
+import { THEME_LIST } from "../../constants/themePresets";
 import {
   testOpenRouterKey,
   testFredKey,
@@ -21,12 +21,8 @@ import { useTheme } from "../../hooks/useTheme";
 
 export const SettingsWindowContent: React.FC = () => {
   const {
-    themeId,
-    setThemeId,
-    glassEffect,
-    setGlassEffect,
-    themeMode,
-    setThemeMode,
+    theme,
+    setTheme,
     plColorStyle,
     setPlColorStyle,
     orderColorStyle,
@@ -95,14 +91,12 @@ export const SettingsWindowContent: React.FC = () => {
       overrideHotkeys?: Record<string, string>,
       overrideTimePresets?: number[],
       overrideTickPresets?: number[],
-      overrideGlass?: boolean,
-      overrideThemeMode?: "dark" | "light"
+      overrideTheme?: string
     ) => {
       const activeHotkeys = overrideHotkeys || hotkeys;
       const activeTimePresets = overrideTimePresets || timePresets;
       const activeTickPresets = overrideTickPresets || tickPresets;
-      const activeGlass = overrideGlass !== undefined ? overrideGlass : glassEffect;
-      const activeTheme = overrideThemeMode || themeMode;
+      const activeTheme = overrideTheme || theme;
 
       try {
         await invoke("save_settings", {
@@ -110,7 +104,6 @@ export const SettingsWindowContent: React.FC = () => {
             hotkeys: activeHotkeys,
             time_presets: activeTimePresets,
             tick_presets: activeTickPresets,
-            glass_effect: activeGlass,
             theme_mode: activeTheme,
             pl_color_style: plColorStyle,
             order_color_style: orderColorStyle,
@@ -123,9 +116,9 @@ export const SettingsWindowContent: React.FC = () => {
             max_history_bars: maxHistoryBars,
           },
         });
-        localStorage.setItem("accent-theme", themeId);
+        localStorage.setItem("tickreplay_theme", activeTheme);
+        localStorage.setItem("theme", activeTheme);
         localStorage.setItem("theme-mode", activeTheme);
-        localStorage.setItem("glass-effect", activeGlass ? "true" : "false");
         localStorage.setItem("pl-color-style", plColorStyle);
         localStorage.setItem("speed-order-color-style", orderColorStyle);
         localStorage.setItem("openrouter-api-key", openRouterApiKey);
@@ -134,9 +127,7 @@ export const SettingsWindowContent: React.FC = () => {
         localStorage.setItem("finnhub-api-key", finnhubApiKey);
 
         emit("settings-updated", {
-          themeId,
-          themeMode: activeTheme,
-          glassEffect: activeGlass,
+          theme: activeTheme,
           plColorStyle,
           orderColorStyle,
         }).catch(console.error);
@@ -148,9 +139,7 @@ export const SettingsWindowContent: React.FC = () => {
       hotkeys,
       timePresets,
       tickPresets,
-      glassEffect,
-      themeMode,
-      themeId,
+      theme,
       plColorStyle,
       orderColorStyle,
       alwaysOnTop,
@@ -512,54 +501,70 @@ export const SettingsWindowContent: React.FC = () => {
           {/* 3. テーマ・外観設定 */}
           {activeTab === "theme" && (
             <div className="settings-tab-pane">
-              <div className="settings-section-card">
-                <h3 className="section-title">
-                  <span className="material-symbols-outlined icon">brightness_medium</span>
-                  テーマモード
-                </h3>
-                <div className="theme-toggle-cluster">
-                  <button
-                    className={`theme-cluster-btn ${themeMode === "dark" ? "active" : ""}`}
-                    onClick={() => {
-                      setThemeMode("dark");
-                      saveAll(undefined, undefined, undefined, undefined, "dark");
-                    }}
-                  >
-                    <span className="material-symbols-outlined icon">dark_mode</span>
-                    <span>ダークモード (推奨)</span>
-                  </button>
-                  <button
-                    className={`theme-cluster-btn ${themeMode === "light" ? "active" : ""}`}
-                    onClick={() => {
-                      setThemeMode("light");
-                      saveAll(undefined, undefined, undefined, undefined, "light");
-                    }}
-                  >
-                    <span className="material-symbols-outlined icon">light_mode</span>
-                    <span>ライトモード</span>
-                  </button>
-                </div>
+              <div className="theme-intro-header">
+                <p className="theme-intro-text">
+                  👀 <strong>眼精疲労軽減・視覚保護設計:</strong> 米国主要テック企業の最新デザインガイドラインに基づき、白文字の眩しさ（ハレーション）や過剰コントラストによる目の疲れ・チカチカを防止する最適な配色を採用しています。
+                </p>
               </div>
 
               <div className="settings-section-card">
                 <h3 className="section-title">
                   <span className="material-symbols-outlined icon">palette</span>
-                  アクセントカラー
+                  カラーテーマ選択 (5大プリセット)
                 </h3>
-                <div className="accent-grid-spacious">
-                  {THEME_PRESETS.map((preset) => {
-                    const isActive = themeId === preset.id;
+                <div className="theme-cards-grid">
+                  {THEME_LIST.map((themeItem) => {
+                    const isActive = theme === themeItem.id;
                     return (
                       <div
-                        key={preset.id}
-                        className={`accent-spacious-card ${isActive ? "active" : ""}`}
+                        key={themeItem.id}
+                        className={`theme-card ${isActive ? "active" : ""}`}
                         onClick={() => {
-                          setThemeId(preset.id);
-                          saveAll();
+                          setTheme(themeItem.id);
+                          saveAll(undefined, undefined, undefined, themeItem.id);
                         }}
                       >
-                        <div className="accent-dot" style={{ backgroundColor: preset.color }} />
-                        <span className="accent-title">{preset.nameJa}</span>
+                        <div className="theme-card-header">
+                          <div className="theme-card-title-group">
+                            <span className="theme-icon">{themeItem.icon}</span>
+                            <div>
+                              <span className="theme-name">{themeItem.nameJa} ({themeItem.nameEn})</span>
+                              <span className="theme-subname">{themeItem.subname}</span>
+                            </div>
+                          </div>
+                          {isActive ? (
+                            <span className="theme-badge active">✓ 適用中</span>
+                          ) : (
+                            <span className="theme-badge inactive">選択</span>
+                          )}
+                        </div>
+
+                        {/* カラーパレットプレビュー */}
+                        <div className="theme-swatch-bar">
+                          <div className="swatch-item" title={`背景: ${themeItem.bgHex}`}>
+                            <span className="swatch-circle" style={{ backgroundColor: themeItem.bgHex, border: "1px solid rgba(128,128,128,0.4)" }} />
+                            <span className="swatch-label">BG</span>
+                          </div>
+                          <div className="swatch-item" title={`カード: ${themeItem.cardHex}`}>
+                            <span className="swatch-circle" style={{ backgroundColor: themeItem.cardHex, border: "1px solid rgba(128,128,128,0.4)" }} />
+                            <span className="swatch-label">Card</span>
+                          </div>
+                          <div className="swatch-item" title={`文字: ${themeItem.textHex}`}>
+                            <span className="swatch-circle" style={{ backgroundColor: themeItem.textHex }} />
+                            <span className="swatch-label">Text</span>
+                          </div>
+                          <div className="swatch-item" title={`アクセント: ${themeItem.accentHex}`}>
+                            <span className="swatch-circle" style={{ backgroundColor: themeItem.accentHex }} />
+                            <span className="swatch-label">Accent</span>
+                          </div>
+                        </div>
+
+                        <p className="theme-desc">{themeItem.description}</p>
+
+                        <div className="theme-env-badge">
+                          <span className="env-icon">💡</span>
+                          <span>{themeItem.environment}</span>
+                        </div>
                       </div>
                     );
                   })}
@@ -634,28 +639,6 @@ export const SettingsWindowContent: React.FC = () => {
                     </div>
                   </button>
                 </div>
-              </div>
-
-              <div className="settings-section-card">
-                <h3 className="section-title">
-                  <span className="material-symbols-outlined icon">blur_on</span>
-                  グラスモーフィズム効果
-                </h3>
-                <label className="settings-checkbox-row">
-                  <input
-                    type="checkbox"
-                    checked={glassEffect}
-                    onChange={(e) => {
-                      const val = e.target.checked;
-                      setGlassEffect(val);
-                      saveAll(undefined, undefined, undefined, val);
-                    }}
-                  />
-                  <div className="option-text">
-                    <span className="option-label">背景半透明・ブラー効果を有効化</span>
-                    <span className="option-desc">ウィンドウ背景をすりガラス状にぼかし、近未来的で洗練された外観にします</span>
-                  </div>
-                </label>
               </div>
             </div>
           )}

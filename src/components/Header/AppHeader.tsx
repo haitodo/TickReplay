@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { formatJstTime, formatServerTime } from "../../utils/timeUtils";
+import { THEME_LIST, ThemeType } from "../../constants/themePresets";
 
 export interface AppHeaderProps {
   status: "DISCONNECTED" | "CONNECTED" | "READY" | "ACTIVE";
@@ -13,13 +14,15 @@ export interface AppHeaderProps {
   sourceSymbol: string;
   alwaysOnTop: boolean;
   isShortcutsActive: boolean;
-  themeMode: "dark" | "light";
-  setThemeMode: (mode: "dark" | "light") => void;
+  theme?: ThemeType;
+  setTheme?: (theme: ThemeType) => void;
+  cycleTheme?: () => void;
+  themeMode?: "dark" | "light";
+  setThemeMode?: (mode: "dark" | "light") => void;
   saveAllSettings: (...args: any[]) => void;
   hotkeys: any;
   timePresets: number[];
   tickPresets: number[];
-  glassEffect: boolean;
   handleAlwaysOnTopToggle: () => void;
   handleShortcutsToggle: () => void;
   toggleRemoteMode: (val: boolean) => void;
@@ -47,13 +50,13 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   sourceSymbol,
   alwaysOnTop,
   isShortcutsActive,
-  themeMode,
-  setThemeMode,
+  theme = "dark",
+  setTheme,
+  cycleTheme,
   saveAllSettings,
   hotkeys,
   timePresets,
   tickPresets,
-  glassEffect,
   handleAlwaysOnTopToggle,
   handleShortcutsToggle,
   toggleRemoteMode,
@@ -295,21 +298,36 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                 <div className="popover-divider" />
 
                 {/* テーマ切替 */}
-                <button
-                  className="popover-item"
-                  onClick={() => {
-                    const nextMode = themeMode === "dark" ? "light" : "dark";
-                    setThemeMode(nextMode);
-                    saveAllSettings(hotkeys, timePresets, tickPresets, glassEffect, nextMode);
-                  }}
-                >
-                  <span className="material-symbols-outlined popover-icon">
-                    {themeMode === "dark" ? "light_mode" : "dark_mode"}
-                  </span>
-                  <span className="popover-label">
-                    {themeMode === "dark" ? "ライトモードに切替" : "ダークモードに切替"}
-                  </span>
-                </button>
+                {(() => {
+                  const currentConfig = THEME_LIST.find((t) => t.id === theme) || THEME_LIST[0];
+                  return (
+                    <button
+                      className="popover-item"
+                      onClick={() => {
+                        if (cycleTheme) {
+                          cycleTheme();
+                        } else if (setTheme) {
+                          const themes: ThemeType[] = ["dark", "dim", "light", "sepia", "warm-sepia"];
+                          const cur = theme || "dark";
+                          const next = themes[(themes.indexOf(cur) + 1) % themes.length];
+                          setTheme(next);
+                          saveAllSettings(hotkeys, timePresets, tickPresets, next);
+                        }
+                      }}
+                      title="クリックで5つのテーマを順次切り替えます"
+                    >
+                      <span className="popover-icon" style={{ fontSize: "16px", display: "inline-flex", alignItems: "center" }}>
+                        {currentConfig.icon}
+                      </span>
+                      <span className="popover-label">
+                        テーマ: {currentConfig.nameJa}
+                      </span>
+                      <span className="popover-tag" style={{ fontSize: "9px" }}>
+                        {currentConfig.nameEn}
+                      </span>
+                    </button>
+                  );
+                })()}
               </div>
             )}
           </div>

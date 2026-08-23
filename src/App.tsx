@@ -582,9 +582,7 @@ function App() {
 
 
   const {
-    themeId, setThemeId,
-    glassEffect, setGlassEffect,
-    themeMode, setThemeMode,
+    theme, setTheme, cycleTheme,
     plColorStyle, setPlColorStyle,
     orderColorStyle, setOrderColorStyle
   } = useTheme();
@@ -981,16 +979,6 @@ function App() {
     }
   };
 
-  // --- テーマモード（ダーク／ライト）適用エフェクト
-  useEffect(() => {
-    if (themeMode === "light") {
-      document.documentElement.setAttribute("data-theme", "light");
-    } else {
-      document.documentElement.setAttribute("data-theme", "dark");
-    }
-    localStorage.setItem("theme-mode", themeMode);
-  }, [themeMode]);
-
   
 
   // --- 両建て設定適用エフェクト
@@ -1126,11 +1114,10 @@ function App() {
             setTickPresets(saved.tick_presets);
             loadedTickPresets = saved.tick_presets;
           }
-          if (saved.glass_effect !== undefined && saved.glass_effect !== null) {
-            setGlassEffect(saved.glass_effect);
-          }
           if (saved.theme_mode) {
-            setThemeMode(saved.theme_mode as "dark" | "light");
+            if (["dark", "dim", "light", "sepia", "warm-sepia"].includes(saved.theme_mode)) {
+              setTheme(saved.theme_mode as any);
+            }
           }
           if (saved.always_on_top !== undefined && saved.always_on_top !== null) {
             setAlwaysOnTop(saved.always_on_top);
@@ -1342,8 +1329,7 @@ function App() {
     hotkeys,
     timePresets,
     tickPresets,
-    glassEffect,
-    themeMode,
+    theme,
     alwaysOnTop,
     isShortcutsActive,
     limitTickHistory,
@@ -1377,8 +1363,7 @@ function App() {
     customHotkeys = hotkeys,
     customTimePresets = timePresets,
     customTickPresets = tickPresets,
-    customGlassEffect = glassEffect,
-    customThemeMode = themeMode,
+    customTheme = theme,
     customAlwaysOnTop = alwaysOnTop,
     customIsShortcutsActive = isShortcutsActive,
     customAutoScrollSync = autoScrollSync,
@@ -1419,8 +1404,7 @@ function App() {
       hotkeys: customHotkeys,
       time_presets: customTimePresets,
       tick_presets: customTickPresets,
-      glass_effect: customGlassEffect,
-      theme_mode: customThemeMode,
+      theme_mode: customTheme,
       always_on_top: customAlwaysOnTop,
       is_shortcuts_active: customIsShortcutsActive,
       timezone_mode: customTimezoneMode,
@@ -2121,8 +2105,7 @@ function App() {
       hotkeys,
       timePresets,
       tickPresets,
-      glassEffect,
-      themeMode,
+      theme,
       alwaysOnTop,
       isShortcutsActive,
       autoScrollSync,
@@ -2625,13 +2608,13 @@ function App() {
         sourceSymbol={sourceSymbol}
         alwaysOnTop={alwaysOnTop}
         isShortcutsActive={isShortcutsActive}
-        themeMode={themeMode}
-        setThemeMode={setThemeMode}
+        theme={theme}
+        setTheme={setTheme}
+        cycleTheme={cycleTheme}
         saveAllSettings={saveAllSettings}
         hotkeys={hotkeys}
         timePresets={timePresets}
         tickPresets={tickPresets}
-        glassEffect={glassEffect}
         handleAlwaysOnTopToggle={handleAlwaysOnTopToggle}
         handleShortcutsToggle={handleShortcutsToggle}
         toggleRemoteMode={toggleRemoteMode}
@@ -2780,11 +2763,8 @@ function App() {
         handleAlwaysOnTopToggle={handleAlwaysOnTopToggle}
         isShortcutsActive={isShortcutsActive}
         handleShortcutsToggle={handleShortcutsToggle}
-        themeId={themeId}
-        setThemeId={setThemeId}
-        themeMode={themeMode}
-        setThemeMode={setThemeMode}
-        glassEffect={glassEffect}
+        theme={theme}
+        setTheme={setTheme}
         plColorStyle={plColorStyle}
         setPlColorStyle={setPlColorStyle}
         openRouterApiKey={openRouterApiKey}
@@ -3441,7 +3421,7 @@ function App() {
                 onClick={() => {
                   setTimePresets(editingTimePresets);
                   setTickPresets(editingTickPresets);
-                  saveAllSettings(hotkeys, editingTimePresets, editingTickPresets, glassEffect, themeMode);
+                  saveAllSettings(hotkeys, editingTimePresets, editingTickPresets, theme);
                   setIsSpeedPresetsModalOpen(false);
                 }}
               >
