@@ -11,18 +11,18 @@ import { AIAnalysisPanel } from "./components/AIAnalysisPanel";
 import { DateTimePickerModal } from "./components/DateTimePickerModal";
 import { SpeedOrderWindowContent } from "./components/SpeedOrderWindowContent";
 import { PositionsWindowContent } from "./components/PositionsWindowContent";
+import { SettingsWindowContent } from "./components/Settings/SettingsWindowContent";
 import { DeleteSessionModal } from "./components/DeleteSessionModal";
 import { TerminalNameModal } from "./components/Modals/TerminalNameModal";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { AppHeader } from "./components/Header/AppHeader";
 import { SetupPanel } from "./components/Setup/SetupPanel";
-import { ControlDashboard } from "./components/Controls/ControlDashboard";
 import { RemoteHudBar } from "./components/Remote/RemoteHudBar";
 import { SettingsModal } from "./components/Settings/SettingsModal";
 import { parseSymbolName, getCompanionSymbols, switchSymbolSuffix } from "./utils/symbolUtils";
 import { useTheme } from "./hooks/useTheme";
 import {
   getServerToJstOffsetHours,
-  parseTimeStrToUtcMs,
   convertServerStrToJstStr as convertServerToJstStr,
   getNewsTimeForDisplay
 } from "./utils/timeUtils";
@@ -51,7 +51,7 @@ export interface TimeStepItem {
   label: string;
 }
 
-const DEFAULT_TIME_STEPS: TimeStepItem[] = [
+export const DEFAULT_TIME_STEPS: TimeStepItem[] = [
   { id: "ts-1", seconds: 10, label: "10S" },
   { id: "ts-2", seconds: 60, label: "1M" },
   { id: "ts-3", seconds: 600, label: "10M" },
@@ -71,11 +71,20 @@ const PRESET_TIME_OPTIONS: { seconds: number; label: string }[] = [
   { seconds: 14400, label: "4H" },
 ];
 
-const formatSecondsToLabel = (sec: number): string => {
+import { ControllerWindowContent } from "./components/Controls/ControllerWindowContent";
+
+export const formatSecondsToLabel = (sec: number): string => {
   if (sec < 60) return `${sec}S`;
   if (sec < 3600 && sec % 60 === 0) return `${sec / 60}M`;
   if (sec % 3600 === 0) return `${sec / 3600}H`;
   if (sec >= 3600) return `${(sec / 3600).toFixed(1)}H`;
+  return `${(sec / 60).toFixed(1)}M`;
+};
+
+export const formatTimeStepLabel = (sec: number): string => {
+  if (sec < 60) return `${sec}S`;
+  if (sec >= 86400) return `${(sec / 86400).toFixed(0)}D`;
+  if (sec >= 3600) return `${(sec / 3600).toFixed(0)}H`;
   return `${(sec / 60).toFixed(1)}M`;
 };
 
@@ -84,10 +93,32 @@ function App() {
   const urlParams = new URLSearchParams(window.location.search);
   const windowParam = urlParams.get("window");
   if (windowParam === "speed_order") {
-    return <SpeedOrderWindowContent />;
+    return (
+      <ErrorBoundary fallbackTitle="スピード発注画面エラー">
+        <SpeedOrderWindowContent />
+      </ErrorBoundary>
+    );
   }
   if (windowParam === "positions") {
-    return <PositionsWindowContent />;
+    return (
+      <ErrorBoundary fallbackTitle="口座・ポジション管理画面エラー">
+        <PositionsWindowContent />
+      </ErrorBoundary>
+    );
+  }
+  if (windowParam === "settings") {
+    return (
+      <ErrorBoundary fallbackTitle="環境設定画面エラー">
+        <SettingsWindowContent />
+      </ErrorBoundary>
+    );
+  }
+  if (windowParam === "controller") {
+    return (
+      <ErrorBoundary fallbackTitle="リプレイ操作コントローラーエラー">
+        <ControllerWindowContent />
+      </ErrorBoundary>
+    );
   }
 
   // --- 接続状態・EAからのステータス
@@ -99,11 +130,11 @@ function App() {
   const [speedMode, setSpeedMode] = useState<"TEMPORAL" | "COUNT">("TEMPORAL");
   const [multiplier, setMultiplier] = useState(1.0);
   const [tickStep, setTickStep] = useState(1);
-  const [loopActive, setLoopActive] = useState(false);
-  const [loopA, setLoopA] = useState(-1);
-  const [loopB, setLoopB] = useState(-1);
-  const [loopAIdx, setLoopAIdx] = useState(-1);
-  const [loopBIdx, setLoopBIdx] = useState(-1);
+  const [_loopActive, setLoopActive] = useState(false);
+  const [_loopA, setLoopA] = useState(-1);
+  const [_loopB, setLoopB] = useState(-1);
+  const [_loopAIdx, setLoopAIdx] = useState(-1);
+  const [_loopBIdx, setLoopBIdx] = useState(-1);
   const [sessionBoundaries, setSessionBoundaries] = useState<any>({ TYO: [], LDN: [], NY: [] });
 
   // --- ローディング状態 (リプレイ初期化中)
@@ -372,6 +403,22 @@ function App() {
     };
   }, [isSubmenuOpen]);
 
+  // リプレイ状態（READY / ACTIVE）に新しく遷移した際、モニター2の操作コントローラーウィンドウを起動
+  const prevStatusRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (isRemoteMode) return;
+    if (
+      prevStatusRef.current !== null &&
+      (prevStatusRef.current === "CONNECTED" || prevStatusRef.current === "DISCONNECTED") &&
+      (status === "READY" || status === "ACTIVE")
+    ) {
+      invoke("open_controller_window").catch((err) => {
+        console.warn("Open controller window failed or not applicable in browser:", err);
+      });
+    }
+    prevStatusRef.current = status;
+  }, [status, isRemoteMode]);
+
   const [errorMessage, setErrorMessage] = useState("");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isResetReplayConfirmOpen, setIsResetReplayConfirmOpen] = useState(false);
@@ -517,11 +564,6 @@ function App() {
         setTotalTicks((prev) => prev !== data.total_ticks ? data.total_ticks : prev);
         setCurrentIdx((prev) => prev !== data.current_idx ? data.current_idx : prev);
         setVirtualTimeMsc((prev) => prev !== data.virtual_time_msc ? data.virtual_time_msc : prev);
-        setLoopActive((prev) => prev !== false ? false : prev);
-        setLoopA((prev) => prev !== -1 ? -1 : prev);
-        setLoopB((prev) => prev !== -1 ? -1 : prev);
-        setLoopAIdx((prev) => prev !== -1 ? -1 : prev);
-        setLoopBIdx((prev) => prev !== -1 ? -1 : prev);
         if (data.session_boundaries) {
           setSessionBoundaries((prev: any) => {
             if (JSON.stringify(prev) === JSON.stringify(data.session_boundaries)) return prev;
@@ -2432,19 +2474,7 @@ function App() {
     return blocks;
   };
 
-  // 進捗率
-  const progressPercent = totalTicks > 0 ? (currentIdx / totalTicks) * 100 : 0;
 
-  // --- 5.5 経済指標 & 日付計算用のヘルパー
-  const getDayOffset = () => {
-    if (!virtualTimeMsc || !startTime) return "T+0";
-    const startJstUtcMsc = parseTimeStrToUtcMs(startTime);
-    if (isNaN(startJstUtcMsc)) return "T+0";
-    const currentJstUtcMsc = virtualTimeMsc + getServerToJstOffsetHours(virtualTimeMsc) * 3600 * 1000;
-    const diffMs = currentJstUtcMsc - startJstUtcMsc;
-    const diffDays = Math.floor(diffMs / (24 * 3600 * 1000));
-    return `T${diffDays >= 0 ? "+" : ""}${diffDays}`;
-  };
 
 
 
@@ -2595,123 +2625,77 @@ function App() {
           </div>
         )}
 
-        {status === "DISCONNECTED" || status === "CONNECTED" ? (
-          <SetupPanel
-            status={status}
-            setupTab={setupTab}
-            setSetupTab={setSetupTab}
-            terminals={terminals}
-            selectedTerminal={selectedTerminal}
-            setSelectedTerminal={setSelectedTerminal}
-            handleOpenTerminalNameModal={handleOpenTerminalNameModal}
-            profiles={profiles}
-            selectedProfile={selectedProfile}
-            setSelectedProfile={setSelectedProfile}
-            maxBarsInfo={maxBarsInfo}
-            enableDualFeed={enableDualFeed}
-            setEnableDualFeed={setEnableDualFeed}
-            setIsBatchSelectorOpen={setIsBatchSelectorOpen}
-            sourceSymbol={sourceSymbol}
-            setSourceSymbol={setSourceSymbol}
-            subSourceSymbol={subSourceSymbol}
-            setSubSourceSymbol={setSubSourceSymbol}
-            availableSymbols={availableSymbols}
-            additionalSymbols={additionalSymbols}
-            setAdditionalSymbols={setAdditionalSymbols}
-            companionSymbols={companionSymbols}
-            setIsCustomImportOpen={setIsCustomImportOpen}
-            startTime={startTime}
-            endTime={endTime}
-            timezoneMode={timezoneMode}
-            setActivePickerField={setActivePickerField}
-            preloadMode={preloadMode}
-            setPreloadMode={setPreloadMode}
-            preloadTimeframe={preloadTimeframe}
-            setPreloadTimeframe={setPreloadTimeframe}
-            preloadedBars={preloadedBars}
-            setPreloadedBars={setPreloadedBars}
-            preloadDate={preloadDate}
-            limitTickHistory={limitTickHistory}
-            setLimitTickHistory={setLimitTickHistory}
-            tickHistoryTimeframe={tickHistoryTimeframe}
-            setTickHistoryTimeframe={setTickHistoryTimeframe}
-            maxHistoryBars={maxHistoryBars}
-            setMaxHistoryBars={setMaxHistoryBars}
-            autoScrollSync={autoScrollSync}
-            setAutoScrollSync={setAutoScrollSync}
-            autoSkipWeekend={autoSkipWeekend}
-            setAutoSkipWeekend={setAutoSkipWeekend}
-            initialBalance={initialBalance}
-            setInitialBalance={setInitialBalance}
-            leverage={leverage}
-            setLeverage={setLeverage}
-            contractSize={contractSize}
-            setContractSize={setContractSize}
-            enablePseudoRate={enablePseudoRate}
-            setEnablePseudoRate={setEnablePseudoRate}
-            pseudoBaseSpread={pseudoBaseSpread}
-            setPseudoBaseSpread={setPseudoBaseSpread}
-            pseudoThreshold={pseudoThreshold}
-            setPseudoThreshold={setPseudoThreshold}
-            pseudoSensitivity={pseudoSensitivity}
-            setPseudoSensitivity={setPseudoSensitivity}
-            savedSessions={savedSessions}
-            expandedGroups={expandedGroups}
-            setExpandedGroups={setExpandedGroups}
-            handleClearAllSessions={handleClearAllSessions}
-            handleDeleteSessions={handleDeleteSessions}
-            handleResumeSession={handleResumeSession}
-            loadSavedSessions={loadSavedSessions}
-            handleResetReplaySettings={handleResetReplaySettings}
-            handleResetTradingSettings={handleResetTradingSettings}
-            handleCheckConnection={handleCheckConnection}
-            handleInit={handleInit}
-          />
-        ) : (
-          <ControlDashboard
-            speedMode={speedMode}
-            multiplier={multiplier}
-            tickStep={tickStep}
-            timePresets={timePresets}
-            tickPresets={tickPresets}
-            updateSpeed={updateSpeed}
-            handlePlayPause={handlePlayPause}
-            isPlaying={isPlaying}
-            handleStep={handleStep}
-            handleCoarseSpeed={handleCoarseSpeed}
-            handleMediumSpeed={handleMediumSpeed}
-            handleFineSpeed={handleFineSpeed}
-            setIsSpeedPresetsModalOpen={setIsSpeedPresetsModalOpen}
-            setEditingTimePresets={setEditingTimePresets}
-            setEditingTickPresets={setEditingTickPresets}
-            setModalNewTimePreset={setModalNewTimePreset}
-            setModalNewTickPreset={setModalNewTickPreset}
-            loopActive={loopActive}
-            loopA={loopA}
-            loopB={loopB}
-            loopAIdx={loopAIdx}
-            loopBIdx={loopBIdx}
-            handleSetLoopA={handleSetLoopA}
-            handleSetLoopB={handleSetLoopB}
-            handleClearLoop={handleClearLoop}
-            totalTicks={totalTicks}
-            currentIdx={currentIdx}
-            setCurrentIdx={setCurrentIdx}
-            sendSeekCommand={sendSeekCommand}
-            isDraggingRef={isDraggingRef}
-            progressPercent={progressPercent}
-            timeSteps={timeSteps}
-            setIsTimeStepsModalOpen={setIsTimeStepsModalOpen}
-            setEditingTimeSteps={setEditingTimeSteps}
-            handleSessionJump={handleSessionJump}
-            handleTimeJump={handleTimeJump}
-            getDayOffset={getDayOffset}
-            startTime={startTime}
-            endTime={endTime}
-            virtualTimeMsc={virtualTimeMsc}
-            timezoneMode={timezoneMode}
-          />
-        )}
+        <SetupPanel
+          status={status}
+          setupTab={setupTab}
+          setSetupTab={setSetupTab}
+          terminals={terminals}
+          selectedTerminal={selectedTerminal}
+          setSelectedTerminal={setSelectedTerminal}
+          handleOpenTerminalNameModal={handleOpenTerminalNameModal}
+          profiles={profiles}
+          selectedProfile={selectedProfile}
+          setSelectedProfile={setSelectedProfile}
+          maxBarsInfo={maxBarsInfo}
+          enableDualFeed={enableDualFeed}
+          setEnableDualFeed={setEnableDualFeed}
+          setIsBatchSelectorOpen={setIsBatchSelectorOpen}
+          sourceSymbol={sourceSymbol}
+          setSourceSymbol={setSourceSymbol}
+          subSourceSymbol={subSourceSymbol}
+          setSubSourceSymbol={setSubSourceSymbol}
+          availableSymbols={availableSymbols}
+          additionalSymbols={additionalSymbols}
+          setAdditionalSymbols={setAdditionalSymbols}
+          companionSymbols={companionSymbols}
+          setIsCustomImportOpen={setIsCustomImportOpen}
+          startTime={startTime}
+          endTime={endTime}
+          timezoneMode={timezoneMode}
+          setActivePickerField={setActivePickerField}
+          preloadMode={preloadMode}
+          setPreloadMode={setPreloadMode}
+          preloadTimeframe={preloadTimeframe}
+          setPreloadTimeframe={setPreloadTimeframe}
+          preloadedBars={preloadedBars}
+          setPreloadedBars={setPreloadedBars}
+          preloadDate={preloadDate}
+          limitTickHistory={limitTickHistory}
+          setLimitTickHistory={setLimitTickHistory}
+          tickHistoryTimeframe={tickHistoryTimeframe}
+          setTickHistoryTimeframe={setTickHistoryTimeframe}
+          maxHistoryBars={maxHistoryBars}
+          setMaxHistoryBars={setMaxHistoryBars}
+          autoScrollSync={autoScrollSync}
+          setAutoScrollSync={setAutoScrollSync}
+          autoSkipWeekend={autoSkipWeekend}
+          setAutoSkipWeekend={setAutoSkipWeekend}
+          initialBalance={initialBalance}
+          setInitialBalance={setInitialBalance}
+          leverage={leverage}
+          setLeverage={setLeverage}
+          contractSize={contractSize}
+          setContractSize={setContractSize}
+          enablePseudoRate={enablePseudoRate}
+          setEnablePseudoRate={setEnablePseudoRate}
+          pseudoBaseSpread={pseudoBaseSpread}
+          setPseudoBaseSpread={setPseudoBaseSpread}
+          pseudoThreshold={pseudoThreshold}
+          setPseudoThreshold={setPseudoThreshold}
+          pseudoSensitivity={pseudoSensitivity}
+          setPseudoSensitivity={setPseudoSensitivity}
+          savedSessions={savedSessions}
+          expandedGroups={expandedGroups}
+          setExpandedGroups={setExpandedGroups}
+          handleClearAllSessions={handleClearAllSessions}
+          handleDeleteSessions={handleDeleteSessions}
+          handleResumeSession={handleResumeSession}
+          loadSavedSessions={loadSavedSessions}
+          handleResetReplaySettings={handleResetReplaySettings}
+          handleResetTradingSettings={handleResetTradingSettings}
+          handleCheckConnection={handleCheckConnection}
+          handleInit={handleInit}
+        />
       </main>
 
       {/* Modals & Dialogs */}

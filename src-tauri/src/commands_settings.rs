@@ -63,26 +63,136 @@ pub async fn save_settings(
 ) -> Result<(), AppError> {
     let existing = load_settings(app_handle.clone()).await.unwrap_or(None);
 
-    if settings.main_window_x.is_none() {
-        if let Some(ref existing_settings) = existing {
+    if let Some(ref existing_settings) = existing {
+        if settings.selected_terminal.is_empty() {
+            settings.selected_terminal = existing_settings.selected_terminal.clone();
+        }
+        if settings.selected_profile.is_empty() {
+            settings.selected_profile = existing_settings.selected_profile.clone();
+        }
+        if settings.source_symbol.is_empty() {
+            settings.source_symbol = existing_settings.source_symbol.clone();
+        }
+        if settings.start_time.is_empty() {
+            settings.start_time = existing_settings.start_time.clone();
+        }
+        if settings.end_time.is_empty() {
+            settings.end_time = existing_settings.end_time.clone();
+        }
+        if settings.preloaded_bars == 0 && existing_settings.preloaded_bars != 0 {
+            settings.preloaded_bars = existing_settings.preloaded_bars;
+        }
+        if settings.preload_mode.is_none() {
+            settings.preload_mode = existing_settings.preload_mode.clone();
+        }
+        if settings.preload_date.is_none() {
+            settings.preload_date = existing_settings.preload_date.clone();
+        }
+        if settings.preload_timeframe.is_none() {
+            settings.preload_timeframe = existing_settings.preload_timeframe.clone();
+        }
+        if settings.hotkeys.is_none() {
+            settings.hotkeys = existing_settings.hotkeys.clone();
+        }
+        if settings.time_presets.is_none() {
+            settings.time_presets = existing_settings.time_presets.clone();
+        }
+        if settings.tick_presets.is_none() {
+            settings.tick_presets = existing_settings.tick_presets.clone();
+        }
+        if settings.news_filters.is_none() {
+            settings.news_filters = existing_settings.news_filters.clone();
+        }
+        if settings.glass_effect.is_none() {
+            settings.glass_effect = existing_settings.glass_effect;
+        }
+        if settings.theme_mode.is_none() {
+            settings.theme_mode = existing_settings.theme_mode.clone();
+        }
+        if settings.news_auto_scroll.is_none() {
+            settings.news_auto_scroll = existing_settings.news_auto_scroll;
+        }
+        if settings.always_on_top.is_none() {
+            settings.always_on_top = existing_settings.always_on_top;
+        }
+        if settings.is_shortcuts_active.is_none() {
+            settings.is_shortcuts_active = existing_settings.is_shortcuts_active;
+        }
+        if settings.limit_tick_history.is_none() {
+            settings.limit_tick_history = existing_settings.limit_tick_history;
+        }
+        if settings.tick_history_timeframe.is_none() {
+            settings.tick_history_timeframe = existing_settings.tick_history_timeframe.clone();
+        }
+        if settings.max_history_bars.is_none() {
+            settings.max_history_bars = existing_settings.max_history_bars;
+        }
+        if settings.timezone_mode.is_none() {
+            settings.timezone_mode = existing_settings.timezone_mode.clone();
+        }
+        if settings.auto_skip_weekend.is_none() {
+            settings.auto_skip_weekend = existing_settings.auto_skip_weekend;
+        }
+        if settings.pl_color_style.is_none() {
+            settings.pl_color_style = existing_settings.pl_color_style.clone();
+        }
+        if settings.order_color_style.is_none() {
+            settings.order_color_style = existing_settings.order_color_style.clone();
+        }
+        if settings.hedging.is_none() {
+            settings.hedging = existing_settings.hedging;
+        }
+        if settings.enable_virtual_trading.is_none() {
+            settings.enable_virtual_trading = existing_settings.enable_virtual_trading;
+        }
+        if settings.initial_balance.is_none() {
+            settings.initial_balance = existing_settings.initial_balance;
+        }
+        if settings.leverage.is_none() {
+            settings.leverage = existing_settings.leverage;
+        }
+        if settings.enable_pseudo_rate.is_none() {
+            settings.enable_pseudo_rate = existing_settings.enable_pseudo_rate;
+        }
+        if settings.pseudo_base_spread.is_none() {
+            settings.pseudo_base_spread = existing_settings.pseudo_base_spread;
+        }
+        if settings.pseudo_threshold.is_none() {
+            settings.pseudo_threshold = existing_settings.pseudo_threshold;
+        }
+        if settings.pseudo_sensitivity.is_none() {
+            settings.pseudo_sensitivity = existing_settings.pseudo_sensitivity;
+        }
+        if settings.show_holding_time.is_none() {
+            settings.show_holding_time = existing_settings.show_holding_time;
+        }
+        if settings.holding_time_mode.is_none() {
+            settings.holding_time_mode = existing_settings.holding_time_mode.clone();
+        }
+        if settings.additional_symbols.is_none() {
+            settings.additional_symbols = existing_settings.additional_symbols.clone();
+        }
+        if settings.main_window_x.is_none() {
             settings.main_window_x = existing_settings.main_window_x;
             settings.main_window_y = existing_settings.main_window_y;
         }
-    }
-    if settings.speed_order_window_x.is_none() {
-        if let Some(ref existing_settings) = existing {
+        if settings.speed_order_window_x.is_none() {
             settings.speed_order_window_x = existing_settings.speed_order_window_x;
             settings.speed_order_window_y = existing_settings.speed_order_window_y;
         }
-    }
-    if settings.positions_window_x.is_none() {
-        if let Some(ref existing_settings) = existing {
+        if settings.positions_window_x.is_none() {
             settings.positions_window_x = existing_settings.positions_window_x;
             settings.positions_window_y = existing_settings.positions_window_y;
         }
-    }
-    if settings.terminal_names.is_none() {
-        if let Some(ref existing_settings) = existing {
+        if settings.controller_window_x.is_none() {
+            settings.controller_window_x = existing_settings.controller_window_x;
+            settings.controller_window_y = existing_settings.controller_window_y;
+        }
+        if settings.settings_window_x.is_none() {
+            settings.settings_window_x = existing_settings.settings_window_x;
+            settings.settings_window_y = existing_settings.settings_window_y;
+        }
+        if settings.terminal_names.is_none() {
             settings.terminal_names = existing_settings.terminal_names.clone();
         }
     }
@@ -132,6 +242,18 @@ pub async fn save_window_position_to_disk(
             }
             s.positions_window_x = Some(x);
             s.positions_window_y = Some(y);
+        } else if label == "controller" {
+            if s.controller_window_x == Some(x) && s.controller_window_y == Some(y) {
+                return Ok(());
+            }
+            s.controller_window_x = Some(x);
+            s.controller_window_y = Some(y);
+        } else if label == "settings" {
+            if s.settings_window_x == Some(x) && s.settings_window_y == Some(y) {
+                return Ok(());
+            }
+            s.settings_window_x = Some(x);
+            s.settings_window_y = Some(y);
         } else {
             return Ok(());
         }

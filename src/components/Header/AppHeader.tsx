@@ -224,9 +224,14 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                 {/* 環境設定 */}
                 <button
                   className="popover-item"
-                  onClick={() => {
-                    setIsSettingsOpen(true);
+                  onClick={async () => {
                     setIsSubmenuOpen(false);
+                    try {
+                      await invoke("open_settings_window");
+                    } catch (err) {
+                      console.warn("Failed to open standalone settings window, falling back to modal:", err);
+                      setIsSettingsOpen(true);
+                    }
                   }}
                 >
                   <span className="material-symbols-outlined popover-icon">settings</span>

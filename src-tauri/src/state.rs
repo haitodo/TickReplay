@@ -100,14 +100,21 @@ impl ReplayState {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct ReplaySettings {
+    #[serde(default)]
     pub selected_terminal: String,
+    #[serde(default)]
     pub selected_profile: String,
+    #[serde(default)]
     pub source_symbol: String,
+    #[serde(default)]
     pub start_time: String,
+    #[serde(default)]
     pub end_time: String,
+    #[serde(default)]
     pub preloaded_bars: i32,
+    #[serde(default)]
     pub auto_scroll_sync: bool,
     #[serde(default)]
     pub preload_mode: Option<String>,
@@ -181,6 +188,14 @@ pub struct ReplaySettings {
     pub positions_window_x: Option<i32>,
     #[serde(default)]
     pub positions_window_y: Option<i32>,
+    #[serde(default)]
+    pub controller_window_x: Option<i32>,
+    #[serde(default)]
+    pub controller_window_y: Option<i32>,
+    #[serde(default)]
+    pub settings_window_x: Option<i32>,
+    #[serde(default)]
+    pub settings_window_y: Option<i32>,
     #[serde(default)]
     pub terminal_names: Option<std::collections::HashMap<String, String>>,
 }
