@@ -290,8 +290,8 @@ export const SymbolSelectorWindowContent: React.FC = () => {
         display: "flex",
         flexDirection: "column",
         height: "100vh",
-        backgroundColor: "var(--surface, #121214)",
-        color: "var(--on-surface, #e2e8f0)",
+        backgroundColor: "var(--bg-color)",
+        color: "var(--on-surface)",
         fontFamily: "var(--font-ui, sans-serif)",
         userSelect: "none",
         overflow: "hidden"
@@ -305,16 +305,16 @@ export const SymbolSelectorWindowContent: React.FC = () => {
           justifyContent: "space-between",
           alignItems: "center",
           padding: "8px 14px",
-          backgroundColor: "var(--surface-container-high, #1e1e24)",
-          borderBottom: "1px solid var(--outline-variant, #2d2d34)",
+          backgroundColor: "var(--surface-obsidian)",
+          borderBottom: "1px solid var(--outline-variant)",
           flexShrink: 0
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }} data-tauri-drag-region>
-          <span className="material-symbols-outlined icon-accent" style={{ fontSize: "18px" }} data-tauri-drag-region>
+          <span className="material-symbols-outlined icon-accent" style={{ fontSize: "18px", color: "var(--primary-color)" }} data-tauri-drag-region>
             tune
           </span>
-          <span style={{ fontWeight: 600, fontSize: "13px" }} data-tauri-drag-region>
+          <span style={{ fontWeight: 600, fontSize: "13px", color: "var(--on-surface)" }} data-tauri-drag-region>
             シンボル選択セレクター
           </span>
         </div>
@@ -333,8 +333,8 @@ export const SymbolSelectorWindowContent: React.FC = () => {
       <div
         style={{
           padding: "8px 14px",
-          backgroundColor: "var(--surface-container-low, #16161a)",
-          borderBottom: "1px solid var(--outline-variant, #2d2d34)",
+          backgroundColor: "var(--surface-charcoal)",
+          borderBottom: "1px solid var(--outline-variant)",
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
@@ -344,7 +344,7 @@ export const SymbolSelectorWindowContent: React.FC = () => {
         }}
       >
         {/* モード切替（セグメントボタン） */}
-        <div style={{ display: "flex", backgroundColor: "var(--surface-container, #1f1f26)", borderRadius: "5px", padding: "2px", border: "1px solid var(--outline-variant, #2d2d34)" }}>
+        <div style={{ display: "flex", backgroundColor: "var(--surface-variant)", borderRadius: "5px", padding: "2px", border: "1px solid var(--outline-variant)" }}>
           <button
             type="button"
             onClick={() => setReplayMode("single")}
@@ -355,8 +355,8 @@ export const SymbolSelectorWindowContent: React.FC = () => {
               border: "none",
               borderRadius: "4px",
               cursor: "pointer",
-              backgroundColor: replayMode === "single" ? "var(--primary, #4f46e5)" : "transparent",
-              color: replayMode === "single" ? "#fff" : "var(--on-surface-variant, #94a3b8)",
+              backgroundColor: replayMode === "single" ? "var(--primary-color)" : "transparent",
+              color: replayMode === "single" ? "var(--on-primary, #fff)" : "var(--on-surface-variant)",
               display: "flex",
               alignItems: "center",
               gap: "4px"
@@ -375,8 +375,8 @@ export const SymbolSelectorWindowContent: React.FC = () => {
               border: "none",
               borderRadius: "4px",
               cursor: "pointer",
-              backgroundColor: replayMode === "dual" ? "var(--primary, #4f46e5)" : "transparent",
-              color: replayMode === "dual" ? "#fff" : "var(--on-surface-variant, #94a3b8)",
+              backgroundColor: replayMode === "dual" ? "var(--primary-color)" : "transparent",
+              color: replayMode === "dual" ? "var(--on-primary, #fff)" : "var(--on-surface-variant)",
               display: "flex",
               alignItems: "center",
               gap: "4px"
@@ -411,7 +411,7 @@ export const SymbolSelectorWindowContent: React.FC = () => {
               left: "6px",
               top: "5px",
               fontSize: "15px",
-              color: "var(--on-surface-variant, #94a3b8)",
+              color: "var(--on-surface-variant)",
               pointerEvents: "none"
             }}
           >
@@ -457,11 +457,11 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                     padding: "3px 8px",
                     fontSize: "11px",
                     borderRadius: "4px",
-                    border: `1px solid ${activeCategory === y ? "var(--primary, #4f46e5)" : "var(--outline-variant, #2d2d34)"}`,
-                    backgroundColor: activeCategory === y ? "rgba(79, 70, 229, 0.15)" : "transparent",
-                    color: activeCategory === y ? "var(--primary, #a5b4fc)" : "var(--on-surface)",
+                    border: `1px solid ${activeCategory === y ? "var(--primary-color)" : "var(--outline-variant)"}`,
+                    backgroundColor: activeCategory === y ? "rgba(var(--primary-rgb), 0.15)" : "var(--btn-default-bg)",
+                    color: activeCategory === y ? "var(--primary-color)" : "var(--btn-default-color)",
                     cursor: "pointer",
-                    fontWeight: activeCategory === y ? 600 : "normal"
+                    fontWeight: activeCategory === y ? 700 : "normal"
                   }}
                 >
                   📅 {y}年
@@ -476,11 +476,11 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                     padding: "3px 8px",
                     fontSize: "11px",
                     borderRadius: "4px",
-                    border: `1px solid ${activeCategory === t ? "var(--tertiary, #06b6d4)" : "var(--outline-variant, #2d2d34)"}`,
-                    backgroundColor: activeCategory === t ? "rgba(6, 182, 212, 0.12)" : "transparent",
-                    color: activeCategory === t ? "var(--tertiary, #67e8f9)" : "var(--on-surface)",
+                    border: `1px solid ${activeCategory === t ? "var(--tertiary)" : "var(--outline-variant)"}`,
+                    backgroundColor: activeCategory === t ? "rgba(var(--tertiary-rgb, var(--primary-rgb)), 0.15)" : "var(--btn-default-bg)",
+                    color: activeCategory === t ? "var(--tertiary)" : "var(--btn-default-color)",
                     cursor: "pointer",
-                    fontWeight: activeCategory === t ? 600 : "normal"
+                    fontWeight: activeCategory === t ? 700 : "normal"
                   }}
                 >
                   🏷️ {t}
@@ -494,11 +494,11 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                     padding: "3px 8px",
                     fontSize: "11px",
                     borderRadius: "4px",
-                    border: `1px solid ${activeCategory === "Standard" ? "var(--secondary, #38bdf8)" : "var(--outline-variant, #2d2d34)"}`,
-                    backgroundColor: activeCategory === "Standard" ? "rgba(56, 189, 248, 0.12)" : "transparent",
-                    color: activeCategory === "Standard" ? "var(--secondary, #7dd3fc)" : "var(--on-surface)",
+                    border: `1px solid ${activeCategory === "Standard" ? "var(--secondary-color)" : "var(--outline-variant)"}`,
+                    backgroundColor: activeCategory === "Standard" ? "rgba(var(--secondary-rgb, var(--primary-rgb)), 0.15)" : "var(--btn-default-bg)",
+                    color: activeCategory === "Standard" ? "var(--secondary-color)" : "var(--btn-default-color)",
                     cursor: "pointer",
-                    fontWeight: activeCategory === "Standard" ? 600 : "normal"
+                    fontWeight: activeCategory === "Standard" ? 700 : "normal"
                   }}
                 >
                   🏛️ 通常銘柄
@@ -511,8 +511,8 @@ export const SymbolSelectorWindowContent: React.FC = () => {
               style={{
                 padding: "8px 12px",
                 borderRadius: "6px",
-                backgroundColor: "var(--surface-container, #1a1a20)",
-                border: "1px solid var(--outline-variant, #2d2d34)",
+                backgroundColor: "var(--surface-charcoal)",
+                border: "1px solid var(--outline-variant)",
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
@@ -523,7 +523,7 @@ export const SymbolSelectorWindowContent: React.FC = () => {
               <div style={{ display: "flex", alignItems: "center", gap: "12px", fontSize: "11.5px" }}>
                 <div>
                   <span style={{ color: "var(--on-surface-variant)", marginRight: "6px" }}>主通貨:</span>
-                  <strong style={{ color: "var(--primary, #a5b4fc)", fontSize: "12.5px" }}>
+                  <strong style={{ color: "var(--primary-color)", fontSize: "12.5px" }}>
                     {selectedSource || "(未選択)"}
                   </strong>
                 </div>
@@ -597,16 +597,16 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                         padding: "6px 8px",
                         borderRadius: "5px",
                         backgroundColor: isSource
-                          ? "rgba(79, 70, 229, 0.18)"
+                          ? "rgba(var(--primary-rgb), 0.16)"
                           : isSync
-                          ? "rgba(6, 182, 212, 0.1)"
-                          : "var(--surface-container-low, #16161a)",
+                          ? "rgba(var(--secondary-rgb, var(--primary-rgb)), 0.14)"
+                          : "var(--surface-charcoal)",
                         border: `1px solid ${
                           isSource
-                            ? "var(--primary, #4f46e5)"
+                            ? "var(--primary-color)"
                             : isSync
-                            ? "var(--tertiary, #06b6d4)"
-                            : "var(--outline-variant, #2d2d34)"
+                            ? "var(--secondary-color)"
+                            : "var(--outline-variant)"
                         }`,
                         display: "flex",
                         flexDirection: "column",
@@ -617,8 +617,12 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                         <span
                           style={{
                             fontSize: "12px",
-                            fontWeight: isSource ? 700 : 600,
-                            color: isSource ? "var(--primary, #a5b4fc)" : "var(--on-surface)",
+                            fontWeight: isSource || isSync ? 700 : 600,
+                            color: isSource
+                              ? "var(--primary-color)"
+                              : isSync
+                              ? "var(--secondary-color)"
+                              : "var(--on-surface)",
                             overflow: "hidden",
                             textOverflow: "ellipsis",
                             whiteSpace: "nowrap"
@@ -628,7 +632,7 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                           {parsed.basePair}
                         </span>
                         {parsed.broker && (
-                          <span style={{ fontSize: "9px", color: "var(--on-surface-variant)", opacity: 0.8 }}>
+                          <span style={{ fontSize: "9px", color: "var(--on-surface-variant)", opacity: 0.85 }}>
                             {parsed.broker}
                           </span>
                         )}
@@ -642,12 +646,13 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                             flex: 1,
                             padding: "2px 4px",
                             fontSize: "10px",
+                            fontWeight: 600,
                             borderRadius: "3px",
                             border: "1px solid",
                             cursor: "pointer",
-                            borderColor: isSource ? "var(--primary, #4f46e5)" : "var(--outline-variant, #2d2d34)",
-                            backgroundColor: isSource ? "var(--primary, #4f46e5)" : "transparent",
-                            color: isSource ? "#fff" : "var(--on-surface-variant)"
+                            borderColor: isSource ? "var(--primary-color)" : "var(--outline-variant)",
+                            backgroundColor: isSource ? "var(--primary-color)" : "var(--btn-default-bg)",
+                            color: isSource ? "var(--on-primary, #fff)" : "var(--on-surface-variant)"
                           }}
                         >
                           {isSource ? "★ 主通貨" : "主通貨"}
@@ -661,12 +666,13 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                               flex: 1,
                               padding: "2px 4px",
                               fontSize: "10px",
+                              fontWeight: 600,
                               borderRadius: "3px",
                               border: "1px solid",
                               cursor: "pointer",
-                              borderColor: isSync ? "var(--tertiary, #06b6d4)" : "var(--outline-variant, #2d2d34)",
-                              backgroundColor: isSync ? "rgba(6, 182, 212, 0.2)" : "transparent",
-                              color: isSync ? "var(--tertiary, #67e8f9)" : "var(--on-surface-variant)"
+                              borderColor: isSync ? "var(--secondary-color)" : "var(--outline-variant)",
+                              backgroundColor: isSync ? "var(--secondary-color)" : "var(--btn-default-bg)",
+                              color: isSync ? "var(--on-primary, #fff)" : "var(--on-surface-variant)"
                             }}
                           >
                             {isSync ? "✓ 同期中" : "+ 同期"}
@@ -689,7 +695,7 @@ export const SymbolSelectorWindowContent: React.FC = () => {
               style={{
                 padding: "8px 12px",
                 borderRadius: "6px",
-                backgroundColor: "var(--surface-container)",
+                backgroundColor: "var(--surface-charcoal)",
                 border: "1px solid var(--outline-variant)",
                 display: "grid",
                 gridTemplateColumns: "1fr auto 1fr",
@@ -702,7 +708,7 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                 <div style={{ fontSize: "9.5px", color: "var(--primary-color)", fontWeight: 700 }}>
                   MAIN (メインチャート)
                 </div>
-                <div style={{ fontSize: "12px", fontWeight: 700, marginTop: "2px" }}>
+                <div style={{ fontSize: "12px", fontWeight: 700, marginTop: "2px", color: "var(--on-surface)" }}>
                   {dualMainSymbol || "(未選択)"}
                 </div>
               </div>
@@ -720,11 +726,11 @@ export const SymbolSelectorWindowContent: React.FC = () => {
               </button>
 
               {/* Sub Card */}
-              <div style={{ padding: "6px 10px", borderRadius: "4px", backgroundColor: "var(--surface-variant)", border: "1px solid var(--secondary-color, #06b6d4)" }}>
-                <div style={{ fontSize: "9.5px", color: "var(--secondary-color, #06b6d4)", fontWeight: 700 }}>
+              <div style={{ padding: "6px 10px", borderRadius: "4px", backgroundColor: "var(--surface-variant)", border: "1px solid var(--secondary-color)" }}>
+                <div style={{ fontSize: "9.5px", color: "var(--secondary-color)", fontWeight: 700 }}>
                   SUB (マーカーチャート)
                 </div>
-                <div style={{ fontSize: "12px", fontWeight: 700, marginTop: "2px" }}>
+                <div style={{ fontSize: "12px", fontWeight: 700, marginTop: "2px", color: "var(--on-surface)" }}>
                   {dualSubSymbol || "(未選択)"}
                 </div>
               </div>
@@ -741,10 +747,11 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                     padding: "2px 6px",
                     fontSize: "10.5px",
                     borderRadius: "3px",
-                    border: `1px solid ${selectedYear === "ALL" ? "var(--primary, #4f46e5)" : "var(--outline-variant)"}`,
-                    backgroundColor: selectedYear === "ALL" ? "rgba(79, 70, 229, 0.15)" : "transparent",
-                    color: selectedYear === "ALL" ? "var(--primary, #a5b4fc)" : "var(--on-surface)",
-                    cursor: "pointer"
+                    border: `1px solid ${selectedYear === "ALL" ? "var(--primary-color)" : "var(--outline-variant)"}`,
+                    backgroundColor: selectedYear === "ALL" ? "rgba(var(--primary-rgb), 0.15)" : "var(--btn-default-bg)",
+                    color: selectedYear === "ALL" ? "var(--primary-color)" : "var(--btn-default-color)",
+                    cursor: "pointer",
+                    fontWeight: selectedYear === "ALL" ? 700 : "normal"
                   }}
                 >
                   全年度
@@ -758,10 +765,11 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                       padding: "2px 6px",
                       fontSize: "10.5px",
                       borderRadius: "3px",
-                      border: `1px solid ${selectedYear === y ? "var(--primary, #4f46e5)" : "var(--outline-variant)"}`,
-                      backgroundColor: selectedYear === y ? "rgba(79, 70, 229, 0.15)" : "transparent",
-                      color: selectedYear === y ? "var(--primary, #a5b4fc)" : "var(--on-surface)",
-                      cursor: "pointer"
+                      border: `1px solid ${selectedYear === y ? "var(--primary-color)" : "var(--outline-variant)"}`,
+                      backgroundColor: selectedYear === y ? "rgba(var(--primary-rgb), 0.15)" : "var(--btn-default-bg)",
+                      color: selectedYear === y ? "var(--primary-color)" : "var(--btn-default-color)",
+                      cursor: "pointer",
+                      fontWeight: selectedYear === y ? 700 : "normal"
                     }}
                   >
                     {y}年
@@ -779,10 +787,11 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                       padding: "2px 6px",
                       fontSize: "10.5px",
                       borderRadius: "3px",
-                      border: `1px solid ${selectedBroker === "ALL" ? "var(--primary, #4f46e5)" : "var(--outline-variant)"}`,
-                      backgroundColor: selectedBroker === "ALL" ? "rgba(79, 70, 229, 0.15)" : "transparent",
-                      color: selectedBroker === "ALL" ? "var(--primary, #a5b4fc)" : "var(--on-surface)",
-                      cursor: "pointer"
+                      border: `1px solid ${selectedBroker === "ALL" ? "var(--primary-color)" : "var(--outline-variant)"}`,
+                      backgroundColor: selectedBroker === "ALL" ? "rgba(var(--primary-rgb), 0.15)" : "var(--btn-default-bg)",
+                      color: selectedBroker === "ALL" ? "var(--primary-color)" : "var(--btn-default-color)",
+                      cursor: "pointer",
+                      fontWeight: selectedBroker === "ALL" ? 700 : "normal"
                     }}
                   >
                     全業者
@@ -796,10 +805,11 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                         padding: "2px 6px",
                         fontSize: "10.5px",
                         borderRadius: "3px",
-                        border: `1px solid ${selectedBroker === b ? "var(--primary, #4f46e5)" : "var(--outline-variant)"}`,
-                        backgroundColor: selectedBroker === b ? "rgba(79, 70, 229, 0.15)" : "transparent",
-                        color: selectedBroker === b ? "var(--primary, #a5b4fc)" : "var(--on-surface)",
-                        cursor: "pointer"
+                        border: `1px solid ${selectedBroker === b ? "var(--primary-color)" : "var(--outline-variant)"}`,
+                        backgroundColor: selectedBroker === b ? "rgba(var(--primary-rgb), 0.15)" : "var(--btn-default-bg)",
+                        color: selectedBroker === b ? "var(--primary-color)" : "var(--btn-default-color)",
+                        cursor: "pointer",
+                        fontWeight: selectedBroker === b ? 700 : "normal"
                       }}
                     >
                       {b}
@@ -826,8 +836,8 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                       style={{
                         padding: "8px",
                         borderRadius: "5px",
-                        backgroundColor: isSelected ? "rgba(79, 70, 229, 0.12)" : "var(--surface-container-low, #16161a)",
-                        border: `1px solid ${isSelected ? "var(--primary, #4f46e5)" : "var(--outline-variant, #2d2d34)"}`,
+                        backgroundColor: isSelected ? "rgba(var(--primary-rgb), 0.12)" : "var(--surface-charcoal)",
+                        border: `1px solid ${isSelected ? "var(--primary-color)" : "var(--outline-variant)"}`,
                         display: "flex",
                         flexDirection: "column",
                         gap: "6px"
@@ -835,7 +845,7 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                     >
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                          <strong style={{ fontSize: "12.5px" }}>{c.basePair}</strong>
+                          <strong style={{ fontSize: "12.5px", color: "var(--on-surface)" }}>{c.basePair}</strong>
                           {c.year && (
                             <span style={{ fontSize: "10px", color: "var(--on-surface-variant)" }}>({c.year}年)</span>
                           )}
@@ -867,13 +877,13 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                                 padding: "3px 6px",
                                 borderRadius: "3px",
                                 backgroundColor: isMain
-                                  ? "rgba(79, 70, 229, 0.2)"
+                                  ? "rgba(var(--primary-rgb), 0.18)"
                                   : isSub
-                                  ? "rgba(6, 182, 212, 0.15)"
-                                  : "rgba(255,255,255,0.02)"
+                                  ? "rgba(var(--secondary-rgb, var(--primary-rgb)), 0.16)"
+                                  : "var(--surface-variant)"
                               }}
                             >
-                              <span style={{ fontSize: "11px", fontWeight: 600 }}>{b.broker}</span>
+                              <span style={{ fontSize: "11px", fontWeight: 600, color: "var(--on-surface)" }}>{b.broker}</span>
                               <div style={{ display: "flex", gap: "2px" }}>
                                 <button
                                   type="button"
@@ -881,12 +891,13 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                                   style={{
                                     padding: "1px 5px",
                                     fontSize: "9.5px",
+                                    fontWeight: 600,
                                     borderRadius: "2px",
                                     border: "1px solid",
                                     cursor: "pointer",
-                                    borderColor: isMain ? "var(--primary, #4f46e5)" : "var(--outline-variant)",
-                                    backgroundColor: isMain ? "var(--primary, #4f46e5)" : "transparent",
-                                    color: isMain ? "#fff" : "var(--on-surface-variant)"
+                                    borderColor: isMain ? "var(--primary-color)" : "var(--outline-variant)",
+                                    backgroundColor: isMain ? "var(--primary-color)" : "var(--btn-default-bg)",
+                                    color: isMain ? "var(--on-primary, #fff)" : "var(--on-surface-variant)"
                                   }}
                                 >
                                   Main
@@ -897,12 +908,13 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                                   style={{
                                     padding: "1px 5px",
                                     fontSize: "9.5px",
+                                    fontWeight: 600,
                                     borderRadius: "2px",
                                     border: "1px solid",
                                     cursor: "pointer",
-                                    borderColor: isSub ? "var(--tertiary, #06b6d4)" : "var(--outline-variant)",
-                                    backgroundColor: isSub ? "var(--tertiary, #06b6d4)" : "transparent",
-                                    color: isSub ? "#000" : "var(--on-surface-variant)"
+                                    borderColor: isSub ? "var(--secondary-color)" : "var(--outline-variant)",
+                                    backgroundColor: isSub ? "var(--secondary-color)" : "var(--btn-default-bg)",
+                                    color: isSub ? "var(--on-primary, #fff)" : "var(--on-surface-variant)"
                                   }}
                                 >
                                   Sub
@@ -925,8 +937,8 @@ export const SymbolSelectorWindowContent: React.FC = () => {
       <footer
         style={{
           padding: "8px 14px",
-          backgroundColor: "var(--surface-container-high, #1e1e24)",
-          borderTop: "1px solid var(--outline-variant, #2d2d34)",
+          backgroundColor: "var(--surface-obsidian)",
+          borderTop: "1px solid var(--outline-variant)",
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
@@ -938,7 +950,7 @@ export const SymbolSelectorWindowContent: React.FC = () => {
             type="checkbox"
             checked={autoApplyDateRange}
             onChange={(e) => setAutoApplyDateRange(e.target.checked)}
-            style={{ width: "13px", height: "13px", accentColor: "var(--primary, #4f46e5)" }}
+            style={{ width: "13px", height: "13px", accentColor: "var(--primary-color)" }}
           />
           <span>選択した年度の全期間 (01/01〜12/31) をリプレイ日時に自動反映</span>
         </label>
@@ -960,8 +972,8 @@ export const SymbolSelectorWindowContent: React.FC = () => {
               padding: "4px 16px",
               fontSize: "11px",
               fontWeight: 600,
-              backgroundColor: "var(--primary, #4f46e5)",
-              color: "#fff",
+              backgroundColor: "var(--primary-color)",
+              color: "var(--on-primary, #fff)",
               display: "flex",
               alignItems: "center",
               gap: "4px"

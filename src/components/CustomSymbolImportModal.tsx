@@ -390,10 +390,10 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
           maxHeight: "90vh",
           display: "flex",
           flexDirection: "column",
-          backgroundColor: "var(--surface-container-high, #18181c)",
-          border: "1px solid var(--outline-variant, #333)",
+          backgroundColor: "var(--surface-charcoal)",
+          border: "1px solid var(--outline-variant)",
           borderRadius: "var(--radius-lg, 12px)",
-          boxShadow: "0 12px 40px rgba(0,0,0,0.6)",
+          boxShadow: "var(--shadow-modal)",
           overflow: "hidden"
         }}
       >
@@ -549,8 +549,8 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                     key={cat}
                     style={{
                       borderRadius: "8px",
-                      backgroundColor: "var(--surface-container, rgba(255,255,255,0.03))",
-                      border: "1px solid var(--outline-variant, #2d2d35)",
+                      backgroundColor: "var(--surface-variant)",
+                      border: "1px solid var(--outline-variant)",
                       overflow: "hidden"
                     }}
                   >
@@ -558,7 +558,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                     <div
                       style={{
                         padding: "8px 12px",
-                        backgroundColor: "rgba(0,0,0,0.2)",
+                        backgroundColor: "var(--surface-container)",
                         borderBottom: "1px solid var(--outline-variant)",
                         display: "flex",
                         justifyContent: "space-between",
@@ -566,13 +566,13 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                       }}
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                        <span className="material-symbols-outlined" style={{ fontSize: "18px", color: "var(--primary, #a8c7fa)" }}>
+                        <span className="material-symbols-outlined" style={{ fontSize: "18px", color: "var(--primary-color)" }}>
                           {isYear ? "calendar_today" : "account_balance"}
                         </span>
-                        <strong style={{ fontSize: "13px" }}>
+                        <strong style={{ fontSize: "13px", color: "var(--on-surface)" }}>
                           {isYear ? `${cat}年` : `ブローカー / 分類: ${cat}`}
                         </strong>
-                        <span style={{ fontSize: "11px", color: "var(--text-muted, #888)" }}>
+                        <span style={{ fontSize: "11px", color: "var(--on-surface-variant)" }}>
                           ({catGroups.length} シンボルグループ / {catTotalFiles} ファイル)
                         </span>
                       </div>
@@ -622,14 +622,14 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                             style={{
                               padding: "10px",
                               borderRadius: "6px",
-                              backgroundColor: "rgba(255,255,255,0.02)",
-                              border: "1px solid rgba(255,255,255,0.06)"
+                              backgroundColor: "var(--surface-container-low)",
+                              border: "1px solid var(--outline-variant)"
                             }}
                           >
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
                               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                                <strong style={{ fontSize: "13px", color: "var(--primary, #a8c7fa)" }}>{group.pair_name}</strong>
-                                <span style={{ fontSize: "11px", color: "var(--text-muted, #888)" }}>({group.files.length} ファイル)</span>
+                                <strong style={{ fontSize: "13px", color: "var(--on-surface)" }}>{group.pair_name}</strong>
+                                <span style={{ fontSize: "11px", color: "var(--on-surface-variant)" }}>({group.files.length} ファイル)</span>
                                 {group.already_exists_in_mt5 && (
                                   <span style={{ fontSize: "10px", padding: "1px 6px", borderRadius: "4px", backgroundColor: "rgba(245, 158, 11, 0.2)", color: "#fbbf24", border: "1px solid rgba(245, 158, 11, 0.4)" }}>
                                     ⚠️ MT5に既存

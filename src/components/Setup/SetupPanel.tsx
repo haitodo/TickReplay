@@ -371,8 +371,8 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                         >
                           <span className="material-symbols-outlined icon">swap_horiz</span>
                         </button>
-                        <div style={{ padding: "5px 8px", backgroundColor: "var(--surface-variant)", borderRadius: "4px", border: "1px solid var(--secondary-color, #06b6d4)" }}>
-                          <span style={{ fontSize: "9px", color: "var(--secondary-color, #06b6d4)", fontWeight: 700, display: "block" }}>SUB</span>
+                        <div style={{ padding: "5px 8px", backgroundColor: "var(--surface-variant)", borderRadius: "4px", border: "1px solid var(--secondary-color)" }}>
+                          <span style={{ fontSize: "9px", color: "var(--secondary-color)", fontWeight: 700, display: "block" }}>SUB</span>
                           <span style={{ fontSize: "12px", fontWeight: 700, fontFamily: "var(--font-data)" }}>{subSourceSymbol || "(未選択)"}</span>
                         </div>
                       </div>
@@ -387,7 +387,7 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                         {sourceSymbol && (
                           <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
                             {parseSymbolName(sourceSymbol).year && (
-                              <span style={{ fontSize: "10px", padding: "1px 5px", borderRadius: "3px", backgroundColor: "rgba(var(--primary-rgb), 0.15)", color: "var(--primary-color)" }}>
+                              <span style={{ fontSize: "10px", padding: "1px 5px", borderRadius: "3px", backgroundColor: "rgba(var(--primary-rgb), 0.15)", color: "var(--primary-color)", fontWeight: 700 }}>
                                 {parseSymbolName(sourceSymbol).year}年
                               </span>
                             )}
@@ -408,11 +408,11 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                       onClick={handleOpenSelector}
                       style={{
                         width: "100%",
-                        padding: "5px 10px",
-                        fontSize: "11px",
-                        fontWeight: 600,
-                        backgroundColor: "var(--primary, #4f46e5)",
-                        color: "#fff",
+                        padding: "6px 10px",
+                        fontSize: "11.5px",
+                        fontWeight: 700,
+                        backgroundColor: "var(--primary-color)",
+                        color: "var(--on-primary, #fff)",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
@@ -798,7 +798,7 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                                   <li>GBPJPY：2.0〜3.0 pips</li>
                                   <li>XAUUSD（Gold）：4.0〜6.0 pips</li>
                                 </ul>
-                                <p style={{ margin: "6px 0 0", color: "var(--color-warning, #f59e0b)" }}>
+                                <p style={{ margin: "6px 0 0", color: "var(--status-warning)" }}>
                                   ⚠️ 0に設定するとすべてのティックで拡大計算が適用されるため、スプレッドが常に広くなります。
                                 </p>
                               </div>

@@ -240,10 +240,10 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
           maxHeight: "90vh",
           display: "flex",
           flexDirection: "column",
-          backgroundColor: "var(--surface-container-high, #18181c)",
-          border: "1px solid var(--outline-variant, #333)",
+          backgroundColor: "var(--surface-charcoal)",
+          border: "1px solid var(--outline-variant)",
           borderRadius: "var(--radius-lg, 12px)",
-          boxShadow: "0 16px 48px rgba(0,0,0,0.65)",
+          boxShadow: "var(--shadow-modal)",
           overflow: "hidden"
         }}
       >
@@ -260,7 +260,7 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <span className="material-symbols-outlined icon-accent" style={{ fontSize: "22px", color: "var(--primary, #6366f1)" }}>
+            <span className="material-symbols-outlined icon-accent" style={{ fontSize: "22px", color: "var(--primary-color)" }}>
               tune
             </span>
             <div>
@@ -302,8 +302,8 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                 borderRadius: "6px",
                 border: "none",
                 cursor: "pointer",
-                backgroundColor: replayMode === "single" ? "var(--primary, #6366f1)" : "transparent",
-                color: replayMode === "single" ? "#fff" : "var(--on-surface-variant)",
+                backgroundColor: replayMode === "single" ? "var(--primary-color)" : "transparent",
+                color: replayMode === "single" ? "var(--on-primary, #fff)" : "var(--on-surface-variant)",
                 transition: "all 0.15s ease",
                 display: "flex",
                 alignItems: "center",
@@ -325,8 +325,8 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                 borderRadius: "6px",
                 border: "none",
                 cursor: "pointer",
-                backgroundColor: replayMode === "dual" ? "var(--primary, #6366f1)" : "transparent",
-                color: replayMode === "dual" ? "#fff" : "var(--on-surface-variant)",
+                backgroundColor: replayMode === "dual" ? "var(--primary-color)" : "transparent",
+                color: replayMode === "dual" ? "var(--on-primary, #fff)" : "var(--on-surface-variant)",
                 transition: "all 0.15s ease",
                 display: "flex",
                 alignItems: "center",
@@ -352,14 +352,14 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
               <div style={{
                 padding: "12px 16px",
                 borderRadius: "8px",
-                backgroundColor: "rgba(99, 102, 241, 0.08)",
-                border: "1px solid rgba(99, 102, 241, 0.3)",
+                backgroundColor: "rgba(var(--primary-rgb), 0.08)",
+                border: "1px solid rgba(var(--primary-rgb), 0.3)",
                 display: "flex",
                 flexDirection: "column",
                 gap: "10px"
               }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--primary, #a8c7fa)" }}>
+                  <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--primary-color)" }}>
                     現在選択中の比較ペア
                   </span>
                   <button
@@ -404,9 +404,9 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                     padding: "10px",
                     borderRadius: "6px",
                     backgroundColor: "var(--surface-variant)",
-                    border: "1px solid var(--secondary-color, #06b6d4)"
+                    border: "1px solid var(--secondary-color)"
                   }}>
-                    <div style={{ fontSize: "10.5px", color: "var(--secondary-color, #06b6d4)", fontWeight: 700, marginBottom: "3px" }}>
+                    <div style={{ fontSize: "10.5px", color: "var(--secondary-color)", fontWeight: 700, marginBottom: "3px" }}>
                       SUB (目印インジケーターのあるチャートに表示)
                     </div>
                     <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--on-surface)" }}>
@@ -501,7 +501,7 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                 </label>
 
                 {filteredDualCandidates.length === 0 ? (
-                  <div style={{ padding: "24px", textAlign: "center", color: "var(--on-surface-variant)", fontSize: "12px", backgroundColor: "rgba(255,255,255,0.02)", borderRadius: "8px" }}>
+                  <div style={{ padding: "24px", textAlign: "center", color: "var(--on-surface-variant)", fontSize: "12px", backgroundColor: "var(--surface-variant)", borderRadius: "8px" }}>
                     一致するシンボルが見つかりませんでした。別の年度を選択するか、カスタムシンボルをインポートしてください。
                   </div>
                 ) : (
@@ -516,8 +516,8 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                           style={{
                             padding: "12px",
                             borderRadius: "8px",
-                            backgroundColor: isSelectedPair ? "rgba(99, 102, 241, 0.12)" : "rgba(255,255,255,0.02)",
-                            border: `1px solid ${isSelectedPair ? "var(--primary, #6366f1)" : "var(--outline-variant)"}`,
+                            backgroundColor: isSelectedPair ? "rgba(var(--primary-rgb), 0.12)" : "var(--surface-variant)",
+                            border: `1px solid ${isSelectedPair ? "var(--primary-color)" : "var(--outline-variant)"}`,
                             display: "flex",
                             flexDirection: "column",
                             gap: "8px"
@@ -529,11 +529,11 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                                 {c.basePair}
                               </strong>
                               {c.year && (
-                                <span style={{ fontSize: "11px", padding: "1px 6px", borderRadius: "4px", backgroundColor: "rgba(96, 165, 250, 0.15)", color: "#60a5fa", fontWeight: 600 }}>
+                                <span style={{ fontSize: "11px", padding: "1px 6px", borderRadius: "4px", backgroundColor: "rgba(var(--primary-rgb), 0.15)", color: "var(--primary-color)", fontWeight: 700 }}>
                                   {c.year}年
                                 </span>
                               )}
-                              <span style={{ fontSize: "10.5px", color: hasTwoBrokers ? "#4ade80" : "var(--on-surface-variant)" }}>
+                              <span style={{ fontSize: "10.5px", color: hasTwoBrokers ? "var(--status-success)" : "var(--on-surface-variant)" }}>
                                 ({c.brokers.length}社データ)
                               </span>
                             </div>
@@ -543,7 +543,7 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                                 type="button"
                                 className="pro-btn"
                                 onClick={() => handleSetDualPair(c.brokers[0].symbolName, c.brokers[1].symbolName)}
-                                style={{ padding: "2px 8px", fontSize: "10.5px", height: "22px", backgroundColor: "rgba(99, 102, 241, 0.2)", borderColor: "var(--primary, #6366f1)", color: "#fff" }}
+                                style={{ padding: "2px 8px", fontSize: "10.5px", height: "22px", backgroundColor: "var(--primary-color)", borderColor: "var(--primary-color)", color: "var(--on-primary, #fff)" }}
                               >
                                 この2社をセット
                               </button>
@@ -565,8 +565,8 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                                     alignItems: "center",
                                     padding: "5px 8px",
                                     borderRadius: "5px",
-                                    backgroundColor: isMain ? "rgba(99, 102, 241, 0.2)" : isSub ? "rgba(168, 199, 250, 0.15)" : "rgba(255,255,255,0.03)",
-                                    border: `1px solid ${isMain ? "var(--primary, #6366f1)" : isSub ? "var(--tertiary, #a8c7fa)" : "transparent"}`
+                                    backgroundColor: isMain ? "rgba(var(--primary-rgb), 0.18)" : isSub ? "rgba(var(--secondary-rgb, var(--primary-rgb)), 0.16)" : "var(--surface-container-low)",
+                                    border: `1px solid ${isMain ? "var(--primary-color)" : isSub ? "var(--secondary-color)" : "transparent"}`
                                   }}
                                 >
                                   <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
@@ -585,12 +585,13 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                                       style={{
                                         padding: "1px 6px",
                                         fontSize: "10px",
+                                        fontWeight: 600,
                                         borderRadius: "3px",
                                         border: "1px solid",
                                         cursor: "pointer",
-                                        borderColor: isMain ? "var(--primary, #6366f1)" : "var(--outline-variant)",
-                                        backgroundColor: isMain ? "var(--primary, #6366f1)" : "transparent",
-                                        color: isMain ? "#fff" : "var(--on-surface-variant)"
+                                        borderColor: isMain ? "var(--primary-color)" : "var(--outline-variant)",
+                                        backgroundColor: isMain ? "var(--primary-color)" : "var(--btn-default-bg)",
+                                        color: isMain ? "var(--on-primary, #fff)" : "var(--on-surface-variant)"
                                       }}
                                     >
                                       Main
@@ -601,12 +602,13 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                                       style={{
                                         padding: "1px 6px",
                                         fontSize: "10px",
+                                        fontWeight: 600,
                                         borderRadius: "3px",
                                         border: "1px solid",
                                         cursor: "pointer",
-                                        borderColor: isSub ? "var(--tertiary, #a8c7fa)" : "var(--outline-variant)",
-                                        backgroundColor: isSub ? "var(--tertiary, #a8c7fa)" : "transparent",
-                                        color: isSub ? "#000" : "var(--on-surface-variant)"
+                                        borderColor: isSub ? "var(--secondary-color)" : "var(--outline-variant)",
+                                        backgroundColor: isSub ? "var(--secondary-color)" : "var(--btn-default-bg)",
+                                        color: isSub ? "var(--on-primary, #fff)" : "var(--on-surface-variant)"
                                       }}
                                     >
                                       Sub
@@ -645,11 +647,11 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                         padding: "6px 12px",
                         fontSize: "12px",
                         borderRadius: "8px",
-                        border: "1px solid " + (activeCategory === y ? "#60a5fa" : "var(--outline-variant, #333)"),
-                        backgroundColor: activeCategory === y ? "rgba(96, 165, 250, 0.2)" : "rgba(255,255,255,0.03)",
-                        color: activeCategory === y ? "#60a5fa" : "var(--on-surface)",
+                        border: "1px solid " + (activeCategory === y ? "var(--primary-color)" : "var(--outline-variant)"),
+                        backgroundColor: activeCategory === y ? "rgba(var(--primary-rgb), 0.18)" : "var(--btn-default-bg)",
+                        color: activeCategory === y ? "var(--primary-color)" : "var(--btn-default-color)",
                         cursor: "pointer",
-                        fontWeight: activeCategory === y ? 600 : "normal",
+                        fontWeight: activeCategory === y ? 700 : "normal",
                         display: "flex",
                         alignItems: "center",
                         gap: "4px"
@@ -668,11 +670,11 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                         padding: "6px 12px",
                         fontSize: "12px",
                         borderRadius: "8px",
-                        border: "1px solid " + (activeCategory === t ? "var(--tertiary, #a8c7fa)" : "var(--outline-variant, #333)"),
-                        backgroundColor: activeCategory === t ? "rgba(168, 199, 250, 0.2)" : "rgba(255,255,255,0.03)",
-                        color: activeCategory === t ? "var(--tertiary, #a8c7fa)" : "var(--on-surface)",
+                        border: "1px solid " + (activeCategory === t ? "var(--tertiary)" : "var(--outline-variant)"),
+                        backgroundColor: activeCategory === t ? "rgba(var(--tertiary-rgb, var(--primary-rgb)), 0.18)" : "var(--btn-default-bg)",
+                        color: activeCategory === t ? "var(--tertiary)" : "var(--btn-default-color)",
                         cursor: "pointer",
-                        fontWeight: activeCategory === t ? 600 : "normal",
+                        fontWeight: activeCategory === t ? 700 : "normal",
                         display: "flex",
                         alignItems: "center",
                         gap: "4px"
@@ -690,11 +692,11 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                         padding: "6px 12px",
                         fontSize: "12px",
                         borderRadius: "8px",
-                        border: "1px solid " + (activeCategory === "Standard" ? "var(--secondary, #9fcaff)" : "var(--outline-variant, #333)"),
-                        backgroundColor: activeCategory === "Standard" ? "rgba(159, 202, 255, 0.2)" : "rgba(255,255,255,0.03)",
-                        color: activeCategory === "Standard" ? "var(--secondary, #9fcaff)" : "var(--on-surface)",
+                        border: "1px solid " + (activeCategory === "Standard" ? "var(--secondary-color)" : "var(--outline-variant)"),
+                        backgroundColor: activeCategory === "Standard" ? "rgba(var(--secondary-rgb, var(--primary-rgb)), 0.18)" : "var(--btn-default-bg)",
+                        color: activeCategory === "Standard" ? "var(--secondary-color)" : "var(--btn-default-color)",
                         cursor: "pointer",
-                        fontWeight: activeCategory === "Standard" ? 600 : "normal",
+                        fontWeight: activeCategory === "Standard" ? 700 : "normal",
                         display: "flex",
                         alignItems: "center",
                         gap: "4px"
@@ -727,7 +729,7 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                   </strong>
                 </div>
                 <div>
-                  <span style={{ fontSize: "10.5px", color: "var(--tertiary, #a8c7fa)", fontWeight: 700, display: "block" }}>
+                  <span style={{ fontSize: "10.5px", color: "var(--tertiary)", fontWeight: 700, display: "block" }}>
                     同期他通貨 ({selectedSync.length} 件選択中)
                   </span>
                   <div style={{ fontSize: "12px", color: "var(--on-surface-variant)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -770,19 +772,19 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                       style={{
                         padding: "8px 10px",
                         borderRadius: "6px",
-                        backgroundColor: isSource ? "rgba(99, 102, 241, 0.2)" : isSync ? "rgba(168, 199, 250, 0.1)" : "rgba(255,255,255,0.02)",
-                        border: `1px solid ${isSource ? "var(--primary, #6366f1)" : isSync ? "var(--tertiary, #a8c7fa)" : "var(--outline-variant)"}`,
+                        backgroundColor: isSource ? "rgba(var(--primary-rgb), 0.18)" : isSync ? "rgba(var(--secondary-rgb, var(--primary-rgb)), 0.14)" : "var(--surface-variant)",
+                        border: `1px solid ${isSource ? "var(--primary-color)" : isSync ? "var(--secondary-color)" : "var(--outline-variant)"}`,
                         display: "flex",
                         flexDirection: "column",
                         gap: "6px"
                       }}
                     >
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <strong style={{ fontSize: "13px", color: isSource ? "var(--primary, #a8c7fa)" : "var(--on-surface)" }}>
+                        <strong style={{ fontSize: "13px", color: isSource ? "var(--primary-color)" : isSync ? "var(--secondary-color)" : "var(--on-surface)" }}>
                           {parsed.basePair}
                         </strong>
                         {parsed.broker && (
-                          <span style={{ fontSize: "10px", padding: "1px 5px", borderRadius: "3px", backgroundColor: "rgba(255,255,255,0.05)", color: "var(--on-surface-variant)" }}>
+                          <span style={{ fontSize: "10px", padding: "1px 5px", borderRadius: "3px", backgroundColor: "var(--surface-container-high)", color: "var(--on-surface-variant)" }}>
                             {parsed.broker}
                           </span>
                         )}
@@ -796,12 +798,13 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                             flex: 1,
                             padding: "3px 6px",
                             fontSize: "10.5px",
+                            fontWeight: 600,
                             borderRadius: "4px",
                             border: "1px solid",
                             cursor: "pointer",
-                            borderColor: isSource ? "var(--primary, #6366f1)" : "var(--outline-variant)",
-                            backgroundColor: isSource ? "var(--primary, #6366f1)" : "transparent",
-                            color: isSource ? "#fff" : "var(--on-surface-variant)"
+                            borderColor: isSource ? "var(--primary-color)" : "var(--outline-variant)",
+                            backgroundColor: isSource ? "var(--primary-color)" : "var(--btn-default-bg)",
+                            color: isSource ? "var(--on-primary, #fff)" : "var(--on-surface-variant)"
                           }}
                         >
                           {isSource ? "★ 主通貨" : "主通貨に設定"}
@@ -815,12 +818,13 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                               flex: 1,
                               padding: "3px 6px",
                               fontSize: "10.5px",
+                              fontWeight: 600,
                               borderRadius: "4px",
                               border: "1px solid",
                               cursor: "pointer",
-                              borderColor: isSync ? "var(--tertiary, #a8c7fa)" : "var(--outline-variant)",
-                              backgroundColor: isSync ? "rgba(168, 199, 250, 0.2)" : "transparent",
-                              color: isSync ? "var(--tertiary, #a8c7fa)" : "var(--on-surface-variant)"
+                              borderColor: isSync ? "var(--secondary-color)" : "var(--outline-variant)",
+                              backgroundColor: isSync ? "var(--secondary-color)" : "var(--btn-default-bg)",
+                              color: isSync ? "var(--on-primary, #fff)" : "var(--on-surface-variant)"
                             }}
                           >
                             {isSync ? "✓ 同期中" : "+ 同期追加"}
@@ -876,8 +880,8 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
               padding: "6px 18px",
               fontSize: "12px",
               fontWeight: 700,
-              backgroundColor: "var(--primary, #6366f1)",
-              color: "#fff",
+              backgroundColor: "var(--primary-color)",
+              color: "var(--on-primary, #fff)",
               display: "flex",
               alignItems: "center",
               gap: "6px",
