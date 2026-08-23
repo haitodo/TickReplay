@@ -77,7 +77,7 @@ npm run tauri build
 ビルドが成功すると、以下のパスに出力ファイルが生成されます：
 
 * **インストーラーファイル (.exe)**:
-  `src-tauri/target/release/bundle/nsis/TickReplay_1.0.0_x64-setup.exe`
+  `src-tauri/target/release/bundle/nsis/TickReplay_1.0.1_x64-setup.exe`
 * **実行ファイル (.exe)**:
   `src-tauri/target/release/TickReplay.exe`
 
