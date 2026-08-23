@@ -115,8 +115,6 @@ export const SpeedOrderWindowContent: React.FC = () => {
     }
     return [1, 10, 100];
   });
-  // const [isVisible, setIsVisible] = useState<boolean>(false);
-  const isVisibleRef = useRef<boolean>(false);
 
   // ホットキー設定の状態
   const [hotkeys, setHotkeys] = useState<Record<string, string>>(() => {
@@ -198,42 +196,6 @@ export const SpeedOrderWindowContent: React.FC = () => {
       return () => clearTimeout(timer);
     }
   }, [errorMessage, errorDisplayDuration]);
-
-  // ウィンドウの表示・非表示イベントのリッスン
-  useEffect(() => {
-    const unlistenVisible = listen<boolean>("window-visible", (event) => {
-      const visible = event.payload;
-      // setIsVisible(visible);
-      isVisibleRef.current = visible;
-      if (visible) {
-        // 表示された瞬間に最新の状態を取得してUI同期
-        invoke<string>("get_last_status").then((last: string) => {
-          if (last && last.trim() !== "") {
-            const data = JSON.parse(last);
-            if (data.status === "ACTIVE" || data.status === "READY" || data.status === "CONNECTED") {
-              setStatus(data.status);
-              prevStatusRef.current = data.status;
-              if (data.bid) setBid(data.bid);
-              if (data.ask) setAsk(data.ask);
-              if (data.account) setAccount(data.account);
-              if (data.positions) setPositions(data.positions);
-              if (data.source_symbol) {
-                setSourceSymbol(data.source_symbol);
-                localStorage.setItem("speed-order-symbol", data.source_symbol);
-              }
-              if (data.is_playing !== undefined) setIsPlaying(data.is_playing);
-              if (data.virtual_time_msc !== undefined) setVirtualTimeMsc(data.virtual_time_msc);
-            }
-          }
-        }).catch(console.error);
-      }
-    });
-    return () => {
-      unlistenVisible.then((fn) => fn());
-    };
-  }, []);
-
-  // 他ウィンドウ（メイン画面）でのlocalStorage更新を検知して同期
   useEffect(() => {
     const handleStorage = (e: StorageEvent) => {
       if (e.key === "speed-order-hedging" && e.newValue) {
@@ -317,7 +279,6 @@ export const SpeedOrderWindowContent: React.FC = () => {
 
     // ステータス更新イベントのリッスン
     const unlistenStatus = listen<string>("mt5-status", (event) => {
-      if (!isVisibleRef.current) return;
       try {
         const data = JSON.parse(event.payload);
         if (data.status === "ACTIVE" || data.status === "READY" || data.status === "CONNECTED") {
@@ -399,7 +360,6 @@ export const SpeedOrderWindowContent: React.FC = () => {
     });
 
     const unlistenDisconnect = listen("mt5-disconnected", () => {
-      if (!isVisibleRef.current) return;
       prevStatusRef.current = "DISCONNECTED";
       setStatus("DISCONNECTED");
       setBid(0);
@@ -704,7 +664,6 @@ export const SpeedOrderWindowContent: React.FC = () => {
   // メインウィンドウやグローバルホットキーからの注文・決済アクション呼び出しをリッスン
   useEffect(() => {
     const unlisten = listen<{ action: string }>("trigger-action", (event) => {
-      if (!isVisibleRef.current) return;
       const { action } = event.payload;
       switch (action) {
         case "order_buy":
