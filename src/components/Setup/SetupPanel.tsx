@@ -1114,7 +1114,7 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
               title="トレード分析アプリ Tracely を起動"
             >
               <span className="material-symbols-outlined icon text-indigo">analytics</span>
-              <span>トレード分析 (Tracely)</span>
+              <span>トレード分析</span>
             </button>
           </div>
 
@@ -1126,7 +1126,7 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                 onClick={handleCheckConnection}
               >
                 <span className="material-symbols-outlined icon">sync</span>
-                <span>EA接続を確認 (Click to Refresh)</span>
+                <span>EA接続を確認</span>
               </button>
             )}
             {status === "CONNECTED" && (

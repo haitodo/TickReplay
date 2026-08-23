@@ -270,7 +270,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   }}
                 >
                   <span className="material-symbols-outlined popover-icon text-indigo">analytics</span>
-                  <span className="popover-label">トレード分析 (Tracely)</span>
+                  <span className="popover-label">トレード分析</span>
                 </button>
 
                 <div className="popover-divider" />
