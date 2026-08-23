@@ -26,39 +26,35 @@ class CReplayEngine
 {
 public:
    // パイプ接続の生存確認
-   static bool EnsureConnected(bool sync_enabled, long &hCmd, long &hStatus, datetime &last_attempt)
+   static bool EnsureConnected(bool sync_enabled, long &hPipe, datetime &last_attempt)
    {
       if(!sync_enabled) return false;
-      if(hCmd != INVALID_HANDLE_VALUE && hStatus != INVALID_HANDLE_VALUE) return true;
+      if(hPipe != INVALID_HANDLE_VALUE) return true;
       
       datetime now = TimeLocal();
-      if(now - last_attempt < 3) return false;
+      if(now - last_attempt < 2) return false;
       last_attempt = now;
       
       Print("[Info] Named Pipe 接続を試行します。");
-      return ConnectPipesCore(hCmd, hStatus);
+      return ConnectPipesCore(hPipe);
    }
 
-   static bool ConnectPipesCore(long &hCmd, long &hStatus)
+   static bool ConnectPipesCore(long &hPipe)
    {
-      CWin32Pipe::CloseHandleIfValid(hCmd);
-      CWin32Pipe::CloseHandleIfValid(hStatus);
+      CWin32Pipe::CloseHandleIfValid(hPipe);
 
-      string cmd_pipe = "\\\\.\\pipe\\replay_command";
-      string status_pipe = "\\\\.\\pipe\\replay_status";
+      string pipe_name = "\\\\.\\pipe\\tick_replay_ipc";
 
-      hCmd = CreateFileW(cmd_pipe, GENERIC_READ, 0, 0, OPEN_EXISTING, 0, 0);
-      hStatus = CreateFileW(status_pipe, GENERIC_WRITE, 0, 0, OPEN_EXISTING, 0, 0);
+      hPipe = CreateFileW(pipe_name, GENERIC_READ | GENERIC_WRITE, 0, 0, OPEN_EXISTING, 0, 0);
 
-      if(hCmd != INVALID_HANDLE_VALUE && hStatus != INVALID_HANDLE_VALUE)
+      if(hPipe != INVALID_HANDLE_VALUE)
       {
          Print("[Info] Named Pipe 接続成功。");
          string init_status = StringFormat("{\"status\":\"CONNECTED\",\"symbol\":\"%s\",\"ea_version\":\"3.00\"}", _Symbol);
-         CWin32Pipe::WriteData(hStatus, init_status + "\n");
+         CWin32Pipe::WriteData(hPipe, init_status + "\n");
          return true;
       }
-      CWin32Pipe::CloseHandleIfValid(hCmd);
-      CWin32Pipe::CloseHandleIfValid(hStatus);
+      CWin32Pipe::CloseHandleIfValid(hPipe);
       return false;
    }
 };

@@ -67,6 +67,21 @@ pub fn run() {
                         });
                     }
                 }
+                tauri::WindowEvent::ScaleFactorChanged { .. } => {
+                    let label = window.label();
+                    let (w, h) = match label {
+                        "controller" => (Some(430.0), Some(325.0)),
+                        "positions" => (Some(760.0), Some(520.0)),
+                        "settings" => (Some(640.0), Some(540.0)),
+                        _ => (None, None),
+                    };
+                    if let (Some(target_w), Some(target_h)) = (w, h) {
+                        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
+                            width: target_w,
+                            height: target_h,
+                        }));
+                    }
+                }
                 tauri::WindowEvent::CloseRequested { api, .. } => {
                     if window.label() == "speed_order" || window.label() == "positions" || window.label() == "settings" || window.label() == "controller" || window.label() == "symbol_selector" {
                         // 完全に破棄せず非表示にすることで、次回起動を瞬時に行う（チラつき防止）
@@ -79,30 +94,20 @@ pub fn run() {
                                 let _ = main_win.set_focus();
                             }
                         }
+                    } else if window.label() == "main" {
+                        // メインウィンドウが閉じられた場合はアプリ全体をクリーンに終了
+                        if let Some(state) = window.app_handle().try_state::<Arc<state::ReplayState>>() {
+                            let _ = state.command_tx.send("{\"command\":\"TERMINATE\"}".to_string());
+                        }
+                        window.app_handle().exit(0);
                     }
                 }
                 tauri::WindowEvent::Destroyed => {
                     if window.label() == "main" {
-                        // メインウィンドウが終了した際、子ウィンドウも自動で閉じる
-                        if let Some(speed_order) = window.app_handle().get_webview_window("speed_order") {
-                            let _ = speed_order.close();
-                        }
-                        if let Some(positions) = window.app_handle().get_webview_window("positions") {
-                            let _ = positions.close();
-                        }
-                        if let Some(settings) = window.app_handle().get_webview_window("settings") {
-                            let _ = settings.close();
-                        }
-                        if let Some(controller) = window.app_handle().get_webview_window("controller") {
-                            let _ = controller.close();
-                        }
-                        if let Some(symbol_selector) = window.app_handle().get_webview_window("symbol_selector") {
-                            let _ = symbol_selector.close();
-                        }
-                        // EAにリプレイ停止・クリーンアップを送信
                         if let Some(state) = window.app_handle().try_state::<Arc<state::ReplayState>>() {
                             let _ = state.command_tx.send("{\"command\":\"TERMINATE\"}".to_string());
                         }
+                        window.app_handle().exit(0);
                     }
                 }
                 _ => {}
@@ -113,11 +118,8 @@ pub fn run() {
             let state = app.state::<Arc<state::ReplayState>>();
             let state_inner = state.inner().clone();
             
-            // Named Pipe のコマンド送信タスクを起動
-            tauri::async_runtime::spawn(ipc::run_command_pipe_server(rx, state_inner.clone()));
-            
-            // Named Pipe のステータス受信タスクを起動
-            tauri::async_runtime::spawn(ipc::run_status_pipe_server(app_handle.clone(), state_inner.clone()));
+            // 単一の全二重 Named Pipe サーバー（Rust ⇔ EA）を起動
+            tauri::async_runtime::spawn(ipc::run_ipc_pipe_server(rx, app_handle.clone(), state_inner.clone()));
             
             // Drenhis/Tracely等の外部ツール連携用 WebSocket 同期サーバーを起動
             tauri::async_runtime::spawn(sync_srv.run(state_inner, sync_server::DEFAULT_SYNC_PORT));
@@ -127,11 +129,6 @@ pub fn run() {
             // 非表示状態のウィンドウに対して明示的に論理サイズ (LogicalSize) を設定し、
             // 前回保存位置（有効時）または画面中央に配置したのち表示（show）する。
             if let Some(window) = app.get_webview_window("main") {
-                let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
-                    width: 760.0,
-                    height: 600.0,
-                }));
-
                 let settings = tauri::async_runtime::block_on(commands_settings::load_settings(app_handle.clone())).ok().flatten();
                 let scale_factor = window.scale_factor().unwrap_or(1.0);
                 let main_phys_w = (760.0 * scale_factor) as u32;
@@ -150,6 +147,11 @@ pub fn run() {
                 if !positioned {
                     let _ = window.center();
                 }
+
+                let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
+                    width: 760.0,
+                    height: 600.0,
+                }));
 
                 let _ = window.show();
 

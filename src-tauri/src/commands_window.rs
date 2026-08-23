@@ -42,6 +42,36 @@ pub fn is_position_valid_on_monitors(
     false
 }
 
+pub fn apply_window_position_and_logical_size(
+    app_handle: &AppHandle,
+    window: &tauri::WebviewWindow,
+    saved_x: Option<i32>,
+    saved_y: Option<i32>,
+    logical_w: f64,
+    logical_h: f64,
+) {
+    let mut positioned = false;
+    if let (Some(x), Some(y)) = (saved_x, saved_y) {
+        let scale_factor = window.scale_factor().unwrap_or(1.0);
+        let phys_w = (logical_w * scale_factor) as u32;
+        let phys_h = (logical_h * scale_factor) as u32;
+        if is_position_valid_on_monitors(app_handle, x, y, phys_w, phys_h) {
+            let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+            positioned = true;
+        }
+    }
+    if !positioned {
+        let _ = window.center();
+    }
+
+    // 重要: 対象モニターの物理座標へ配置後、明示的に論理サイズを再適用することで
+    // マルチモニター環境（4K 150% と 2K 100%など）でのDPI不整合によるウィンドウ縮小・歪みを防止する
+    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
+        width: logical_w,
+        height: logical_h,
+    }));
+}
+
 #[tauri::command]
 pub fn set_always_on_top(always: bool, window: tauri::Window) -> Result<(), AppError> {
     window.set_always_on_top(always)?;
@@ -100,6 +130,10 @@ pub fn set_remote_mode(is_remote: bool, always_on_top: bool, window: tauri::Wind
         if !positioned {
             window.center()?;
         }
+        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
+            width: 760.0,
+            height: 600.0,
+        }));
         window.set_always_on_top(always_on_top)?;
     }
     Ok(())
@@ -128,47 +162,15 @@ pub async fn open_speed_order_window(app_handle: AppHandle) -> Result<(), AppErr
 
         let outer_w = target_inner_w + dec_w;
         let outer_h = target_inner_h + dec_h;
-        let speed_phys_w = (outer_w * scale_factor) as u32;
-        let speed_phys_h = (outer_h * scale_factor) as u32;
 
-        let mut positioned = false;
-        if let Some(ref s) = settings {
-            if let (Some(x), Some(y)) = (s.speed_order_window_x, s.speed_order_window_y) {
-                if is_position_valid_on_monitors(&app_handle, x, y, speed_phys_w, speed_phys_h) {
-                    let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
-                    positioned = true;
-                }
-            }
-        }
-
-        if !positioned {
-            if let Some(main_win) = app_handle.get_webview_window("main") {
-                if let (Ok(main_pos), Ok(main_size)) = (main_win.outer_position(), main_win.outer_size()) {
-                    let main_scale = main_win.scale_factor().unwrap_or(1.0);
-                    let speed_w_phys = (outer_w * main_scale) as i32;
-                    let speed_h_phys = (outer_h * main_scale) as i32;
-
-                    let target_x = main_pos.x + (main_size.width as i32 - speed_w_phys) / 2;
-                    let target_y = main_pos.y + (main_size.height as i32 - speed_h_phys) / 2;
-
-                    if is_position_valid_on_monitors(&app_handle, target_x, target_y, speed_phys_w, speed_phys_h) {
-                        let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
-                            x: target_x,
-                            y: target_y,
-                        }));
-                        positioned = true;
-                    }
-                }
-            }
-            if !positioned {
-                let _ = window.center();
-            }
-        }
-
-        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
-            width: outer_w,
-            height: outer_h,
-        }));
+        apply_window_position_and_logical_size(
+            &app_handle,
+            &window,
+            settings.as_ref().and_then(|s| s.speed_order_window_x),
+            settings.as_ref().and_then(|s| s.speed_order_window_y),
+            outer_w,
+            outer_h,
+        );
 
         window.show()?;
         let _ = window.emit("window-visible", true);
@@ -204,50 +206,19 @@ pub async fn open_speed_order_window(app_handle: AppHandle) -> Result<(), AppErr
 
         let outer_w = target_inner_w + dec_w;
         let outer_h = target_inner_h + dec_h;
-        let speed_phys_w = (outer_w * scale_factor) as u32;
-        let speed_phys_h = (outer_h * scale_factor) as u32;
 
-        let mut positioned = false;
-        if let Some(ref s) = settings {
-            if let (Some(x), Some(y)) = (s.speed_order_window_x, s.speed_order_window_y) {
-                if is_position_valid_on_monitors(&app_handle, x, y, speed_phys_w, speed_phys_h) {
-                    let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
-                    positioned = true;
-                }
-            }
-        }
-
-        if !positioned {
-            if let Some(main_win) = app_handle.get_webview_window("main") {
-                if let (Ok(main_pos), Ok(main_size)) = (main_win.outer_position(), main_win.outer_size()) {
-                    let main_scale = main_win.scale_factor().unwrap_or(1.0);
-                    let speed_w_phys = (outer_w * main_scale) as i32;
-                    let speed_h_phys = (outer_h * main_scale) as i32;
-
-                    let target_x = main_pos.x + (main_size.width as i32 - speed_w_phys) / 2;
-                    let target_y = main_pos.y + (main_size.height as i32 - speed_h_phys) / 2;
-
-                    if is_position_valid_on_monitors(&app_handle, target_x, target_y, speed_phys_w, speed_phys_h) {
-                        let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
-                            x: target_x,
-                            y: target_y,
-                        }));
-                        positioned = true;
-                    }
-                }
-            }
-            if !positioned {
-                let _ = window.center();
-            }
-        }
-
-        window.set_size(tauri::Size::Logical(tauri::LogicalSize {
-            width: outer_w,
-            height: outer_h,
-        }))?;
+        apply_window_position_and_logical_size(
+            &app_handle,
+            &window,
+            settings.as_ref().and_then(|s| s.speed_order_window_x),
+            settings.as_ref().and_then(|s| s.speed_order_window_y),
+            outer_w,
+            outer_h,
+        );
 
         window.show()?;
         let _ = window.emit("window-visible", true);
+        window.set_focus()?;
     }
     Ok(())
 }
@@ -259,22 +230,14 @@ pub async fn open_positions_window(app_handle: AppHandle) -> Result<(), AppError
     let settings = crate::commands_settings::load_settings(app_handle.clone()).await.ok().flatten();
 
     if let Some(window) = app_handle.get_webview_window("positions") {
-        let scale_factor = window.scale_factor().unwrap_or(1.0);
-        let phys_w = (target_inner_w * scale_factor) as u32;
-        let phys_h = (target_inner_h * scale_factor) as u32;
-
-        let mut positioned = false;
-        if let Some(ref s) = settings {
-            if let (Some(x), Some(y)) = (s.positions_window_x, s.positions_window_y) {
-                if is_position_valid_on_monitors(&app_handle, x, y, phys_w, phys_h) {
-                    let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
-                    positioned = true;
-                }
-            }
-        }
-        if !positioned {
-            let _ = window.center();
-        }
+        apply_window_position_and_logical_size(
+            &app_handle,
+            &window,
+            settings.as_ref().and_then(|s| s.positions_window_x),
+            settings.as_ref().and_then(|s| s.positions_window_y),
+            target_inner_w,
+            target_inner_h,
+        );
 
         window.show()?;
         let _ = window.emit("window-visible", true);
@@ -294,14 +257,20 @@ pub async fn open_positions_window(app_handle: AppHandle) -> Result<(), AppError
         .visible(false);
 
         let window = win_builder.build()?;
-        let _ = window.center();
+        apply_window_position_and_logical_size(
+            &app_handle,
+            &window,
+            settings.as_ref().and_then(|s| s.positions_window_x),
+            settings.as_ref().and_then(|s| s.positions_window_y),
+            target_inner_w,
+            target_inner_h,
+        );
         window.show()?;
         let _ = window.emit("window-visible", true);
         window.set_focus()?;
     }
     Ok(())
 }
-
 
 #[tauri::command]
 pub fn set_main_window_mode(mode: String, window: tauri::Window) -> Result<(), AppError> {
@@ -336,22 +305,14 @@ pub async fn open_controller_window(app_handle: AppHandle) -> Result<(), AppErro
     let settings = crate::commands_settings::load_settings(app_handle.clone()).await.ok().flatten();
 
     if let Some(window) = app_handle.get_webview_window("controller") {
-        let scale_factor = window.scale_factor().unwrap_or(1.0);
-        let phys_w = (target_inner_w * scale_factor) as u32;
-        let phys_h = (target_inner_h * scale_factor) as u32;
-
-        let mut positioned = false;
-        if let Some(ref s) = settings {
-            if let (Some(x), Some(y)) = (s.controller_window_x, s.controller_window_y) {
-                if is_position_valid_on_monitors(&app_handle, x, y, phys_w, phys_h) {
-                    let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
-                    positioned = true;
-                }
-            }
-        }
-        if !positioned {
-            let _ = window.center();
-        }
+        apply_window_position_and_logical_size(
+            &app_handle,
+            &window,
+            settings.as_ref().and_then(|s| s.controller_window_x),
+            settings.as_ref().and_then(|s| s.controller_window_y),
+            target_inner_w,
+            target_inner_h,
+        );
 
         window.show()?;
         let _ = window.emit("window-visible", true);
@@ -370,7 +331,14 @@ pub async fn open_controller_window(app_handle: AppHandle) -> Result<(), AppErro
         .visible(false);
 
         let window = win_builder.build()?;
-        let _ = window.center();
+        apply_window_position_and_logical_size(
+            &app_handle,
+            &window,
+            settings.as_ref().and_then(|s| s.controller_window_x),
+            settings.as_ref().and_then(|s| s.controller_window_y),
+            target_inner_w,
+            target_inner_h,
+        );
         window.show()?;
         let _ = window.emit("window-visible", true);
         window.set_focus()?;
@@ -393,6 +361,10 @@ pub async fn show_setup_window(app_handle: AppHandle) -> Result<(), AppError> {
 
     // モニター1のメイン設定ウィンドウを表示・フォーカス
     if let Some(main_win) = app_handle.get_webview_window("main") {
+        let _ = main_win.set_size(tauri::Size::Logical(tauri::LogicalSize {
+            width: 760.0,
+            height: 600.0,
+        }));
         let _ = main_win.show();
         let _ = main_win.set_focus();
     }
@@ -407,22 +379,14 @@ pub async fn open_settings_window(app_handle: AppHandle) -> Result<(), AppError>
     let settings = crate::commands_settings::load_settings(app_handle.clone()).await.ok().flatten();
 
     if let Some(window) = app_handle.get_webview_window("settings") {
-        let scale_factor = window.scale_factor().unwrap_or(1.0);
-        let phys_w = (target_inner_w * scale_factor) as u32;
-        let phys_h = (target_inner_h * scale_factor) as u32;
-
-        let mut positioned = false;
-        if let Some(ref s) = settings {
-            if let (Some(x), Some(y)) = (s.settings_window_x, s.settings_window_y) {
-                if is_position_valid_on_monitors(&app_handle, x, y, phys_w, phys_h) {
-                    let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
-                    positioned = true;
-                }
-            }
-        }
-        if !positioned {
-            let _ = window.center();
-        }
+        apply_window_position_and_logical_size(
+            &app_handle,
+            &window,
+            settings.as_ref().and_then(|s| s.settings_window_x),
+            settings.as_ref().and_then(|s| s.settings_window_y),
+            target_inner_w,
+            target_inner_h,
+        );
 
         window.show()?;
         let _ = window.emit("window-visible", true);
@@ -442,7 +406,14 @@ pub async fn open_settings_window(app_handle: AppHandle) -> Result<(), AppError>
         .visible(false);
 
         let window = win_builder.build()?;
-        let _ = window.center();
+        apply_window_position_and_logical_size(
+            &app_handle,
+            &window,
+            settings.as_ref().and_then(|s| s.settings_window_x),
+            settings.as_ref().and_then(|s| s.settings_window_y),
+            target_inner_w,
+            target_inner_h,
+        );
         window.show()?;
         let _ = window.emit("window-visible", true);
         window.set_focus()?;
@@ -465,11 +436,14 @@ pub async fn open_symbol_selector_window(app_handle: AppHandle) -> Result<(), Ap
     let target_inner_h = 580.0;
 
     if let Some(window) = app_handle.get_webview_window("symbol_selector") {
-        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
-            width: target_inner_w,
-            height: target_inner_h,
-        }));
-        let _ = window.center();
+        apply_window_position_and_logical_size(
+            &app_handle,
+            &window,
+            None,
+            None,
+            target_inner_w,
+            target_inner_h,
+        );
         window.show()?;
         let _ = window.emit("window-visible", true);
         window.set_focus()?;
@@ -488,7 +462,14 @@ pub async fn open_symbol_selector_window(app_handle: AppHandle) -> Result<(), Ap
         .visible(false);
 
         let window = win_builder.build()?;
-        let _ = window.center();
+        apply_window_position_and_logical_size(
+            &app_handle,
+            &window,
+            None,
+            None,
+            target_inner_w,
+            target_inner_h,
+        );
         window.show()?;
         let _ = window.emit("window-visible", true);
         window.set_focus()?;

@@ -998,6 +998,12 @@ function App() {
   const handleCheckConnection = async () => {
     setErrorMessage("");
     try {
+      // 1. EAへPINGコマンドを送信して即時ステータス返信を促す
+      try {
+        await sendCommand({ command: "PING" });
+      } catch (_) {}
+
+      // 2. 直近のステータスを取得して反映
       const lastStatus = await invoke<string>("get_last_status");
       if (lastStatus && lastStatus.trim() !== "") {
         handleStatusStringRef.current(lastStatus);

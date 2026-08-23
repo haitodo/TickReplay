@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use crate::state::ReplayState;
 
 pub const TRBI_MAGIC: u32 = 0x54524249; // "TRBI" ASCII
@@ -284,179 +284,130 @@ fn coalesce_commands(pending: Vec<String>) -> Vec<String> {
     result
 }
 
-// 名前付きパイプサーバー（コマンド配信用：Rust → EA）のタスク
-pub async fn run_command_pipe_server(
+// 単一の全二重名前付きパイプ（双方向通信：Rust ⇔ EA）のタスク
+pub async fn run_ipc_pipe_server(
     mut cmd_rx: tokio::sync::mpsc::UnboundedReceiver<String>,
-    _state: Arc<ReplayState>,
-) {
-    use tokio::net::windows::named_pipe::ServerOptions;
-    
-    let pipe_name = r"\\.\pipe\replay_command";
-    loop {
-        // パイプサーバーのインスタンス生成
-        let mut server = match ServerOptions::new()
-            .first_pipe_instance(true)
-            .create(pipe_name)
-        {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("コマンドパイプサーバー生成失敗: {}", e);
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                continue;
-            }
-        };
-
-        println!("Command Pipe: EAの接続を待機中...");
-        if let Err(e) = server.connect().await {
-            eprintln!("Command Pipe 接続受付エラー: {}", e);
-            continue;
-        }
-        println!("Command Pipe: EAが接続されました。");
-
-        // 接続時の不要なキュー蓄積コマンドをクリア
-        while cmd_rx.try_recv().is_ok() {}
-
-        // チャネルから受信したコマンドをパイプへ書き込み
-        let mut read_buf = [0u8; 16];
-        loop {
-            tokio::select! {
-                cmd_opt = cmd_rx.recv() => {
-                    if let Some(cmd) = cmd_opt {
-                        let mut batch = vec![cmd];
-                        // チャンネル内の保留コマンドを即座に吸い出し、一括最適化
-                        while let Ok(next_cmd) = cmd_rx.try_recv() {
-                            batch.push(next_cmd);
-                        }
-
-                        #[cfg(debug_assertions)]
-                        let initial_count = batch.len();
-
-                        let coalesced = coalesce_commands(batch);
-
-                        #[cfg(debug_assertions)]
-                        if coalesced.len() < initial_count {
-                            println!(
-                                "[DEV-IPC-THROTTLE] コマンドキュー最適化: {} 件 -> {} 件に間引き圧縮",
-                                initial_count,
-                                coalesced.len()
-                            );
-                        }
-
-                        let mut send_failed = false;
-                        for c in coalesced {
-                            if let Some(bin_pkt) = BinaryCommandPacket::from_json_str(&c) {
-                                #[cfg(debug_assertions)]
-                                {
-                                    let cmd_type = bin_pkt.cmd_type;
-                                    let target_index = bin_pkt.target_index;
-                                    println!(
-                                        "[DEV-IPC-BINARY] バイナリパケット送信: type={}, idx={}",
-                                        cmd_type, target_index
-                                    );
-                                }
-
-                                let bytes = bin_pkt.to_bytes();
-                                if let Err(e) = server.write_all(&bytes).await {
-                                    eprintln!("Command Pipe バイナリ書き込み失敗: {}", e);
-                                    send_failed = true;
-                                    break;
-                                }
-                            } else {
-                                let data = format!("{}\n", c);
-                                if let Err(e) = server.write_all(data.as_bytes()).await {
-                                    eprintln!("Command Pipe への書き込み失敗: {}", e);
-                                    send_failed = true;
-                                    break;
-                                }
-                            }
-                        }
-                        if send_failed {
-                            break;
-                        }
-                        if let Err(e) = server.flush().await {
-                            eprintln!("Command Pipe のフラッシュ失敗: {}", e);
-                            break;
-                        }
-                    } else {
-                        // アプリ終了時に受信側が閉じられた場合
-                        return;
-                    }
-                }
-                read_res = server.read(&mut read_buf) => {
-                    match read_res {
-                        Ok(0) => {
-                            println!("Command Pipe: EAが切断されました(EOF検知)。");
-                            break;
-                        }
-                        Ok(_) => {
-                            // EAからデータが送信されることは想定していないが、受信した場合は単に無視する
-                        }
-                        Err(e) => {
-                            eprintln!("Command Pipe 読み取りエラー(切断検知): {}", e);
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// 名前付きパイプサーバー（ステータス受信用：EA → Rust）のタスク
-pub async fn run_status_pipe_server(
     app_handle: AppHandle,
     state: Arc<ReplayState>,
 ) {
     use tokio::net::windows::named_pipe::ServerOptions;
     
-    let pipe_name = r"\\.\pipe\replay_status";
+    let pipe_name = r"\\.\pipe\tick_replay_ipc";
     let mut connected_notified = false;
 
     loop {
-        let server = match ServerOptions::new()
-            .first_pipe_instance(true)
-            .create(pipe_name)
-        {
+        let server = match ServerOptions::new().create(pipe_name) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("ステータスパイプサーバー生成失敗: {}", e);
+                eprintln!("IPCパイプサーバー生成失敗: {}", e);
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 continue;
             }
         };
 
-        println!("Status Pipe: EAの接続を待機中...");
+        println!("IPC Pipe: EAの接続を待機中...");
         if let Err(e) = server.connect().await {
-            eprintln!("Status Pipe 接続受付エラー: {}", e);
+            eprintln!("IPC Pipe 接続受付エラー: {}", e);
             continue;
         }
-        println!("Status Pipe: EAが接続されました。");
+        println!("IPC Pipe: EAが接続されました。");
 
-        let mut reader = tokio::io::BufReader::new(server);
+        // 接続時の不要なキュー蓄積コマンドをクリア
+        while cmd_rx.try_recv().is_ok() {}
+
+        // 単一の全二重パイプを Reader と Writer に分割
+        let (read_half, mut write_half) = tokio::io::split(server);
+        let mut reader = tokio::io::BufReader::new(read_half);
         let mut line = String::new();
 
-        loop {
-            line.clear();
-            match reader.read_line(&mut line).await {
-                Ok(0) => {
-                    // クライアント切断
-                    println!("Status Pipe: EAが切断されました。");
-                    break;
+        // コマンド送信用チャネル（接続ごとに作成）
+        let (tx_writer, mut rx_writer) = tokio::sync::mpsc::unbounded_channel::<String>();
+
+        // 1. Writer タスク（非同期実行）
+        let writer_task = tokio::spawn(async move {
+            loop {
+                match rx_writer.recv().await {
+                    Some(cmd) => {
+                        let mut batch = vec![cmd];
+                        while let Ok(next_cmd) = rx_writer.try_recv() {
+                            batch.push(next_cmd);
+                        }
+                        let coalesced = coalesce_commands(batch);
+                        let mut send_failed = false;
+
+                        for c in coalesced {
+                            if let Some(bin_pkt) = BinaryCommandPacket::from_json_str(&c) {
+                                let bytes = bin_pkt.to_bytes();
+                                if let Err(e) = write_half.write_all(&bytes).await {
+                                    eprintln!("IPC Pipe バイナリ書き込み失敗: {}", e);
+                                    send_failed = true;
+                                    break;
+                                }
+                            } else {
+                                let data = format!("{}\n", c);
+                                if let Err(e) = write_half.write_all(data.as_bytes()).await {
+                                    eprintln!("IPC Pipe 書き込み失敗: {}", e);
+                                    send_failed = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if send_failed {
+                            break;
+                        }
+                        if let Err(e) = write_half.flush().await {
+                            eprintln!("IPC Pipe フラッシュ失敗: {}", e);
+                            break;
+                        }
+                    }
+                    None => break,
                 }
-                Ok(_) => {
-                    let trimmed = line.trim();
-                    if !trimmed.is_empty() {
-                        process_status_message(&trimmed, &app_handle, &state, &mut connected_notified).await;
+            }
+        });
+
+        // 2. メインループ（Reader受信 & コマンドキュー配送）
+        loop {
+            tokio::select! {
+                // EAからのステータス受信
+                read_res = reader.read_line(&mut line) => {
+                    match read_res {
+                        Ok(0) => {
+                            println!("IPC Pipe: EAが切断されました(EOF検知)。");
+                            break;
+                        }
+                        Ok(_) => {
+                            let trimmed = line.trim();
+                            if !trimmed.is_empty() {
+                                process_status_message(trimmed, &app_handle, &state, &mut connected_notified).await;
+                            }
+                            line.clear();
+                        }
+                        Err(e) => {
+                            eprintln!("IPC Pipe 読み取りエラー: {}", e);
+                            break;
+                        }
                     }
                 }
-                Err(e) => {
-                    eprintln!("Status Pipe 読み取り失敗: {}", e);
-                    break;
+                // UI / Tauriからのコマンド受信 -> Writerタスクへ転送
+                cmd_opt = cmd_rx.recv() => {
+                    match cmd_opt {
+                        Some(cmd) => {
+                            let _ = tx_writer.send(cmd);
+                        }
+                        None => {
+                            // アプリ終了
+                            writer_task.abort();
+                            return;
+                        }
+                    }
                 }
             }
         }
 
-        // 切断検知の通知
+        // 切断処理
+        writer_task.abort();
+
         if connected_notified {
             let _ = app_handle.emit("mt5-disconnected", ());
             connected_notified = false;
@@ -478,8 +429,7 @@ async fn process_status_message(
     state: &Arc<ReplayState>,
     connected_notified: &mut bool,
 ) {
-    // ステータス差分チェック: 前回と全く同じメッセージの場合は emit やパースをスキップし、
-    // 不要な Tauri IPC 通信・serde パース・React 再レンダリングを回避する
+    // 高速パス: 前回と完全一致かつ接続通知済みであれば、JSONパース・Tauri emit を即座にスキップしてCPU負荷ゼロ化
     let is_changed = {
         let mut last = state.last_status.lock().unwrap();
         if *last != trimmed {
@@ -490,11 +440,11 @@ async fn process_status_message(
         }
     };
 
-    if !is_changed {
+    if !is_changed && *connected_notified {
         return;
     }
 
-    // フロントエンドへリアルタイム通知（差分が発生した時のみ送信）
+    // フロントエンドへリアルタイム通知
     let _ = app_handle.emit("mt5-status", trimmed);
 
     // 外部ツール（Drenhisなど）へWebSocketブロードキャスト送信
@@ -503,9 +453,11 @@ async fn process_status_message(
     // キャッシュされている再生状態などを更新
     if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) {
         if let Some(status) = val.get("status").and_then(|s| s.as_str()) {
-            if status == "CONNECTED" && !*connected_notified {
-                let _ = app_handle.emit("mt5-connected", ());
-                *connected_notified = true;
+            if status == "CONNECTED" {
+                if !*connected_notified {
+                    let _ = app_handle.emit("mt5-connected", ());
+                    *connected_notified = true;
+                }
             } else if status == "DISCONNECTED" {
                 let _ = app_handle.emit("mt5-disconnected", ());
                 *connected_notified = false;

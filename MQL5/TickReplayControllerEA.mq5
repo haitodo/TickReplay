@@ -15,6 +15,7 @@ long CreateFileW(string lpFileName, uint dwDesiredAccess, uint dwShareMode, long
 int WriteFile(long hFile, uchar &lpBuffer[], uint nNumberOfBytesToWrite, uint &lpNumberOfBytesWritten, long lpOverlapped);
 int ReadFile(long hFile, uchar &lpBuffer[], uint nNumberOfBytesToRead, uint &lpNumberOfBytesRead, long lpOverlapped);
 int PeekNamedPipe(long hNamedPipe, long lpBuffer, uint nBufferSize, long lpBytesRead, uint &lpTotalBytesAvail, long lpBytesLeftThisMessage);
+int WaitNamedPipeW(string lpNamedPipeName, uint nTimeOut);
 int CloseHandle(long hObject);
 #import
 
@@ -92,8 +93,7 @@ string                  InpNYCoreSummer     = "21:00";
 string                  InpNYCoreWinter     = "22:00";
 
 //--- Named Pipe IPC 状態変数
-long                    hCommandPipe = INVALID_HANDLE_VALUE;    // コマンドパイプハンドル
-long                    hStatusPipe = INVALID_HANDLE_VALUE;     // ステータスパイプハンドル
+long                    hReplayPipe = INVALID_HANDLE_VALUE;     // 単一の全二重名前付きパイプハンドル
 string                  m_accumulated_commands = "";            // 受信バッファ（コマンド分割用）
 datetime                m_last_connect_attempt = 0;             // 前回の接続試行時刻
 uint                    m_last_status_write = 0;                // 前回ステータス書き込み時刻
@@ -511,7 +511,7 @@ void OnTimer()
       m_last_real_timer_msc = 0;
    }
    
-   // 4. 定期的なステータス更新の書き込み (40ms間隔)
+   // 4. 定期的なステータス更新の書き込み (再生中・初期化済み: 40ms間隔)
    if(m_initialized && m_total_ticks > 0)
    {
       uint now = GetTickCount();
@@ -519,6 +519,21 @@ void OnTimer()
       {
          WriteStatusFile();
          m_last_status_write = now;
+      }
+   }
+   else if(m_sync_enabled && !m_is_playing)
+   {
+      // 停止中・待機中の定期ハートビート（1秒毎）: フロントエンドとの同期状態を自動維持
+      static uint s_last_heartbeat_msc = 0;
+      uint now_msc = GetTickCount();
+      if(now_msc - s_last_heartbeat_msc >= 1000)
+      {
+         s_last_heartbeat_msc = now_msc;
+         string heartbeat_status = StringFormat(
+            "{\"status\":\"CONNECTED\",\"symbol\":\"%s\",\"ea_version\":\"3.00\"}",
+            _Symbol
+         );
+         WritePipeStatus(heartbeat_status);
       }
    }
 }
@@ -682,13 +697,13 @@ void ProcessBinaryCommand(const BinaryCommandPacket &packet)
 //+------------------------------------------------------------------+
 void CheckAndProcessCommand()
 {
-   if(hCommandPipe == INVALID_HANDLE_VALUE)
+   if(hReplayPipe == INVALID_HANDLE_VALUE)
       return;
 
    uint total_bytes_avail = 0;
-   if(!PeekNamedPipe(hCommandPipe, 0, 0, 0, total_bytes_avail, 0))
+   if(!PeekNamedPipe(hReplayPipe, 0, 0, 0, total_bytes_avail, 0))
    {
-      Print("[Error] Command Pipe Peek 失敗。Code: ", GetLastError());
+      Print("[Error] IPC Pipe Peek 失敗。Code: ", GetLastError());
       ClosePipes();
       return;
    }
@@ -702,9 +717,9 @@ void CheckAndProcessCommand()
       return;
 
    uint bytes_read = 0;
-   if(!ReadFile(hCommandPipe, buf, total_bytes_avail, bytes_read, 0))
+   if(!ReadFile(hReplayPipe, buf, total_bytes_avail, bytes_read, 0))
    {
-      Print("[Error] Command Pipe 読み取り失敗。Code: ", GetLastError());
+      Print("[Error] IPC Pipe 読み取り失敗。Code: ", GetLastError());
       ClosePipes();
       return;
    }
@@ -1496,16 +1511,11 @@ void ProcessCommand(string line)
 //+------------------------------------------------------------------+
 void ClosePipes()
 {
-   bool was_connected = (hCommandPipe != INVALID_HANDLE_VALUE || hStatusPipe != INVALID_HANDLE_VALUE);
-   if(hCommandPipe != INVALID_HANDLE_VALUE)
+   bool was_connected = (hReplayPipe != INVALID_HANDLE_VALUE);
+   if(hReplayPipe != INVALID_HANDLE_VALUE)
    {
-      CloseHandle(hCommandPipe);
-      hCommandPipe = INVALID_HANDLE_VALUE;
-   }
-   if(hStatusPipe != INVALID_HANDLE_VALUE)
-   {
-      CloseHandle(hStatusPipe);
-      hStatusPipe = INVALID_HANDLE_VALUE;
+      CloseHandle(hReplayPipe);
+      hReplayPipe = INVALID_HANDLE_VALUE;
    }
    if(was_connected)
    {
@@ -1514,22 +1524,21 @@ void ClosePipes()
 }
 
 //+------------------------------------------------------------------+
-//| パイプへの接続処理                                               |
+//| パイプへの接続処理（単一の全二重パイプ tick_replay_ipc に接続） |
 //+------------------------------------------------------------------+
 bool ConnectPipes(bool retry)
 {
    ClosePipes(); // 既存の接続があればクローズ
 
-   string cmd_pipe_name = "\\\\.\\pipe\\replay_command";
-   string status_pipe_name = "\\\\.\\pipe\\replay_status";
+   string pipe_name = "\\\\.\\pipe\\tick_replay_ipc";
 
-   int attempts = retry ? 10 : 1;
+   int attempts = retry ? 5 : 2;
    for(int i = 0; i < attempts; i++)
    {
-      hCommandPipe = CreateFileW(cmd_pipe_name, GENERIC_READ, 0, 0, OPEN_EXISTING, 0, 0);
-      hStatusPipe = CreateFileW(status_pipe_name, GENERIC_WRITE, 0, 0, OPEN_EXISTING, 0, 0);
+      WaitNamedPipeW(pipe_name, 50);
+      hReplayPipe = CreateFileW(pipe_name, GENERIC_READ | GENERIC_WRITE, 0, 0, OPEN_EXISTING, 0, 0);
 
-      if(hCommandPipe != INVALID_HANDLE_VALUE && hStatusPipe != INVALID_HANDLE_VALUE)
+      if(hReplayPipe != INVALID_HANDLE_VALUE)
       {
          Print("[Info] Named Pipe 接続成功。");
          // 接続確立直後に CONNECTED ステータスを送信
@@ -1549,16 +1558,13 @@ bool ConnectPipes(bool retry)
          return true;
       }
 
-      if(hCommandPipe != INVALID_HANDLE_VALUE) { CloseHandle(hCommandPipe); hCommandPipe = INVALID_HANDLE_VALUE; }
-      if(hStatusPipe != INVALID_HANDLE_VALUE) { CloseHandle(hStatusPipe); hStatusPipe = INVALID_HANDLE_VALUE; }
-
-      if(retry && i < attempts - 1)
+      if(i < attempts - 1)
       {
-         Print("[Warning] 接続失敗、リトライします (", i + 1, "/10)...");
-         Sleep(500);
+         Sleep(retry ? 100 : 30);
       }
    }
 
+   UpdateSyncButtonUI();
    return false;
 }
 
@@ -1570,12 +1576,12 @@ bool EnsurePipesConnected()
    if(!m_sync_enabled)
       return false;
 
-   if(hCommandPipe != INVALID_HANDLE_VALUE && hStatusPipe != INVALID_HANDLE_VALUE)
+   if(hReplayPipe != INVALID_HANDLE_VALUE)
       return true;
 
    datetime now = TimeLocal();
-   // フリーズ防止のため、再接続の試行は3秒以上の間隔を空ける
-   if(now - m_last_connect_attempt < 3)
+   // フリーズ防止のため、再接続の試行は2秒以上の間隔を空ける
+   if(now - m_last_connect_attempt < 2)
       return false;
 
    m_last_connect_attempt = now;
@@ -1592,7 +1598,7 @@ bool EnsurePipesConnected()
 //+------------------------------------------------------------------+
 void WritePipeStatus(string message)
 {
-   if(hStatusPipe == INVALID_HANDLE_VALUE)
+   if(hReplayPipe == INVALID_HANDLE_VALUE)
       return;
 
    // 改行を追加して送信
@@ -1604,9 +1610,9 @@ void WritePipeStatus(string message)
    uint bytes_to_write = (uint)len - 1; // 終端NULL文字は書き込まない
    uint bytes_written = 0;
 
-   if(!WriteFile(hStatusPipe, buf, bytes_to_write, bytes_written, 0))
+   if(!WriteFile(hReplayPipe, buf, bytes_to_write, bytes_written, 0))
    {
-      Print("[Error] Status Pipe 書き込み失敗。Code: ", GetLastError());
+      Print("[Error] IPC Pipe 書き込み失敗。Code: ", GetLastError());
       ClosePipes();
    }
 }
@@ -3693,7 +3699,7 @@ void UpdateSyncButtonUI()
    }
    else
    {
-      if(hCommandPipe != INVALID_HANDLE_VALUE && hStatusPipe != INVALID_HANDLE_VALUE)
+      if(hReplayPipe != INVALID_HANDLE_VALUE)
       {
          ObjectSetString(0, "ReplaySyncButton", OBJPROP_TEXT, "Sync Active (Click to Stop)");
          ObjectSetInteger(0, "ReplaySyncButton", OBJPROP_BGCOLOR, C'46,204,113'); // 緑色
@@ -3734,8 +3740,9 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
       }
       else
       {
-         Print("[Info] 同期処理を開始しました。Tauri アプリの接続を待機します。");
-         m_last_connect_attempt = 0; // 次のタイマー判定ですぐ接続を試行
+         Print("[Info] 同期処理を開始しました。Tauri アプリの接続を試行します。");
+         m_last_connect_attempt = TimeLocal();
+         ConnectPipes(true); // ボタン押下時に即時接続を試行
       }
       UpdateSyncButtonUI();
    }
