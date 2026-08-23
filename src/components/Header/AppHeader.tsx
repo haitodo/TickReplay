@@ -158,7 +158,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               }}
               title="スピード発注パネルを起動 (別ウィンドウ)"
             >
-              <span className="material-symbols-outlined icon">flash_on</span>
+              <span className="material-symbols-outlined icon">monetization_on</span>
               <span className="btn-label">発注</span>
             </button>
           )}
@@ -239,6 +239,22 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                 >
                   <span className="material-symbols-outlined popover-icon">settings</span>
                   <span className="popover-label">環境設定 (Hotkeys/AI/Theme)</span>
+                </button>
+
+                {/* 口座・ポジション管理 */}
+                <button
+                  className="popover-item"
+                  onClick={async () => {
+                    setIsSubmenuOpen(false);
+                    try {
+                      await invoke("open_positions_window");
+                    } catch (err) {
+                      console.error("Failed to open positions window:", err);
+                    }
+                  }}
+                >
+                  <span className="material-symbols-outlined popover-icon text-emerald">account_balance_wallet</span>
+                  <span className="popover-label">口座・ポジション管理 (残高/建玉)</span>
                 </button>
 
                 {/* 独立トレード分析アプリ (Tracely) */}

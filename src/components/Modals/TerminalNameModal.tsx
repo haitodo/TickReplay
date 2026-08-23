@@ -94,7 +94,7 @@ export const TerminalNameModal: React.FC<TerminalNameModalProps> = React.memo(({
             {/* 検出情報カード */}
             <div
               style={{
-                backgroundColor: "rgba(0, 0, 0, 0.25)",
+                backgroundColor: "var(--surface-container-low)",
                 border: "1px solid var(--outline-variant)",
                 borderRadius: "var(--radius-sm)",
                 padding: "10px 12px",

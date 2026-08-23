@@ -268,9 +268,6 @@ export const SettingsWindowContent: React.FC = () => {
           <h2 className="header-title">環境設定</h2>
           <span className="header-subtitle">System &amp; Controls</span>
         </div>
-        <button className="settings-close-btn" onClick={handleCloseWindow} title="閉じる">
-          <span className="material-symbols-outlined">close</span>
-        </button>
       </header>
 
       {/* メインエリア（左側タブ ＋ 右側コンテンツ） */}
@@ -608,7 +605,7 @@ export const SettingsWindowContent: React.FC = () => {
 
               <div className="settings-section-card">
                 <h3 className="section-title">
-                  <span className="material-symbols-outlined icon">shopping_cart</span>
+                  <span className="material-symbols-outlined icon">attach_money</span>
                   発注ボタン配色スタイル
                 </h3>
                 <div className="pl-grid-cluster">
@@ -619,7 +616,7 @@ export const SettingsWindowContent: React.FC = () => {
                       saveAll();
                     }}
                   >
-                    <span className="material-symbols-outlined icon text-red">shopping_cart</span>
+                    <span className="material-symbols-outlined icon text-red">attach_money</span>
                     <div>
                       <div className="pl-label">国内標準 (BUY: 赤 / SELL: 青・緑)</div>
                       <div className="pl-sub">日本国内証券会社の一般的な発注配色</div>
@@ -632,7 +629,7 @@ export const SettingsWindowContent: React.FC = () => {
                       saveAll();
                     }}
                   >
-                    <span className="material-symbols-outlined icon text-cyan">shopping_cart</span>
+                    <span className="material-symbols-outlined icon text-cyan">attach_money</span>
                     <div>
                       <div className="pl-label">グローバル標準 (BUY: 青 / SELL: 赤)</div>
                       <div className="pl-sub">MT5標準・海外ブローカーの発注配色</div>

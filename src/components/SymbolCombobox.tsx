@@ -243,8 +243,8 @@ export const SymbolCombobox: React.FC<SymbolComboboxProps> = ({
                 display: "flex",
                 gap: "4px",
                 padding: "6px 8px",
-                borderBottom: "1px solid var(--outline-variant, #333)",
-                backgroundColor: "rgba(0,0,0,0.2)",
+                borderBottom: "1px solid var(--outline-variant)",
+                backgroundColor: "var(--surface-container-low)",
                 overflowX: "auto",
                 whiteSpace: "nowrap"
               }}

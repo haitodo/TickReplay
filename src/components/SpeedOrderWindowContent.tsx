@@ -81,6 +81,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
   const [holdingTimeMode, setHoldingTimeMode] = useState<"pc" | "server">(
     () => (localStorage.getItem("speed-order-holding-time-mode") as "pc" | "server") || "pc"
   );
+  const [sourceSymbol, setSourceSymbol] = useState<string>(() => localStorage.getItem("speed-order-symbol") || "");
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [virtualTimeMsc, setVirtualTimeMsc] = useState<number>(0);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
@@ -216,6 +217,10 @@ export const SpeedOrderWindowContent: React.FC = () => {
               if (data.ask) setAsk(data.ask);
               if (data.account) setAccount(data.account);
               if (data.positions) setPositions(data.positions);
+              if (data.source_symbol) {
+                setSourceSymbol(data.source_symbol);
+                localStorage.setItem("speed-order-symbol", data.source_symbol);
+              }
               if (data.is_playing !== undefined) setIsPlaying(data.is_playing);
               if (data.virtual_time_msc !== undefined) setVirtualTimeMsc(data.virtual_time_msc);
             }
@@ -365,6 +370,15 @@ export const SpeedOrderWindowContent: React.FC = () => {
             setPositions((prev: any[]) => {
               if (JSON.stringify(prev) === JSON.stringify(data.positions)) return prev;
               return data.positions;
+            });
+          }
+          if (data.source_symbol) {
+            setSourceSymbol((prev) => {
+              if (prev !== data.source_symbol) {
+                localStorage.setItem("speed-order-symbol", data.source_symbol);
+                return data.source_symbol;
+              }
+              return prev;
             });
           }
           if (data.is_playing !== undefined) setIsPlaying((prev) => prev !== data.is_playing ? data.is_playing : prev);
@@ -603,13 +617,23 @@ export const SpeedOrderWindowContent: React.FC = () => {
   const handleCloseBuy = () => sendCommand({ command: "ORDER_CLOSE_BUY" });
   const handleCloseSell = () => sendCommand({ command: "ORDER_CLOSE_SELL" });
 
-  // JPYペア判定
-  const currentSymbol = positions[0]?.symbol || "";
-  const isJpy = currentSymbol.toUpperCase().includes("JPY") || bid > 20.0;
+  // 通貨ペア・銘柄種別判定
+  const currentSymbol = sourceSymbol || positions[0]?.symbol || "";
+  const isJpy = currentSymbol.toUpperCase().includes("JPY") || (currentSymbol === "" && bid > 20.0);
+  const isGold = currentSymbol.toUpperCase().includes("XAU") || currentSymbol.toUpperCase().includes("GOLD");
+  const isCrypto = currentSymbol.toUpperCase().includes("BTC") || currentSymbol.toUpperCase().includes("ETH");
+  const isIndex = currentSymbol.toUpperCase().includes("225") || currentSymbol.toUpperCase().includes("US30") || currentSymbol.toUpperCase().includes("NAS");
 
   const getPriceParts = (p: number) => {
     if (p <= 0) return { base: "--", big: "--", fraction: "-" };
-    if (isJpy) {
+    if (isCrypto || isIndex) {
+      const str = p.toFixed(2);
+      const len = str.length;
+      const fraction = str.substring(len - 1);
+      const big = str.substring(len - 3, len - 1);
+      const base = str.substring(0, len - 3);
+      return { base, big, fraction };
+    } else if (isGold || isJpy) {
       const str = p.toFixed(3);
       const len = str.length;
       const fraction = str.substring(len - 1);
@@ -658,7 +682,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
   const totalSellProfit = sellPositions.reduce((sum, p) => sum + p.profit, 0);
 
   // pipsの計算 (現在のBid/Askレートと平均建値の価格差からpips値を直接算出)
-  const pipMultiplier = isJpy ? 100 : 10000;
+  const pipMultiplier = isCrypto || isIndex ? 1 : isGold ? 10 : isJpy ? 100 : 10000;
   const buyPips = totalBuyLots > 0 ? (bid - avgBuyRate) * pipMultiplier : 0;
   const sellPips = totalSellLots > 0 ? (avgSellRate - ask) * pipMultiplier : 0;
   const spreadValue = (ask > 0 && bid > 0) ? ((ask - bid) * pipMultiplier).toFixed(1) : "--";
@@ -723,11 +747,11 @@ export const SpeedOrderWindowContent: React.FC = () => {
       {/* ヘッダー */}
       <div className="speed-order-header" data-tauri-drag-region>
         <div className="speed-order-title" data-tauri-drag-region>
-          <span className="material-symbols-outlined icon-accent" data-tauri-drag-region>flash_on</span>
+          <span className="material-symbols-outlined icon-accent" data-tauri-drag-region>monetization_on</span>
           Speed Order
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "4px" }} data-tauri-drag-region>
-          {/* 口座・ポジション管理ウィンドウ起動ボタン */}
+          {/* 口座・ポジション管理（ポジション一覧）ウィンドウ起動ボタン */}
           <button
             className="speed-header-icon-btn"
             onClick={async () => {
@@ -737,7 +761,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
                 console.error("Failed to open account & positions window:", err);
               }
             }}
-            title="口座・ポジション管理ウィンドウを起動"
+            title="口座・ポジション管理（ポジション一覧）ウィンドウを起動"
             style={{
               background: "transparent",
               border: "none",
@@ -762,7 +786,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
             <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>account_balance_wallet</span>
           </button>
 
-          {/* 3. 設定ボタン */}
+          {/* 設定ボタン */}
           <button
             className="speed-settings-btn"
             onClick={() => setIsSettingsOpen(true)}
@@ -969,14 +993,6 @@ export const SpeedOrderWindowContent: React.FC = () => {
             {account ? account.equity.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : "1,000,000"}
           </span>
         </div>
-        {account && account.margin > 0 && (
-          <div className="account-stat">
-            <span className="stat-label">維持率:</span>
-            <span className="stat-val">
-              {account.margin_level ? `${account.margin_level.toFixed(0)}%` : "--"}
-            </span>
-          </div>
-        )}
       </div>
 
       {/* 注文入力パラメータフォーム */}

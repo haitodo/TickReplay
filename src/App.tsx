@@ -228,9 +228,20 @@ function App() {
 
   const [contractSize, setContractSize] = useState(10000);
 
+  // --- Pipsと価格差の相互変換ヘルパー
+  const pipsToPriceDiff = (symbol: string, pips: number): number => {
+    const sym = symbol.toUpperCase();
+    if (sym.includes("JPY")) return Math.max(0, pips * 0.01);
+    if (sym.includes("XAU") || sym.includes("GOLD")) return Math.max(0, pips * 0.1);
+    if (sym.includes("BTC") || sym.includes("ETH") || sym.includes("225") || sym.includes("US30") || sym.includes("NAS")) return Math.max(0, pips * 1.0);
+    return Math.max(0, pips * 0.0001);
+  };
+
+
+
   const [enablePseudoRate, setEnablePseudoRate] = useState(true);
-  const [pseudoBaseSpread, setPseudoBaseSpread] = useState(0.002);
-  const [pseudoThreshold, setPseudoThreshold] = useState(0.0110);
+  const [pseudoBaseSpread, setPseudoBaseSpread] = useState(0.2); // 0.2 pips
+  const [pseudoThreshold, setPseudoThreshold] = useState(1.5); // 1.5 pips
   const [pseudoSensitivity, setPseudoSensitivity] = useState(1.025);
   const isInitialLoadRef = useRef(true);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -429,12 +440,32 @@ function App() {
       return; // 初回ロード時は保存された値を優先するためスキップ
     }
 
-    const isJpy = sourceSymbol.toUpperCase().includes("JPY");
-    const baseSpread = isJpy ? 0.002 : 0.00002;
-    const threshold = isJpy ? 0.0110 : 0.000110;
-
-    setPseudoBaseSpread(baseSpread);
-    setPseudoThreshold(threshold);
+    const sym = sourceSymbol.toUpperCase();
+    if (sym.includes("USDJPY")) {
+      setPseudoBaseSpread(0.2);
+      setPseudoThreshold(1.5);
+    } else if (sym.includes("EURUSD")) {
+      setPseudoBaseSpread(0.4);
+      setPseudoThreshold(1.5);
+    } else if (sym.includes("GBPJPY")) {
+      setPseudoBaseSpread(0.9);
+      setPseudoThreshold(2.5);
+    } else if (sym.includes("EURJPY")) {
+      setPseudoBaseSpread(0.4);
+      setPseudoThreshold(2.0);
+    } else if (sym.includes("GBPUSD")) {
+      setPseudoBaseSpread(0.7);
+      setPseudoThreshold(2.0);
+    } else if (sym.includes("AUDJPY")) {
+      setPseudoBaseSpread(0.6);
+      setPseudoThreshold(2.0);
+    } else if (sym.includes("XAU") || sym.includes("GOLD")) {
+      setPseudoBaseSpread(1.5);
+      setPseudoThreshold(5.0);
+    } else {
+      setPseudoBaseSpread(sym.includes("JPY") ? 0.3 : 0.5);
+      setPseudoThreshold(1.8);
+    }
     setPseudoSensitivity(1.025);
   }, [sourceSymbol, isInitialized]);
 
@@ -989,15 +1020,18 @@ function App() {
   // --- 疑似レート設定をEAに同期するエフェクト
   useEffect(() => {
     if (status === "ACTIVE" || status === "READY") {
+      const rawBase = pipsToPriceDiff(sourceSymbol, pseudoBaseSpread);
+      const rawThresh = pipsToPriceDiff(sourceSymbol, pseudoThreshold);
+
       sendCommand({
         command: "SET_PSEUDO_RATE",
         enable_pseudo_rate: enablePseudoRate,
-        pseudo_base_spread: pseudoBaseSpread,
-        pseudo_threshold: pseudoThreshold,
+        pseudo_base_spread: rawBase,
+        pseudo_threshold: rawThresh,
         pseudo_sensitivity: pseudoSensitivity
       }).catch(console.error);
     }
-  }, [status, enablePseudoRate, pseudoBaseSpread, pseudoThreshold, pseudoSensitivity]);
+  }, [status, enablePseudoRate, pseudoBaseSpread, pseudoThreshold, pseudoSensitivity, sourceSymbol]);
 
   // --- 複数ウィンドウ間での設定同期用エフェクト
   useEffect(() => {
@@ -1155,10 +1189,12 @@ function App() {
             setEnablePseudoRate(saved.enable_pseudo_rate);
           }
           if (saved.pseudo_base_spread !== undefined && saved.pseudo_base_spread !== null) {
-            setPseudoBaseSpread(saved.pseudo_base_spread);
+            // 設定ファイルはpips単位で保存されているため変換不要。0の場合はデフォルト値を使用。
+            setPseudoBaseSpread(saved.pseudo_base_spread > 0 ? saved.pseudo_base_spread : 0.2);
           }
           if (saved.pseudo_threshold !== undefined && saved.pseudo_threshold !== null) {
-            setPseudoThreshold(saved.pseudo_threshold);
+            // 設定ファイルはpips単位で保存されているため変換不要。0の場合はデフォルト値を使用。
+            setPseudoThreshold(saved.pseudo_threshold > 0 ? saved.pseudo_threshold : 1.5);
           }
           if (saved.pseudo_sensitivity !== undefined && saved.pseudo_sensitivity !== null) {
             setPseudoSensitivity(saved.pseudo_sensitivity);
@@ -1536,8 +1572,8 @@ function App() {
         max_history_bars: maxHistoryBars,
         auto_skip_weekend: autoSkipWeekend,
         enable_pseudo_rate: enablePseudoRate,
-        pseudo_base_spread: pseudoBaseSpread,
-        pseudo_threshold: pseudoThreshold,
+        pseudo_base_spread: pipsToPriceDiff(sourceSymbol, pseudoBaseSpread),
+        pseudo_threshold: pipsToPriceDiff(sourceSymbol, pseudoThreshold),
         pseudo_sensitivity: pseudoSensitivity,
         additional_symbols: additionalSymbols,
       };
@@ -1590,9 +1626,8 @@ function App() {
     setHedging(false);
     setEnablePseudoRate(true);
 
-    const isJpy = sourceSymbol.toUpperCase().includes("JPY");
-    setPseudoBaseSpread(isJpy ? 0.002 : 0.00002);
-    setPseudoThreshold(isJpy ? 0.0110 : 0.000110);
+    setPseudoBaseSpread(0.2);
+    setPseudoThreshold(1.5);
     setPseudoSensitivity(1.025);
   };
 
@@ -1745,10 +1780,12 @@ function App() {
       setEnablePseudoRate(session.settings.enable_pseudo_rate);
     }
     if (session.settings.pseudo_base_spread !== undefined) {
-      setPseudoBaseSpread(session.settings.pseudo_base_spread);
+      // セッションはpips単位で保存されているため変換不要。0の場合はデフォルト値を使用。
+      setPseudoBaseSpread(session.settings.pseudo_base_spread > 0 ? session.settings.pseudo_base_spread : 0.2);
     }
     if (session.settings.pseudo_threshold !== undefined) {
-      setPseudoThreshold(session.settings.pseudo_threshold);
+      // セッションはpips単位で保存されているため変換不要。0の場合はデフォルト値を使用。
+      setPseudoThreshold(session.settings.pseudo_threshold > 0 ? session.settings.pseudo_threshold : 1.5);
     }
     if (session.settings.pseudo_sensitivity !== undefined) {
       setPseudoSensitivity(session.settings.pseudo_sensitivity);
@@ -1771,6 +1808,7 @@ function App() {
         profileName: session.settings.selected_profile,
       });
 
+      const sym = session.settings.source_symbol || sourceSymbol;
       const initCmd = {
         command: "INIT",
         source_symbol: session.settings.source_symbol,
@@ -1792,8 +1830,18 @@ function App() {
         max_history_bars: session.settings.max_history_bars !== undefined ? session.settings.max_history_bars : 300,
         auto_skip_weekend: session.settings.auto_skip_weekend !== undefined ? session.settings.auto_skip_weekend : true,
         enable_pseudo_rate: session.settings.enable_pseudo_rate !== undefined ? session.settings.enable_pseudo_rate : true,
-        pseudo_base_spread: session.settings.pseudo_base_spread !== undefined ? session.settings.pseudo_base_spread : 0.002,
-        pseudo_threshold: session.settings.pseudo_threshold !== undefined ? session.settings.pseudo_threshold : 0.0110,
+        pseudo_base_spread: pipsToPriceDiff(
+          sym,
+          // セッションはpips単位で保存されているため、priceDiffToPipsは不要
+          (session.settings.pseudo_base_spread !== undefined && session.settings.pseudo_base_spread > 0)
+            ? session.settings.pseudo_base_spread : 0.2
+        ),
+        pseudo_threshold: pipsToPriceDiff(
+          sym,
+          // セッションはpips単位で保存されているため、priceDiffToPipsは不要
+          (session.settings.pseudo_threshold !== undefined && session.settings.pseudo_threshold > 0)
+            ? session.settings.pseudo_threshold : 1.5
+        ),
         pseudo_sensitivity: session.settings.pseudo_sensitivity !== undefined ? session.settings.pseudo_sensitivity : 1.025,
       };
 
