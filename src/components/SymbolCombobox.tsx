@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { parseSymbolName, groupSymbolsByCategory } from "../utils/symbolUtils";
+import { parseSymbolName, groupSymbolsByCategory, isReplaySymbol } from "../utils/symbolUtils";
 
 export interface SymbolItem {
   name: string;
@@ -40,18 +40,20 @@ export const SymbolCombobox: React.FC<SymbolComboboxProps> = ({
   // カテゴリ分類データの作成
   const categoryInfo = groupSymbolsByCategory(availableSymbols);
 
-  // SymbolItem 形式への正規化
-  const normalizedItems: SymbolItem[] = availableSymbols.map(s => {
-    if (typeof s === "string") {
-      const parsed = parseSymbolName(s);
-      return {
-        name: s,
-        source_type: parsed.suffix ? "custom" : "broker",
-        group_name: parsed.category,
-      };
-    }
-    return s;
-  });
+  // SymbolItem 形式への正規化（Replayシンボルは除外）
+  const normalizedItems: SymbolItem[] = availableSymbols
+    .filter(s => !isReplaySymbol(typeof s === "string" ? s : s.name))
+    .map(s => {
+      if (typeof s === "string") {
+        const parsed = parseSymbolName(s);
+        return {
+          name: s,
+          source_type: parsed.suffix ? "custom" : "broker",
+          group_name: parsed.category,
+        };
+      }
+      return s;
+    });
 
   // フィルタリング (テキスト検索 ＆ カテゴリタブ)
   const searchUpper = filterText.trim().toUpperCase();

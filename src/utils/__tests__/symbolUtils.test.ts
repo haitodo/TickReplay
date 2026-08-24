@@ -1,15 +1,36 @@
 import { describe, it, expect } from "vitest";
 import {
+  isReplaySymbol,
   parseSymbolName,
   groupSymbolsByCategory,
   getCompanionSymbols,
   switchSymbolSuffix,
+  getDualFeedCandidates,
+  getAllBrokers,
+  getAllYears,
   isJpyPair,
   isUsdStraight,
   isEuroCross
 } from "../symbolUtils";
 
 describe("symbolUtils", () => {
+  describe("isReplaySymbol", () => {
+    it("Replay単体および_Replayサフィックス付きシンボルを判定すること", () => {
+      expect(isReplaySymbol("Replay")).toBe(true);
+      expect(isReplaySymbol("replay")).toBe(true);
+      expect(isReplaySymbol("REPLAY")).toBe(true);
+      expect(isReplaySymbol("USDJPY_Replay")).toBe(true);
+      expect(isReplaySymbol("USDJPY_replay")).toBe(true);
+      expect(isReplaySymbol("EURUSD.replay")).toBe(true);
+
+      // 通常シンボル
+      expect(isReplaySymbol("USDJPY")).toBe(false);
+      expect(isReplaySymbol("USDJPY_2024")).toBe(false);
+      expect(isReplaySymbol("EURJPY_Custom")).toBe(false);
+      expect(isReplaySymbol("")).toBe(false);
+    });
+  });
+
   describe("parseSymbolName", () => {
     it("年付きサフィックスを正しくパースすること (e.g. USDJPY_2016)", () => {
       const res = parseSymbolName("USDJPY_2016");
@@ -53,7 +74,7 @@ describe("symbolUtils", () => {
   });
 
   describe("groupSymbolsByCategory", () => {
-    it("年別、カスタムタグ別、通常別に正しく分類すること", () => {
+    it("年別、カスタムタグ別、通常別に正しく分類し、Replay関連シンボルを除外すること", () => {
       const symbols = [
         "USDJPY_2016",
         "EURJPY_2016",
@@ -62,18 +83,22 @@ describe("symbolUtils", () => {
         "GBPJPY_test",
         "USDJPY_Custom",
         "USDJPY",
-        "EURUSD"
+        "EURUSD",
+        "Replay",
+        "USDJPY_Replay",
+        "EURJPY_replay"
       ];
 
       const grouped = groupSymbolsByCategory(symbols);
 
       expect(grouped.years).toEqual(["2017", "2016"]); // 降順
-      expect(grouped.tags).toEqual(["Custom", "test"]); // アルファベット順
+      expect(grouped.tags).toEqual(["Custom", "test"]); // アルファベット順（Replayは除外される）
       expect(grouped.hasStandard).toBe(true);
 
       expect(grouped.categories["2016"].map(s => s.name)).toEqual(["USDJPY_2016", "EURJPY_2016"]);
       expect(grouped.categories["test"].map(s => s.name)).toEqual(["EURJPY_test", "GBPJPY_test"]);
       expect(grouped.categories["Standard"].map(s => s.name)).toEqual(["USDJPY", "EURUSD"]);
+      expect(grouped.categories["Replay"]).toBeUndefined();
     });
   });
 
@@ -87,7 +112,8 @@ describe("symbolUtils", () => {
         "USDJPY_2017",
         "EURJPY_2017",
         "USDJPY_test",
-        "USDJPY"
+        "USDJPY",
+        "USDJPY_Replay"
       ];
 
       const companions = getCompanionSymbols("USDJPY_2016", allSymbols, ["EURJPY_2016"]);
@@ -117,6 +143,11 @@ describe("symbolUtils", () => {
       const companions = getCompanionSymbols("USDJPY", allSymbols);
       expect(companions).toEqual([]);
     });
+
+    it("リプレイシンボルをソースに指定した場合は空配列を返すこと", () => {
+      const allSymbols = ["USDJPY_Replay", "EURJPY_Replay", "USDJPY_2016"];
+      expect(getCompanionSymbols("USDJPY_Replay", allSymbols)).toEqual([]);
+    });
   });
 
   describe("switchSymbolSuffix", () => {
@@ -134,6 +165,28 @@ describe("symbolUtils", () => {
       );
 
       expect(switched).toEqual(["EURJPY_2017", "GBPJPY_2017"]);
+    });
+  });
+
+  describe("getDualFeedCandidates & getAllBrokers & getAllYears", () => {
+    it("Replayシンボルを除外して候補を抽出すること", () => {
+      const symbols = [
+        "USDJPY_OANDA_2024",
+        "USDJPY_TITAN_2024",
+        "USDJPY_Replay",
+        "Replay"
+      ];
+
+      const candidates = getDualFeedCandidates(symbols);
+      expect(candidates.length).toBe(1);
+      expect(candidates[0].basePair).toBe("USDJPY");
+      expect(candidates[0].brokers.map(b => b.broker)).toEqual(["OANDA", "TITAN"]);
+
+      const brokers = getAllBrokers(symbols);
+      expect(brokers).toEqual(["OANDA", "TITAN"]);
+
+      const years = getAllYears(symbols);
+      expect(years).toEqual(["2024"]);
     });
   });
 

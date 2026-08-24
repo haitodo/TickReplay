@@ -332,29 +332,33 @@ pub async fn get_existing_custom_symbols(terminal_path: &str) -> Result<Vec<Stri
     Ok(names)
 }
 
+pub fn is_valid_symbol_name(name: &str) -> bool {
+    if name.is_empty() || name.len() > 64 {
+        return false;
+    }
+    let system_blacklist = [
+        "cache", "logs", "chats", "mail", "users", "history", "ticks",
+        "default", "custom", "bases", "mql5", "config", "profiles",
+        "files", "charts", "indicators", "experts", "scripts", "images",
+        "include", "libraries", "symbolsets", "news", "subscriptions",
+        "symbols", "trades", "options", "books", "gvariables", "objects",
+        "strategy", "alerts", "replay"
+    ];
+    if system_blacklist.iter().any(|&b| b.eq_ignore_ascii_case(name)) || (name.len() >= 5 && name[..5].eq_ignore_ascii_case("chart")) {
+        return false;
+    }
+    let name_lower = name.to_ascii_lowercase();
+    if name_lower == "replay" || name_lower.ends_with("_replay") || name_lower.ends_with(".replay") {
+        return false;
+    }
+    name.chars().all(|c| c.is_alphanumeric() || c == '.' || c == '_' || c == '-' || c == '#' || c == '+' || c == '/' || c == '$' || c == '@')
+}
+
 pub async fn get_existing_symbols_with_info(terminal_path: &str) -> Result<Vec<SymbolItem>, AppError> {
     validate_terminal_path(terminal_path)?;
     let path = PathBuf::from(terminal_path);
     tokio::task::spawn_blocking(move || {
         let mut symbol_items = std::collections::HashSet::new();
-
-        fn is_valid_symbol_name(name: &str) -> bool {
-            if name.is_empty() || name.len() > 64 {
-                return false;
-            }
-            let system_blacklist = [
-                "cache", "logs", "chats", "mail", "users", "history", "ticks",
-                "default", "custom", "bases", "mql5", "config", "profiles",
-                "files", "charts", "indicators", "experts", "scripts", "images",
-                "include", "libraries", "symbolsets", "news", "subscriptions",
-                "symbols", "trades", "options", "books", "gvariables", "objects",
-                "strategy", "alerts"
-            ];
-            if system_blacklist.iter().any(|&b| b.eq_ignore_ascii_case(name)) || name.len() >= 5 && name[..5].eq_ignore_ascii_case("chart") {
-                return false;
-            }
-            name.chars().all(|c| c.is_alphanumeric() || c == '.' || c == '_' || c == '-' || c == '#' || c == '+' || c == '/' || c == '$' || c == '@')
-        }
 
         fn scan_dir_items(
             parent_dir: &Path,
@@ -446,7 +450,7 @@ pub async fn get_existing_symbols_with_info(terminal_path: &str) -> Result<Vec<S
                                     if trimmed.len() >= 7 && trimmed[..7].eq_ignore_ascii_case("symbol=") {
                                         let sym = trimmed[7..].trim();
                                         if is_valid_symbol_name(sym) {
-                                            let is_custom = sym.len() >= 7 && sym[sym.len() - 7..].eq_ignore_ascii_case("_custom") || sym.to_uppercase().contains("REPLAY");
+                                            let is_custom = sym.len() >= 7 && sym[sym.len() - 7..].eq_ignore_ascii_case("_custom");
                                             items.insert(SymbolItem {
                                                 name: sym.to_string(),
                                                 source_type: if is_custom { "custom".to_string() } else { "broker".to_string() },
@@ -586,6 +590,32 @@ mod tests {
         assert_eq!(fs::read_to_string(&test_file).unwrap(), "hello updated");
 
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_is_valid_symbol_name() {
+        // 有効なシンボル名
+        assert!(is_valid_symbol_name("USDJPY"));
+        assert!(is_valid_symbol_name("EURUSD"));
+        assert!(is_valid_symbol_name("USDJPY_2024"));
+        assert!(is_valid_symbol_name("EURUSD.raw"));
+        assert!(is_valid_symbol_name("GBPJPY_Custom"));
+
+        // ブラックリスト（フォルダ名やシステム名）
+        assert!(!is_valid_symbol_name(""));
+        assert!(!is_valid_symbol_name("history"));
+        assert!(!is_valid_symbol_name("ticks"));
+        assert!(!is_valid_symbol_name("Custom"));
+        assert!(!is_valid_symbol_name("Default"));
+        assert!(!is_valid_symbol_name("charts"));
+
+        // リプレイ用シンボル・グループの除外
+        assert!(!is_valid_symbol_name("Replay"));
+        assert!(!is_valid_symbol_name("replay"));
+        assert!(!is_valid_symbol_name("REPLAY"));
+        assert!(!is_valid_symbol_name("USDJPY_Replay"));
+        assert!(!is_valid_symbol_name("USDJPY_replay"));
+        assert!(!is_valid_symbol_name("EURUSD.replay"));
     }
 }
 

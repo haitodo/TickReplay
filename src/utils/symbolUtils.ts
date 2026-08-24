@@ -19,6 +19,17 @@ const KNOWN_BASE_PAIRS = [
 ];
 
 /**
+ * リプレイ実行時に自動生成される作業用シンボルまたはフォルダ名かどうかを判定する
+ * 例: "Replay", "USDJPY_Replay", "EURUSD_replay", "USDJPY.replay"
+ */
+export function isReplaySymbol(symbolName: string): boolean {
+  const clean = (symbolName || "").trim();
+  if (!clean) return false;
+  const upper = clean.toUpperCase();
+  return upper === "REPLAY" || upper.endsWith("_REPLAY") || upper.endsWith(".REPLAY");
+}
+
+/**
  * シンボル名から ベース通貨ペア、ブローカー名、年、サフィックスを抽出する
  * 例:
  * - "USDJPY_OANDA_2016" -> basePair: "USDJPY", broker: "OANDA", year: "2016", category: "OANDA"
@@ -141,7 +152,9 @@ export function groupSymbolsByCategory(symbols: (SymbolItem | string)[]): {
   const tagSet = new Set<string>();
   let hasStandard = false;
 
-  const normalized: SymbolItem[] = symbols.map(s => {
+  const validSymbols = symbols.filter(s => !isReplaySymbol(typeof s === "string" ? s : s.name));
+
+  const normalized: SymbolItem[] = validSymbols.map(s => {
     if (typeof s === "string") {
       const parsed = parseSymbolName(s);
       return {
@@ -204,7 +217,7 @@ export function getCompanionSymbols(
 ): string[] {
   const parsedSource = parseSymbolName(sourceSymbol);
   // サフィックス（年やタグ）がない標準銘柄の場合は、大量のデフォルト銘柄がサジェストされてレイアウトが崩れるのを防止
-  if (!parsedSource.suffix || parsedSource.category === "Standard") {
+  if (!parsedSource.suffix || parsedSource.category === "Standard" || isReplaySymbol(sourceSymbol)) {
     return [];
   }
   const targetCategory = parsedSource.category;
@@ -216,6 +229,7 @@ export function getCompanionSymbols(
 
   allSymbols.forEach(s => {
     const symName = typeof s === "string" ? s : s.name;
+    if (isReplaySymbol(symName)) return;
     const parsed = parseSymbolName(symName);
 
     if (parsed.category === targetCategory && !selectedUpper.has(symName.toUpperCase())) {
@@ -237,7 +251,8 @@ export function switchSymbolSuffix(
   toSuffix: string,
   allSymbols: (SymbolItem | string)[] = []
 ): string[] {
-  const allNames = new Set(allSymbols.map(s => (typeof s === "string" ? s : s.name).toUpperCase()));
+  const validSymbols = allSymbols.filter(s => !isReplaySymbol(typeof s === "string" ? s : s.name));
+  const allNames = new Set(validSymbols.map(s => (typeof s === "string" ? s : s.name).toUpperCase()));
 
   return currentSyncSymbols.map(sym => {
     const parsed = parseSymbolName(sym);
@@ -295,6 +310,7 @@ export function getDualFeedCandidates(symbols: (SymbolItem | string)[]): DualFee
 
   symbols.forEach(s => {
     const symName = typeof s === "string" ? s : s.name;
+    if (isReplaySymbol(symName)) return;
     const item: SymbolItem = typeof s === "string" ? { name: s, source_type: "custom", group_name: "Custom" } : s;
     const parsed = parseSymbolName(symName);
 
@@ -329,6 +345,7 @@ export function getAllBrokers(symbols: (SymbolItem | string)[]): string[] {
   const brokerSet = new Set<string>();
   symbols.forEach(s => {
     const symName = typeof s === "string" ? s : s.name;
+    if (isReplaySymbol(symName)) return;
     const parsed = parseSymbolName(symName);
     if (parsed.broker) {
       brokerSet.add(parsed.broker);
@@ -344,6 +361,7 @@ export function getAllYears(symbols: (SymbolItem | string)[]): string[] {
   const yearSet = new Set<string>();
   symbols.forEach(s => {
     const symName = typeof s === "string" ? s : s.name;
+    if (isReplaySymbol(symName)) return;
     const parsed = parseSymbolName(symName);
     if (parsed.year) {
       yearSet.add(parsed.year);

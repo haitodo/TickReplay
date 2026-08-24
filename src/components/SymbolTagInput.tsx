@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { SymbolItem } from "./SymbolCombobox";
+import { isReplaySymbol } from "../utils/symbolUtils";
 
 interface SymbolTagInputProps {
   value: string; // カンマ区切りの文字列 (例: "EURUSD,GBPUSD,USDCHF")
@@ -24,7 +25,9 @@ export const SymbolTagInput: React.FC<SymbolTagInputProps> = ({
     .map(s => s.trim().toUpperCase())
     .filter(Boolean);
 
-  const symbolNames = availableSymbols.map(s => typeof s === "string" ? s : s.name);
+  const symbolNames = availableSymbols
+    .map(s => typeof s === "string" ? s : s.name)
+    .filter(name => !isReplaySymbol(name));
 
   const updateTags = (newTags: string[]) => {
     onChange(newTags.join(","));
