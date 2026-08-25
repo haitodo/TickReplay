@@ -389,6 +389,14 @@ export const ControllerWindowContent: React.FC = () => {
           <button
             type="button"
             className="ctrl-icon-btn"
+            onClick={() => invoke("open_tracely_app").catch(console.error)}
+            title="トレード分析 (Tracely) を起動"
+          >
+            <span className="material-symbols-outlined icon text-indigo">analytics</span>
+          </button>
+          <button
+            type="button"
+            className="ctrl-icon-btn"
             onClick={() => invoke("open_settings_window").catch(console.error)}
             title="環境設定画面を開く"
           >

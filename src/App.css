@@ -355,6 +355,19 @@
   font-size: 32px !important;
 }
 
+.text-indigo {
+  color: #818cf8 !important;
+}
+
+.text-green,
+.text-emerald {
+  color: #34d399 !important;
+}
+
+.text-cyan {
+  color: #38bdf8 !important;
+}
+
 /* Global resets */
 * {
   box-sizing: border-box;

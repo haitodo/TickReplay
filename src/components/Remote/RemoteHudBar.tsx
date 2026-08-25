@@ -1,4 +1,5 @@
 import React from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { formatJstTime, formatServerTime, getNewsTimeForDisplay } from "../../utils/timeUtils";
 
 export interface RemoteHudBarProps {
@@ -240,6 +241,13 @@ export const RemoteHudBar: React.FC<RemoteHudBarProps> = ({
 
       {/* Far Right: Utility actions */}
       <div className="remote-utilities">
+        <button
+          className="remote-btn-utility"
+          onClick={() => invoke("open_tracely_app").catch(console.error)}
+          title="トレード分析 (Tracely) を起動"
+        >
+          <span className="material-symbols-outlined text-[14px] text-indigo">analytics</span>
+        </button>
         <button
           className={`remote-btn-utility ${isShortcutsActive ? "active-green" : ""}`}
           onClick={handleShortcutsToggle}
