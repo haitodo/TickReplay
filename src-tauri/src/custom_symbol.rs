@@ -29,6 +29,8 @@ pub struct ScannedZipFile {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ScannedPairGroup {
     pub category: String,
+    pub broker: String,
+    pub year: String,
     pub pair_name: String,
     pub suggested_symbol_name: String,
     pub group_path: String,
@@ -315,6 +317,8 @@ pub fn scan_directory_for_ticks(
 
         result.push(ScannedPairGroup {
             category,
+            broker,
+            year,
             pair_name: pair,
             suggested_symbol_name,
             group_path,
