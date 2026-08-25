@@ -4,7 +4,7 @@ import { CustomSelect } from "../../CustomSelect";
 import { SymbolItem } from "../SymbolCombobox";
 import { SymbolTagInput } from "../SymbolTagInput";
 import { HelpTooltip } from "../HelpTooltip";
-import { parseSymbolName } from "../../utils/symbolUtils";
+import { parseSymbolName, findDefaultDualFeedPair } from "../../utils/symbolUtils";
 import { TerminalInfo } from "../../types/terminal";
 import { MaxBarsInfo } from "../../utils/hotkeyUtils";
 import { formatJstTime, getNewsTimeForDisplay } from "../../utils/timeUtils";
@@ -334,7 +334,18 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                       <input
                         type="checkbox"
                         checked={enableDualFeed}
-                        onChange={(e) => setEnableDualFeed(e.target.checked)}
+                        onChange={(e) => {
+                          const nextVal = e.target.checked;
+                          setEnableDualFeed(nextVal);
+                          if (nextVal) {
+                            // デュアルフィード有効化時: Main=OANDA, Sub=DUCASCOPY を自動初期選択
+                            const defaultPair = findDefaultDualFeedPair(availableSymbols, sourceSymbol);
+                            if (defaultPair) {
+                              setSourceSymbol(defaultPair.mainSymbol);
+                              setSubSourceSymbol(defaultPair.subSymbol);
+                            }
+                          }
+                        }}
                       />
                       <span className="switch-text">デュアルフィード比較 (Main vs Sub)</span>
                     </label>

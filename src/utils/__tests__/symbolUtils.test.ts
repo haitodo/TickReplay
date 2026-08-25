@@ -11,7 +11,11 @@ import {
   getAllYears,
   isJpyPair,
   isUsdStraight,
-  isEuroCross
+  isEuroCross,
+  isOandaBroker,
+  isDucascopyBroker,
+  sortBrokersForDualFeed,
+  findDefaultDualFeedPair
 } from "../symbolUtils";
 
 describe("symbolUtils", () => {
@@ -247,6 +251,82 @@ describe("symbolUtils", () => {
       expect(isEuroCross("EURCHF")).toBe(true);
       expect(isEuroCross("EURUSD_2016")).toBe(false); // USD含むものは除外
       expect(isEuroCross("EURJPY")).toBe(false); // JPY含むものは除外
+    });
+  });
+
+  describe("デュアルフィード優先度 (OANDA = Main, DUCASCOPY = Sub)", () => {
+    it("OANDA / DUCASCOPY ブローカー判定", () => {
+      expect(isOandaBroker("OANDA")).toBe(true);
+      expect(isOandaBroker("oanda")).toBe(true);
+      expect(isOandaBroker("USDJPY_OANDA_2024")).toBe(true);
+      expect(isOandaBroker("TITAN")).toBe(false);
+
+      expect(isDucascopyBroker("DUCASCOPY")).toBe(true);
+      expect(isDucascopyBroker("DUKASCOPY")).toBe(true);
+      expect(isDucascopyBroker("ducascopy")).toBe(true);
+      expect(isDucascopyBroker("dukascopy")).toBe(true);
+      expect(isDucascopyBroker("USDJPY_DUCASCOPY_2024")).toBe(true);
+      expect(isDucascopyBroker("OANDA")).toBe(false);
+    });
+
+    it("sortBrokersForDualFeed で OANDA が先頭（Main）、DUCASCOPY が2番目（Sub）にソートされること", () => {
+      const dummyItem = { name: "", source_type: "custom" as const, group_name: "" };
+      const rawBrokers = [
+        { broker: "DUCASCOPY", symbolName: "USDJPY_DUCASCOPY_2024", item: dummyItem },
+        { broker: "TITAN", symbolName: "USDJPY_TITAN_2024", item: dummyItem },
+        { broker: "OANDA", symbolName: "USDJPY_OANDA_2024", item: dummyItem }
+      ];
+
+      const sorted = sortBrokersForDualFeed(rawBrokers);
+      expect(sorted[0].broker).toBe("OANDA");
+      expect(sorted[1].broker).toBe("DUCASCOPY");
+      expect(sorted[2].broker).toBe("TITAN");
+    });
+
+    it("getDualFeedCandidates でブローカーが OANDA(Main) / DUCASCOPY(Sub) 順に並ぶこと", () => {
+      const symbols = [
+        "USDJPY_DUCASCOPY_2024",
+        "USDJPY_OANDA_2024",
+        "USDJPY_TITAN_2024"
+      ];
+
+      const candidates = getDualFeedCandidates(symbols);
+      expect(candidates.length).toBe(1);
+      expect(candidates[0].brokers.map(b => b.broker)).toEqual(["OANDA", "DUCASCOPY", "TITAN"]);
+      expect(candidates[0].brokers[0].symbolName).toBe("USDJPY_OANDA_2024");
+      expect(candidates[0].brokers[1].symbolName).toBe("USDJPY_DUCASCOPY_2024");
+    });
+
+    it("findDefaultDualFeedPair で現在のシンボルに応じた OANDA(Main) / DUCASCOPY(Sub) を検出すること", () => {
+      const symbols = [
+        "EURUSD_DUCASCOPY_2016",
+        "EURUSD_OANDA_2016",
+        "USDJPY_DUCASCOPY_2024",
+        "USDJPY_OANDA_2024",
+        "GBPJPY_TITAN_2024",
+        "GBPJPY_OANDA_2024"
+      ];
+
+      // 1. USDJPY_2024 が指定されている場合
+      const res1 = findDefaultDualFeedPair(symbols, "USDJPY_2024");
+      expect(res1).toEqual({
+        mainSymbol: "USDJPY_OANDA_2024",
+        subSymbol: "USDJPY_DUCASCOPY_2024"
+      });
+
+      // 2. EURUSD_OANDA_2016 が指定されている場合
+      const res2 = findDefaultDualFeedPair(symbols, "EURUSD_OANDA_2016");
+      expect(res2).toEqual({
+        mainSymbol: "EURUSD_OANDA_2016",
+        subSymbol: "EURUSD_DUCASCOPY_2016"
+      });
+
+      // 3. 現在シンボルが未指定または標準シンボルの場合、USDJPYの OANDA/DUCASCOPY を優先
+      const res3 = findDefaultDualFeedPair(symbols, "USDJPY");
+      expect(res3).toEqual({
+        mainSymbol: "USDJPY_OANDA_2024",
+        subSymbol: "USDJPY_DUCASCOPY_2024"
+      });
     });
   });
 });

@@ -9,7 +9,10 @@ import {
   getAllBrokers,
   getAllYears,
   getAllCompanionsForSource,
-  switchSymbolSuffix
+  switchSymbolSuffix,
+  findDefaultDualFeedPair,
+  isOandaBroker,
+  isDucascopyBroker
 } from "../utils/symbolUtils";
 
 export interface SymbolBatchSelectorModalProps {
@@ -74,8 +77,25 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
     if (isOpen) {
       setReplayMode(currentEnableDualFeed ? "dual" : "single");
       setSelectedSource(currentSourceSymbol);
-      setDualMainSymbol(currentSourceSymbol);
-      setDualSubSymbol(currentSubSourceSymbol);
+
+      if (currentEnableDualFeed) {
+        if (!currentSubSourceSymbol || currentSubSourceSymbol === currentSourceSymbol || (!isOandaBroker(currentSourceSymbol) && !isDucascopyBroker(currentSubSourceSymbol))) {
+          const defaultPair = findDefaultDualFeedPair(availableSymbols, currentSourceSymbol);
+          if (defaultPair) {
+            setDualMainSymbol(defaultPair.mainSymbol);
+            setDualSubSymbol(defaultPair.subSymbol);
+          } else {
+            setDualMainSymbol(currentSourceSymbol);
+            setDualSubSymbol(currentSubSourceSymbol);
+          }
+        } else {
+          setDualMainSymbol(currentSourceSymbol);
+          setDualSubSymbol(currentSubSourceSymbol);
+        }
+      } else {
+        setDualMainSymbol(currentSourceSymbol);
+        setDualSubSymbol(currentSubSourceSymbol);
+      }
 
       // 同期他通貨のパース
       const syncList = currentAdditionalSymbols
@@ -104,7 +124,7 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
         setActiveCategory(categoryInfo.allCategories[0]);
       }
     }
-  }, [isOpen, currentSourceSymbol, currentSubSourceSymbol, currentEnableDualFeed, currentAdditionalSymbols, allYears, allBrokers, categoryInfo]);
+  }, [isOpen, currentSourceSymbol, currentSubSourceSymbol, currentEnableDualFeed, currentAdditionalSymbols, allYears, allBrokers, categoryInfo, availableSymbols]);
 
   if (!isOpen) return null;
 
@@ -283,6 +303,17 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
     onClose();
   };
 
+  const handleSwitchToDual = () => {
+    setReplayMode("dual");
+    if (!dualSubSymbol || dualSubSymbol === dualMainSymbol || !isOandaBroker(dualMainSymbol) || !isDucascopyBroker(dualSubSymbol)) {
+      const defaultPair = findDefaultDualFeedPair(availableSymbols, dualMainSymbol || selectedSource);
+      if (defaultPair) {
+        setDualMainSymbol(defaultPair.mainSymbol);
+        setDualSubSymbol(defaultPair.subSymbol);
+      }
+    }
+  };
+
   return (
     <div
       className="modal-overlay"
@@ -383,7 +414,7 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
             </button>
             <button
               type="button"
-              onClick={() => setReplayMode("dual")}
+              onClick={handleSwitchToDual}
               style={{
                 flex: 1,
                 padding: "8px 12px",

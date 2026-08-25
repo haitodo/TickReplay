@@ -333,6 +333,22 @@ export function isEuroCross(sym: string): boolean {
   return parsed.basePair.startsWith("EUR") && !parsed.basePair.includes("JPY") && !parsed.basePair.includes("USD");
 }
 
+/**
+ * ブローカー名またはシンボル名が OANDA であるかを判定する
+ */
+export function isOandaBroker(brokerOrSymbol: string): boolean {
+  if (!brokerOrSymbol) return false;
+  return /oanda/i.test(brokerOrSymbol);
+}
+
+/**
+ * ブローカー名またはシンボル名が DUKASCOPY / DUCASCOPY であるかを判定する
+ */
+export function isDucascopyBroker(brokerOrSymbol: string): boolean {
+  if (!brokerOrSymbol) return false;
+  return /du[ck]as/i.test(brokerOrSymbol);
+}
+
 export interface DualFeedBrokerOption {
   broker: string;
   symbolName: string;
@@ -343,6 +359,54 @@ export interface DualFeedPairCandidate {
   basePair: string;
   year: string;
   brokers: DualFeedBrokerOption[];
+}
+
+/**
+ * デュアルフィード比較用のブローカー並び順をソートする
+ * Main優先: OANDA > その他 > DUKASCOPY/DUCASCOPY
+ * Sub優先: DUKASCOPY/DUCASCOPY > その他 > OANDA
+ * 
+ * 2社選択時（[0]がMain、[1]がSub）に [OANDA, DUCASCOPY] になるように並び替える
+ */
+export function sortBrokersForDualFeed(brokers: DualFeedBrokerOption[]): DualFeedBrokerOption[] {
+  if (brokers.length <= 1) return [...brokers];
+
+  const oandaIdx = brokers.findIndex(b => isOandaBroker(b.broker) || isOandaBroker(b.symbolName));
+  const ducasIdx = brokers.findIndex(b => isDucascopyBroker(b.broker) || isDucascopyBroker(b.symbolName));
+
+  const result: DualFeedBrokerOption[] = [];
+  const used = new Set<number>();
+
+  // 1. Main候補 (先頭): OANDA があれば最優先、なければ DUCAS 以外の先頭、それもなければ最初の要素
+  if (oandaIdx !== -1) {
+    result.push(brokers[oandaIdx]);
+    used.add(oandaIdx);
+  } else {
+    const firstNonDucas = brokers.findIndex((b, idx) => !used.has(idx) && !(isDucascopyBroker(b.broker) || isDucascopyBroker(b.symbolName)));
+    if (firstNonDucas !== -1) {
+      result.push(brokers[firstNonDucas]);
+      used.add(firstNonDucas);
+    } else {
+      result.push(brokers[0]);
+      used.add(0);
+    }
+  }
+
+  // 2. Sub候補 (2番目): DUCASCOPY があれば最優先、なければ残りの先頭
+  if (ducasIdx !== -1 && !used.has(ducasIdx)) {
+    result.push(brokers[ducasIdx]);
+    used.add(ducasIdx);
+  }
+
+  // 3. 残りのブローカーを追加
+  brokers.forEach((b, idx) => {
+    if (!used.has(idx)) {
+      result.push(b);
+      used.add(idx);
+    }
+  });
+
+  return result;
 }
 
 /**
@@ -378,7 +442,88 @@ export function getDualFeedCandidates(symbols: (SymbolItem | string)[]): DualFee
     }
   });
 
-  return Object.values(map);
+  const candidates = Object.values(map);
+  // 各候補のブローカー一覧を Dual Feed 向け優先順位（Main: OANDA, Sub: DUCASCOPY）でソート
+  candidates.forEach(c => {
+    c.brokers = sortBrokersForDualFeed(c.brokers);
+  });
+
+  return candidates;
+}
+
+/**
+ * 利用可能なシンボル一覧から、デュアルフィード比較に最適なデフォルトペア（Main: OANDA, Sub: DUCASCOPY）を取得する
+ */
+export function findDefaultDualFeedPair(
+  symbols: (SymbolItem | string)[],
+  currentSourceSymbol?: string
+): { mainSymbol: string; subSymbol: string } | null {
+  const candidates = getDualFeedCandidates(symbols);
+  const validCandidates = candidates.filter(c => c.brokers.length >= 2);
+
+  if (validCandidates.length === 0) {
+    if (candidates.length > 0 && candidates[0].brokers.length > 0) {
+      return {
+        mainSymbol: candidates[0].brokers[0].symbolName,
+        subSymbol: ""
+      };
+    }
+    return null;
+  }
+
+  // 現在のシンボル情報
+  const currentParsed = currentSourceSymbol ? parseSymbolName(currentSourceSymbol) : null;
+  const currentBasePair = currentParsed?.basePair?.toUpperCase() || "";
+  const currentYear = currentParsed?.year || "";
+
+  // 1. 同一ベース通貨ペアかつ同一年の候補を検索
+  if (currentBasePair) {
+    const samePairSameYear = validCandidates.find(
+      c => c.basePair.toUpperCase() === currentBasePair && (!currentYear || c.year === currentYear)
+    );
+    if (samePairSameYear) {
+      // 既にソート済みなので [0] が Main、[1] が Sub
+      return {
+        mainSymbol: samePairSameYear.brokers[0].symbolName,
+        subSymbol: samePairSameYear.brokers[1].symbolName
+      };
+    }
+
+    // 2. 同一ベース通貨ペア（別年含む）の候補を検索
+    const samePairAnyYear = validCandidates.find(
+      c => c.basePair.toUpperCase() === currentBasePair
+    );
+    if (samePairAnyYear) {
+      return {
+        mainSymbol: samePairAnyYear.brokers[0].symbolName,
+        subSymbol: samePairAnyYear.brokers[1].symbolName
+      };
+    }
+  }
+
+  // 3. OANDA & DUCASCOPY が揃っている候補（USDJPY優先、なければ先頭）を検索
+  const idealCandidate = validCandidates.find(
+    c => (isOandaBroker(c.brokers[0].broker) || isOandaBroker(c.brokers[0].symbolName)) &&
+         (isDucascopyBroker(c.brokers[1].broker) || isDucascopyBroker(c.brokers[1].symbolName)) &&
+         c.basePair.toUpperCase() === "USDJPY"
+  ) || validCandidates.find(
+    c => (isOandaBroker(c.brokers[0].broker) || isOandaBroker(c.brokers[0].symbolName)) &&
+         (isDucascopyBroker(c.brokers[1].broker) || isDucascopyBroker(c.brokers[1].symbolName))
+  );
+
+  if (idealCandidate) {
+    return {
+      mainSymbol: idealCandidate.brokers[0].symbolName,
+      subSymbol: idealCandidate.brokers[1].symbolName
+    };
+  }
+
+  // 4. フォールバック: 最初の候補の先頭2社
+  const fallback = validCandidates[0];
+  return {
+    mainSymbol: fallback.brokers[0].symbolName,
+    subSymbol: fallback.brokers[1].symbolName
+  };
 }
 
 /**

@@ -12,7 +12,10 @@ import {
   getAllBrokers,
   getAllYears,
   getAllCompanionsForSource,
-  switchSymbolSuffix
+  switchSymbolSuffix,
+  findDefaultDualFeedPair,
+  isOandaBroker,
+  isDucascopyBroker
 } from "../utils/symbolUtils";
 import { useTheme } from "../hooks/useTheme";
 
@@ -51,9 +54,19 @@ export const SymbolSelectorWindowContent: React.FC = () => {
         try {
           const parsed = JSON.parse(savedStateStr);
           if (parsed.sourceSymbol) setSelectedSource(parsed.sourceSymbol);
-          if (parsed.subSourceSymbol) setDualSubSymbol(parsed.subSourceSymbol);
           if (parsed.sourceSymbol) setDualMainSymbol(parsed.sourceSymbol);
-          if (parsed.enableDualFeed !== undefined) setReplayMode(parsed.enableDualFeed ? "dual" : "single");
+          if (parsed.subSourceSymbol) setDualSubSymbol(parsed.subSourceSymbol);
+          if (parsed.enableDualFeed !== undefined) {
+            const isDual = !!parsed.enableDualFeed;
+            setReplayMode(isDual ? "dual" : "single");
+            if (isDual && (!parsed.subSourceSymbol || parsed.subSourceSymbol === parsed.sourceSymbol || (!isOandaBroker(parsed.sourceSymbol) && !isDucascopyBroker(parsed.subSourceSymbol)))) {
+              const defaultPair = findDefaultDualFeedPair(parsed.availableSymbols || availableSymbols, parsed.sourceSymbol);
+              if (defaultPair) {
+                setDualMainSymbol(defaultPair.mainSymbol);
+                setDualSubSymbol(defaultPair.subSymbol);
+              }
+            }
+          }
           if (parsed.additionalSymbols) {
             const syncs = parsed.additionalSymbols.split(",").map((s: string) => s.trim()).filter(Boolean);
             setSelectedSync(syncs);
@@ -75,7 +88,7 @@ export const SymbolSelectorWindowContent: React.FC = () => {
     } catch (err) {
       console.error("Failed to load symbols in selector window:", err);
     }
-  }, []);
+  }, [availableSymbols]);
 
   useEffect(() => {
     loadSymbols();
@@ -88,7 +101,17 @@ export const SymbolSelectorWindowContent: React.FC = () => {
         setDualMainSymbol(data.sourceSymbol);
       }
       if (data.subSourceSymbol !== undefined) setDualSubSymbol(data.subSourceSymbol);
-      if (data.enableDualFeed !== undefined) setReplayMode(data.enableDualFeed ? "dual" : "single");
+      if (data.enableDualFeed !== undefined) {
+        const isDual = !!data.enableDualFeed;
+        setReplayMode(isDual ? "dual" : "single");
+        if (isDual && (!data.subSourceSymbol || data.subSourceSymbol === data.sourceSymbol || (!isOandaBroker(data.sourceSymbol) && !isDucascopyBroker(data.subSourceSymbol)))) {
+          const defaultPair = findDefaultDualFeedPair(data.availableSymbols || availableSymbols, data.sourceSymbol);
+          if (defaultPair) {
+            setDualMainSymbol(defaultPair.mainSymbol);
+            setDualSubSymbol(defaultPair.subSymbol);
+          }
+        }
+      }
       if (data.additionalSymbols !== undefined) {
         const syncs = data.additionalSymbols ? data.additionalSymbols.split(",").map((s: string) => s.trim()).filter(Boolean) : [];
         setSelectedSync(syncs);
@@ -289,6 +312,17 @@ export const SymbolSelectorWindowContent: React.FC = () => {
     setDualSubSymbol(temp);
   };
 
+  const handleSwitchToDual = () => {
+    setReplayMode("dual");
+    if (!dualSubSymbol || dualSubSymbol === dualMainSymbol || !isOandaBroker(dualMainSymbol) || !isDucascopyBroker(dualSubSymbol)) {
+      const defaultPair = findDefaultDualFeedPair(availableSymbols, dualMainSymbol || selectedSource);
+      if (defaultPair) {
+        setDualMainSymbol(defaultPair.mainSymbol);
+        setDualSubSymbol(defaultPair.subSymbol);
+      }
+    }
+  };
+
   // ウィンドウを閉じる
   const handleClose = async () => {
     try {
@@ -434,7 +468,7 @@ export const SymbolSelectorWindowContent: React.FC = () => {
           </button>
           <button
             type="button"
-            onClick={() => setReplayMode("dual")}
+            onClick={handleSwitchToDual}
             style={{
               padding: "4px 10px",
               fontSize: "11px",
