@@ -2744,7 +2744,9 @@ function App() {
           companionSymbols={companionSymbols}
           setIsCustomImportOpen={setIsCustomImportOpen}
           startTime={startTime}
+          setStartTime={setStartTime}
           endTime={endTime}
+          setEndTime={setEndTime}
           timezoneMode={timezoneMode}
           setActivePickerField={setActivePickerField}
           preloadMode={preloadMode}

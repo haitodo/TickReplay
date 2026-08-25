@@ -107,7 +107,29 @@ export const DateTimePickerModal: React.FC<DateTimePickerModalProps> = ({
           </div>
 
           <div>
-            <div className="picker-section-title">日</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+              <div className="picker-section-title" style={{ margin: 0 }}>日</div>
+              <div style={{ display: "flex", gap: "4px" }}>
+                <button
+                  type="button"
+                  className="picker-btn-grid"
+                  style={{ padding: "1px 6px", fontSize: "10px" }}
+                  onClick={() => setTempDay(1)}
+                  title="1日（月初）にセット"
+                >
+                  月初 (1日)
+                </button>
+                <button
+                  type="button"
+                  className="picker-btn-grid"
+                  style={{ padding: "1px 6px", fontSize: "10px" }}
+                  onClick={() => setTempDay(totalDays)}
+                  title={`最終日 (${totalDays}日) にセット`}
+                >
+                  月末 ({totalDays}日)
+                </button>
+              </div>
+            </div>
             <div className="picker-calendar-grid">
               {["日", "月", "火", "水", "木", "金", "土"].map(d => (
                 <div key={d} className="calendar-header-cell">{d}</div>

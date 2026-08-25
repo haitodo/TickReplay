@@ -14,6 +14,7 @@ import {
   isOandaBroker,
   isDucascopyBroker
 } from "../utils/symbolUtils";
+import { getMonthRange, getYearRange } from "../utils/dateUtils";
 
 export interface SymbolBatchSelectorModalProps {
   isOpen: boolean;
@@ -61,6 +62,8 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
 
   // オプション
   const [autoApplyDateRange, setAutoApplyDateRange] = useState<boolean>(true);
+  const [autoDateRangeMode, setAutoDateRangeMode] = useState<"month" | "year">("month");
+  const [targetMonth, setTargetMonth] = useState<number>(1);
 
   const categoryInfo = useMemo(() => groupSymbolsByCategory(availableSymbols), [availableSymbols]);
   const allYears = useMemo(() => getAllYears(availableSymbols), [availableSymbols]);
@@ -290,12 +293,14 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
     let dateRange: { start: string; end: string } | undefined = undefined;
     if (autoApplyDateRange) {
       const parsed = parseSymbolName(src);
-      const targetYear = parsed.year || (isCurrentCategoryYear ? activeCategory : "");
-      if (targetYear && /^\d{4}$/.test(targetYear)) {
-        dateRange = {
-          start: `${targetYear}-01-01 00:00:00`,
-          end: `${targetYear}-12-31 23:59:59`
-        };
+      const targetYearStr = parsed.year || (isCurrentCategoryYear ? activeCategory : "");
+      if (targetYearStr && /^\d{4}$/.test(targetYearStr)) {
+        const y = parseInt(targetYearStr);
+        if (autoDateRangeMode === "month") {
+          dateRange = getMonthRange(y, targetMonth);
+        } else {
+          dateRange = getYearRange(y);
+        }
       }
     }
 
@@ -1088,17 +1093,88 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
             </>
           )}
 
-          {/* 自動期間設定チェックボックス */}
-          <div style={{ marginTop: "4px", padding: "8px 12px", backgroundColor: "var(--surface-container-low)", borderRadius: "6px", border: "1px solid var(--outline-variant)" }}>
-            <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", margin: 0, fontSize: "12px", color: "var(--on-surface)" }}>
-              <input
-                type="checkbox"
-                checked={autoApplyDateRange}
-                onChange={(e) => setAutoApplyDateRange(e.target.checked)}
-                style={{ width: "15px", height: "15px", accentColor: "var(--primary-color)" }}
-              />
-              <span>選択した年度の全期間 (YYYY-01-01 〜 YYYY-12-31) をリプレイ日時設定に自動反映する</span>
-            </label>
+          {/* 自動期間設定バー */}
+          <div style={{ marginTop: "4px", padding: "10px 14px", backgroundColor: "var(--surface-container-low)", borderRadius: "8px", border: "1px solid var(--outline-variant)", display: "flex", flexDirection: "column", gap: "8px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", margin: 0, fontSize: "12px", color: "var(--on-surface)", fontWeight: 600 }}>
+                <input
+                  type="checkbox"
+                  checked={autoApplyDateRange}
+                  onChange={(e) => setAutoApplyDateRange(e.target.checked)}
+                  style={{ width: "15px", height: "15px", accentColor: "var(--primary-color)" }}
+                />
+                <span>リプレイ期間を自動反映する</span>
+              </label>
+
+              {autoApplyDateRange && (
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <div style={{ display: "flex", backgroundColor: "var(--surface-variant)", borderRadius: "4px", padding: "2px", border: "1px solid var(--outline-variant)" }}>
+                    <button
+                      type="button"
+                      onClick={() => setAutoDateRangeMode("month")}
+                      style={{
+                        padding: "2px 8px",
+                        fontSize: "11px",
+                        border: "none",
+                        borderRadius: "3px",
+                        cursor: "pointer",
+                        backgroundColor: autoDateRangeMode === "month" ? "var(--primary-color)" : "transparent",
+                        color: autoDateRangeMode === "month" ? "var(--on-primary, #fff)" : "var(--on-surface-variant)",
+                        fontWeight: autoDateRangeMode === "month" ? 700 : 400
+                      }}
+                    >
+                      1ヶ月単位 (推奨)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAutoDateRangeMode("year")}
+                      style={{
+                        padding: "2px 8px",
+                        fontSize: "11px",
+                        border: "none",
+                        borderRadius: "3px",
+                        cursor: "pointer",
+                        backgroundColor: autoDateRangeMode === "year" ? "var(--primary-color)" : "transparent",
+                        color: autoDateRangeMode === "year" ? "var(--on-primary, #fff)" : "var(--on-surface-variant)",
+                        fontWeight: autoDateRangeMode === "year" ? 700 : 400
+                      }}
+                    >
+                      年間全期
+                    </button>
+                  </div>
+
+                  {autoDateRangeMode === "month" && (
+                    <select
+                      value={targetMonth}
+                      onChange={(e) => setTargetMonth(parseInt(e.target.value) || 1)}
+                      style={{
+                        height: "24px",
+                        fontSize: "11px",
+                        backgroundColor: "var(--surface-variant)",
+                        color: "var(--on-surface)",
+                        border: "1px solid var(--outline-variant)",
+                        borderRadius: "4px",
+                        padding: "0 6px",
+                        cursor: "pointer"
+                      }}
+                    >
+                      {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                        <option key={m} value={m}>
+                          {m}月 (1ヶ月間)
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              )}
+            </div>
+            {autoApplyDateRange && (
+              <div style={{ fontSize: "11px", color: "var(--on-surface-variant)", paddingLeft: "23px" }}>
+                {autoDateRangeMode === "month"
+                  ? `💡 選択した年度の「${targetMonth}月」の1ヶ月間 (YYYY-${String(targetMonth).padStart(2, "0")}-01 〜 末日) をリプレイ期間にセットします。`
+                  : "💡 選択した年度の全期間 (YYYY-01-01 〜 YYYY-12-31) をリプレイ期間にセットします。"}
+              </div>
+            )}
           </div>
         </div>
 

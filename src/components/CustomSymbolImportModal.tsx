@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getMonthRange } from "../utils/dateUtils";
 
 export interface ScannedZipFile {
   year_month: string;
@@ -63,6 +64,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
   const [errorMessage, setErrorMessage] = useState("");
   const [mt5Connected, setMt5Connected] = useState<boolean | null>(null);
   const [lastImportedSymbols, setLastImportedSymbols] = useState<string[]>([]);
+  const [lastImportedMonths, setLastImportedMonths] = useState<string[]>([]);
   const [importCompletedSuccessfully, setImportCompletedSuccessfully] = useState(false);
 
   const cancelImportRef = useRef(false);
@@ -425,6 +427,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
     if (!cancelImportRef.current && successCount > 0) {
       setImportCompletedSuccessfully(true);
       setLastImportedSymbols(Array.from(importedSymbolSet));
+      setLastImportedMonths(itemsToImport.map(it => it.yearMonth).filter(Boolean).sort());
       setLogs(prev => [...prev, `🎉 インポート完了! 合計 ${successCount}/${itemsToImport.length} 件 (${totalTicksTotal.toLocaleString()} ティック)`]);
     }
 
@@ -442,12 +445,21 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
 
     const matchYear = primary.match(/_(\d{4})$/);
     let dateRange: { start: string; end: string } | undefined = undefined;
-    if (matchYear) {
-      const year = matchYear[1];
-      dateRange = {
-        start: `${year}-01-01 00:00:00`,
-        end: `${year}-12-31 23:59:59`
-      };
+
+    if (lastImportedMonths.length > 0) {
+      // 最初にインポートされた月をデフォルトの1ヶ月期間として設定 (例: "2024.05" -> 2024年5月1日〜5月31日)
+      const firstYM = lastImportedMonths[0];
+      const match = firstYM.match(/^(\d{4})[._-]?(\d{2})/);
+      if (match) {
+        const y = parseInt(match[1]);
+        const m = parseInt(match[2]);
+        dateRange = getMonthRange(y, m);
+      }
+    }
+
+    if (!dateRange && matchYear) {
+      const year = parseInt(matchYear[1]);
+      dateRange = getMonthRange(year, 1);
     }
 
     onApplyToReplay(primary, syncList, dateRange);

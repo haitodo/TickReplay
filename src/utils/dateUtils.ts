@@ -29,3 +29,120 @@ export const formatDateTimeStr = (year: number, month: number, day: number, hour
   const pad = (n: number) => n.toString().padStart(2, '0');
   return `${year}-${pad(month)}-${pad(day)} ${pad(hour)}:${pad(minute)}:${pad(second)}`;
 };
+
+/**
+ * 指定した年・月の日数（うるう年対応）を取得する
+ * @param year 西暦年
+ * @param month 月 (1-12)
+ */
+export const getDaysInMonth = (year: number, month: number): number => {
+  return new Date(year, month, 0).getDate();
+};
+
+/**
+ * 指定した年・月の月初（01日 00:00:00）から月末（最終日 23:59:59）までの期間文字列を生成する
+ * @param year 西暦年 (例: 2024)
+ * @param month 月 (1-12)
+ */
+export const getMonthRange = (year: number, month: number): { start: string; end: string } => {
+  const lastDay = getDaysInMonth(year, month);
+  return {
+    start: formatDateTimeStr(year, month, 1, 0, 0, 0),
+    end: formatDateTimeStr(year, month, lastDay, 23, 59, 59)
+  };
+};
+
+/**
+ * 指定した西暦年の1年間全期間（01-01 00:00:00 〜 12-31 23:59:59）を生成する
+ * @param year 西暦年 (例: 2024)
+ */
+export const getYearRange = (year: number): { start: string; end: string } => {
+  return {
+    start: formatDateTimeStr(year, 1, 1, 0, 0, 0),
+    end: formatDateTimeStr(year, 12, 31, 23, 59, 59)
+  };
+};
+
+/**
+ * 開始・終了日時を指定月数分前後にシフトした期間を取得する
+ * （1ヶ月の期間指定であれば、翌月1日〜翌月末日へ綺麗にシフトする）
+ * @param startStr 開始日時文字列 (YYYY-MM-DD HH:mm:ss)
+ * @param endStr 終了日時文字列 (YYYY-MM-DD HH:mm:ss)
+ * @param deltaMonths シフト月数 (正: 次月方向, 負: 前月方向)
+ */
+export const shiftDateRangeByMonth = (
+  startStr: string,
+  endStr: string,
+  deltaMonths: number
+): { start: string; end: string } => {
+  const startParsed = parseDateTimeStr(startStr);
+  const endParsed = parseDateTimeStr(endStr);
+
+  // 1ヶ月全期間（1日〜末日）の場合、ターゲット月の1日〜末日に綺麗に揃える
+  const isStartFirstDay = startParsed.day === 1 && startParsed.hour === 0 && startParsed.minute === 0 && startParsed.second === 0;
+  const isEndLastDay = endParsed.day === getDaysInMonth(endParsed.year, endParsed.month) && endParsed.hour === 23 && endParsed.minute === 59;
+  const isSameMonth = startParsed.year === endParsed.year && startParsed.month === endParsed.month;
+
+  if (isSameMonth && isStartFirstDay && isEndLastDay) {
+    let targetYear = startParsed.year;
+    let targetMonth = startParsed.month + deltaMonths;
+    while (targetMonth > 12) {
+      targetMonth -= 12;
+      targetYear += 1;
+    }
+    while (targetMonth < 1) {
+      targetMonth += 12;
+      targetYear -= 1;
+    }
+    return getMonthRange(targetYear, targetMonth);
+  }
+
+  // 任意期間の場合: 年月をdeltaMonths分シフト
+  const shiftSingle = (parsed: typeof startParsed) => {
+    let y = parsed.year;
+    let m = parsed.month + deltaMonths;
+    while (m > 12) {
+      m -= 12;
+      y += 1;
+    }
+    while (m < 1) {
+      m += 12;
+      y -= 1;
+    }
+    const maxDays = getDaysInMonth(y, m);
+    const d = Math.min(parsed.day, maxDays);
+    return formatDateTimeStr(y, m, d, parsed.hour, parsed.minute, parsed.second);
+  };
+
+  return {
+    start: shiftSingle(startParsed),
+    end: shiftSingle(endParsed)
+  };
+};
+
+/**
+ * 開始・終了日時が単一の月（1日 00:00:00 〜 末日 23:59:59 または同一月内）に該当するかを判定する
+ */
+export const isSingleFullMonth = (
+  startStr: string,
+  endStr: string
+): { isFullMonth: boolean; year: number; month: number } => {
+  const startParsed = parseDateTimeStr(startStr);
+  const endParsed = parseDateTimeStr(endStr);
+
+  if (startParsed.year === endParsed.year && startParsed.month === endParsed.month) {
+    const isStartFirstDay = startParsed.day === 1 && startParsed.hour === 0 && startParsed.minute === 0;
+    const isEndLastDay = endParsed.day === getDaysInMonth(endParsed.year, endParsed.month) && endParsed.hour === 23 && endParsed.minute === 59;
+    return {
+      isFullMonth: isStartFirstDay && isEndLastDay,
+      year: startParsed.year,
+      month: startParsed.month
+    };
+  }
+
+  return {
+    isFullMonth: false,
+    year: startParsed.year,
+    month: startParsed.month
+  };
+};

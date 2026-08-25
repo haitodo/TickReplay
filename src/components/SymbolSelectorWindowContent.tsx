@@ -17,6 +17,7 @@ import {
   isOandaBroker,
   isDucascopyBroker
 } from "../utils/symbolUtils";
+import { getMonthRange, getYearRange } from "../utils/dateUtils";
 import { useTheme } from "../hooks/useTheme";
 
 export const SymbolSelectorWindowContent: React.FC = () => {
@@ -44,6 +45,8 @@ export const SymbolSelectorWindowContent: React.FC = () => {
 
   // オプション
   const [autoApplyDateRange, setAutoApplyDateRange] = useState<boolean>(true);
+  const [autoDateRangeMode, setAutoDateRangeMode] = useState<"month" | "year">("month");
+  const [targetMonth, setTargetMonth] = useState<number>(1);
 
   // 初期ロード・メインウィンドウとの同期
   const loadSymbols = useCallback(async () => {
@@ -345,12 +348,14 @@ export const SymbolSelectorWindowContent: React.FC = () => {
     let dateRange: { start: string; end: string } | undefined = undefined;
     if (autoApplyDateRange) {
       const parsed = parseSymbolName(src);
-      const targetYear = parsed.year || (isCurrentCategoryYear ? activeCategory : "");
-      if (targetYear && /^\d{4}$/.test(targetYear)) {
-        dateRange = {
-          start: `${targetYear}-01-01 00:00:00`,
-          end: `${targetYear}-12-31 23:59:59`
-        };
+      const targetYearStr = parsed.year || (isCurrentCategoryYear ? activeCategory : "");
+      if (targetYearStr && /^\d{4}$/.test(targetYearStr)) {
+        const y = parseInt(targetYearStr);
+        if (autoDateRangeMode === "month") {
+          dateRange = getMonthRange(y, targetMonth);
+        } else {
+          dateRange = getYearRange(y);
+        }
       }
     }
 
@@ -1207,18 +1212,84 @@ export const SymbolSelectorWindowContent: React.FC = () => {
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
+          gap: "10px",
+          flexWrap: "wrap",
           flexShrink: 0
         }}
       >
-        <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontSize: "11px", color: "var(--on-surface-variant)" }}>
-          <input
-            type="checkbox"
-            checked={autoApplyDateRange}
-            onChange={(e) => setAutoApplyDateRange(e.target.checked)}
-            style={{ width: "13px", height: "13px", accentColor: "var(--primary-color)" }}
-          />
-          <span>選択した年度の全期間 (01/01〜12/31) をリプレイ日時に自動反映</span>
-        </label>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontSize: "11px", color: "var(--on-surface-variant)", fontWeight: 600 }}>
+            <input
+              type="checkbox"
+              checked={autoApplyDateRange}
+              onChange={(e) => setAutoApplyDateRange(e.target.checked)}
+              style={{ width: "13px", height: "13px", accentColor: "var(--primary-color)" }}
+            />
+            <span>期間を自動反映</span>
+          </label>
+
+          {autoApplyDateRange && (
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <div style={{ display: "flex", backgroundColor: "var(--surface-variant)", borderRadius: "3px", padding: "1px", border: "1px solid var(--outline-variant)" }}>
+                <button
+                  type="button"
+                  onClick={() => setAutoDateRangeMode("month")}
+                  style={{
+                    padding: "2px 6px",
+                    fontSize: "10px",
+                    border: "none",
+                    borderRadius: "2px",
+                    cursor: "pointer",
+                    backgroundColor: autoDateRangeMode === "month" ? "var(--primary-color)" : "transparent",
+                    color: autoDateRangeMode === "month" ? "var(--on-primary, #fff)" : "var(--on-surface-variant)",
+                    fontWeight: autoDateRangeMode === "month" ? 700 : 400
+                  }}
+                >
+                  1ヶ月単位
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAutoDateRangeMode("year")}
+                  style={{
+                    padding: "2px 6px",
+                    fontSize: "10px",
+                    border: "none",
+                    borderRadius: "2px",
+                    cursor: "pointer",
+                    backgroundColor: autoDateRangeMode === "year" ? "var(--primary-color)" : "transparent",
+                    color: autoDateRangeMode === "year" ? "var(--on-primary, #fff)" : "var(--on-surface-variant)",
+                    fontWeight: autoDateRangeMode === "year" ? 700 : 400
+                  }}
+                >
+                  年間全期
+                </button>
+              </div>
+
+              {autoDateRangeMode === "month" && (
+                <select
+                  value={targetMonth}
+                  onChange={(e) => setTargetMonth(parseInt(e.target.value) || 1)}
+                  style={{
+                    height: "22px",
+                    fontSize: "10px",
+                    backgroundColor: "var(--surface-variant)",
+                    color: "var(--on-surface)",
+                    border: "1px solid var(--outline-variant)",
+                    borderRadius: "3px",
+                    padding: "0 4px",
+                    cursor: "pointer"
+                  }}
+                >
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                    <option key={m} value={m}>
+                      {m}月
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
+        </div>
 
         <div style={{ display: "flex", gap: "8px" }}>
           <button

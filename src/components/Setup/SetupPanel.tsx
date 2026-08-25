@@ -8,6 +8,7 @@ import { parseSymbolName, findDefaultDualFeedPair } from "../../utils/symbolUtil
 import { TerminalInfo } from "../../types/terminal";
 import { MaxBarsInfo } from "../../utils/hotkeyUtils";
 import { formatJstTime, getNewsTimeForDisplay } from "../../utils/timeUtils";
+import { getMonthRange, getYearRange, shiftDateRangeByMonth, parseDateTimeStr } from "../../utils/dateUtils";
 
 export interface SetupPanelProps {
   status: "DISCONNECTED" | "CONNECTED" | "READY" | "ACTIVE";
@@ -35,7 +36,9 @@ export interface SetupPanelProps {
   companionSymbols: string[];
   setIsCustomImportOpen: (val: boolean) => void;
   startTime: string;
+  setStartTime?: (val: string) => void;
   endTime: string;
+  setEndTime?: (val: string) => void;
   timezoneMode: "JST" | "SERVER";
   setActivePickerField: (val: "preload" | "start" | "end" | null) => void;
   preloadMode: "BARS" | "DATE";
@@ -108,7 +111,9 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
   companionSymbols,
   setIsCustomImportOpen,
   startTime,
+  setStartTime,
   endTime,
+  setEndTime,
   timezoneMode,
   setActivePickerField,
   preloadMode,
@@ -162,6 +167,16 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
   const reqMarginPerLot = Math.round((estRate * contractSize) / levSafe);
   const pipValue = Math.round(0.01 * contractSize);
   const maxLots = reqMarginPerLot > 0 ? ((initialBalance / reqMarginPerLot) || 0).toFixed(1) : "0.0";
+
+  // 日時解析および月別クイック選択用の表示年ステート
+  const parsedStart = parseDateTimeStr(startTime);
+  const [viewYear, setViewYear] = React.useState<number>(() => parsedStart.year || 2024);
+
+  React.useEffect(() => {
+    if (parsedStart.year && parsedStart.year !== viewYear) {
+      setViewYear(parsedStart.year);
+    }
+  }, [parsedStart.year]);
 
   return (
     <div className="setup-dashboard-container">
@@ -500,6 +515,128 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                 </div>
 
                 <div className="card-body-dashboard">
+                  {/* 1ヶ月クイック選択 & 月送りナビゲーションバー */}
+                  <div className="quick-month-selector-box">
+                    {/* 上段: 年度セレクター & 月送り・プリセットボタン */}
+                    <div className="quick-month-header">
+                      <div className="year-stepper">
+                        <button
+                          type="button"
+                          className="month-step-btn"
+                          onClick={() => {
+                            const newYear = viewYear - 1;
+                            setViewYear(newYear);
+                            const range = getMonthRange(newYear, parsedStart.month);
+                            setStartTime?.(range.start);
+                            setEndTime?.(range.end);
+                          }}
+                          title="前年へ"
+                        >
+                          <span className="material-symbols-outlined icon">chevron_left</span>
+                        </button>
+                        <span className="year-label font-data">{viewYear}年</span>
+                        <button
+                          type="button"
+                          className="month-step-btn"
+                          onClick={() => {
+                            const newYear = viewYear + 1;
+                            setViewYear(newYear);
+                            const range = getMonthRange(newYear, parsedStart.month);
+                            setStartTime?.(range.start);
+                            setEndTime?.(range.end);
+                          }}
+                          title="翌年へ"
+                        >
+                          <span className="material-symbols-outlined icon">chevron_right</span>
+                        </button>
+                      </div>
+
+                      {/* 前月 / 次月 ナビゲーション */}
+                      <div className="month-nav-group">
+                        <button
+                          type="button"
+                          className="month-nav-btn"
+                          onClick={() => {
+                            const shifted = shiftDateRangeByMonth(startTime, endTime, -1);
+                            setStartTime?.(shifted.start);
+                            setEndTime?.(shifted.end);
+                            const newParsed = parseDateTimeStr(shifted.start);
+                            setViewYear(newParsed.year);
+                          }}
+                          title="期間を1ヶ月前にシフト (前月へ)"
+                        >
+                          <span className="material-symbols-outlined icon">arrow_back</span>
+                          前月
+                        </button>
+                        <button
+                          type="button"
+                          className="month-nav-btn"
+                          onClick={() => {
+                            const shifted = shiftDateRangeByMonth(startTime, endTime, 1);
+                            setStartTime?.(shifted.start);
+                            setEndTime?.(shifted.end);
+                            const newParsed = parseDateTimeStr(shifted.start);
+                            setViewYear(newParsed.year);
+                          }}
+                          title="期間を1ヶ月先にシフト (次月へ)"
+                        >
+                          次月
+                          <span className="material-symbols-outlined icon">arrow_forward</span>
+                        </button>
+                      </div>
+
+                      {/* クイックプリセット */}
+                      <div className="month-presets-group">
+                        <button
+                          type="button"
+                          className="month-preset-btn"
+                          onClick={() => {
+                            const range = getMonthRange(viewYear, parsedStart.month);
+                            setStartTime?.(range.start);
+                            setEndTime?.(range.end);
+                          }}
+                          title="選択中の月を1ヶ月全期間 (1日〜末日) にセット"
+                        >
+                          当月全期
+                        </button>
+                        <button
+                          type="button"
+                          className="month-preset-btn"
+                          onClick={() => {
+                            const range = getYearRange(viewYear);
+                            setStartTime?.(range.start);
+                            setEndTime?.(range.end);
+                          }}
+                          title="選択年の1年間全期間 (1/1〜12/31) をセット"
+                        >
+                          年間全期
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* 下段: 1〜12月 月別ピルボタン */}
+                    <div className="month-pills-grid">
+                      {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => {
+                        const isSelectedMonth = parsedStart.year === viewYear && parsedStart.month === m;
+                        return (
+                          <button
+                            key={m}
+                            type="button"
+                            className={`month-pill-btn ${isSelectedMonth ? "active" : ""}`}
+                            onClick={() => {
+                              const range = getMonthRange(viewYear, m);
+                              setStartTime?.(range.start);
+                              setEndTime?.(range.end);
+                            }}
+                            title={`${viewYear}年${m}月 (1ヶ月間: 1日 00:00 〜 末日 23:59) をリプレイ期間にセット`}
+                          >
+                            {m}月
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   <div className="date-range-grid">
                     <div className="form-group-compact">
                       <label className="form-label-compact">開始日時 ({timezoneMode})</label>
