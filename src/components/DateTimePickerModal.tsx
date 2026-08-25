@@ -6,13 +6,15 @@ export interface DateTimePickerModalProps {
   value: string;
   onChange: (val: string) => void;
   onClose: () => void;
+  availableYears?: string[];
 }
 
 export const DateTimePickerModal: React.FC<DateTimePickerModalProps> = ({
   fieldLabel,
   value,
   onChange,
-  onClose
+  onClose,
+  availableYears = []
 }) => {
   const parsed = parseDateTimeStr(value);
   const [tempYear, setTempYear] = useState(parsed.year);
@@ -20,6 +22,21 @@ export const DateTimePickerModal: React.FC<DateTimePickerModalProps> = ({
   const [tempDay, setTempDay] = useState(parsed.day);
   const [tempHour, setTempHour] = useState(parsed.hour);
   const [tempMinute, setTempMinute] = useState(parsed.minute);
+
+  // 表示対象の年度リストを動的に構築
+  const displayYears = React.useMemo(() => {
+    const yearSet = new Set<number>();
+    // 基準年
+    [2023, 2024, 2025, 2026, 2027].forEach(y => yearSet.add(y));
+    // 現在選択中の年
+    yearSet.add(tempYear);
+    // 利用可能シンボルの年
+    availableYears.forEach(yStr => {
+      const parsedY = parseInt(yStr);
+      if (!isNaN(parsedY)) yearSet.add(parsedY);
+    });
+    return Array.from(yearSet).sort((a, b) => a - b);
+  }, [availableYears, tempYear]);
 
   const getDaysInMonth = (y: number, m: number) => {
     return new Date(y, m, 0).getDate();
@@ -75,13 +92,36 @@ export const DateTimePickerModal: React.FC<DateTimePickerModalProps> = ({
           </div>
 
           <div>
-            <div className="picker-section-title">年</div>
-            <div className="picker-grid-years">
-              {[2023, 2024, 2025, 2026, 2027].map((y) => (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+              <div className="picker-section-title" style={{ margin: 0 }}>年</div>
+              <div style={{ display: "flex", gap: "4px" }}>
+                <button
+                  type="button"
+                  className="picker-btn-grid"
+                  style={{ padding: "1px 6px", fontSize: "10px" }}
+                  onClick={() => setTempYear(prev => prev - 1)}
+                  title="前年へ"
+                >
+                  -1年
+                </button>
+                <button
+                  type="button"
+                  className="picker-btn-grid"
+                  style={{ padding: "1px 6px", fontSize: "10px" }}
+                  onClick={() => setTempYear(prev => prev + 1)}
+                  title="翌年へ"
+                >
+                  +1年
+                </button>
+              </div>
+            </div>
+            <div className="picker-grid-years" style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+              {displayYears.map((y) => (
                 <button
                   key={y}
                   type="button"
                   className={`picker-btn-grid ${tempYear === y ? 'active' : ''}`}
+                  style={{ flex: "1 0 auto", minWidth: "50px" }}
                   onClick={() => setTempYear(y)}
                 >
                   {y}
@@ -89,6 +129,7 @@ export const DateTimePickerModal: React.FC<DateTimePickerModalProps> = ({
               ))}
             </div>
           </div>
+
 
           <div>
             <div className="picker-section-title">月</div>

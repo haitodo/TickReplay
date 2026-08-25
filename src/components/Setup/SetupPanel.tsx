@@ -4,11 +4,22 @@ import { CustomSelect } from "../../CustomSelect";
 import { SymbolItem } from "../SymbolCombobox";
 import { SymbolTagInput } from "../SymbolTagInput";
 import { HelpTooltip } from "../HelpTooltip";
-import { parseSymbolName, findDefaultDualFeedPair } from "../../utils/symbolUtils";
+import {
+  parseSymbolName,
+  findDefaultDualFeedPair,
+  findMatchingSymbolForYear,
+  checkSymbolYearMismatch
+} from "../../utils/symbolUtils";
 import { TerminalInfo } from "../../types/terminal";
 import { MaxBarsInfo } from "../../utils/hotkeyUtils";
 import { formatJstTime, getNewsTimeForDisplay } from "../../utils/timeUtils";
-import { getMonthRange, getYearRange, shiftDateRangeByMonth, parseDateTimeStr } from "../../utils/dateUtils";
+import {
+  getMonthRange,
+  getYearRange,
+  shiftDateRangeByMonth,
+  parseDateTimeStr,
+  alignDateRangeToYear
+} from "../../utils/dateUtils";
 
 export interface SetupPanelProps {
   status: "DISCONNECTED" | "CONNECTED" | "READY" | "ACTIVE";
@@ -177,6 +188,30 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
       setViewYear(parsedStart.year);
     }
   }, [parsedStart.year]);
+
+  // 現在のシンボル情報と年度不一致チェック
+  const parsedSource = parseSymbolName(sourceSymbol);
+  const mismatch = checkSymbolYearMismatch(sourceSymbol, startTime);
+
+  // 年度切り替えハンドラー（期間の年度変更 ＋ 対応シンボルの自動切り替え）
+  const handleSelectYear = (newYear: number) => {
+    setViewYear(newYear);
+    const range = getMonthRange(newYear, parsedStart.month);
+    setStartTime?.(range.start);
+    setEndTime?.(range.end);
+
+    // 現在のシンボルに一致する該当年シンボルがあれば自動更新
+    const matched = findMatchingSymbolForYear(sourceSymbol, newYear.toString(), availableSymbols);
+    if (matched) {
+      setSourceSymbol(matched);
+      if (enableDualFeed && subSourceSymbol) {
+        const matchedSub = findMatchingSymbolForYear(subSourceSymbol, newYear.toString(), availableSymbols);
+        if (matchedSub) {
+          setSubSourceSymbol(matchedSub);
+        }
+      }
+    }
+  };
 
   return (
     <div className="setup-dashboard-container">
@@ -381,7 +416,14 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                     {enableDualFeed ? (
                       <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: "6px", alignItems: "center" }}>
                         <div style={{ padding: "5px 8px", backgroundColor: "var(--surface-variant)", borderRadius: "4px", border: "1px solid var(--primary-color)" }}>
-                          <span style={{ fontSize: "9px", color: "var(--primary-color)", fontWeight: 700, display: "block" }}>MAIN</span>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span style={{ fontSize: "9px", color: "var(--primary-color)", fontWeight: 700 }}>MAIN</span>
+                            {parsedSource.year && (
+                              <span style={{ fontSize: "9px", padding: "0 4px", borderRadius: "3px", backgroundColor: "rgba(var(--primary-rgb), 0.15)", color: "var(--primary-color)", fontWeight: 700 }}>
+                                {parsedSource.year}年
+                              </span>
+                            )}
+                          </div>
                           <span style={{ fontSize: "12px", fontWeight: 700, fontFamily: "var(--font-data)" }}>{sourceSymbol || "(未選択)"}</span>
                         </div>
                         <button
@@ -398,7 +440,14 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                           <span className="material-symbols-outlined icon">swap_horiz</span>
                         </button>
                         <div style={{ padding: "5px 8px", backgroundColor: "var(--surface-variant)", borderRadius: "4px", border: "1px solid var(--secondary-color)" }}>
-                          <span style={{ fontSize: "9px", color: "var(--secondary-color)", fontWeight: 700, display: "block" }}>SUB</span>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span style={{ fontSize: "9px", color: "var(--secondary-color)", fontWeight: 700 }}>SUB</span>
+                            {parseSymbolName(subSourceSymbol).year && (
+                              <span style={{ fontSize: "9px", padding: "0 4px", borderRadius: "3px", backgroundColor: "rgba(var(--secondary-rgb, var(--primary-rgb)), 0.15)", color: "var(--secondary-color)", fontWeight: 700 }}>
+                                {parseSymbolName(subSourceSymbol).year}年
+                              </span>
+                            )}
+                          </div>
                           <span style={{ fontSize: "12px", fontWeight: 700, fontFamily: "var(--font-data)" }}>{subSourceSymbol || "(未選択)"}</span>
                         </div>
                       </div>
@@ -412,18 +461,67 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                         </div>
                         {sourceSymbol && (
                           <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
-                            {parseSymbolName(sourceSymbol).year && (
+                            {parsedSource.year && (
                               <span style={{ fontSize: "10px", padding: "1px 5px", borderRadius: "3px", backgroundColor: "rgba(var(--primary-rgb), 0.15)", color: "var(--primary-color)", fontWeight: 700 }}>
-                                {parseSymbolName(sourceSymbol).year}年
+                                📅 {parsedSource.year}年
                               </span>
                             )}
-                            {parseSymbolName(sourceSymbol).broker && (
+                            {parsedSource.broker && (
                               <span style={{ fontSize: "10px", padding: "1px 5px", borderRadius: "3px", backgroundColor: "var(--surface-container-high)", color: "var(--on-surface-variant)" }}>
-                                {parseSymbolName(sourceSymbol).broker}
+                                🏛️ {parsedSource.broker}
                               </span>
                             )}
                           </div>
                         )}
+                      </div>
+                    )}
+
+                    {/* 年度不一致警告バナー */}
+                    {mismatch.hasMismatch && mismatch.symbolYear && (
+                      <div
+                        style={{
+                          padding: "6px 8px",
+                          borderRadius: "4px",
+                          backgroundColor: "rgba(245, 158, 11, 0.12)",
+                          border: "1px solid rgba(245, 158, 11, 0.35)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: "6px"
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "10.5px", color: "var(--status-warning, #f59e0b)" }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>warning</span>
+                          <span>
+                            銘柄({mismatch.symbolYear}年) と 期間({mismatch.dateYear}年) が不一致
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          className="pro-btn"
+                          onClick={() => {
+                            if (mismatch.symbolYear) {
+                              const targetY = parseInt(mismatch.symbolYear);
+                              const aligned = alignDateRangeToYear(startTime, endTime, targetY);
+                              setStartTime?.(aligned.start);
+                              setEndTime?.(aligned.end);
+                              setViewYear(targetY);
+                            }
+                          }}
+                          style={{
+                            padding: "2px 6px",
+                            fontSize: "10px",
+                            height: "20px",
+                            whiteSpace: "nowrap",
+                            backgroundColor: "rgba(245, 158, 11, 0.2)",
+                            borderColor: "rgba(245, 158, 11, 0.5)",
+                            color: "var(--status-warning, #f59e0b)",
+                            fontWeight: 700
+                          }}
+                          title={`${mismatch.symbolYear}年の期間に自動調整`}
+                        >
+                          {mismatch.symbolYear}年に自動調整
+                        </button>
                       </div>
                     )}
 
@@ -450,6 +548,8 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                       <span>シンボル・比較ペアを選択 (セレクター)</span>
                     </button>
                   </div>
+
+
 
                   {/* 同期他通貨 (マルチ通貨リプレイ) */}
                   <div className="form-group-compact" style={{ marginTop: "4px" }}>
@@ -523,14 +623,8 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                         <button
                           type="button"
                           className="month-step-btn"
-                          onClick={() => {
-                            const newYear = viewYear - 1;
-                            setViewYear(newYear);
-                            const range = getMonthRange(newYear, parsedStart.month);
-                            setStartTime?.(range.start);
-                            setEndTime?.(range.end);
-                          }}
-                          title="前年へ"
+                          onClick={() => handleSelectYear(viewYear - 1)}
+                          title="前年へ (対応シンボルも自動切替)"
                         >
                           <span className="material-symbols-outlined icon">chevron_left</span>
                         </button>
@@ -538,14 +632,8 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                         <button
                           type="button"
                           className="month-step-btn"
-                          onClick={() => {
-                            const newYear = viewYear + 1;
-                            setViewYear(newYear);
-                            const range = getMonthRange(newYear, parsedStart.month);
-                            setStartTime?.(range.start);
-                            setEndTime?.(range.end);
-                          }}
-                          title="翌年へ"
+                          onClick={() => handleSelectYear(viewYear + 1)}
+                          title="翌年へ (対応シンボルも自動切替)"
                         >
                           <span className="material-symbols-outlined icon">chevron_right</span>
                         </button>
@@ -561,7 +649,9 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                             setStartTime?.(shifted.start);
                             setEndTime?.(shifted.end);
                             const newParsed = parseDateTimeStr(shifted.start);
-                            setViewYear(newParsed.year);
+                            if (newParsed.year !== viewYear) {
+                              handleSelectYear(newParsed.year);
+                            }
                           }}
                           title="期間を1ヶ月前にシフト (前月へ)"
                         >
@@ -576,7 +666,9 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                             setStartTime?.(shifted.start);
                             setEndTime?.(shifted.end);
                             const newParsed = parseDateTimeStr(shifted.start);
-                            setViewYear(newParsed.year);
+                            if (newParsed.year !== viewYear) {
+                              handleSelectYear(newParsed.year);
+                            }
                           }}
                           title="期間を1ヶ月先にシフト (次月へ)"
                         >

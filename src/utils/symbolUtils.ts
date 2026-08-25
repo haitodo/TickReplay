@@ -1,4 +1,5 @@
 import { SymbolItem } from "../components/SymbolCombobox";
+import { parseDateTimeStr } from "./dateUtils";
 
 export interface ParsedSymbol {
   originalName: string;
@@ -556,5 +557,72 @@ export function getAllYears(symbols: (SymbolItem | string)[]): string[] {
     }
   });
   return Array.from(yearSet).sort((a, b) => b.localeCompare(a));
+}
+
+/**
+ * 現在のシンボル（通貨ペア・ブローカー）に一致する、指定年度のシンボルを検索する
+ * 例: "USDJPY_OANDA_2024" + targetYear="2023" -> "USDJPY_OANDA_2023"
+ */
+export function findMatchingSymbolForYear(
+  currentSymbol: string,
+  targetYear: string,
+  allSymbols: (SymbolItem | string)[]
+): string | null {
+  if (!currentSymbol || !targetYear) return null;
+  const currentParsed = parseSymbolName(currentSymbol);
+  if (!currentParsed.basePair) return null;
+
+  const validSymbols = allSymbols.filter(s => !isReplaySymbol(typeof s === "string" ? s : s.name));
+  const parsedList = validSymbols.map(s => {
+    const name = typeof s === "string" ? s : s.name;
+    return { name, parsed: parseSymbolName(name) };
+  });
+
+  // 1. 同一通貨ペア + 同一ブローカー + 対象年度 の完全一致
+  if (currentParsed.broker) {
+    const exactMatch = parsedList.find(item =>
+      item.parsed.basePair.toUpperCase() === currentParsed.basePair.toUpperCase() &&
+      item.parsed.broker.toUpperCase() === currentParsed.broker.toUpperCase() &&
+      item.parsed.year === targetYear
+    );
+    if (exactMatch) return exactMatch.name;
+  }
+
+  // 2. 同一通貨ペア + 対象年度 の一致
+  const pairYearMatch = parsedList.find(item =>
+    item.parsed.basePair.toUpperCase() === currentParsed.basePair.toUpperCase() &&
+    item.parsed.year === targetYear
+  );
+  if (pairYearMatch) return pairYearMatch.name;
+
+  // 3. 通信先候補が見つからない場合は null
+  return null;
+}
+
+/**
+ * シンボルに含まれる年度と指定日時の年度に不一致があるかを判定する
+ */
+export function checkSymbolYearMismatch(
+  symbol: string,
+  dateTimeStr: string
+): { hasMismatch: boolean; symbolYear?: string; dateYear: number } {
+  const dateParsed = parseDateTimeStr(dateTimeStr);
+  const symParsed = parseSymbolName(symbol);
+
+  if (symParsed.year) {
+    const symYearNum = parseInt(symParsed.year);
+    const hasMismatch = !isNaN(symYearNum) && symYearNum !== dateParsed.year;
+    return {
+      hasMismatch,
+      symbolYear: symParsed.year,
+      dateYear: dateParsed.year
+    };
+  }
+
+  return {
+    hasMismatch: false,
+    symbolYear: undefined,
+    dateYear: dateParsed.year
+  };
 }
 

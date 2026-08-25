@@ -15,7 +15,9 @@ import {
   isOandaBroker,
   isDucascopyBroker,
   sortBrokersForDualFeed,
-  findDefaultDualFeedPair
+  findDefaultDualFeedPair,
+  findMatchingSymbolForYear,
+  checkSymbolYearMismatch
 } from "../symbolUtils";
 
 describe("symbolUtils", () => {
@@ -329,4 +331,63 @@ describe("symbolUtils", () => {
       });
     });
   });
+
+  describe("findMatchingSymbolForYear", () => {
+    it("同一通貨ペア・同一ブローカーの対象年度シンボルを検索すること", () => {
+      const symbols = [
+        "USDJPY_OANDA_2024",
+        "USDJPY_OANDA_2023",
+        "USDJPY_DUCASCOPY_2023",
+        "EURUSD_OANDA_2023"
+      ];
+
+      const match = findMatchingSymbolForYear("USDJPY_OANDA_2024", "2023", symbols);
+      expect(match).toBe("USDJPY_OANDA_2023");
+    });
+
+    it("ブローカーなしシンボルで対象年度シンボルを検索すること", () => {
+      const symbols = [
+        "USDJPY_2024",
+        "USDJPY_2023",
+        "EURUSD_2023"
+      ];
+
+      const match = findMatchingSymbolForYear("USDJPY_2024", "2023", symbols);
+      expect(match).toBe("USDJPY_2023");
+    });
+
+    it("該当する年度シンボルが存在しない場合は null を返すこと", () => {
+      const symbols = [
+        "USDJPY_2024",
+        "EURUSD_2023"
+      ];
+
+      const match = findMatchingSymbolForYear("USDJPY_2024", "2020", symbols);
+      expect(match).toBeNull();
+    });
+  });
+
+  describe("checkSymbolYearMismatch", () => {
+    it("シンボル年度と日付年度が一致している場合は hasMismatch: false を返すこと", () => {
+      const res = checkSymbolYearMismatch("USDJPY_2024", "2024-05-01 00:00:00");
+      expect(res.hasMismatch).toBe(false);
+      expect(res.symbolYear).toBe("2024");
+      expect(res.dateYear).toBe(2024);
+    });
+
+    it("シンボル年度と日付年度が異なる場合は hasMismatch: true を返すこと", () => {
+      const res = checkSymbolYearMismatch("USDJPY_2024", "2026-05-01 00:00:00");
+      expect(res.hasMismatch).toBe(true);
+      expect(res.symbolYear).toBe("2024");
+      expect(res.dateYear).toBe(2026);
+    });
+
+    it("シンボルに年度が含まれない場合は hasMismatch: false を返すこと", () => {
+      const res = checkSymbolYearMismatch("USDJPY", "2026-05-01 00:00:00");
+      expect(res.hasMismatch).toBe(false);
+      expect(res.symbolYear).toBeUndefined();
+      expect(res.dateYear).toBe(2026);
+    });
+  });
 });
+

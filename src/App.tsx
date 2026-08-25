@@ -20,7 +20,8 @@ import { AppHeader } from "./components/Header/AppHeader";
 import { SetupPanel } from "./components/Setup/SetupPanel";
 import { RemoteHudBar } from "./components/Remote/RemoteHudBar";
 import { SettingsModal } from "./components/Settings/SettingsModal";
-import { parseSymbolName, getCompanionSymbols, switchSymbolSuffix } from "./utils/symbolUtils";
+import { parseSymbolName, getCompanionSymbols, switchSymbolSuffix, getAllYears, checkSymbolYearMismatch } from "./utils/symbolUtils";
+import { parseDateTimeStr, alignDateRangeToYear } from "./utils/dateUtils";
 import { useTheme } from "./hooks/useTheme";
 import {
   getServerToJstOffsetHours,
@@ -328,7 +329,10 @@ function App() {
     return getCompanionSymbols(sourceSymbol, availableSymbols, syncList);
   }, [sourceSymbol, availableSymbols, additionalSymbols]);
 
-  // ソースシンボルの年度・サフィックス変更時に同期他通貨のサフィックスを自動連動置換
+  // 利用可能な全年度リスト
+  const availableYears = useMemo(() => getAllYears(availableSymbols), [availableSymbols]);
+
+  // ソースシンボルの年度・サフィックス変更時に同期他通貨のサフィックスを自動連動置換 & 期間年度連動
   const prevSourceRef = useRef(sourceSymbol);
   useEffect(() => {
     const prev = prevSourceRef.current;
@@ -342,6 +346,25 @@ function App() {
           if (updated.join(",") !== syncList.join(",")) {
             setAdditionalSymbols(updated.join(","));
           }
+        }
+      }
+
+      // シンボル年度に応じた検証期間の自動アライン
+      if (nextParsed.year) {
+        const targetYear = parseInt(nextParsed.year);
+        if (!isNaN(targetYear)) {
+          setStartTime((prevStart) => {
+            const startParsed = parseDateTimeStr(prevStart);
+            if (startParsed.year !== targetYear) {
+              setEndTime((prevEnd) => {
+                const aligned = alignDateRangeToYear(prevStart, prevEnd, targetYear);
+                return aligned.end;
+              });
+              const aligned = alignDateRangeToYear(prevStart, prevStart, targetYear);
+              return aligned.start;
+            }
+            return prevStart;
+          });
         }
       }
     }
@@ -1514,6 +1537,13 @@ function App() {
     // 年を跨ぐ期間指定のチェック
     if (startDate.getFullYear() !== endDate.getFullYear()) {
       setErrorMessage("年を跨ぐ期間は指定できません。日付選択を誤っている可能性があります。");
+      return;
+    }
+
+    // シンボル年度と検証期間年度の一致チェック
+    const mismatch = checkSymbolYearMismatch(sourceSymbol, startTime);
+    if (mismatch.hasMismatch && mismatch.symbolYear) {
+      setErrorMessage(`選択中シンボルの年度 (${mismatch.symbolYear}年) と検証期間の年度 (${mismatch.dateYear}年) が一致していません。期間を${mismatch.symbolYear}年に設定してください。`);
       return;
     }
 
@@ -2944,6 +2974,7 @@ function App() {
             else setEndTime(finalVal);
           }}
           onClose={() => setActivePickerField(null)}
+          availableYears={availableYears}
         />
       )}
 

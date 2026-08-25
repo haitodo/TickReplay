@@ -757,7 +757,7 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
 
                 {filteredDualCandidates.length === 0 ? (
                   <div style={{ padding: "24px", textAlign: "center", color: "var(--on-surface-variant)", fontSize: "12px", backgroundColor: "var(--surface-variant)", borderRadius: "8px" }}>
-                    一致するシンボルが見つかりませんでした。別の年度を選択するか、カスタムシンボルをインポートしてください。
+一致するシンボルが見つかりませんでした。別の年度を選択するか、カスタムシンボルをインポートしてください。
                   </div>
                 ) : (
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))", gap: "10px" }}>
@@ -779,13 +779,11 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                           }}
                         >
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                              <strong style={{ fontSize: "14px", color: "var(--on-surface)" }}>
-                                {c.basePair}
-                              </strong>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                              <strong style={{ fontSize: "14px", color: "var(--on-surface)", fontFamily: "var(--font-data)" }}>{c.basePair}</strong>
                               {c.year && (
-                                <span style={{ fontSize: "11px", padding: "1px 6px", borderRadius: "4px", backgroundColor: "rgba(var(--primary-rgb), 0.15)", color: "var(--primary-color)", fontWeight: 700 }}>
-                                  {c.year}年
+                                <span style={{ fontSize: "10.5px", padding: "1px 6px", borderRadius: "3px", backgroundColor: "rgba(var(--primary-rgb), 0.15)", color: "var(--primary-color)", fontWeight: 700 }}>
+                                  📅 {c.year}年
                                 </span>
                               )}
                               <span style={{ fontSize: "10.5px", color: hasTwoBrokers ? "var(--status-success)" : "var(--on-surface-variant)" }}>
@@ -796,9 +794,9 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                             {hasTwoBrokers && (
                               <button
                                 type="button"
-                                className="pro-btn"
+                                className="pro-btn primary-action"
                                 onClick={() => handleSetDualPair(c.brokers[0].symbolName, c.brokers[1].symbolName)}
-                                style={{ padding: "2px 8px", fontSize: "10.5px", height: "22px", backgroundColor: "var(--primary-color)", borderColor: "var(--primary-color)", color: "var(--on-primary, #fff)" }}
+                                style={{ padding: "2px 10px", fontSize: "11px", height: "24px", fontWeight: 700, backgroundColor: "var(--primary-color)", color: "var(--on-primary, #fff)" }}
                               >
                                 この2社をセット
                               </button>
@@ -810,6 +808,7 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                             {c.brokers.map(b => {
                               const isMain = dualMainSymbol === b.symbolName;
                               const isSub = dualSubSymbol === b.symbolName;
+                              const parsedB = parseSymbolName(b.symbolName);
 
                               return (
                                 <div
@@ -824,12 +823,19 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                                     border: `1px solid ${isMain ? "var(--primary-color)" : isSub ? "var(--secondary-color)" : "transparent"}`
                                   }}
                                 >
-                                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                    <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--on-surface)" }}>
-                                      {b.broker}
-                                    </span>
-                                    <span style={{ fontSize: "10px", color: "var(--on-surface-variant)" }}>
-                                      ({b.symbolName})
+                                  <div style={{ display: "flex", flexDirection: "column" }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                      <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--on-surface)" }}>
+                                        🏛️ {b.broker}
+                                      </span>
+                                      {parsedB.year && (
+                                        <span style={{ fontSize: "10px", color: "var(--primary-color)", fontWeight: 600 }}>
+                                          ({parsedB.year}年)
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span style={{ fontSize: "9.5px", color: "var(--on-surface-variant)", opacity: 0.75, fontFamily: "var(--font-data)" }}>
+                                      {b.symbolName}
                                     </span>
                                   </div>
 
@@ -838,9 +844,9 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                                       type="button"
                                       onClick={() => handleSetDualMainSymbol(b.symbolName)}
                                       style={{
-                                        padding: "1px 6px",
+                                        padding: "2px 8px",
                                         fontSize: "10px",
-                                        fontWeight: 600,
+                                        fontWeight: 700,
                                         borderRadius: "3px",
                                         border: "1px solid",
                                         cursor: "pointer",
@@ -849,7 +855,7 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                                         color: isMain ? "var(--on-primary, #fff)" : "var(--on-surface-variant)"
                                       }}
                                     >
-                                      Main
+                                      {isMain ? "★ Main" : "Main"}
                                     </button>
                                     <button
                                       type="button"
@@ -988,7 +994,7 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                     同期他通貨 ({selectedSync.length} 件選択中)
                   </span>
                   <div style={{ fontSize: "12px", color: "var(--on-surface-variant)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {selectedSync.length > 0 ? selectedSync.join(", ") : "同期なし"}
+                            {selectedSync.length > 0 ? selectedSync.join(", ") : "同期なし"}
                   </div>
                 </div>
               </div>
@@ -1034,31 +1040,38 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                         gap: "6px"
                       }}
                     >
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <strong style={{ fontSize: "13px", color: isSource ? "var(--primary-color)" : isSync ? "var(--secondary-color)" : "var(--on-surface)" }}>
-                          {parsed.basePair}
-                        </strong>
-                        {parsed.broker && (
-                          <span style={{ fontSize: "10px", padding: "1px 5px", borderRadius: "3px", backgroundColor: "var(--surface-container-high)", color: "var(--on-surface-variant)" }}>
-                            {parsed.broker}
-                          </span>
-                        )}
+                      <div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                            <strong style={{ fontSize: "13px", color: isSource ? "var(--primary-color)" : isSync ? "var(--secondary-color)" : "var(--on-surface)", fontFamily: "var(--font-data)" }}>
+                              {parsed.basePair}
+                            </strong>
+                            {parsed.year && (
+                              <span style={{ fontSize: "10px", padding: "1px 5px", borderRadius: "3px", backgroundColor: isSource ? "var(--primary-color)" : "rgba(var(--primary-rgb), 0.15)", color: isSource ? "var(--on-primary, #fff)" : "var(--primary-color)", fontWeight: 700 }}>
+                                📅 {parsed.year}年
+                              </span>
+                            )}
+                          </div>
+                          {parsed.broker && (
+                            <span style={{ fontSize: "9.5px", color: "var(--on-surface-variant)", opacity: 0.9, fontWeight: 600 }}>
+                              🏛️ {parsed.broker}
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: "10px", color: "var(--on-surface-variant)", marginTop: "2px", opacity: 0.7, fontFamily: "var(--font-data)" }}>
+                          {sym.name}
+                        </div>
                       </div>
 
                       <div style={{ display: "flex", gap: "4px" }}>
                         <button
                           type="button"
+                          className={`pro-btn ${isSource ? "primary-action" : ""}`}
                           onClick={() => handleSetSource(sym.name)}
                           style={{
                             flex: 1,
                             padding: "3px 6px",
                             fontSize: "10.5px",
-                            fontWeight: 600,
-                            borderRadius: "4px",
-                            border: "1px solid",
-                            cursor: "pointer",
-                            borderColor: isSource ? "var(--primary-color)" : "var(--outline-variant)",
-                            backgroundColor: isSource ? "var(--primary-color)" : "var(--btn-default-bg)",
                             color: isSource ? "var(--on-primary, #fff)" : "var(--on-surface-variant)"
                           }}
                         >
@@ -1144,26 +1157,28 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                   </div>
 
                   {autoDateRangeMode === "month" && (
-                    <select
-                      value={targetMonth}
-                      onChange={(e) => setTargetMonth(parseInt(e.target.value) || 1)}
-                      style={{
-                        height: "24px",
-                        fontSize: "11px",
-                        backgroundColor: "var(--surface-variant)",
-                        color: "var(--on-surface)",
-                        border: "1px solid var(--outline-variant)",
-                        borderRadius: "4px",
-                        padding: "0 6px",
-                        cursor: "pointer"
-                      }}
-                    >
+                    <div style={{ display: "flex", gap: "3px", flexWrap: "wrap" }}>
                       {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                        <option key={m} value={m}>
-                          {m}月 (1ヶ月間)
-                        </option>
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => setTargetMonth(m)}
+                          style={{
+                            padding: "2px 6px",
+                            fontSize: "10px",
+                            borderRadius: "3px",
+                            border: targetMonth === m ? "1px solid var(--primary-color)" : "1px solid var(--outline-variant)",
+                            backgroundColor: targetMonth === m ? "var(--primary-color)" : "transparent",
+                            color: targetMonth === m ? "var(--on-primary, #fff)" : "var(--on-surface)",
+                            cursor: "pointer",
+                            fontWeight: targetMonth === m ? 700 : "normal"
+                          }}
+                          title={`${m}月を期間にセット`}
+                        >
+                          {m}月
+                        </button>
                       ))}
-                    </select>
+                    </div>
                   )}
                 </div>
               )}
@@ -1171,10 +1186,11 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
             {autoApplyDateRange && (
               <div style={{ fontSize: "11px", color: "var(--on-surface-variant)", paddingLeft: "23px" }}>
                 {autoDateRangeMode === "month"
-                  ? `💡 選択した年度の「${targetMonth}月」の1ヶ月間 (YYYY-${String(targetMonth).padStart(2, "0")}-01 〜 末日) をリプレイ期間にセットします。`
-                  : "💡 選択した年度の全期間 (YYYY-01-01 〜 YYYY-12-31) をリプレイ期間にセットします。"}
+                  ? `💡 選択した年度の「${targetMonth}月」全期間 (1日 00:00 〜 末日 23:59) をリプレイ期間にセットします。`
+                  : "💡 選択した年度の全期間 (1月1日 00:00 〜 12月31日 23:59) をリプレイ期間にセットします。"}
               </div>
             )}
+
           </div>
         </div>
 

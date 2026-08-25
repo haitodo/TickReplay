@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -49,7 +49,9 @@ export const SymbolSelectorWindowContent: React.FC = () => {
   const [targetMonth, setTargetMonth] = useState<number>(1);
 
   // 初期ロード・メインウィンドウとの同期
-  const loadSymbols = useCallback(async () => {
+  const isInitializedRef = useRef(false);
+
+  const loadSymbols = useCallback(async (forceResetMode = false) => {
     try {
       // 1. ローカルストレージまたはTauriから現在の設定を取得
       const savedStateStr = localStorage.getItem("symbol-selector-current-state");
@@ -59,11 +61,11 @@ export const SymbolSelectorWindowContent: React.FC = () => {
           if (parsed.sourceSymbol) setSelectedSource(parsed.sourceSymbol);
           if (parsed.sourceSymbol) setDualMainSymbol(parsed.sourceSymbol);
           if (parsed.subSourceSymbol) setDualSubSymbol(parsed.subSourceSymbol);
-          if (parsed.enableDualFeed !== undefined) {
+          if (forceResetMode && parsed.enableDualFeed !== undefined) {
             const isDual = !!parsed.enableDualFeed;
             setReplayMode(isDual ? "dual" : "single");
-            if (isDual && (!parsed.subSourceSymbol || parsed.subSourceSymbol === parsed.sourceSymbol || (!isOandaBroker(parsed.sourceSymbol) && !isDucascopyBroker(parsed.subSourceSymbol)))) {
-              const defaultPair = findDefaultDualFeedPair(parsed.availableSymbols || availableSymbols, parsed.sourceSymbol);
+            if (isDual) {
+              const defaultPair = findDefaultDualFeedPair(parsed.availableSymbols || [], parsed.sourceSymbol);
               if (defaultPair) {
                 setDualMainSymbol(defaultPair.mainSymbol);
                 setDualSubSymbol(defaultPair.subSymbol);
@@ -91,10 +93,13 @@ export const SymbolSelectorWindowContent: React.FC = () => {
     } catch (err) {
       console.error("Failed to load symbols in selector window:", err);
     }
-  }, [availableSymbols]);
+  }, []);
 
   useEffect(() => {
-    loadSymbols();
+    if (!isInitializedRef.current) {
+      isInitializedRef.current = true;
+      loadSymbols(true);
+    }
 
     // メインウィンドウからの初期化・更新イベントを受信
     const unlistenInit = listen<any>("symbol-selector-init", (event) => {
@@ -107,8 +112,8 @@ export const SymbolSelectorWindowContent: React.FC = () => {
       if (data.enableDualFeed !== undefined) {
         const isDual = !!data.enableDualFeed;
         setReplayMode(isDual ? "dual" : "single");
-        if (isDual && (!data.subSourceSymbol || data.subSourceSymbol === data.sourceSymbol || (!isOandaBroker(data.sourceSymbol) && !isDucascopyBroker(data.subSourceSymbol)))) {
-          const defaultPair = findDefaultDualFeedPair(data.availableSymbols || availableSymbols, data.sourceSymbol);
+        if (isDual) {
+          const defaultPair = findDefaultDualFeedPair(data.availableSymbols || [], data.sourceSymbol);
           if (defaultPair) {
             setDualMainSymbol(defaultPair.mainSymbol);
             setDualSubSymbol(defaultPair.subSymbol);
@@ -126,7 +131,7 @@ export const SymbolSelectorWindowContent: React.FC = () => {
 
     const unlistenVisible = listen<boolean>("window-visible", (event) => {
       if (event.payload) {
-        loadSymbols();
+        loadSymbols(true);
       }
     });
 
@@ -690,7 +695,7 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                 該当するシンボルがありません
               </div>
             ) : (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "6px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "6px" }}>
                 {currentCategorySymbols.map((sym) => {
                   const isSource = sym.name === selectedSource;
                   const isSync = selectedSync.includes(sym.name);
@@ -700,8 +705,8 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                     <div
                       key={sym.name}
                       style={{
-                        padding: "6px 8px",
-                        borderRadius: "5px",
+                        padding: "8px 10px",
+                        borderRadius: "6px",
                         backgroundColor: isSource
                           ? "rgba(var(--primary-rgb), 0.16)"
                           : isSync
@@ -716,32 +721,52 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                         }`,
                         display: "flex",
                         flexDirection: "column",
-                        gap: "4px"
+                        gap: "6px"
                       }}
                     >
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span
-                          style={{
-                            fontSize: "12px",
-                            fontWeight: isSource || isSync ? 700 : 600,
-                            color: isSource
-                              ? "var(--primary-color)"
-                              : isSync
-                              ? "var(--secondary-color)"
-                              : "var(--on-surface)",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap"
-                          }}
-                          title={sym.name}
-                        >
-                          {parsed.basePair}
-                        </span>
-                        {parsed.broker && (
-                          <span style={{ fontSize: "9px", color: "var(--on-surface-variant)", opacity: 0.85 }}>
-                            {parsed.broker}
-                          </span>
-                        )}
+                      <div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                            <span
+                              style={{
+                                fontSize: "13px",
+                                fontWeight: 700,
+                                color: isSource
+                                  ? "var(--primary-color)"
+                                  : isSync
+                                  ? "var(--secondary-color)"
+                                  : "var(--on-surface)",
+                                fontFamily: "var(--font-data)"
+                              }}
+                            >
+                              {parsed.basePair}
+                            </span>
+                            {parsed.year && (
+                              <span
+                                style={{
+                                  fontSize: "10px",
+                                  padding: "1px 5px",
+                                  borderRadius: "3px",
+                                  backgroundColor: isSource ? "var(--primary-color)" : "rgba(var(--primary-rgb), 0.15)",
+                                  color: isSource ? "var(--on-primary, #fff)" : "var(--primary-color)",
+                                  fontWeight: 700
+                                }}
+                              >
+                                📅 {parsed.year}年
+                              </span>
+                            )}
+                          </div>
+                          {parsed.broker && (
+                            <span style={{ fontSize: "9.5px", color: "var(--on-surface-variant)", opacity: 0.9, fontWeight: 600 }}>
+                              🏛️ {parsed.broker}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* 正式シンボル名 */}
+                        <div style={{ fontSize: "10px", color: "var(--on-surface-variant)", marginTop: "2px", opacity: 0.7, fontFamily: "var(--font-data)" }}>
+                          {sym.name}
+                        </div>
                       </div>
 
                       <div style={{ display: "flex", gap: "4px" }}>
@@ -750,9 +775,9 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                           onClick={() => handleSetSource(sym.name)}
                           style={{
                             flex: 1,
-                            padding: "2px 4px",
-                            fontSize: "10px",
-                            fontWeight: 600,
+                            padding: "3px 6px",
+                            fontSize: "10.5px",
+                            fontWeight: 700,
                             borderRadius: "3px",
                             border: "1px solid",
                             cursor: "pointer",
@@ -770,8 +795,8 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                             onClick={() => handleToggleSync(sym.name)}
                             style={{
                               flex: 1,
-                              padding: "2px 4px",
-                              fontSize: "10px",
+                              padding: "3px 6px",
+                              fontSize: "10.5px",
                               fontWeight: 600,
                               borderRadius: "3px",
                               border: "1px solid",
@@ -789,6 +814,7 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                   );
                 })}
               </div>
+
             )}
           </>
         ) : (
@@ -1095,7 +1121,7 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                 該当する比較ペアがありません
               </div>
             ) : (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "6px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "6px" }}>
                 {filteredDualCandidates.map((c) => {
                   const hasTwo = c.brokers.length >= 2;
                   const isSelected = dualMainSymbol.includes(c.basePair);
@@ -1104,8 +1130,8 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                     <div
                       key={`${c.basePair}_${c.year}`}
                       style={{
-                        padding: "8px",
-                        borderRadius: "5px",
+                        padding: "8px 10px",
+                        borderRadius: "6px",
                         backgroundColor: isSelected ? "rgba(var(--primary-rgb), 0.12)" : "var(--surface-charcoal)",
                         border: `1px solid ${isSelected ? "var(--primary-color)" : "var(--outline-variant)"}`,
                         display: "flex",
@@ -1114,10 +1140,12 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                       }}
                     >
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                          <strong style={{ fontSize: "12.5px", color: "var(--on-surface)" }}>{c.basePair}</strong>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <strong style={{ fontSize: "13px", color: "var(--on-surface)", fontFamily: "var(--font-data)" }}>{c.basePair}</strong>
                           {c.year && (
-                            <span style={{ fontSize: "10px", color: "var(--on-surface-variant)" }}>({c.year}年)</span>
+                            <span style={{ fontSize: "10px", padding: "1px 5px", borderRadius: "3px", backgroundColor: "rgba(var(--primary-rgb), 0.15)", color: "var(--primary-color)", fontWeight: 700 }}>
+                              📅 {c.year}年
+                            </span>
                           )}
                         </div>
                         {hasTwo && (
@@ -1125,17 +1153,18 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                             type="button"
                             className="pro-btn"
                             onClick={() => handleSetDualPair(c.brokers[0].symbolName, c.brokers[1].symbolName)}
-                            style={{ padding: "1px 6px", fontSize: "10px", height: "20px" }}
+                            style={{ padding: "2px 8px", fontSize: "10.5px", height: "22px", fontWeight: 700 }}
                           >
                             2社セット
                           </button>
                         )}
                       </div>
 
-                      <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                         {c.brokers.map((b) => {
                           const isMain = dualMainSymbol === b.symbolName;
                           const isSub = dualSubSymbol === b.symbolName;
+                          const parsedB = parseSymbolName(b.symbolName);
 
                           return (
                             <div
@@ -1144,8 +1173,8 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                                 display: "flex",
                                 justifyContent: "space-between",
                                 alignItems: "center",
-                                padding: "3px 6px",
-                                borderRadius: "3px",
+                                padding: "4px 8px",
+                                borderRadius: "4px",
                                 backgroundColor: isMain
                                   ? "rgba(var(--primary-rgb), 0.18)"
                                   : isSub
@@ -1153,16 +1182,24 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                                   : "var(--surface-variant)"
                               }}
                             >
-                              <span style={{ fontSize: "11px", fontWeight: 600, color: "var(--on-surface)" }}>{b.broker}</span>
-                              <div style={{ display: "flex", gap: "2px" }}>
+                              <div style={{ display: "flex", flexDirection: "column" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                                  <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--on-surface)" }}>🏛️ {b.broker}</span>
+                                  {parsedB.year && (
+                                    <span style={{ fontSize: "9.5px", color: "var(--primary-color)", fontWeight: 600 }}>({parsedB.year}年)</span>
+                                  )}
+                                </div>
+                                <span style={{ fontSize: "9.5px", color: "var(--on-surface-variant)", opacity: 0.75, fontFamily: "var(--font-data)" }}>{b.symbolName}</span>
+                              </div>
+                              <div style={{ display: "flex", gap: "3px" }}>
                                 <button
                                   type="button"
                                   onClick={() => handleSetDualMainSymbol(b.symbolName)}
                                   style={{
-                                    padding: "1px 5px",
-                                    fontSize: "9.5px",
-                                    fontWeight: 600,
-                                    borderRadius: "2px",
+                                    padding: "2px 6px",
+                                    fontSize: "10px",
+                                    fontWeight: 700,
+                                    borderRadius: "3px",
                                     border: "1px solid",
                                     cursor: "pointer",
                                     borderColor: isMain ? "var(--primary-color)" : "var(--outline-variant)",
@@ -1170,16 +1207,16 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                                     color: isMain ? "var(--on-primary, #fff)" : "var(--on-surface-variant)"
                                   }}
                                 >
-                                  Main
+                                  {isMain ? "★ Main" : "Main"}
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => setDualSubSymbol(b.symbolName)}
                                   style={{
-                                    padding: "1px 5px",
-                                    fontSize: "9.5px",
-                                    fontWeight: 600,
-                                    borderRadius: "2px",
+                                    padding: "2px 6px",
+                                    fontSize: "10px",
+                                    fontWeight: 700,
+                                    borderRadius: "3px",
                                     border: "1px solid",
                                     cursor: "pointer",
                                     borderColor: isSub ? "var(--secondary-color)" : "var(--outline-variant)",
@@ -1187,7 +1224,7 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                                     color: isSub ? "var(--on-primary, #fff)" : "var(--on-surface-variant)"
                                   }}
                                 >
-                                  Sub
+                                  {isSub ? "★ Sub" : "Sub"}
                                 </button>
                               </div>
                             </div>
@@ -1198,6 +1235,7 @@ export const SymbolSelectorWindowContent: React.FC = () => {
                   );
                 })}
               </div>
+
             )}
           </>
         )}
@@ -1229,7 +1267,7 @@ export const SymbolSelectorWindowContent: React.FC = () => {
           </label>
 
           {autoApplyDateRange && (
-            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
               <div style={{ display: "flex", backgroundColor: "var(--surface-variant)", borderRadius: "3px", padding: "1px", border: "1px solid var(--outline-variant)" }}>
                 <button
                   type="button"
@@ -1266,29 +1304,32 @@ export const SymbolSelectorWindowContent: React.FC = () => {
               </div>
 
               {autoDateRangeMode === "month" && (
-                <select
-                  value={targetMonth}
-                  onChange={(e) => setTargetMonth(parseInt(e.target.value) || 1)}
-                  style={{
-                    height: "22px",
-                    fontSize: "10px",
-                    backgroundColor: "var(--surface-variant)",
-                    color: "var(--on-surface)",
-                    border: "1px solid var(--outline-variant)",
-                    borderRadius: "3px",
-                    padding: "0 4px",
-                    cursor: "pointer"
-                  }}
-                >
+                <div style={{ display: "flex", gap: "2px", flexWrap: "wrap" }}>
                   {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                    <option key={m} value={m}>
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setTargetMonth(m)}
+                      style={{
+                        padding: "1px 5px",
+                        fontSize: "9.5px",
+                        borderRadius: "2px",
+                        border: targetMonth === m ? "1px solid var(--primary-color)" : "1px solid var(--outline-variant)",
+                        backgroundColor: targetMonth === m ? "var(--primary-color)" : "transparent",
+                        color: targetMonth === m ? "var(--on-primary, #fff)" : "var(--on-surface)",
+                        cursor: "pointer",
+                        fontWeight: targetMonth === m ? 700 : "normal"
+                      }}
+                      title={`${m}月を期間にセット`}
+                    >
                       {m}月
-                    </option>
+                    </button>
                   ))}
-                </select>
+                </div>
               )}
             </div>
           )}
+
         </div>
 
         <div style={{ display: "flex", gap: "8px" }}>

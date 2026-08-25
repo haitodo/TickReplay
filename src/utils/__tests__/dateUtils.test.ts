@@ -6,7 +6,8 @@ import {
   getMonthRange,
   getYearRange,
   shiftDateRangeByMonth,
-  isSingleFullMonth
+  isSingleFullMonth,
+  alignDateRangeToYear
 } from "../dateUtils";
 
 describe("dateUtils", () => {
@@ -92,4 +93,31 @@ describe("dateUtils", () => {
       month: 1
     });
   });
+
+  describe("alignDateRangeToYear", () => {
+    it("1ヶ月全期間の場合、対象年の該当年月の全期間に変換すること", () => {
+      const res = alignDateRangeToYear("2026-05-01 00:00:00", "2026-05-31 23:59:59", 2024);
+      expect(res.start).toBe("2024-05-01 00:00:00");
+      expect(res.end).toBe("2024-05-31 23:59:59");
+    });
+
+    it("うるう年2月の1ヶ月全期間が正しく変換されること", () => {
+      const res = alignDateRangeToYear("2023-02-01 00:00:00", "2023-02-28 23:59:59", 2024);
+      expect(res.start).toBe("2024-02-01 00:00:00");
+      expect(res.end).toBe("2024-02-29 23:59:59");
+    });
+
+    it("年間全期間の場合、対象年の1/1〜12/31に変換すること", () => {
+      const res = alignDateRangeToYear("2026-01-01 00:00:00", "2026-12-31 23:59:59", 2023);
+      expect(res.start).toBe("2023-01-01 00:00:00");
+      expect(res.end).toBe("2023-12-31 23:59:59");
+    });
+
+    it("任意期間の月・日・時間を維持して年度のみ変換すること", () => {
+      const res = alignDateRangeToYear("2026-03-15 10:30:00", "2026-04-20 18:00:00", 2024);
+      expect(res.start).toBe("2024-03-15 10:30:00");
+      expect(res.end).toBe("2024-04-20 18:00:00");
+    });
+  });
 });
+

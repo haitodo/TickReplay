@@ -146,3 +146,46 @@ export const isSingleFullMonth = (
     month: startParsed.month
   };
 };
+
+/**
+ * 開始・終了日時の月・日・時刻を維持したまま、年度のみを指定したターゲット年に変換する
+ * @param startStr 開始日時文字列 (YYYY-MM-DD HH:mm:ss)
+ * @param endStr 終了日時文字列 (YYYY-MM-DD HH:mm:ss)
+ * @param targetYear ターゲット西暦年 (例: 2024)
+ */
+export const alignDateRangeToYear = (
+  startStr: string,
+  endStr: string,
+  targetYear: number
+): { start: string; end: string } => {
+  const startParsed = parseDateTimeStr(startStr);
+  const endParsed = parseDateTimeStr(endStr);
+
+  const isFullMonthCheck = isSingleFullMonth(startStr, endStr);
+  if (isFullMonthCheck.isFullMonth) {
+    return getMonthRange(targetYear, isFullMonthCheck.month);
+  }
+
+  // 1年全期間（1/1 00:00:00 〜 12/31 23:59:59）の場合
+  const isStartJan1 = startParsed.month === 1 && startParsed.day === 1 && startParsed.hour === 0 && startParsed.minute === 0;
+  const isEndDec31 = endParsed.month === 12 && endParsed.day === 31 && endParsed.hour === 23 && endParsed.minute === 59;
+  if (isStartJan1 && isEndDec31) {
+    return getYearRange(targetYear);
+  }
+
+  // 任意期間の場合: targetYear に合わせる
+  const yearDiff = endParsed.year - startParsed.year;
+  const targetEndYear = targetYear + yearDiff;
+
+  const clampDate = (y: number, m: number, d: number, h: number, min: number, s: number) => {
+    const maxDays = getDaysInMonth(y, m);
+    const safeDay = Math.min(d, maxDays);
+    return formatDateTimeStr(y, m, safeDay, h, min, s);
+  };
+
+  return {
+    start: clampDate(targetYear, startParsed.month, startParsed.day, startParsed.hour, startParsed.minute, startParsed.second),
+    end: clampDate(targetEndYear, endParsed.month, endParsed.day, endParsed.hour, endParsed.minute, endParsed.second)
+  };
+};
+
