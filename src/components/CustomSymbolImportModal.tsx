@@ -89,12 +89,15 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
     return "";
   };
 
-  // モーダル表示時に MT5 EA 接続状態を確認
+  // モーダル表示時に MT5 EA 接続状態を確認 ＆ 自動スキャン
   useEffect(() => {
     if (isOpen) {
       checkMt5Connection();
       setImportCompletedSuccessfully(false);
       setLastImportedSymbols([]);
+      if (rootDir && rootDir.trim()) {
+        handleScanWithDir(rootDir.trim());
+      }
     }
   }, [isOpen]);
 
@@ -117,8 +120,6 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
       localStorage.setItem(STORAGE_KEY, path.trim());
     }
   };
-
-  if (!isOpen) return null;
 
   const handleBrowseFolder = async () => {
     try {
@@ -147,6 +148,10 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
         terminalPath
       });
       setScannedGroups(groups);
+      setSelectedBrokerFilter("ALL");
+      setSelectedYearFilter("ALL");
+      setSelectedStatusFilter("ALL");
+      setSearchQuery("");
 
       // 初期値設定
       const initialNames: { [key: string]: string } = {};
@@ -510,6 +515,8 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
 
   const totalScannedFilesCount = scannedGroups.reduce((acc, g) => acc + g.files.length, 0);
   const totalScannedImportedCount = scannedGroups.reduce((acc, g) => acc + g.files.filter(f => f.already_imported).length, 0);
+
+  if (!isOpen) return null;
 
   return (
     <div
@@ -930,7 +937,19 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
           )}
 
           {/* スキャン結果一覧（業者 > 年度 > 通貨ペアシンボル表示） */}
-          {brokerSections.length > 0 ? (
+          {isScanning ? (
+            <div style={{ padding: "40px 20px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: "12px" }}>
+              <span className="material-symbols-outlined" style={{ fontSize: "36px", color: "var(--primary-color)", animation: "spin-clockwise 1s linear infinite" }}>
+                progress_activity
+              </span>
+              <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--on-surface)" }}>
+                フォルダ内のティックデータをスキャン中...
+              </div>
+              <div style={{ fontSize: "11px", color: "var(--on-surface-variant)" }}>
+                {rootDir}
+              </div>
+            </div>
+          ) : brokerSections.length > 0 ? (
             <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
               {brokerSections.map(sec => (
                 <div
@@ -1253,12 +1272,31 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                 </div>
               ))}
             </div>
-          ) : (
-            scannedGroups.length > 0 && (
-              <div style={{ padding: "32px", textAlign: "center", color: "var(--on-surface-variant)", fontSize: "12px" }}>
-                現在のフィルタ条件に一致するシンボルデータがありません。フィルタを緩和してください。
+          ) : scannedGroups.length > 0 ? (
+            <div style={{ padding: "32px", textAlign: "center", color: "var(--on-surface-variant)", fontSize: "12px" }}>
+              現在のフィルタ条件に一致するシンボルデータがありません。フィルタを緩和してください。
+            </div>
+          ) : !errorMessage && (
+            <div style={{ padding: "36px 20px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: "12px", border: "1px dashed var(--outline-variant)", borderRadius: "8px", backgroundColor: "var(--surface-container-low)" }}>
+              <span className="material-symbols-outlined" style={{ fontSize: "40px", color: "var(--primary-color)", opacity: 0.85 }}>
+                folder_zip
+              </span>
+              <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--on-surface)" }}>
+                ZIPティックデータのスキャン
               </div>
-            )
+              <div style={{ fontSize: "11.5px", color: "var(--on-surface-variant)", maxWidth: "440px", lineHeight: "1.5" }}>
+                上のデータ格納ディレクトリ（例: <code>D:\TickData</code>）を指定し、「スキャン」ボタンをクリックして業者・年度ごとのティックデータを読み込んでください。
+              </div>
+              <button
+                type="button"
+                className="pro-btn pro-btn-primary"
+                onClick={handleScan}
+                style={{ marginTop: "4px", padding: "6px 16px", fontSize: "12px", display: "flex", alignItems: "center", gap: "6px" }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>search</span>
+                スキャンを開始
+              </button>
+            </div>
           )}
 
           {/* インポート完了クイック反映カード */}
