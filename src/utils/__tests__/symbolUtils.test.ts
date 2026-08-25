@@ -4,6 +4,7 @@ import {
   parseSymbolName,
   groupSymbolsByCategory,
   getCompanionSymbols,
+  getAllCompanionsForSource,
   switchSymbolSuffix,
   getDualFeedCandidates,
   getAllBrokers,
@@ -150,6 +151,28 @@ describe("symbolUtils", () => {
     });
   });
 
+  describe("getAllCompanionsForSource", () => {
+    it("同業者・同年度の全関連シンボルを取得すること（自身は除外）", () => {
+      const allSymbols = [
+        "USDJPY_OANDA_2016",
+        "EURJPY_OANDA_2016",
+        "GBPJPY_OANDA_2016",
+        "EURUSD_OANDA_2016",
+        "USDJPY_DUCASCOPY_2016",
+        "EURJPY_DUCASCOPY_2016",
+        "USDJPY_OANDA_2017",
+        "EURJPY_OANDA_2017"
+      ];
+
+      const companions = getAllCompanionsForSource("USDJPY_OANDA_2016", allSymbols);
+      expect(companions.map(s => s.name)).toEqual([
+        "EURJPY_OANDA_2016",
+        "GBPJPY_OANDA_2016",
+        "EURUSD_OANDA_2016"
+      ]);
+    });
+  });
+
   describe("switchSymbolSuffix", () => {
     it("同期通貨リストのサフィックスを新しいものに置換すること", () => {
       const allSymbols = [
@@ -165,6 +188,22 @@ describe("symbolUtils", () => {
       );
 
       expect(switched).toEqual(["EURJPY_2017", "GBPJPY_2017"]);
+    });
+
+    it("ブローカー付きサフィックスを新しいブローカーに置換すること", () => {
+      const allSymbols = [
+        "EURJPY_OANDA_2016", "GBPJPY_OANDA_2016",
+        "EURJPY_DUCASCOPY_2016", "GBPJPY_DUCASCOPY_2016"
+      ];
+
+      const switched = switchSymbolSuffix(
+        ["EURJPY_OANDA_2016", "GBPJPY_OANDA_2016"],
+        "OANDA_2016",
+        "DUCASCOPY_2016",
+        allSymbols
+      );
+
+      expect(switched).toEqual(["EURJPY_DUCASCOPY_2016", "GBPJPY_DUCASCOPY_2016"]);
     });
   });
 

@@ -7,7 +7,9 @@ import {
   isUsdStraight,
   getDualFeedCandidates,
   getAllBrokers,
-  getAllYears
+  getAllYears,
+  getAllCompanionsForSource,
+  switchSymbolSuffix
 } from "../utils/symbolUtils";
 
 export interface SymbolBatchSelectorModalProps {
@@ -61,6 +63,11 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
   const allYears = useMemo(() => getAllYears(availableSymbols), [availableSymbols]);
   const allBrokers = useMemo(() => getAllBrokers(availableSymbols), [availableSymbols]);
   const dualCandidates = useMemo(() => getDualFeedCandidates(availableSymbols), [availableSymbols]);
+
+  // Dualモード用：Mainシンボルに紐づく同期候補シンボル一覧
+  const dualMainCompanions = useMemo(() => {
+    return getAllCompanionsForSource(dualMainSymbol, availableSymbols);
+  }, [dualMainSymbol, availableSymbols]);
 
   // モーダルオープン時の初期化
   useEffect(() => {
@@ -155,7 +162,7 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
     });
   };
 
-  // プリセット系
+  // プリセット系 (Single)
   const handleSelectAllJpy = () => {
     const jpySymbols = currentCategorySymbols
       .filter(s => isJpyPair(s.name) && s.name !== selectedSource)
@@ -182,14 +189,74 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
     setSelectedSync(prev => prev.filter(s => !inCatSet.has(s)));
   };
 
+  // プリセット系 (Dual)
+  const handleDualSelectAllJpy = () => {
+    const jpySymbols = dualMainCompanions
+      .filter(s => isJpyPair(s.name) && s.name !== dualMainSymbol)
+      .map(s => s.name);
+    setSelectedSync(prev => Array.from(new Set([...prev, ...jpySymbols])));
+  };
+
+  const handleDualSelectAllUsd = () => {
+    const usdSymbols = dualMainCompanions
+      .filter(s => isUsdStraight(s.name) && s.name !== dualMainSymbol)
+      .map(s => s.name);
+    setSelectedSync(prev => Array.from(new Set([...prev, ...usdSymbols])));
+  };
+
+  const handleDualSelectAllInCat = () => {
+    const allInCat = dualMainCompanions
+      .filter(s => s.name !== dualMainSymbol)
+      .map(s => s.name);
+    setSelectedSync(prev => Array.from(new Set([...prev, ...allInCat])));
+  };
+
+  const handleDualClearSync = () => {
+    setSelectedSync([]);
+  };
+
+  const handleToggleSyncSymbol = (symName: string) => {
+    if (symName === dualMainSymbol) return;
+    setSelectedSync(prev => {
+      if (prev.includes(symName)) {
+        return prev.filter(s => s !== symName);
+      } else {
+        return [...prev, symName];
+      }
+    });
+  };
+
+  const handleRemoveSyncSymbol = (symName: string) => {
+    setSelectedSync(prev => prev.filter(s => s !== symName));
+  };
+
   // Dual: ペア・ブローカー選択
   const handleSetDualPair = (mainSym: string, subSym: string) => {
+    const prevParsed = parseSymbolName(dualMainSymbol);
+    const nextParsed = parseSymbolName(mainSym);
+    if (prevParsed.suffix && nextParsed.suffix && prevParsed.suffix !== nextParsed.suffix) {
+      setSelectedSync(prev => switchSymbolSuffix(prev, prevParsed.suffix, nextParsed.suffix, availableSymbols));
+    }
     setDualMainSymbol(mainSym);
     setDualSubSymbol(subSym);
   };
 
+  const handleSetDualMainSymbol = (newMainSym: string) => {
+    const prevParsed = parseSymbolName(dualMainSymbol);
+    const nextParsed = parseSymbolName(newMainSym);
+    if (prevParsed.suffix && nextParsed.suffix && prevParsed.suffix !== nextParsed.suffix) {
+      setSelectedSync(prev => switchSymbolSuffix(prev, prevParsed.suffix, nextParsed.suffix, availableSymbols));
+    }
+    setDualMainSymbol(newMainSym);
+  };
+
   const handleSwapDual = () => {
     const temp = dualMainSymbol;
+    const prevParsed = parseSymbolName(dualMainSymbol);
+    const nextParsed = parseSymbolName(dualSubSymbol);
+    if (prevParsed.suffix && nextParsed.suffix && prevParsed.suffix !== nextParsed.suffix) {
+      setSelectedSync(prev => switchSymbolSuffix(prev, prevParsed.suffix, nextParsed.suffix, availableSymbols));
+    }
     setDualMainSymbol(dualSubSymbol);
     setDualSubSymbol(temp);
   };
@@ -212,7 +279,7 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
       }
     }
 
-    onApply(src, sub, isDual, isDual ? [] : selectedSync, dateRange);
+    onApply(src, sub, isDual, selectedSync, dateRange);
     onClose();
   };
 
@@ -425,6 +492,158 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                 </div>
               </div>
 
+              {/* 同期他通貨 (マルチ通貨同期) 管理セクション */}
+              <div style={{
+                padding: "12px 16px",
+                borderRadius: "8px",
+                backgroundColor: "var(--surface-container)",
+                border: "1px solid var(--outline-variant)",
+                display: "flex",
+                flexDirection: "column",
+                gap: "10px"
+              }}>
+                {/* ヘッダー & クイックプリセット */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--tertiary, var(--primary-color))" }}>
+                      同期他通貨 (マルチ通貨同期)
+                    </span>
+                    <span style={{ fontSize: "11px", padding: "1px 8px", borderRadius: "10px", backgroundColor: selectedSync.length > 0 ? "rgba(var(--tertiary-rgb, var(--primary-rgb)), 0.2)" : "var(--surface-variant)", color: selectedSync.length > 0 ? "var(--tertiary, var(--primary-color))" : "var(--on-surface-variant)", fontWeight: 700 }}>
+                      {selectedSync.length} 件選択中
+                    </span>
+                  </div>
+
+                  <div style={{ display: "flex", gap: "4px" }}>
+                    <button
+                      type="button"
+                      className="pro-btn"
+                      onClick={handleDualSelectAllJpy}
+                      style={{ padding: "2px 8px", fontSize: "10.5px", height: "22px" }}
+                      title="Main業者のJPYクロス通貨ペアを一括同期"
+                    >
+                      JPYクロス
+                    </button>
+                    <button
+                      type="button"
+                      className="pro-btn"
+                      onClick={handleDualSelectAllUsd}
+                      style={{ padding: "2px 8px", fontSize: "10.5px", height: "22px" }}
+                      title="Main業者のドルストレート通貨ペアを一括同期"
+                    >
+                      ドルストレート
+                    </button>
+                    <button
+                      type="button"
+                      className="pro-btn"
+                      onClick={handleDualSelectAllInCat}
+                      style={{ padding: "2px 8px", fontSize: "10.5px", height: "22px" }}
+                      title="Main業者の全通貨ペアを一括同期"
+                    >
+                      全同期
+                    </button>
+                    <button
+                      type="button"
+                      className="pro-btn"
+                      onClick={handleDualClearSync}
+                      style={{ padding: "2px 8px", fontSize: "10.5px", height: "22px" }}
+                      title="同期選択をすべて解除"
+                    >
+                      同期解除
+                    </button>
+                  </div>
+                </div>
+
+                {/* 選択中同期通貨のチップ一覧 */}
+                {selectedSync.length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" }}>
+                    <span style={{ fontSize: "11px", color: "var(--on-surface-variant)", marginRight: "4px" }}>選択中:</span>
+                    {selectedSync.map((sym) => {
+                      const parsed = parseSymbolName(sym);
+                      return (
+                        <span
+                          key={sym}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "5px",
+                            padding: "2px 8px",
+                            borderRadius: "5px",
+                            fontSize: "11px",
+                            fontWeight: 600,
+                            backgroundColor: "rgba(var(--secondary-rgb, var(--primary-rgb)), 0.18)",
+                            color: "var(--secondary-color, var(--primary-color))",
+                            border: "1px solid var(--secondary-color, var(--primary-color))"
+                          }}
+                          title={sym}
+                        >
+                          {parsed.basePair} {parsed.broker ? `(${parsed.broker})` : ""}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveSyncSymbol(sym)}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              color: "inherit",
+                              cursor: "pointer",
+                              padding: 0,
+                              display: "flex",
+                              alignItems: "center"
+                            }}
+                            title="削除"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: "13px" }}>close</span>
+                          </button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Main業者の同期可能通貨クイック追加チップ */}
+                {dualMainCompanions.length > 0 ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
+                    <span style={{ fontSize: "10.5px", color: "var(--on-surface-variant)" }}>
+                      Main業者 ({parseSymbolName(dualMainSymbol).broker || "通常"} {parseSymbolName(dualMainSymbol).year ? `${parseSymbolName(dualMainSymbol).year}年` : ""}) の同期可能通貨:
+                    </span>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                      {dualMainCompanions.map((comp) => {
+                        const isSelected = selectedSync.includes(comp.name);
+                        const parsed = parseSymbolName(comp.name);
+                        return (
+                          <button
+                            key={comp.name}
+                            type="button"
+                            onClick={() => handleToggleSyncSymbol(comp.name)}
+                            style={{
+                              padding: "3px 8px",
+                              fontSize: "11px",
+                              fontWeight: isSelected ? 700 : 500,
+                              borderRadius: "4px",
+                              border: `1px solid ${isSelected ? "var(--secondary-color, var(--primary-color))" : "var(--outline-variant)"}`,
+                              backgroundColor: isSelected ? "var(--secondary-color, var(--primary-color))" : "var(--btn-default-bg)",
+                              color: isSelected ? "var(--on-primary, #fff)" : "var(--on-surface)",
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "3px",
+                              transition: "var(--transition-fast)"
+                            }}
+                            title={`${comp.name} を同期に追加 / 解除`}
+                          >
+                            <span>{isSelected ? "✓" : "+"}</span>
+                            <span>{parsed.basePair}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: "11px", color: "var(--on-surface-variant)" }}>
+                    Mainシンボルに紐づく他通貨候補が検出されませんでした。通常リプレイタブから直接選択も可能です。
+                  </div>
+                )}
+              </div>
+
               {/* 年フィルター ＆ 業者フィルター ＆ 検索バー */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: "10px", flexWrap: "wrap" }}>
                 <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
@@ -581,7 +800,7 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
                                   <div style={{ display: "flex", gap: "4px" }}>
                                     <button
                                       type="button"
-                                      onClick={() => setDualMainSymbol(b.symbolName)}
+                                      onClick={() => handleSetDualMainSymbol(b.symbolName)}
                                       style={{
                                         padding: "1px 6px",
                                         fontSize: "10px",

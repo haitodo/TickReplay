@@ -232,12 +232,55 @@ export function getCompanionSymbols(
     if (isReplaySymbol(symName)) return;
     const parsed = parseSymbolName(symName);
 
-    if (parsed.category === targetCategory && !selectedUpper.has(symName.toUpperCase())) {
+    const isCategoryMatch = parsed.category === targetCategory;
+    const isYearMatch = parsedSource.year ? parsed.year === parsedSource.year : true;
+    const isBrokerMatch = parsedSource.broker ? parsed.broker.toUpperCase() === parsedSource.broker.toUpperCase() : true;
+
+    if (isCategoryMatch && isYearMatch && isBrokerMatch && !selectedUpper.has(symName.toUpperCase())) {
       companions.push(symName);
     }
   });
 
   return companions;
+}
+
+/**
+ * 指定したソースシンボルと同じ分類（同業者・同年度・同サフィックス）に属する全関連シンボル一覧を取得
+ */
+export function getAllCompanionsForSource(
+  sourceSymbol: string,
+  allSymbols: (SymbolItem | string)[]
+): SymbolItem[] {
+  const parsedSource = parseSymbolName(sourceSymbol);
+  if (!parsedSource.basePair || isReplaySymbol(sourceSymbol)) return [];
+
+  const targetCategory = parsedSource.category;
+  const sourceUpper = sourceSymbol.trim().toUpperCase();
+
+  const validSymbols = allSymbols.filter(s => !isReplaySymbol(typeof s === "string" ? s : s.name));
+  const normalized: SymbolItem[] = validSymbols.map(s => {
+    if (typeof s === "string") {
+      const parsed = parseSymbolName(s);
+      return {
+        name: s,
+        source_type: parsed.suffix ? "custom" : "broker",
+        group_name: parsed.category
+      };
+    }
+    return s;
+  });
+
+  return normalized.filter(item => {
+    if (item.name.toUpperCase() === sourceUpper) return false;
+    const parsed = parseSymbolName(item.name);
+    if (targetCategory === "Standard") {
+      return parsed.category === "Standard" || !parsed.suffix;
+    }
+    const isCatMatch = parsed.category === targetCategory;
+    const isYearMatch = parsedSource.year ? parsed.year === parsedSource.year : true;
+    const isBrokerMatch = parsedSource.broker ? parsed.broker.toUpperCase() === parsedSource.broker.toUpperCase() : true;
+    return isCatMatch && isYearMatch && isBrokerMatch;
+  });
 }
 
 /**
