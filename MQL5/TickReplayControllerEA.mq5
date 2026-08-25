@@ -3075,8 +3075,9 @@ void SeekToPosition(int target_index)
          
          // オートスクロールを一時オフにしてから時間軸を設定しなおす
          ChartSetInteger(cid, CHART_AUTOSCROLL, false);
-         if(ChartSymbol(cid) != m_replay_symbol || ChartPeriod(cid) != period)
-             ChartSetSymbolPeriod(cid, m_replay_symbol, period);
+         string chart_sym = ChartSymbol(cid);
+         if(chart_sym != "" && ChartPeriod(cid) != period)
+             ChartSetSymbolPeriod(cid, chart_sym, period);
          
          if(InpAutoScrollSync)
          {
