@@ -29,6 +29,23 @@ pub fn run() {
     let state_clone = state.clone();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // 2重起動検知時、既存ウィンドウを最前面に表示・フォーカス
+            // コントローラー画面が表示中の場合はコントローラーを、それ以外はメイン画面を前面化
+            if let Some(controller_win) = app.get_webview_window("controller") {
+                if controller_win.is_visible().unwrap_or(false) {
+                    let _ = controller_win.unminimize();
+                    let _ = controller_win.show();
+                    let _ = controller_win.set_focus();
+                    return;
+                }
+            }
+            if let Some(main_win) = app.get_webview_window("main") {
+                let _ = main_win.unminimize();
+                let _ = main_win.show();
+                let _ = main_win.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
