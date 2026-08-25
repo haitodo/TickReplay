@@ -295,7 +295,30 @@ pub fn scan_directory_for_ticks(
     config_dir: &Path,
     existing_mt5_symbols: &[String],
 ) -> Result<Vec<ScannedPairGroup>, AppError> {
-    let manifest = ImportManifest::load_from_dir(config_dir);
+    let mut manifest = ImportManifest::load_from_dir(config_dir);
+
+    // MT5のシンボルリストが取得できている場合、MT5側で削除されたシンボルをマニフェストからクリーンアップ
+    if !existing_mt5_symbols.is_empty() {
+        let mut manifest_changed = false;
+        manifest.imported_months.retain(|sym, _| {
+            let exists = existing_mt5_symbols.iter().any(|s| s.eq_ignore_ascii_case(sym));
+            if !exists {
+                manifest_changed = true;
+            }
+            exists
+        });
+        let old_len = manifest.custom_symbols.len();
+        manifest.custom_symbols.retain(|sym| {
+            existing_mt5_symbols.iter().any(|s| s.eq_ignore_ascii_case(sym))
+        });
+        if manifest.custom_symbols.len() != old_len {
+            manifest_changed = true;
+        }
+        if manifest_changed {
+            let _ = manifest.save_to_dir(config_dir);
+        }
+    }
+
     // Key: (broker, pair, year, suggested_symbol_name, group_path)
     let mut final_map: HashMap<(String, String, String, String, String), Vec<ScannedZipFile>> = HashMap::new();
     walk_dir_collect(root_dir, root_dir, &mut final_map, &manifest);
@@ -306,6 +329,13 @@ pub fn scan_directory_for_ticks(
         let already_exists_in_mt5 = existing_mt5_symbols
             .iter()
             .any(|s| s.eq_ignore_ascii_case(&suggested_symbol_name));
+
+        // MT5にシンボルが存在しない場合は、マニフェストに関わらず未インポート扱いにする
+        if !already_exists_in_mt5 && !existing_mt5_symbols.is_empty() {
+            for f in &mut files {
+                f.already_imported = false;
+            }
+        }
 
         let category = if !broker.eq_ignore_ascii_case("custom") {
             broker.clone()
@@ -646,6 +676,39 @@ mod tests {
 
         let fast_msc2 = fast_parse_datetime_msc("2025.01.01", "12:30:45.123").unwrap();
         assert_eq!(msc, fast_msc2);
+    }
+
+    #[test]
+    fn test_manifest_cleanup_when_symbol_deleted_in_mt5() {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("tick_test_{}", timestamp));
+        let _ = fs::create_dir_all(&temp_dir);
+
+        let mut manifest = ImportManifest::default();
+        manifest.mark_imported("USDJPY_OANDA_2025", "2025-01");
+        manifest.mark_imported("EURUSD_OANDA_2025", "2025-01");
+        let _ = manifest.save_to_dir(&temp_dir);
+
+        // MT5には EURUSD_OANDA_2025 のみ存在（USDJPY_OANDA_2025 は削除済み）
+        let existing_symbols = vec!["EURUSD_OANDA_2025".to_string(), "USDJPY".to_string()];
+
+        let root_dir = temp_dir.join("ticks");
+        let _ = fs::create_dir_all(&root_dir);
+
+        let result = scan_directory_for_ticks(&root_dir, &temp_dir, &existing_symbols).unwrap();
+        assert_eq!(result.len(), 0);
+
+        // クリーンアップ後のマニフェストを再確認
+        let loaded = ImportManifest::load_from_dir(&temp_dir);
+        assert!(!loaded.is_imported("USDJPY_OANDA_2025", "2025-01"));
+        assert!(loaded.is_imported("EURUSD_OANDA_2025", "2025-01"));
+        assert!(!loaded.custom_symbols.contains(&"USDJPY_OANDA_2025".to_string()));
+        assert!(loaded.custom_symbols.contains(&"EURUSD_OANDA_2025".to_string()));
+
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 }
 
