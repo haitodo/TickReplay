@@ -2334,6 +2334,21 @@ bool ProcessProfile(string profile_name, string main_symbol, string sub_symbol, 
          StringReplace(file_content, original_symbol, target_symbol);
       }
       
+      if(is_sub_chart)
+      {
+         if(main_symbol != "" && main_symbol != target_symbol)
+         {
+            StringReplace(file_content, main_symbol, target_symbol);
+         }
+      }
+      else
+      {
+         if(sub_symbol != "" && sub_symbol != target_symbol)
+         {
+            StringReplace(file_content, sub_symbol, target_symbol);
+         }
+      }
+      
       // symbol= 行の確実な置換（大文字小文字や空白の差異を吸収）
       int sym_header_pos = StringFind(file_content, "symbol=");
       if(sym_header_pos >= 0)
@@ -2344,6 +2359,19 @@ bool ProcessProfile(string profile_name, string main_symbol, string sub_symbol, 
             string before = StringSubstr(file_content, 0, sym_header_pos);
             string after = StringSubstr(file_content, line_end);
             file_content = before + "symbol=" + target_symbol + after;
+         }
+      }
+      
+      // id= 行を id=0 に初期化 (MT5テンプレートとして新規適用可能にする)
+      int id_pos = StringFind(file_content, "id=");
+      if(id_pos >= 0 && id_pos < 100)
+      {
+         int id_end = StringFind(file_content, "\r\n", id_pos);
+         if(id_end > id_pos)
+         {
+            string before = StringSubstr(file_content, 0, id_pos);
+            string after = StringSubstr(file_content, id_end);
+            file_content = before + "id=0" + after;
          }
       }
       
@@ -3563,6 +3591,7 @@ void CreateMTFCharts(string main_symbol, string sub_symbol = "", bool enable_dua
    
    // 既存のリプレイ用チャートをすべて閉じてクリーンな状態から開始
    long chart_id = ChartFirst();
+   bool any_closed = false;
    while(chart_id >= 0)
    {
       long next_chart_id = ChartNext(chart_id);
@@ -3571,8 +3600,13 @@ void CreateMTFCharts(string main_symbol, string sub_symbol = "", bool enable_dua
       {
          Print("[Info] 既存のビューアーチャートをクローズします: ID = ", chart_id, " (", csym, ")");
          ChartClose(chart_id);
+         any_closed = true;
       }
       chart_id = next_chart_id;
+   }
+   if(any_closed)
+   {
+      Sleep(100); // チャートウィンドウ破棄の完了を待機
    }
    
    int total_req = ArraySize(layouts);
@@ -3608,6 +3642,9 @@ void CreateMTFCharts(string main_symbol, string sub_symbol = "", bool enable_dua
             {
                Print("[Info] テンプレートを適用しました: ", layouts[i].tpl_path, " (銘柄: ", sym_to_open, ")");
             }
+            
+            // テンプレート適用による意図しない銘柄リセットを防ぐため、確定銘柄と時間足を明示的に強制再設定
+            ChartSetSymbolPeriod(cid, sym_to_open, layouts[i].period);
             
             // 明示的にグリッド表示設定を適用 (テンプレート適用時の非同期適用での上書き対策)
             ChartSetInteger(cid, CHART_SHOW_GRID, layouts[i].show_grid);
@@ -3668,7 +3705,7 @@ void CreateMTFCharts(string main_symbol, string sub_symbol = "", bool enable_dua
          }
          
          ChartRedraw(cid);
-         Print("[Info] チャートを開きました: ID = ", cid, ", 銘柄 = ", sym_to_open, ", 時間軸 = ", EnumToString(layouts[i].period));
+         Print("[Info] チャートを開きました: ID = ", cid, ", 設定銘柄 = ", sym_to_open, ", 確定ChartSymbol = ", ChartSymbol(cid), ", 時間軸 = ", EnumToString(ChartPeriod(cid)));
       }
       else
       {
