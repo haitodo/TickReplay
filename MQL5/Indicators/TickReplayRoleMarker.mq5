@@ -62,21 +62,6 @@ void DrawRoleBadge()
 {
    string obj_name = OBJ_PREFIX + "BADGE";
    
-   double spread_val = 0.0;
-   MqlTick last_tick;
-   if(SymbolInfoTick(_Symbol, last_tick))
-   {
-      double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-      int digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
-      double pip_unit = (digits == 3 || digits == 5) ? point * 10.0 : point;
-      if(pip_unit > 0.0)
-      {
-         spread_val = (last_tick.ask - last_tick.bid) / pip_unit;
-      }
-   }
-   
-   string text = StringFormat("[ %s : %s | Spread: %.1f pips ]", InpRoleName, _Symbol, spread_val);
-   
    if(ObjectFind(0, obj_name) < 0)
    {
       ObjectCreate(0, obj_name, OBJ_LABEL, 0, 0, 0);
@@ -90,5 +75,21 @@ void DrawRoleBadge()
       ObjectSetInteger(0, obj_name, OBJPROP_BACK, false);
    }
    
-   ObjectSetString(0, obj_name, OBJPROP_TEXT, text);
+   string final_text = "";
+   MqlTick tick;
+   if(SymbolInfoTick(_Symbol, tick))
+   {
+      double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+      int digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+      if(digits <= 0) digits = _Digits;
+      double pip_unit = (digits == 3 || digits == 5) ? point * 10.0 : point;
+      double s_val = (pip_unit > 0.0) ? (tick.ask - tick.bid) / pip_unit : 0.0;
+      final_text = StringFormat("[ %s : %s | Bid: %.*f Ask: %.*f | Spread: %.1f pips ]", InpRoleName, _Symbol, digits, tick.bid, digits, tick.ask, s_val);
+   }
+   else
+   {
+      final_text = StringFormat("[ %s : %s ]", InpRoleName, _Symbol);
+   }
+   
+   ObjectSetString(0, obj_name, OBJPROP_TEXT, final_text);
 }

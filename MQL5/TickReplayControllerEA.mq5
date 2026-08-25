@@ -2605,10 +2605,13 @@ bool PreloadHistoricalRates(string source_symbol, string replay_symbol, datetime
    int copied = CopyRates(source_symbol, PERIOD_M1, preload_start, preload_end, preload_rates);
    if(copied <= 0)
    {
-      Print("[Warning] CopyRatesでのプリロード歴史M1バー取得失敗。メモリ内ティックデータからの自動生成を試みます。");
-      if(m_total_ticks > 0)
+      Print("[Warning] CopyRatesでのプリロード歴史M1バー取得失敗。メモリ内ティックデータからの自動生成を試みます: ", source_symbol);
+      bool is_sub = (m_enable_dual_feed && source_symbol == m_source_symbol_sub);
+      int src_tick_count = is_sub ? m_total_ticks_sub : m_total_ticks;
+      
+      if(src_tick_count > 0)
       {
-         int sample_count = (m_total_ticks > 200000) ? 200000 : m_total_ticks;
+         int sample_count = (src_tick_count > 200000) ? 200000 : src_tick_count;
          MqlRates generated[];
          ArrayResize(generated, sample_count);
          int gen_rates_count = 0;
@@ -2616,9 +2619,9 @@ bool PreloadHistoricalRates(string source_symbol, string replay_symbol, datetime
          datetime last_bar_time = 0;
          for(int i = 0; i < sample_count; i++)
          {
-            datetime t = (datetime)(m_all_ticks[i].time_msc / 1000);
+            datetime t = is_sub ? (datetime)(m_all_ticks_sub[i].time_msc / 1000) : (datetime)(m_all_ticks[i].time_msc / 1000);
             datetime bar_time = t - (t % 60);
-            double bid = m_all_ticks[i].bid;
+            double bid = is_sub ? m_all_ticks_sub[i].bid : m_all_ticks[i].bid;
             
             if(gen_rates_count == 0 || bar_time != last_bar_time)
             {
@@ -2646,7 +2649,7 @@ bool PreloadHistoricalRates(string source_symbol, string replay_symbol, datetime
          {
             ArrayResize(generated, gen_rates_count);
             CustomRatesUpdate(replay_symbol, generated);
-            Print("[Info] メモリ内ティックデータから ", gen_rates_count, " 件のM1バーを代替プリロード生成しました。");
+            Print("[Info] メモリ内ティックデータから ", gen_rates_count, " 件のM1バーを代替プリロード生成しました: ", replay_symbol);
          }
       }
       return true;
@@ -3833,10 +3836,16 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
 //+------------------------------------------------------------------+
 void UpdateReplayGeneration()
 {
+   double now_gen = (double)GetTickCount64();
    if(m_replay_symbol != "")
    {
       string var_name = "TR_Gen_" + m_replay_symbol;
-      GlobalVariableSet(var_name, (double)GetTickCount64());
+      GlobalVariableSet(var_name, now_gen);
+   }
+   if(m_enable_dual_feed && m_replay_symbol_sub != "")
+   {
+      string var_name_sub = "TR_Gen_" + m_replay_symbol_sub;
+      GlobalVariableSet(var_name_sub, now_gen);
    }
 }
 
