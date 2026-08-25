@@ -425,9 +425,10 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
             padding: "8px 12px",
             borderRadius: "6px",
             fontSize: "12px",
-            backgroundColor: mt5Connected ? "rgba(34, 197, 94, 0.12)" : "rgba(239, 68, 68, 0.12)",
-            border: "1px solid " + (mt5Connected ? "rgba(34, 197, 94, 0.3)" : "rgba(239, 68, 68, 0.3)"),
-            color: mt5Connected ? "#4ade80" : "#f87171"
+            backgroundColor: mt5Connected ? "var(--status-success-bg)" : "var(--status-danger-bg)",
+            border: "1px solid " + (mt5Connected ? "var(--status-success)" : "var(--status-danger)"),
+            color: mt5Connected ? "var(--status-success)" : "var(--status-danger)",
+            fontWeight: 500
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
               <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
@@ -631,7 +632,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                                 <strong style={{ fontSize: "13px", color: "var(--on-surface)" }}>{group.pair_name}</strong>
                                 <span style={{ fontSize: "11px", color: "var(--on-surface-variant)" }}>({group.files.length} ファイル)</span>
                                 {group.already_exists_in_mt5 && (
-                                  <span style={{ fontSize: "10px", padding: "1px 6px", borderRadius: "4px", backgroundColor: "rgba(245, 158, 11, 0.2)", color: "#fbbf24", border: "1px solid rgba(245, 158, 11, 0.4)" }}>
+                                  <span style={{ fontSize: "10px", fontWeight: 600, padding: "1px 6px", borderRadius: "4px", backgroundColor: "var(--status-warning-bg)", color: "var(--status-warning)", border: "1px solid var(--status-warning)" }}>
                                     ⚠️ MT5に既存
                                   </span>
                                 )}
@@ -707,10 +708,11 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                                       gap: "6px",
                                       padding: "3px 6px",
                                       borderRadius: "4px",
-                                      backgroundColor: f.already_imported ? "rgba(34, 197, 94, 0.08)" : "rgba(255,255,255,0.02)",
-                                      border: "1px solid " + (f.already_imported ? "rgba(34, 197, 94, 0.2)" : "rgba(255,255,255,0.05)"),
+                                      backgroundColor: f.already_imported ? "var(--status-success-bg)" : "var(--surface-container-high)",
+                                      border: "1px solid " + (f.already_imported ? "var(--status-success)" : "var(--outline-variant)"),
                                       cursor: "pointer",
-                                      fontSize: "11px"
+                                      fontSize: "11px",
+                                      color: "var(--on-surface)"
                                     }}
                                   >
                                     <input
@@ -723,9 +725,9 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                                       {f.year_month}
                                     </span>
                                     {f.already_imported ? (
-                                      <span style={{ fontSize: "9px", color: "#4ade80", marginLeft: "auto" }}>済</span>
+                                      <span style={{ fontSize: "10px", fontWeight: 700, color: "var(--status-success)", marginLeft: "auto" }}>済</span>
                                     ) : (
-                                      <span style={{ fontSize: "9px", color: "#94a3b8", marginLeft: "auto" }}>未</span>
+                                      <span style={{ fontSize: "10px", fontWeight: 500, color: "var(--on-surface-variant)", marginLeft: "auto" }}>未</span>
                                     )}
                                   </label>
                                 );
@@ -746,14 +748,14 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
             <div style={{
               padding: "12px 16px",
               borderRadius: "8px",
-              backgroundColor: "rgba(74, 222, 128, 0.1)",
-              border: "1px solid rgba(74, 222, 128, 0.3)",
+              backgroundColor: "var(--status-success-bg)",
+              border: "1px solid var(--status-success)",
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center"
             }}>
               <div>
-                <div style={{ fontWeight: "bold", fontSize: "13px", color: "#4ade80", display: "flex", alignItems: "center", gap: "6px" }}>
+                <div style={{ fontWeight: 700, fontSize: "13px", color: "var(--status-success)", display: "flex", alignItems: "center", gap: "6px" }}>
                   <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>check_circle</span>
                   インポートが正常に完了しました!
                 </div>
@@ -766,7 +768,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                   type="button"
                   className="pro-btn pro-btn-primary"
                   onClick={handleApplyToReplay}
-                  style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 14px", fontSize: "12px", backgroundColor: "#22c55e", borderColor: "#22c55e", color: "#fff" }}
+                  style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 14px", fontSize: "12px", backgroundColor: "var(--status-success)", borderColor: "var(--status-success)", color: "#fff" }}
                 >
                   <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>auto_awesome</span>
                   リプレイ設定に即時反映
@@ -829,7 +831,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
               type="button"
               className="pro-btn"
               onClick={handleStopImport}
-              style={{ padding: "0 20px", backgroundColor: "#dc2626", color: "#fff", border: "none" }}
+              style={{ padding: "0 20px", backgroundColor: "var(--status-danger)", color: "#fff", border: "none" }}
             >
               インポート停止
             </button>
