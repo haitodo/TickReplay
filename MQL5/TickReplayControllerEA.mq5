@@ -204,6 +204,7 @@ datetime ConvertServerToJST(datetime server_time);
 datetime ConvertJSTToServer(datetime jst_time);
 long FindExistingViewerChart(string symbol, ENUM_TIMEFRAMES period, long &exclude_ids[]);
 ENUM_TIMEFRAMES StringToTimeframe(string tf_str);
+int OpenChrFileForReading(string profile_file_path);
 bool ProcessProfile(string profile_name, string main_symbol, string sub_symbol, bool enable_dual, ChartLayoutInfo &out_layouts[]);
 ENUM_TIMEFRAMES GetTimeframeFromPeriod(int p_type, int p_size);
 ENUM_TIMEFRAMES SecondsToTimeframe(int seconds);
@@ -2152,6 +2153,50 @@ ENUM_TIMEFRAMES StringToTimeframe(string tf_str)
 }
 
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| .chr ファイルのエンコーディング (UTF-16LE / UTF-8 / ANSI) 自動判別オープン |
+//+------------------------------------------------------------------+
+int OpenChrFileForReading(string profile_file_path)
+{
+   int file_bin = FileOpen(profile_file_path, FILE_READ | FILE_BIN);
+   if(file_bin == INVALID_HANDLE)
+   {
+      return INVALID_HANDLE;
+   }
+   
+   uchar b0 = 0, b1 = 0, b2 = 0;
+   ulong fsize = FileSize(file_bin);
+   if(fsize >= 2)
+   {
+      b0 = (uchar)FileReadInteger(file_bin, CHAR_VALUE);
+      b1 = (uchar)FileReadInteger(file_bin, CHAR_VALUE);
+      if(fsize >= 3)
+      {
+         b2 = (uchar)FileReadInteger(file_bin, CHAR_VALUE);
+      }
+   }
+   FileClose(file_bin);
+   
+   // 1. UTF-16LE with BOM (0xFF, 0xFE)
+   if(b0 == 0xFF && b1 == 0xFE)
+   {
+      return FileOpen(profile_file_path, FILE_READ | FILE_TXT | FILE_UNICODE);
+   }
+   // 2. UTF-8 with BOM (0xEF, 0xBB, 0xBF)
+   if(b0 == 0xEF && b1 == 0xBB && b2 == 0xBF)
+   {
+      return FileOpen(profile_file_path, FILE_READ | FILE_TXT | FILE_ANSI);
+   }
+   // 3. UTF-16LE without BOM (byte 1 == 0x00 and byte 0 != 0x00)
+   if(b1 == 0x00 && b0 != 0x00 && fsize >= 4)
+   {
+      return FileOpen(profile_file_path, FILE_READ | FILE_TXT | FILE_UNICODE);
+   }
+   // 4. ANSI / UTF-8 without BOM (標準テキスト)
+   return FileOpen(profile_file_path, FILE_READ | FILE_TXT | FILE_ANSI);
+}
+
+//+------------------------------------------------------------------+
 //| プロファイル解析とテンプレートのテンポラリ出力                    |
 //+------------------------------------------------------------------+
 bool ProcessProfile(string profile_name, string main_symbol, string sub_symbol, bool enable_dual, ChartLayoutInfo &out_layouts[])
@@ -2174,7 +2219,7 @@ bool ProcessProfile(string profile_name, string main_symbol, string sub_symbol, 
    do
    {
       string profile_file_path = profile_name + "\\" + filename;
-      int file_in = FileOpen(profile_file_path, FILE_READ | FILE_TXT | FILE_UNICODE);
+      int file_in = OpenChrFileForReading(profile_file_path);
       if(file_in == INVALID_HANDLE)
       {
          Print("[Warning] プロファイルファイルが開けません: ", profile_file_path);
@@ -2194,87 +2239,113 @@ bool ProcessProfile(string profile_name, string main_symbol, string sub_symbol, 
       while(!FileIsEnding(file_in))
       {
          line = FileReadString(file_in);
+         string trimmed = line;
+         StringTrimLeft(trimmed);
+         StringTrimRight(trimmed);
          
-         if(original_symbol == "" && StringFind(line, "symbol=") == 0)
+         if(original_symbol == "" && StringFind(trimmed, "symbol=") == 0)
          {
-            original_symbol = StringSubstr(line, 7);
+            original_symbol = StringSubstr(trimmed, 7);
             StringTrimLeft(original_symbol);
             StringTrimRight(original_symbol);
+            StringReplace(original_symbol, "\"", "");
          }
          
-         if(period_type == -1 && StringFind(line, "period_type=") == 0)
+         if(period_type == -1 && StringFind(trimmed, "period_type=") == 0)
          {
-            period_type = (int)StringToInteger(StringSubstr(line, 12));
+            period_type = (int)StringToInteger(StringSubstr(trimmed, 12));
          }
          
-         if(period_size == -1 && StringFind(line, "period_size=") == 0)
+         if(period_size == -1 && StringFind(trimmed, "period_size=") == 0)
          {
-            period_size = (int)StringToInteger(StringSubstr(line, 12));
+            period_size = (int)StringToInteger(StringSubstr(trimmed, 12));
          }
 
-         if(StringFind(line, "floating=") == 0)
+         if(StringFind(trimmed, "floating=") == 0)
          {
-            floating = (int)StringToInteger(StringSubstr(line, 9));
+            floating = (int)StringToInteger(StringSubstr(trimmed, 9));
          }
-         else if(StringFind(line, "window_left=") == 0)
+         else if(StringFind(trimmed, "window_left=") == 0)
          {
-            win_left = (int)StringToInteger(StringSubstr(line, 12));
+            win_left = (int)StringToInteger(StringSubstr(trimmed, 12));
          }
-         else if(StringFind(line, "window_top=") == 0)
+         else if(StringFind(trimmed, "window_top=") == 0)
          {
-            win_top = (int)StringToInteger(StringSubstr(line, 11));
+            win_top = (int)StringToInteger(StringSubstr(trimmed, 11));
          }
-         else if(StringFind(line, "window_right=") == 0)
+         else if(StringFind(trimmed, "window_right=") == 0)
          {
-            win_right = (int)StringToInteger(StringSubstr(line, 13));
+            win_right = (int)StringToInteger(StringSubstr(trimmed, 13));
          }
-         else if(StringFind(line, "window_bottom=") == 0)
+         else if(StringFind(trimmed, "window_bottom=") == 0)
          {
-            win_bottom = (int)StringToInteger(StringSubstr(line, 14));
+            win_bottom = (int)StringToInteger(StringSubstr(trimmed, 14));
          }
-         else if(StringFind(line, "floating_left=") == 0)
+         else if(StringFind(trimmed, "floating_left=") == 0)
          {
-            float_left = (int)StringToInteger(StringSubstr(line, 14));
+            float_left = (int)StringToInteger(StringSubstr(trimmed, 14));
          }
-         else if(StringFind(line, "floating_top=") == 0)
+         else if(StringFind(trimmed, "floating_top=") == 0)
          {
-            float_top = (int)StringToInteger(StringSubstr(line, 13));
+            float_top = (int)StringToInteger(StringSubstr(trimmed, 13));
          }
-         else if(StringFind(line, "floating_right=") == 0)
+         else if(StringFind(trimmed, "floating_right=") == 0)
          {
-            float_right = (int)StringToInteger(StringSubstr(line, 15));
+            float_right = (int)StringToInteger(StringSubstr(trimmed, 15));
          }
-         else if(StringFind(line, "floating_bottom=") == 0)
+         else if(StringFind(trimmed, "floating_bottom=") == 0)
          {
-            float_bottom = (int)StringToInteger(StringSubstr(line, 16));
+            float_bottom = (int)StringToInteger(StringSubstr(trimmed, 16));
          }
-         else if(StringFind(line, "grid=") == 0)
+         else if(StringFind(trimmed, "grid=") == 0)
          {
-            show_grid = (int)StringToInteger(StringSubstr(line, 5));
+            show_grid = (int)StringToInteger(StringSubstr(trimmed, 5));
          }
          
          file_content += line + "\r\n";
       }
       FileClose(file_in);
       
-      if(original_symbol == "")
-      {
-         Print("[Warning] シンボルが特定できないためスキップ: ", filename);
-         continue;
-      }
-      
-      // 目印インジケーター TickReplayRoleMarker の検出
+      // 目印インジケーター TickReplayRoleMarker (または SUB ロール指定) の検出
       bool is_sub_chart = false;
       if(enable_dual && sub_symbol != "")
       {
-         if(StringFind(file_content, "TickReplayRoleMarker") >= 0 || StringFind(file_content, "ROLE_SUB") >= 0)
+         string lower_content = file_content;
+         StringToLower(lower_content);
+         
+         if(StringFind(lower_content, "tickreplayrolemarker") >= 0 ||
+            StringFind(lower_content, "rolemarker") >= 0 ||
+            StringFind(lower_content, "role_sub") >= 0 ||
+            StringFind(lower_content, "inprolename=sub") >= 0 ||
+            StringFind(lower_content, "inprolename=\"sub") >= 0 ||
+            StringFind(lower_content, "sub (reference)") >= 0 ||
+            StringFind(lower_content, "sub(reference)") >= 0 ||
+            StringFind(lower_content, "sub_chart") >= 0 ||
+            StringFind(lower_content, "sub_feed") >= 0)
          {
             is_sub_chart = true;
          }
       }
       
       string target_symbol = is_sub_chart ? sub_symbol : main_symbol;
-      StringReplace(file_content, original_symbol, target_symbol);
+      
+      if(original_symbol != "" && original_symbol != target_symbol)
+      {
+         StringReplace(file_content, original_symbol, target_symbol);
+      }
+      
+      // symbol= 行の確実な置換（大文字小文字や空白の差異を吸収）
+      int sym_header_pos = StringFind(file_content, "symbol=");
+      if(sym_header_pos >= 0)
+      {
+         int line_end = StringFind(file_content, "\r\n", sym_header_pos);
+         if(line_end > sym_header_pos)
+         {
+            string before = StringSubstr(file_content, 0, sym_header_pos);
+            string after = StringSubstr(file_content, line_end);
+            file_content = before + "symbol=" + target_symbol + after;
+         }
+      }
       
       string filename_no_ext = filename;
       int ext_pos = StringFind(filename, ".chr");
@@ -2295,7 +2366,7 @@ bool ProcessProfile(string profile_name, string main_symbol, string sub_symbol, 
       FileWriteString(file_out, file_content);
       FileClose(file_out);
       
-      ENUM_TIMEFRAMES period = GetTimeframeFromPeriod(period_type, period_size);
+      ENUM_TIMEFRAMES period = (period_type >= 0 && period_size >= 0) ? GetTimeframeFromPeriod(period_type, period_size) : PERIOD_M1;
       
       chart_count++;
       ArrayResize(out_layouts, chart_count);
@@ -2313,6 +2384,9 @@ bool ProcessProfile(string profile_name, string main_symbol, string sub_symbol, 
       out_layouts[chart_count - 1].float_right = float_right;
       out_layouts[chart_count - 1].float_bottom = float_bottom;
       out_layouts[chart_count - 1].show_grid = (show_grid != 0);
+      
+      Print(StringFormat("[Info] プロファイル解析 チャート #%d (%s): 元シンボル='%s' -> 割当シンボル='%s' (役割: %s, 時間足: %s)",
+         chart_count, filename, original_symbol, target_symbol, (is_sub_chart ? "SUB [デュアル比較]" : "MAIN [主フィード]"), EnumToString(period)));
       
    } while(FileFindNext(search_handle, filename));
    
@@ -3626,7 +3700,7 @@ int GetMaxPeriodSeconds(string profile_name)
          do
          {
             string profile_file_path = profile_name + "\\" + filename;
-            int file_in = FileOpen(profile_file_path, FILE_READ | FILE_TXT | FILE_UNICODE);
+            int file_in = OpenChrFileForReading(profile_file_path);
             if(file_in != INVALID_HANDLE)
             {
                int period_type = -1;
@@ -3634,13 +3708,17 @@ int GetMaxPeriodSeconds(string profile_name)
                while(!FileIsEnding(file_in))
                {
                   string line = FileReadString(file_in);
-                  if(period_type == -1 && StringFind(line, "period_type=") == 0)
+                  string trimmed = line;
+                  StringTrimLeft(trimmed);
+                  StringTrimRight(trimmed);
+                  
+                  if(period_type == -1 && StringFind(trimmed, "period_type=") == 0)
                   {
-                     period_type = (int)StringToInteger(StringSubstr(line, 12));
+                     period_type = (int)StringToInteger(StringSubstr(trimmed, 12));
                   }
-                  if(period_size == -1 && StringFind(line, "period_size=") == 0)
+                  if(period_size == -1 && StringFind(trimmed, "period_size=") == 0)
                   {
-                     period_size = (int)StringToInteger(StringSubstr(line, 12));
+                     period_size = (int)StringToInteger(StringSubstr(trimmed, 12));
                   }
                   if(period_type != -1 && period_size != -1)
                      break;
