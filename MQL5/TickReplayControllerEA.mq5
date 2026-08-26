@@ -26,6 +26,12 @@ bool MoveWindow(long hWnd, int X, int Y, int nWidth, int nHeight, bool bRepaint)
 bool ShowWindow(long hWnd, int nCmdShow);
 #import
 
+//--- Win32 API winmm (高精度マルチメディアタイマー制御) インポート
+#import "winmm.dll"
+uint timeBeginPeriod(uint uPeriod);
+uint timeEndPeriod(uint uPeriod);
+#import
+
 #define GENERIC_READ          0x80000000
 #define GENERIC_WRITE         0x40000000
 #define OPEN_EXISTING         3
@@ -40,7 +46,7 @@ enum ENUM_REPLAY_SPEED_MODE
 };
 
 //--- Inputパラメータ定義
-input int    InpTimerMs  = 15;    // タイマーの周期（ミリ秒、推奨: 10〜15ms）
+input int    InpTimerMs  = 10;    // タイマーの周期（ミリ秒、推奨: 10ms = 100Hz）
 
 //--- コントローラーEA内部の状態変数
 string                  m_replay_symbol;        // 生成するカスタムシンボルの名前
@@ -259,6 +265,9 @@ int OnInit()
 {
    Print("[Info] MT5 TickReplay 名前付きパイプIPC EA 起動中。");
    
+   // Windows OS タイマー解像度を1msに設定（タイマージッター極小化）
+   timeBeginPeriod(1);
+   
    // ミリ秒時刻取得のキャリブレーション
    gl_start_time_msc = TimeLocal() * 1000;
    gl_start_tick_count = GetMicrosecondCount() / 1000;
@@ -267,6 +276,7 @@ int OnInit()
    if(!EventSetMillisecondTimer(InpTimerMs))
    {
       Print("[Error] タイマー設定に失敗しました。");
+      timeEndPeriod(1);
       return(INIT_FAILED);
    }
    
@@ -285,6 +295,9 @@ void OnDeinit(const int reason)
 {
    // タイマーの停止
    EventKillTimer();
+   
+   // Windows OS タイマー解像度の復元
+   timeEndPeriod(1);
    
    // ビューアーチャートの終了
    if(reason != REASON_PARAMETERS && reason != REASON_RECOMPILE && reason != REASON_CHARTCHANGE)
@@ -497,20 +510,43 @@ void OnTimer()
                }
             }
             
-            // 60FPS描画更新 (16ms = 16,000us) - ティック配信があった場合、または最大50ms経過時
-            static ulong last_redraw_us = 0;
+            // 階層型スマート再描画更新: 時間足に応じた個別リフレッシュ
+            // M1/ティック足: 16ms (60FPS), M5足: 50ms (20FPS), M15+足: 100ms (10FPS)
+            static ulong s_last_redraw_m1_us = 0;
+            static ulong s_last_redraw_m5_us = 0;
+            static ulong s_last_redraw_htf_us = 0;
+
             ulong now_us = GetMicrosecondCount();
-            if((now_us - last_redraw_us >= 16000 && ticks_delivered) || (now_us - last_redraw_us >= 50000))
+
+            bool do_redraw_m1  = ((now_us - s_last_redraw_m1_us >= 16000 && ticks_delivered) || (now_us - s_last_redraw_m1_us >= 50000));
+            bool do_redraw_m5  = ((now_us - s_last_redraw_m5_us >= 50000 && ticks_delivered) || (now_us - s_last_redraw_m5_us >= 150000));
+            bool do_redraw_htf = ((now_us - s_last_redraw_htf_us >= 100000 && ticks_delivered) || (now_us - s_last_redraw_htf_us >= 300000));
+
+            if(do_redraw_m1)  s_last_redraw_m1_us = now_us;
+            if(do_redraw_m5)  s_last_redraw_m5_us = now_us;
+            if(do_redraw_htf) s_last_redraw_htf_us = now_us;
+
+            if(do_redraw_m1 || do_redraw_m5 || do_redraw_htf)
             {
-               last_redraw_us = now_us;
-               
-               // 各チャートの描画更新 (MTF対応、スクロールはネイティブに委譲)
                int total_charts = ArraySize(m_viewer_chart_ids);
                for(int c_idx = 0; c_idx < total_charts; c_idx++)
                {
                   long cid = m_viewer_chart_ids[c_idx];
-                  if(cid > 0)
-                     ChartRedraw(cid);
+                  if(cid <= 0) continue;
+                  
+                  ENUM_TIMEFRAMES p = (c_idx < ArraySize(m_viewer_periods)) ? m_viewer_periods[c_idx] : PERIOD_M1;
+                  if(p <= PERIOD_M1)
+                  {
+                     if(do_redraw_m1) ChartRedraw(cid);
+                  }
+                  else if(p <= PERIOD_M5)
+                  {
+                     if(do_redraw_m5) ChartRedraw(cid);
+                  }
+                  else
+                  {
+                     if(do_redraw_htf) ChartRedraw(cid);
+                  }
                }
             }
          }
