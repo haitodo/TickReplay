@@ -40,7 +40,7 @@ enum ENUM_REPLAY_SPEED_MODE
 };
 
 //--- Inputパラメータ定義
-input int    InpTimerMs  = 30;    // タイマーの周期（ミリ秒）
+input int    InpTimerMs  = 15;    // タイマーの周期（ミリ秒、推奨: 10〜15ms）
 
 //--- コントローラーEA内部の状態変数
 string                  m_replay_symbol;        // 生成するカスタムシンボルの名前
@@ -62,7 +62,8 @@ ENUM_REPLAY_SPEED_MODE  m_speed_mode = REPLAY_MODE_TEMPORAL; // 再生速度制�
 double                  m_time_multiplier = 1.0;// 時間比率モード時の倍速 (1.0 = 等倍)
 int                     m_tick_step_count = 1;  // ティック枚数モード時の1タイマーあたりの配信数
 long                    m_virtual_current_msc = 0; // リプレイ内の仮想現在時刻（ミリ秒）
-uint                    m_last_real_timer_msc = 0; // 前回タイマー実行時のPCローカル時刻（ミリ秒カウンタ）
+double                  m_virtual_current_msc_acc = 0.0; // 仮想現在時刻の高精度積算アキュムレータ（ミリ秒・小数部保持）
+ulong                   m_last_real_timer_us = 0;  // 前回タイマー実行時のPCローカル時刻（マイクロ秒カウンタ）
 long                    m_viewer_chart_ids[];   // 生成されたビューアーチャートのチャートID配列
 ENUM_TIMEFRAMES         m_viewer_periods[];     // ビューアーチャートの時間軸配列
 long                    m_loop_a_msc = -1;      // A-Bループの開始点A（ミリ秒、-1で未設定）
@@ -349,17 +350,23 @@ void OnTimer()
    // 3. 再生処理
    if(m_is_playing && m_total_ticks > 0 && m_current_idx < m_total_ticks)
    {
-      // 経過時間（ミリ秒）の計算
-      uint current_real_msc = GetTickCount();
-      if(m_last_real_timer_msc == 0)
+      // 経過時間（マイクロ秒）の高精度計算
+      ulong current_real_us = GetMicrosecondCount();
+      if(m_last_real_timer_us == 0)
       {
-         m_last_real_timer_msc = current_real_msc;
+         m_last_real_timer_us = current_real_us;
          return;
       }
       else
       {
-         uint real_elapsed_msc = current_real_msc - m_last_real_timer_msc;
-         m_last_real_timer_msc = current_real_msc;
+         ulong real_elapsed_us = current_real_us - m_last_real_timer_us;
+         m_last_real_timer_us = current_real_us;
+
+         // 異常な時間跳躍（1秒以上の停止やPCスリープ等）を制限
+         if(real_elapsed_us > 1000000)
+            real_elapsed_us = 1000000;
+
+         double real_elapsed_msc = (double)real_elapsed_us / 1000.0;
 
          int start_idx = m_current_idx;
          int end_idx = m_current_idx;
@@ -371,10 +378,12 @@ void OnTimer()
              if(m_virtual_current_msc <= 0 && m_current_idx < m_total_ticks)
              {
                 m_virtual_current_msc = (long)m_all_ticks[m_current_idx].time_msc;
+                m_virtual_current_msc_acc = (double)m_virtual_current_msc;
              }
              
-             // 実経過ミリ秒に再生倍率を掛けた正確な時間を加算
-             m_virtual_current_msc += (long)(real_elapsed_msc * m_time_multiplier);
+             // 実経過ミリ秒に再生倍率を掛けた正確な時間を浮動小数点加算（ジッターによる離散化を排除）
+             m_virtual_current_msc_acc += (real_elapsed_msc * m_time_multiplier);
+             m_virtual_current_msc = (long)m_virtual_current_msc_acc;
             
             // 自動スキップが有効で、次のティックまでの空白が1時間（3,600,000ms）以上ある場合
             if(m_auto_skip_weekend && m_current_idx < m_total_ticks)
@@ -388,6 +397,7 @@ void OnTimer()
                         TimeToString((datetime)(next_tick_msc/1000), TIME_DATE|TIME_SECONDS), 
                         " に進めます。");
                   m_virtual_current_msc = next_tick_msc;
+                  m_virtual_current_msc_acc = (double)next_tick_msc;
                }
             }
             
@@ -411,6 +421,7 @@ void OnTimer()
                if(end_idx > start_idx)
                {
                   m_virtual_current_msc = m_all_ticks[end_idx - 1].time_msc;
+                  m_virtual_current_msc_acc = (double)m_virtual_current_msc;
                }
             }
          }
@@ -421,11 +432,13 @@ void OnTimer()
             if(m_loop_a_idx >= 0)
             {
                SeekToPosition(m_loop_a_idx);
-               m_last_real_timer_msc = GetTickCount(); // シーク後にタイマー基準時間をリセット
+               m_last_real_timer_us = GetMicrosecondCount(); // シーク後にタイマー基準時間をリセット
             }
          }
          else
          {
+            bool ticks_delivered = false;
+
             // 抽出されたティックの一括配信 (Main)
             int count_to_send = end_idx - start_idx;
             if(count_to_send > 0)
@@ -441,6 +454,7 @@ void OnTimer()
                         for(int k = 0; k < added; k++) { EvaluatePositionsByTick(send_array[k]); }
                         m_current_idx += added;
                         UpdateChartObjects();
+                        ticks_delivered = true;
                      }
                      else if(added < 0)
                      {
@@ -472,6 +486,7 @@ void OnTimer()
                         if(added_sub > 0)
                         {
                            m_current_idx_sub += added_sub;
+                           ticks_delivered = true;
                         }
                         else
                         {
@@ -482,11 +497,12 @@ void OnTimer()
                }
             }
             
-            static uint last_redraw_time = 0;
-            uint now_time = GetTickCount();
-            if(now_time - last_redraw_time >= 80)
+            // 60FPS描画更新 (16ms = 16,000us) - ティック配信があった場合、または最大50ms経過時
+            static ulong last_redraw_us = 0;
+            ulong now_us = GetMicrosecondCount();
+            if((now_us - last_redraw_us >= 16000 && ticks_delivered) || (now_us - last_redraw_us >= 50000))
             {
-               last_redraw_time = now_time;
+               last_redraw_us = now_us;
                
                // 各チャートの描画更新 (MTF対応、スクロールはネイティブに委譲)
                int total_charts = ArraySize(m_viewer_chart_ids);
@@ -503,33 +519,34 @@ void OnTimer()
    else if(m_is_playing && m_current_idx >= m_total_ticks)
    {
       m_is_playing = false;
-      m_last_real_timer_msc = 0;
+      m_last_real_timer_us = 0;
       Print("[Info] すべてのリプレイティック配信が完了しました。");
    }
    else if(!m_is_playing)
    {
       // 停止中はタイマーのローカル基準時間をリフレッシュ
-      m_last_real_timer_msc = 0;
+      m_last_real_timer_us = 0;
    }
    
-   // 4. 定期的なステータス更新の書き込み (再生中・初期化済み: 40ms間隔)
+   // 4. 定期的なステータス更新の書き込み (再生中・初期化済み: 40ms間隔 = 40,000us)
    if(m_initialized && m_total_ticks > 0)
    {
-      uint now = GetTickCount();
-      if(now - m_last_status_write >= 40)
+      static ulong last_status_write_us = 0;
+      ulong now_us = GetMicrosecondCount();
+      if(now_us - last_status_write_us >= 40000)
       {
          WriteStatusFile();
-         m_last_status_write = now;
+         last_status_write_us = now_us;
       }
    }
    else if(m_sync_enabled && !m_is_playing)
    {
-      // 停止中・待機中の定期ハートビート（1秒毎）: フロントエンドとの同期状態を自動維持
-      static uint s_last_heartbeat_msc = 0;
-      uint now_msc = GetTickCount();
-      if(now_msc - s_last_heartbeat_msc >= 1000)
+      // 停止中・待機中の定期ハートビート（1秒毎 = 1,000,000us）: フロントエンドとの同期状態を自動維持
+      static ulong s_last_heartbeat_us = 0;
+      ulong now_us = GetMicrosecondCount();
+      if(now_us - s_last_heartbeat_us >= 1000000)
       {
-         s_last_heartbeat_msc = now_msc;
+         s_last_heartbeat_us = now_us;
          string heartbeat_status = StringFormat(
             "{\"status\":\"CONNECTED\",\"symbol\":\"%s\",\"ea_version\":\"3.00\"}",
             _Symbol
@@ -578,7 +595,7 @@ void ProcessBinaryCommand(const BinaryCommandPacket &packet)
             m_is_playing = ((packet.flags & 0x01) != 0);
             if(!prev_playing && m_is_playing)
             {
-               m_last_real_timer_msc = 0;
+               m_last_real_timer_us = 0;
             }
          }
          if((packet.flags & 0x08) != 0)
@@ -592,11 +609,11 @@ void ProcessBinaryCommand(const BinaryCommandPacket &packet)
          break;
       case 3: // PLAY
          m_is_playing = true;
-         m_last_real_timer_msc = 0;
+         m_last_real_timer_us = 0;
          break;
       case 4: // PAUSE
          m_is_playing = false;
-         m_last_real_timer_msc = 0;
+         m_last_real_timer_us = 0;
          break;
       case 5: // RESET
          SeekToPosition(0);
@@ -856,7 +873,7 @@ void ProcessCommand(string line)
       if(m_initialized)
       {
          m_is_playing = false;
-         m_last_real_timer_msc = 0;
+         m_last_real_timer_us = 0;
          
          // 既存ビューアーチャートを閉じる
          int total_charts = ArraySize(m_viewer_chart_ids);
@@ -922,6 +939,7 @@ void ProcessCommand(string line)
       if(m_total_ticks > 0)
       {
          m_virtual_current_msc = m_all_ticks[0].time_msc;
+         m_virtual_current_msc_acc = (double)m_virtual_current_msc;
       }
       
       // ティックデータのロード (Sub)
@@ -983,6 +1001,7 @@ void ProcessCommand(string line)
             }
             m_current_idx = 1;
             m_virtual_current_msc = m_all_ticks[0].time_msc;
+            m_virtual_current_msc_acc = (double)m_virtual_current_msc;
          }
       }
       // 初期ティックの書き込み (Sub)
@@ -1049,7 +1068,7 @@ void ProcessCommand(string line)
       if(skip_val != "")
          m_auto_skip_weekend = (skip_val == "true" || skip_val == "1");
       
-      m_last_real_timer_msc = 0; // 基準時間を安全に初期化
+      m_last_real_timer_us = 0; // 基準時間を安全に初期化
    }
    else if(command == "SEEK")
    {
@@ -1172,7 +1191,7 @@ void ProcessCommand(string line)
    {
       Print("[Info] TERMINATE コマンドを受信。リプレイを停止しデータをクリーンアップします。");
       m_is_playing = false;
-      m_last_real_timer_msc = 0;
+      m_last_real_timer_us = 0;
       
       if(m_replay_symbol != "")
       {
@@ -2831,6 +2850,7 @@ void SeekToPosition(int target_index)
       }
       m_current_idx = 1;
       m_virtual_current_msc = (long)m_all_ticks[0].time_msc;
+      m_virtual_current_msc_acc = (double)m_virtual_current_msc;
       
       // Sub シンボルのリセット
       if(m_enable_dual_feed && m_replay_symbol_sub != "")
@@ -3044,10 +3064,11 @@ void SeekToPosition(int target_index)
          
          m_current_idx = target_index + 1;
          m_virtual_current_msc = (long)m_all_ticks[target_index].time_msc;
+         m_virtual_current_msc_acc = (double)m_virtual_current_msc;
       }
    }
    
-   m_last_real_timer_msc = 0; // タイマ基準時間のリセット
+   m_last_real_timer_us = 0; // タイマ基準時間のリセット
    
    // シーク先の正確なターゲット価格を判定し、グローバル変数に設定
    double target_price = 0;
@@ -3064,7 +3085,7 @@ void SeekToPosition(int target_index)
     GlobalVariableSet("Replay_Jump_Price", target_price);
     UpdateReplayGeneration();
    
-   // 各チャートを強制再計算・リフレッシュ
+   // 各チャートを強制再計算・リフレッシュ（シーク時は即時再描画）
    int total_charts = ArraySize(m_viewer_chart_ids);
    for(int i = 0; i < total_charts; i++)
    {
@@ -3087,13 +3108,7 @@ void SeekToPosition(int target_index)
          // センタリングのカスタムイベントを送信 (最新価格基準で強制センタリング指示)
          EventChartCustom(cid, 1001, 0, target_price, "");
          
-         static uint last_seek_redraw_time = 0;
-         uint now_seek_time = GetTickCount();
-         if(now_seek_time - last_seek_redraw_time >= 30)
-         {
-            last_seek_redraw_time = now_seek_time;
-            ChartRedraw(cid);
-         }
+         ChartRedraw(cid);
       }
    }
    
