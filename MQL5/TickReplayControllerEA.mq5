@@ -112,6 +112,9 @@ bool                    m_pseudo_rate_enabled = true;          // 疑似レー�
 double                  m_domestic_base_spread = 0.002;         // 国内基準スプレッド
 double                  m_mt5_threshold = 0.010;                // MT5側判定閾値
 double                  m_sensitivity_coeff = 0.35;             // 拡大感度（係数）
+bool                    m_pseudo_rollover_enabled = true;      // 早朝ロールオーバー適応フラグ
+double                  m_pseudo_rollover_spread = 0.035;       // 早朝ロールオーバー基準スプレッド
+int                     m_pseudo_rollover_recovery_min = 15;    // 早朝復帰時間（分）
 
 //--- チャートレイアウト情報構造体
 struct ChartLayoutInfo
@@ -891,8 +894,28 @@ void ProcessCommand(string line)
       m_domestic_base_spread = GetJsonDouble(line, "pseudo_base_spread");
       m_mt5_threshold = GetJsonDouble(line, "pseudo_threshold");
       m_sensitivity_coeff = GetJsonDouble(line, "pseudo_sensitivity");
-      Print(StringFormat("[Info] INIT Pseudo rate: Enabled=%s, BaseSpread=%.6f, Threshold=%.6f, Sensitivity=%.3f",
-         (m_pseudo_rate_enabled?"ON":"OFF"), m_domestic_base_spread, m_mt5_threshold, m_sensitivity_coeff));
+
+      string rollover_en_val = GetJsonKeyValue(line, "pseudo_rollover_enabled");
+      if(rollover_en_val != "")
+         m_pseudo_rollover_enabled = (rollover_en_val == "true" || rollover_en_val == "1");
+      else
+         m_pseudo_rollover_enabled = true;
+
+      string rollover_spr_val = GetJsonKeyValue(line, "pseudo_rollover_spread");
+      if(rollover_spr_val != "")
+         m_pseudo_rollover_spread = GetJsonDouble(line, "pseudo_rollover_spread");
+      else
+         m_pseudo_rollover_spread = m_domestic_base_spread * 17.5;
+
+      string rollover_rec_val = GetJsonKeyValue(line, "pseudo_rollover_recovery_min");
+      if(rollover_rec_val != "")
+         m_pseudo_rollover_recovery_min = (int)GetJsonDouble(line, "pseudo_rollover_recovery_min");
+      else
+         m_pseudo_rollover_recovery_min = 15;
+
+      Print(StringFormat("[Info] INIT Pseudo rate: Enabled=%s, BaseSpread=%.6f, Threshold=%.6f, Sensitivity=%.3f, RollEnabled=%s, RollSpread=%.6f, RollRecMin=%d",
+         (m_pseudo_rate_enabled?"ON":"OFF"), m_domestic_base_spread, m_mt5_threshold, m_sensitivity_coeff,
+         (m_pseudo_rollover_enabled?"ON":"OFF"), m_pseudo_rollover_spread, m_pseudo_rollover_recovery_min));
       
       m_source_symbol = (source_symbol != "") ? source_symbol : _Symbol;
       m_replay_symbol = m_source_symbol + "_Replay";
@@ -1335,8 +1358,23 @@ void ProcessCommand(string line)
          m_mt5_threshold = GetJsonDouble(line, "pseudo_threshold");
          m_sensitivity_coeff = GetJsonDouble(line, "pseudo_sensitivity");
 
-         Print(StringFormat("[Info] Pseudo rate updated: Enabled=%s, BaseSpread=%.6f, Threshold=%.6f, Sensitivity=%.3f",
-            (m_pseudo_rate_enabled?"ON":"OFF"), m_domestic_base_spread, m_mt5_threshold, m_sensitivity_coeff));
+         string rollover_en_val = GetJsonKeyValue(line, "pseudo_rollover_enabled");
+         if(rollover_en_val != "")
+            m_pseudo_rollover_enabled = (rollover_en_val == "true" || rollover_en_val == "1");
+
+         string rollover_spr_val = GetJsonKeyValue(line, "pseudo_rollover_spread");
+         if(rollover_spr_val != "")
+            m_pseudo_rollover_spread = GetJsonDouble(line, "pseudo_rollover_spread");
+         else
+            m_pseudo_rollover_spread = m_domestic_base_spread * 17.5;
+
+         string rollover_rec_val = GetJsonKeyValue(line, "pseudo_rollover_recovery_min");
+         if(rollover_rec_val != "")
+            m_pseudo_rollover_recovery_min = (int)GetJsonDouble(line, "pseudo_rollover_recovery_min");
+
+         Print(StringFormat("[Info] Pseudo rate updated: Enabled=%s, BaseSpread=%.6f, Threshold=%.6f, Sensitivity=%.3f, RollEnabled=%s, RollSpread=%.6f, RollRecMin=%d",
+            (m_pseudo_rate_enabled?"ON":"OFF"), m_domestic_base_spread, m_mt5_threshold, m_sensitivity_coeff,
+            (m_pseudo_rollover_enabled?"ON":"OFF"), m_pseudo_rollover_spread, m_pseudo_rollover_recovery_min));
 
          if(m_total_ticks > 0 && m_current_idx > 0 && m_current_idx <= m_total_ticks)
          {
@@ -5031,18 +5069,18 @@ void GetPseudoRates(MqlTick &src_tick, double &out_bid, double &out_ask, double 
    double threshold   = m_mt5_threshold;
    double sensitivity = m_sensitivity_coeff;
 
-   // 早朝ロールオーバー（06:00-06:59 JST）: DMMベーススプレッド3.5銭相当
-   if(hour == 6)
+   // 早朝ロールオーバー（06:00-06:59 JST）
+   if(m_pseudo_rollover_enabled && hour == 6)
    {
-      double rollover_base = m_domestic_base_spread * 17.5; // 例: USDJPY(0.002) → 0.035
+      double rollover_base = (m_pseudo_rollover_spread > 0) ? m_pseudo_rollover_spread : (m_domestic_base_spread * 17.5);
       base_spread = rollover_base;
       threshold   = m_mt5_threshold * 5.5;                  // 例: USDJPY(0.010) → 0.055
    }
-   // 早朝復帰帯（07:00-07:14 JST）: 3.5銭から0.2銭へ15分間で滑らかに減衰復帰
-   else if(hour == 7 && min < 15)
+   // 早朝復帰帯（07:00〜復帰時間 JST）: 滑らかに減衰復帰
+   else if(m_pseudo_rollover_enabled && hour == 7 && min < m_pseudo_rollover_recovery_min && m_pseudo_rollover_recovery_min > 0)
    {
-      double rollover_base = m_domestic_base_spread * 17.5;
-      base_spread = rollover_base - (rollover_base - m_domestic_base_spread) * (min / 15.0);
+      double rollover_base = (m_pseudo_rollover_spread > 0) ? m_pseudo_rollover_spread : (m_domestic_base_spread * 17.5);
+      base_spread = rollover_base - (rollover_base - m_domestic_base_spread) * ((double)min / (double)m_pseudo_rollover_recovery_min);
       threshold   = m_mt5_threshold * 3.0;                  // 例: USDJPY → 0.030
    }
 

@@ -163,6 +163,18 @@ pub async fn save_settings(
         if settings.pseudo_sensitivity.is_none() {
             settings.pseudo_sensitivity = existing_settings.pseudo_sensitivity;
         }
+        if settings.pseudo_mode.is_none() {
+            settings.pseudo_mode = existing_settings.pseudo_mode.clone();
+        }
+        if settings.pseudo_rollover_enabled.is_none() {
+            settings.pseudo_rollover_enabled = existing_settings.pseudo_rollover_enabled;
+        }
+        if settings.pseudo_rollover_spread.is_none() {
+            settings.pseudo_rollover_spread = existing_settings.pseudo_rollover_spread;
+        }
+        if settings.pseudo_rollover_recovery_min.is_none() {
+            settings.pseudo_rollover_recovery_min = existing_settings.pseudo_rollover_recovery_min;
+        }
         if settings.show_holding_time.is_none() {
             settings.show_holding_time = existing_settings.show_holding_time;
         }

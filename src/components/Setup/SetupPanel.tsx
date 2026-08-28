@@ -83,6 +83,14 @@ export interface SetupPanelProps {
   setPseudoThreshold: (val: number) => void;
   pseudoSensitivity: number;
   setPseudoSensitivity: (val: number) => void;
+  pseudoMode?: "dmm" | "fixed" | "aggressive" | "custom";
+  setPseudoMode?: (val: "dmm" | "fixed" | "aggressive" | "custom") => void;
+  pseudoRolloverEnabled?: boolean;
+  setPseudoRolloverEnabled?: (val: boolean) => void;
+  pseudoRolloverSpread?: number;
+  setPseudoRolloverSpread?: (val: number) => void;
+  pseudoRolloverRecoveryMin?: number;
+  setPseudoRolloverRecoveryMin?: (val: number) => void;
   savedSessions: any[];
   expandedGroups: { [key: string]: boolean };
   setExpandedGroups: React.Dispatch<React.SetStateAction<{ [key: string]: boolean }>>;
@@ -158,6 +166,14 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
   setPseudoThreshold,
   pseudoSensitivity,
   setPseudoSensitivity,
+  pseudoMode = "dmm",
+  setPseudoMode,
+  pseudoRolloverEnabled = true,
+  setPseudoRolloverEnabled,
+  pseudoRolloverSpread = 3.5,
+  setPseudoRolloverSpread,
+  pseudoRolloverRecoveryMin = 15,
+  setPseudoRolloverRecoveryMin,
   savedSessions,
   expandedGroups,
   setExpandedGroups,
@@ -171,6 +187,68 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
   handleInit,
 }) => {
   const handleOpenSelector = handleOpenSymbolSelector || (() => setIsBatchSelectorOpen(true));
+
+  const handleSelectPreset = (mode: "dmm" | "fixed" | "aggressive") => {
+    if (setPseudoMode) setPseudoMode(mode);
+    const sym = (sourceSymbol || "USDJPY").toUpperCase();
+
+    if (mode === "dmm") {
+      // DMMリアル再現モード（実測最適値）
+      if (sym.includes("USDJPY")) {
+        setPseudoBaseSpread(0.2);
+        setPseudoThreshold(1.0);
+        if (setPseudoRolloverSpread) setPseudoRolloverSpread(3.5);
+      } else if (sym.includes("EURUSD")) {
+        setPseudoBaseSpread(0.4);
+        setPseudoThreshold(1.0);
+        if (setPseudoRolloverSpread) setPseudoRolloverSpread(3.5);
+      } else if (sym.includes("GBPJPY")) {
+        setPseudoBaseSpread(0.9);
+        setPseudoThreshold(2.0);
+        if (setPseudoRolloverSpread) setPseudoRolloverSpread(4.5);
+      } else {
+        setPseudoBaseSpread(sym.includes("JPY") ? 0.3 : 0.5);
+        setPseudoThreshold(1.2);
+        if (setPseudoRolloverSpread) setPseudoRolloverSpread(3.5);
+      }
+      setPseudoSensitivity(0.35);
+      if (setPseudoRolloverEnabled) setPseudoRolloverEnabled(true);
+      if (setPseudoRolloverRecoveryMin) setPseudoRolloverRecoveryMin(15);
+    } else if (mode === "fixed") {
+      // 完全固定モード（急変動・早朝に関わらずスプレッド完全固定）
+      if (sym.includes("USDJPY")) setPseudoBaseSpread(0.2);
+      else if (sym.includes("EURUSD")) setPseudoBaseSpread(0.4);
+      else if (sym.includes("GBPJPY")) setPseudoBaseSpread(0.9);
+      else setPseudoBaseSpread(sym.includes("JPY") ? 0.3 : 0.5);
+      setPseudoThreshold(99.0);
+      setPseudoSensitivity(0.0);
+      if (setPseudoRolloverEnabled) setPseudoRolloverEnabled(false);
+      if (setPseudoRolloverSpread) setPseudoRolloverSpread(pseudoBaseSpread);
+      if (setPseudoRolloverRecoveryMin) setPseudoRolloverRecoveryMin(0);
+    } else if (mode === "aggressive") {
+      // 厳格検証・高負荷モード（指標時や早朝に厳しめに拡大）
+      if (sym.includes("USDJPY")) {
+        setPseudoBaseSpread(0.2);
+        setPseudoThreshold(0.8);
+        if (setPseudoRolloverSpread) setPseudoRolloverSpread(4.5);
+      } else if (sym.includes("EURUSD")) {
+        setPseudoBaseSpread(0.4);
+        setPseudoThreshold(0.8);
+        if (setPseudoRolloverSpread) setPseudoRolloverSpread(4.5);
+      } else if (sym.includes("GBPJPY")) {
+        setPseudoBaseSpread(0.9);
+        setPseudoThreshold(1.5);
+        if (setPseudoRolloverSpread) setPseudoRolloverSpread(6.0);
+      } else {
+        setPseudoBaseSpread(sym.includes("JPY") ? 0.3 : 0.5);
+        setPseudoThreshold(1.0);
+        if (setPseudoRolloverSpread) setPseudoRolloverSpread(4.5);
+      }
+      setPseudoSensitivity(0.80);
+      if (setPseudoRolloverEnabled) setPseudoRolloverEnabled(true);
+      if (setPseudoRolloverRecoveryMin) setPseudoRolloverRecoveryMin(20);
+    }
+  };
 
   // 1Lot証拠金・Pip価値・最大ロット計算
   const estRate = sourceSymbol.toUpperCase().includes("JPY") ? 150 : 1.0;
@@ -990,112 +1068,214 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                   </label>
 
                   {enablePseudoRate ? (
-                    <div className="pseudo-spread-grid">
-                      <div className="form-group-compact">
-                        <label className="form-label-compact" style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                          平常時スプレッド (Pips)
-                          <HelpTooltip
-                            title="平常時スプレッド"
-                            placement="auto"
-                            iconSize={12}
-                            content={
-                              <div style={{ lineHeight: 1.7, fontSize: "12px" }}>
-                                <p style={{ margin: "0 0 6px" }}>
-                                  MT5のスプレッドが「拡大しきい値」以下のとき（平常時）に適用される固定スプレッドです。
-                                </p>
-                                <p style={{ margin: "0 0 4px", fontWeight: 600 }}>推奨値の目安：</p>
-                                <ul style={{ margin: "0", paddingLeft: 16 }}>
-                                  <li>USDJPY：0.2 pips（DMM標準）</li>
-                                  <li>EURUSD：0.4 pips</li>
-                                  <li>GBPJPY：0.9 pips</li>
-                                  <li>EURJPY / AUDJPY：0.4〜0.6 pips</li>
-                                  <li>XAUUSD（Gold）：1.5 pips</li>
-                                </ul>
-                              </div>
-                            }
-                          />
-                        </label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          min="0"
-                          className="input-compact font-data"
-                          value={pseudoBaseSpread}
-                          onChange={(e) => setPseudoBaseSpread(parseFloat(e.target.value) || 0)}
-                        />
+                    <div>
+                      {/* プリセット選択ボタン */}
+                      <div className="pseudo-preset-group">
+                        <button
+                          type="button"
+                          className={`pseudo-preset-btn ${pseudoMode === "dmm" ? "active" : ""}`}
+                          onClick={() => handleSelectPreset("dmm")}
+                          title="DMMの実測挙動（0.2銭固定＋早朝3.5銭＋最適感度0.35）を高精度再現"
+                        >
+                          ⭐ DMM再現
+                        </button>
+                        <button
+                          type="button"
+                          className={`pseudo-preset-btn ${pseudoMode === "fixed" ? "active" : ""}`}
+                          onClick={() => handleSelectPreset("fixed")}
+                          title="急変動・早朝に関わらずスプレッドを0.2銭完全固定"
+                        >
+                          🔒 完全固定
+                        </button>
+                        <button
+                          type="button"
+                          className={`pseudo-preset-btn ${pseudoMode === "aggressive" ? "active" : ""}`}
+                          onClick={() => handleSelectPreset("aggressive")}
+                          title="指標時や早朝に厳しめのスプレッドで検証する高負荷モード"
+                        >
+                          ⚡ 厳格検証
+                        </button>
+                        <button
+                          type="button"
+                          className={`pseudo-preset-btn ${pseudoMode === "custom" ? "active" : ""}`}
+                          onClick={() => { if (setPseudoMode) setPseudoMode("custom"); }}
+                          title="パラメータを自由に手動調整"
+                        >
+                          ⚙️ カスタム
+                        </button>
                       </div>
-                      <div className="form-group-compact">
-                        <label className="form-label-compact" style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                          拡大しきい値 (Pips)
-                          <HelpTooltip
-                            title="拡大しきい値"
-                            placement="auto"
-                            iconSize={12}
-                            content={
-                              <div style={{ lineHeight: 1.7, fontSize: "12px" }}>
-                                <p style={{ margin: "0 0 6px" }}>
-                                  MT5の生スプレッドがこの値を超えたときにスプレッド拡大計算が始まります。
-                                  通常時のMT5スプレッドがこの値以下であれば、常に「平常時スプレッド」が維持されます。
-                                </p>
-                                <p style={{ margin: "0 0 4px", fontWeight: 600 }}>推奨値の目安：</p>
-                                <ul style={{ margin: "0", paddingLeft: 16 }}>
-                                  <li>USDJPY：1.0 pips（実測最適値）</li>
-                                  <li>EURUSD：1.0 pips</li>
-                                  <li>GBPJPY：2.0 pips</li>
-                                  <li>XAUUSD（Gold）：4.0 pips</li>
-                                </ul>
-                                <p style={{ margin: "6px 0 0", color: "var(--status-warning)" }}>
-                                  ⚠️ 0に設定するとすべてのティックで拡大計算が適用されるため、スプレッドが常に広くなります。
-                                </p>
-                              </div>
-                            }
+
+                      <div className="pseudo-spread-grid">
+                        <div className="form-group-compact">
+                          <label className="form-label-compact" style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                            平常時スプレッド (Pips)
+                            <HelpTooltip
+                              title="平常時スプレッド"
+                              placement="auto"
+                              iconSize={12}
+                              content={
+                                <div style={{ lineHeight: 1.7, fontSize: "12px" }}>
+                                  <p style={{ margin: "0 0 6px" }}>
+                                    MT5のスプレッドが「拡大しきい値」以下のとき（平常時）に適用される固定スプレッドです。
+                                  </p>
+                                  <p style={{ margin: "0 0 4px", fontWeight: 600 }}>推奨値の目安：</p>
+                                  <ul style={{ margin: "0", paddingLeft: 16 }}>
+                                    <li>USDJPY：0.2 pips（DMM標準）</li>
+                                    <li>EURUSD：0.4 pips</li>
+                                    <li>GBPJPY：0.9 pips</li>
+                                    <li>EURJPY / AUDJPY：0.4〜0.6 pips</li>
+                                    <li>XAUUSD（Gold）：1.5 pips</li>
+                                  </ul>
+                                </div>
+                              }
+                            />
+                          </label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            className="input-compact font-data"
+                            value={pseudoBaseSpread}
+                            onChange={(e) => {
+                              setPseudoBaseSpread(parseFloat(e.target.value) || 0);
+                              if (setPseudoMode) setPseudoMode("custom");
+                            }}
                           />
-                        </label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          min="0"
-                          className="input-compact font-data"
-                          value={pseudoThreshold}
-                          onChange={(e) => setPseudoThreshold(parseFloat(e.target.value) || 0)}
-                        />
-                      </div>
-                      <div className="form-group-compact" style={{ gridColumn: "span 2" }}>
-                        <label className="form-label-compact" style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                          拡大感度係数 (0.0〜2.0)
-                          <HelpTooltip
-                            title="拡大感度係数"
-                            placement="auto"
-                            iconSize={12}
-                            content={
-                              <div style={{ lineHeight: 1.7, fontSize: "12px" }}>
-                                <p style={{ margin: "0 0 6px" }}>
-                                  MT5スプレッドが「拡大しきい値」を超えたとき、その超過分に掛ける倍率です。
-                                </p>
-                                <p style={{ margin: "0 0 4px" }}>
-                                  <strong>例（USDJPY、しきい値=1.0pips、感度=0.35、MT5スプレッド=3.0pips）：</strong><br />
-                                  <code style={{ background: "rgba(255,255,255,0.1)", padding: "1px 4px", borderRadius: 3 }}>
-                                    0.2 + 0.35 × (3.0 − 1.0) = 0.90 pips
-                                  </code>
-                                </p>
-                                <ul style={{ margin: "6px 0 0", paddingLeft: 16 }}>
-                                  <li><strong>0.35</strong>：実測最適推奨値。急拡大時も国内業者風に穏やかに反映</li>
-                                  <li><strong>1.0</strong>：MT5スプレッド急拡大超過分をそのまま反映</li>
-                                  <li><strong>0.0</strong>：急拡大時も平常時スプレッドのまま固定</li>
-                                </ul>
-                              </div>
-                            }
+                        </div>
+                        <div className="form-group-compact">
+                          <label className="form-label-compact" style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                            拡大しきい値 (Pips)
+                            <HelpTooltip
+                              title="拡大しきい値"
+                              placement="auto"
+                              iconSize={12}
+                              content={
+                                <div style={{ lineHeight: 1.7, fontSize: "12px" }}>
+                                  <p style={{ margin: "0 0 6px" }}>
+                                    MT5の生スプレッドがこの値を超えたときにスプレッド拡大計算が始まります。
+                                    通常時のMT5スプレッドがこの値以下であれば、常に「平常時スプレッド」が維持されます。
+                                  </p>
+                                  <p style={{ margin: "0 0 4px", fontWeight: 600 }}>推奨値の目安：</p>
+                                  <ul style={{ margin: "0", paddingLeft: 16 }}>
+                                    <li>USDJPY：1.0 pips（実測最適値）</li>
+                                    <li>EURUSD：1.0 pips</li>
+                                    <li>GBPJPY：2.0 pips</li>
+                                    <li>XAUUSD（Gold）：4.0 pips</li>
+                                  </ul>
+                                  <p style={{ margin: "6px 0 0", color: "var(--status-warning)" }}>
+                                    ⚠️ 0に設定するとすべてのティックで拡大計算が適用されるため、スプレッドが常に広くなります。
+                                  </p>
+                                </div>
+                              }
+                            />
+                          </label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            className="input-compact font-data"
+                            value={pseudoThreshold}
+                            onChange={(e) => {
+                              setPseudoThreshold(parseFloat(e.target.value) || 0);
+                              if (setPseudoMode) setPseudoMode("custom");
+                            }}
                           />
-                        </label>
-                        <input
-                          type="number"
-                          step="0.05"
-                          min="0"
-                          max="2"
-                          className="input-compact font-data"
-                          value={pseudoSensitivity}
-                          onChange={(e) => setPseudoSensitivity(parseFloat(e.target.value) || 0)}
-                        />
+                        </div>
+                        <div className="form-group-compact" style={{ gridColumn: "span 2" }}>
+                          <label className="form-label-compact" style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                            拡大感度係数 (0.0〜2.0)
+                            <HelpTooltip
+                              title="拡大感度係数"
+                              placement="auto"
+                              iconSize={12}
+                              content={
+                                <div style={{ lineHeight: 1.7, fontSize: "12px" }}>
+                                  <p style={{ margin: "0 0 6px" }}>
+                                    MT5スプレッドが「拡大しきい値」を超えたとき、その超過分に掛ける倍率です。
+                                  </p>
+                                  <p style={{ margin: "0 0 4px" }}>
+                                    <strong>例（USDJPY、しきい値=1.0pips、感度=0.35、MT5スプレッド=3.0pips）：</strong><br />
+                                    <code style={{ background: "rgba(255,255,255,0.1)", padding: "1px 4px", borderRadius: 3 }}>
+                                      0.2 + 0.35 × (3.0 − 1.0) = 0.90 pips
+                                    </code>
+                                  </p>
+                                  <ul style={{ margin: "6px 0 0", paddingLeft: 16 }}>
+                                    <li><strong>0.35</strong>：実測最適推奨値。急拡大時も国内業者風に穏やかに反映</li>
+                                    <li><strong>1.0</strong>：MT5スプレッド急拡大超過分をそのまま反映</li>
+                                    <li><strong>0.0</strong>：急拡大時も平常時スプレッドのまま固定</li>
+                                  </ul>
+                                </div>
+                              }
+                            />
+                          </label>
+                          <input
+                            type="number"
+                            step="0.05"
+                            min="0"
+                            max="2"
+                            className="input-compact font-data"
+                            value={pseudoSensitivity}
+                            onChange={(e) => {
+                              setPseudoSensitivity(parseFloat(e.target.value) || 0);
+                              if (setPseudoMode) setPseudoMode("custom");
+                            }}
+                          />
+                        </div>
+
+                        {/* 早朝ロールオーバー詳細設定 */}
+                        <div className="pseudo-rollover-box">
+                          <label className="toggle-switch-label" style={{ margin: 0 }}>
+                            <input
+                              type="checkbox"
+                              checked={pseudoRolloverEnabled}
+                              onChange={(e) => {
+                                if (setPseudoRolloverEnabled) setPseudoRolloverEnabled(e.target.checked);
+                                if (setPseudoMode) setPseudoMode("custom");
+                              }}
+                            />
+                            <span className="switch-text" style={{ fontSize: "11px", fontWeight: 600 }}>
+                              早朝ロールオーバー自動適応（06:00〜07:15 JST）
+                            </span>
+                          </label>
+
+                          {pseudoRolloverEnabled && (
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 4 }}>
+                              <div className="form-group-compact">
+                                <label className="form-label-compact" style={{ fontSize: "10px" }}>
+                                  早朝基準スプレッド (Pips)
+                                </label>
+                                <input
+                                  type="number"
+                                  step="0.5"
+                                  min="0"
+                                  className="input-compact font-data"
+                                  value={pseudoRolloverSpread}
+                                  onChange={(e) => {
+                                    if (setPseudoRolloverSpread) setPseudoRolloverSpread(parseFloat(e.target.value) || 0);
+                                    if (setPseudoMode) setPseudoMode("custom");
+                                  }}
+                                />
+                              </div>
+                              <div className="form-group-compact">
+                                <label className="form-label-compact" style={{ fontSize: "10px" }}>
+                                  早朝復帰時間 (分)
+                                </label>
+                                <input
+                                  type="number"
+                                  step="5"
+                                  min="0"
+                                  max="60"
+                                  className="input-compact font-data"
+                                  value={pseudoRolloverRecoveryMin}
+                                  onChange={(e) => {
+                                    if (setPseudoRolloverRecoveryMin) setPseudoRolloverRecoveryMin(parseInt(e.target.value) || 0);
+                                    if (setPseudoMode) setPseudoMode("custom");
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ) : (

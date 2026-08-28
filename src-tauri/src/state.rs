@@ -171,6 +171,14 @@ pub struct ReplaySettings {
     #[serde(default)]
     pub pseudo_sensitivity: Option<f64>,
     #[serde(default)]
+    pub pseudo_mode: Option<String>,
+    #[serde(default)]
+    pub pseudo_rollover_enabled: Option<bool>,
+    #[serde(default)]
+    pub pseudo_rollover_spread: Option<f64>,
+    #[serde(default)]
+    pub pseudo_rollover_recovery_min: Option<i32>,
+    #[serde(default)]
     pub show_holding_time: Option<bool>,
     #[serde(default)]
     pub holding_time_mode: Option<String>,

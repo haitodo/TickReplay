@@ -244,6 +244,10 @@ function App() {
   const [pseudoBaseSpread, setPseudoBaseSpread] = useState(0.2); // 0.2 pips
   const [pseudoThreshold, setPseudoThreshold] = useState(1.0); // 1.0 pips
   const [pseudoSensitivity, setPseudoSensitivity] = useState(0.35);
+  const [pseudoMode, setPseudoMode] = useState<"dmm" | "fixed" | "aggressive" | "custom">("dmm");
+  const [pseudoRolloverEnabled, setPseudoRolloverEnabled] = useState(true);
+  const [pseudoRolloverSpread, setPseudoRolloverSpread] = useState(3.5); // 3.5 pips
+  const [pseudoRolloverRecoveryMin, setPseudoRolloverRecoveryMin] = useState(15); // 15分
   const isInitialLoadRef = useRef(true);
   const [isInitialized, setIsInitialized] = useState(false);
 
@@ -467,29 +471,40 @@ function App() {
     if (sym.includes("USDJPY")) {
       setPseudoBaseSpread(0.2);
       setPseudoThreshold(1.0);
+      setPseudoRolloverSpread(3.5);
     } else if (sym.includes("EURUSD")) {
       setPseudoBaseSpread(0.4);
       setPseudoThreshold(1.0);
+      setPseudoRolloverSpread(3.5);
     } else if (sym.includes("GBPJPY")) {
       setPseudoBaseSpread(0.9);
       setPseudoThreshold(2.0);
+      setPseudoRolloverSpread(4.5);
     } else if (sym.includes("EURJPY")) {
       setPseudoBaseSpread(0.4);
       setPseudoThreshold(1.5);
+      setPseudoRolloverSpread(3.5);
     } else if (sym.includes("GBPUSD")) {
       setPseudoBaseSpread(0.7);
       setPseudoThreshold(1.5);
+      setPseudoRolloverSpread(4.0);
     } else if (sym.includes("AUDJPY")) {
       setPseudoBaseSpread(0.6);
       setPseudoThreshold(1.5);
+      setPseudoRolloverSpread(3.5);
     } else if (sym.includes("XAU") || sym.includes("GOLD")) {
       setPseudoBaseSpread(1.5);
       setPseudoThreshold(4.0);
+      setPseudoRolloverSpread(6.0);
     } else {
       setPseudoBaseSpread(sym.includes("JPY") ? 0.3 : 0.5);
       setPseudoThreshold(1.2);
+      setPseudoRolloverSpread(3.5);
     }
     setPseudoSensitivity(0.35);
+    setPseudoRolloverEnabled(true);
+    setPseudoRolloverRecoveryMin(15);
+    setPseudoMode("dmm");
   }, [sourceSymbol, isInitialized]);
 
   // --- UIオプション設定
@@ -1051,16 +1066,30 @@ function App() {
     if (status === "ACTIVE" || status === "READY") {
       const rawBase = pipsToPriceDiff(sourceSymbol, pseudoBaseSpread);
       const rawThresh = pipsToPriceDiff(sourceSymbol, pseudoThreshold);
+      const rawRolloverSpread = pipsToPriceDiff(sourceSymbol, pseudoRolloverSpread);
 
       sendCommand({
         command: "SET_PSEUDO_RATE",
         enable_pseudo_rate: enablePseudoRate,
         pseudo_base_spread: rawBase,
         pseudo_threshold: rawThresh,
-        pseudo_sensitivity: pseudoSensitivity
+        pseudo_sensitivity: pseudoSensitivity,
+        pseudo_rollover_enabled: pseudoRolloverEnabled,
+        pseudo_rollover_spread: rawRolloverSpread,
+        pseudo_rollover_recovery_min: pseudoRolloverRecoveryMin,
       }).catch(console.error);
     }
-  }, [status, enablePseudoRate, pseudoBaseSpread, pseudoThreshold, pseudoSensitivity, sourceSymbol]);
+  }, [
+    status,
+    enablePseudoRate,
+    pseudoBaseSpread,
+    pseudoThreshold,
+    pseudoSensitivity,
+    pseudoRolloverEnabled,
+    pseudoRolloverSpread,
+    pseudoRolloverRecoveryMin,
+    sourceSymbol,
+  ]);
 
   // --- 複数ウィンドウ間での設定同期用エフェクト
   useEffect(() => {
@@ -1227,6 +1256,18 @@ function App() {
           }
           if (saved.pseudo_sensitivity !== undefined && saved.pseudo_sensitivity !== null) {
             setPseudoSensitivity(saved.pseudo_sensitivity);
+          }
+          if (saved.pseudo_mode) {
+            setPseudoMode(saved.pseudo_mode as "dmm" | "fixed" | "aggressive" | "custom");
+          }
+          if (saved.pseudo_rollover_enabled !== undefined && saved.pseudo_rollover_enabled !== null) {
+            setPseudoRolloverEnabled(saved.pseudo_rollover_enabled);
+          }
+          if (saved.pseudo_rollover_spread !== undefined && saved.pseudo_rollover_spread !== null) {
+            setPseudoRolloverSpread(saved.pseudo_rollover_spread > 0 ? saved.pseudo_rollover_spread : 3.5);
+          }
+          if (saved.pseudo_rollover_recovery_min !== undefined && saved.pseudo_rollover_recovery_min !== null) {
+            setPseudoRolloverRecoveryMin(saved.pseudo_rollover_recovery_min);
           }
           if (saved.show_holding_time !== undefined && saved.show_holding_time !== null) {
             setShowHoldingTime(saved.show_holding_time);
@@ -1444,6 +1485,10 @@ function App() {
     customPseudoBaseSpread = pseudoBaseSpread,
     customPseudoThreshold = pseudoThreshold,
     customPseudoSensitivity = pseudoSensitivity,
+    customPseudoMode = pseudoMode,
+    customPseudoRolloverEnabled = pseudoRolloverEnabled,
+    customPseudoRolloverSpread = pseudoRolloverSpread,
+    customPseudoRolloverRecoveryMin = pseudoRolloverRecoveryMin,
     customPreloadTimeframe = preloadTimeframe,
     customShowHoldingTime = showHoldingTime,
     customHoldingTimeMode = holdingTimeMode,
@@ -1483,6 +1528,10 @@ function App() {
       pseudo_base_spread: customPseudoBaseSpread,
       pseudo_threshold: customPseudoThreshold,
       pseudo_sensitivity: customPseudoSensitivity,
+      pseudo_mode: customPseudoMode,
+      pseudo_rollover_enabled: customPseudoRolloverEnabled,
+      pseudo_rollover_spread: customPseudoRolloverSpread,
+      pseudo_rollover_recovery_min: customPseudoRolloverRecoveryMin,
       show_holding_time: customShowHoldingTime,
       holding_time_mode: customHoldingTimeMode,
       additional_symbols: customAdditionalSymbols,
@@ -1611,6 +1660,9 @@ function App() {
         pseudo_base_spread: pipsToPriceDiff(sourceSymbol, pseudoBaseSpread),
         pseudo_threshold: pipsToPriceDiff(sourceSymbol, pseudoThreshold),
         pseudo_sensitivity: pseudoSensitivity,
+        pseudo_rollover_enabled: pseudoRolloverEnabled,
+        pseudo_rollover_spread: pipsToPriceDiff(sourceSymbol, pseudoRolloverSpread),
+        pseudo_rollover_recovery_min: pseudoRolloverRecoveryMin,
         additional_symbols: additionalSymbols,
       };
 
@@ -1826,6 +1878,18 @@ function App() {
     if (session.settings.pseudo_sensitivity !== undefined) {
       setPseudoSensitivity(session.settings.pseudo_sensitivity);
     }
+    if (session.settings.pseudo_mode) {
+      setPseudoMode(session.settings.pseudo_mode as "dmm" | "fixed" | "aggressive" | "custom");
+    }
+    if (session.settings.pseudo_rollover_enabled !== undefined) {
+      setPseudoRolloverEnabled(session.settings.pseudo_rollover_enabled);
+    }
+    if (session.settings.pseudo_rollover_spread !== undefined) {
+      setPseudoRolloverSpread(session.settings.pseudo_rollover_spread > 0 ? session.settings.pseudo_rollover_spread : 3.5);
+    }
+    if (session.settings.pseudo_rollover_recovery_min !== undefined) {
+      setPseudoRolloverRecoveryMin(session.settings.pseudo_rollover_recovery_min);
+    }
 
     // 復元対象のセッション管理状態を更新
     setCurrentGroupSessionId(session.group_session_id || session.id);
@@ -1879,6 +1943,13 @@ function App() {
             ? session.settings.pseudo_threshold : 1.0
         ),
         pseudo_sensitivity: session.settings.pseudo_sensitivity !== undefined ? session.settings.pseudo_sensitivity : 0.35,
+        pseudo_rollover_enabled: session.settings.pseudo_rollover_enabled !== undefined ? session.settings.pseudo_rollover_enabled : true,
+        pseudo_rollover_spread: pipsToPriceDiff(
+          sym,
+          (session.settings.pseudo_rollover_spread !== undefined && session.settings.pseudo_rollover_spread > 0)
+            ? session.settings.pseudo_rollover_spread : 3.5
+        ),
+        pseudo_rollover_recovery_min: session.settings.pseudo_rollover_recovery_min !== undefined ? session.settings.pseudo_rollover_recovery_min : 15,
       };
 
       await sendCommand(initCmd);
@@ -1924,6 +1995,10 @@ function App() {
         pseudo_base_spread: pseudoBaseSpread,
         pseudo_threshold: pseudoThreshold,
         pseudo_sensitivity: pseudoSensitivity,
+        pseudo_mode: pseudoMode,
+        pseudo_rollover_enabled: pseudoRolloverEnabled,
+        pseudo_rollover_spread: pseudoRolloverSpread,
+        pseudo_rollover_recovery_min: pseudoRolloverRecoveryMin,
       },
       progress: {
         current_idx: currentIdx,
@@ -2810,6 +2885,14 @@ function App() {
           setPseudoThreshold={setPseudoThreshold}
           pseudoSensitivity={pseudoSensitivity}
           setPseudoSensitivity={setPseudoSensitivity}
+          pseudoMode={pseudoMode}
+          setPseudoMode={setPseudoMode}
+          pseudoRolloverEnabled={pseudoRolloverEnabled}
+          setPseudoRolloverEnabled={setPseudoRolloverEnabled}
+          pseudoRolloverSpread={pseudoRolloverSpread}
+          setPseudoRolloverSpread={setPseudoRolloverSpread}
+          pseudoRolloverRecoveryMin={pseudoRolloverRecoveryMin}
+          setPseudoRolloverRecoveryMin={setPseudoRolloverRecoveryMin}
           savedSessions={savedSessions}
           expandedGroups={expandedGroups}
           setExpandedGroups={setExpandedGroups}

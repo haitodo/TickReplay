@@ -31,6 +31,10 @@ export interface SessionReplaySettings {
   pseudo_base_spread?: number;
   pseudo_threshold?: number;
   pseudo_sensitivity?: number;
+  pseudo_mode?: "dmm" | "fixed" | "aggressive" | "custom";
+  pseudo_rollover_enabled?: boolean;
+  pseudo_rollover_spread?: number;
+  pseudo_rollover_recovery_min?: number;
 }
 
 export interface SessionProgressState {
