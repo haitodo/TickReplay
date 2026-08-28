@@ -51,9 +51,11 @@ public:
    {
       double orig_bid = src_tick.bid;
       double orig_ask = src_tick.ask;
+      if(orig_bid <= 0) orig_bid = src_tick.last;
+      if(orig_ask <= 0) orig_ask = src_tick.last;
       double orig_spread = orig_ask - orig_bid;
       
-      if(!pseudo_enabled)
+      if(!pseudo_enabled || orig_bid <= 0 || orig_ask <= 0 || orig_bid == orig_ask)
       {
          out_bid = orig_bid;
          out_ask = orig_ask;
@@ -61,19 +63,43 @@ public:
          return;
       }
       
-      if(orig_spread > threshold)
+      double mid = (orig_bid + orig_ask) / 2.0;
+      
+      MqlDateTime dt;
+      TimeToStruct(src_tick.time, dt);
+      int hour = dt.hour;
+      int min  = dt.min;
+      
+      double eff_base = base_spread;
+      double eff_thresh = threshold;
+      
+      // 早朝ロールオーバー
+      if(hour == 6)
       {
-         double excess = orig_spread - threshold;
-         out_spread = base_spread + (excess * sensitivity);
+         eff_base = base_spread * 17.5;
+         eff_thresh = threshold * 5.5;
       }
-      else
+      // 早朝復帰帯
+      else if(hour == 7 && min < 15)
       {
-         out_spread = base_spread;
+         double roll_base = base_spread * 17.5;
+         eff_base = roll_base - (roll_base - base_spread) * (min / 15.0);
+         eff_thresh = threshold * 3.0;
       }
       
-      out_spread = RoundHalfUp(out_spread, 5);
-      out_bid = orig_bid;
-      out_ask = RoundHalfUp(out_bid + out_spread, 5);
+      double target_spread = eff_base;
+      if(orig_spread > eff_thresh)
+      {
+         target_spread = eff_base + sensitivity * (orig_spread - eff_thresh);
+      }
+      
+      double max_limit = base_spread * 80.0;
+      if(target_spread > max_limit) target_spread = max_limit;
+      
+      double half_spread = target_spread / 2.0;
+      out_bid = RoundHalfUp(mid - half_spread, 3);
+      out_ask = RoundHalfUp(mid + half_spread, 3);
+      out_spread = out_ask - out_bid;
    }
 
    // 前方インデックス検索

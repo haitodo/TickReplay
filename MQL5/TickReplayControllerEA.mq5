@@ -110,8 +110,8 @@ bool                    m_initialized = false;                  // リプレイ�
 bool                    m_hedging = false;                      // 両建て許可フラグ（デフォルトOFF）
 bool                    m_pseudo_rate_enabled = true;          // 疑似レート生成機能の有効化フラグ
 double                  m_domestic_base_spread = 0.002;         // 国内基準スプレッド
-double                  m_mt5_threshold = 0.0110;               // MT5側判定閾値
-double                  m_sensitivity_coeff = 1.025;            // 拡大感度（係数）
+double                  m_mt5_threshold = 0.010;                // MT5側判定閾値
+double                  m_sensitivity_coeff = 0.35;             // 拡大感度（係数）
 
 //--- チャートレイアウト情報構造体
 struct ChartLayoutInfo
@@ -5021,16 +5021,45 @@ void GetPseudoRates(MqlTick &src_tick, double &out_bid, double &out_ask, double 
    double mt5_spread = ask - bid;
    double mid = (bid + ask) / 2.0;
 
-   // 目標スプレッドの計算
-   double target_spread = 0.0;
-   if(mt5_spread <= m_mt5_threshold)
+   // ティック時刻（JST）から時・分を取得してセッション適応判定
+   MqlDateTime dt;
+   TimeToStruct(src_tick.time, dt);
+   int hour = dt.hour;
+   int min  = dt.min;
+
+   double base_spread = m_domestic_base_spread;
+   double threshold   = m_mt5_threshold;
+   double sensitivity = m_sensitivity_coeff;
+
+   // 早朝ロールオーバー（06:00-06:59 JST）: DMMベーススプレッド3.5銭相当
+   if(hour == 6)
    {
-      target_spread = m_domestic_base_spread;
+      double rollover_base = m_domestic_base_spread * 17.5; // 例: USDJPY(0.002) → 0.035
+      base_spread = rollover_base;
+      threshold   = m_mt5_threshold * 5.5;                  // 例: USDJPY(0.010) → 0.055
+   }
+   // 早朝復帰帯（07:00-07:14 JST）: 3.5銭から0.2銭へ15分間で滑らかに減衰復帰
+   else if(hour == 7 && min < 15)
+   {
+      double rollover_base = m_domestic_base_spread * 17.5;
+      base_spread = rollover_base - (rollover_base - m_domestic_base_spread) * (min / 15.0);
+      threshold   = m_mt5_threshold * 3.0;                  // 例: USDJPY → 0.030
+   }
+
+   // 目標スプレッドの計算（しきい値超過分に感度係数を適用）
+   double target_spread = 0.0;
+   if(mt5_spread <= threshold)
+   {
+      target_spread = base_spread;
    }
    else
    {
-      target_spread = m_domestic_base_spread + m_sensitivity_coeff * (mt5_spread - m_mt5_threshold);
+      target_spread = base_spread + sensitivity * (mt5_spread - threshold);
    }
+
+   // 最大スプレッドの上限ガード（異常値防止: ベーススプレッドの80倍）
+   double max_spread_limit = m_domestic_base_spread * 80.0;
+   if(target_spread > max_spread_limit) target_spread = max_spread_limit;
 
    double half_spread = target_spread / 2.0;
    double bid_raw = mid - half_spread;

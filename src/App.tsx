@@ -242,8 +242,8 @@ function App() {
 
   const [enablePseudoRate, setEnablePseudoRate] = useState(true);
   const [pseudoBaseSpread, setPseudoBaseSpread] = useState(0.2); // 0.2 pips
-  const [pseudoThreshold, setPseudoThreshold] = useState(1.5); // 1.5 pips
-  const [pseudoSensitivity, setPseudoSensitivity] = useState(1.025);
+  const [pseudoThreshold, setPseudoThreshold] = useState(1.0); // 1.0 pips
+  const [pseudoSensitivity, setPseudoSensitivity] = useState(0.35);
   const isInitialLoadRef = useRef(true);
   const [isInitialized, setIsInitialized] = useState(false);
 
@@ -466,30 +466,30 @@ function App() {
     const sym = sourceSymbol.toUpperCase();
     if (sym.includes("USDJPY")) {
       setPseudoBaseSpread(0.2);
-      setPseudoThreshold(1.5);
+      setPseudoThreshold(1.0);
     } else if (sym.includes("EURUSD")) {
       setPseudoBaseSpread(0.4);
-      setPseudoThreshold(1.5);
+      setPseudoThreshold(1.0);
     } else if (sym.includes("GBPJPY")) {
       setPseudoBaseSpread(0.9);
-      setPseudoThreshold(2.5);
+      setPseudoThreshold(2.0);
     } else if (sym.includes("EURJPY")) {
       setPseudoBaseSpread(0.4);
-      setPseudoThreshold(2.0);
+      setPseudoThreshold(1.5);
     } else if (sym.includes("GBPUSD")) {
       setPseudoBaseSpread(0.7);
-      setPseudoThreshold(2.0);
+      setPseudoThreshold(1.5);
     } else if (sym.includes("AUDJPY")) {
       setPseudoBaseSpread(0.6);
-      setPseudoThreshold(2.0);
+      setPseudoThreshold(1.5);
     } else if (sym.includes("XAU") || sym.includes("GOLD")) {
       setPseudoBaseSpread(1.5);
-      setPseudoThreshold(5.0);
+      setPseudoThreshold(4.0);
     } else {
       setPseudoBaseSpread(sym.includes("JPY") ? 0.3 : 0.5);
-      setPseudoThreshold(1.8);
+      setPseudoThreshold(1.2);
     }
-    setPseudoSensitivity(1.025);
+    setPseudoSensitivity(0.35);
   }, [sourceSymbol, isInitialized]);
 
   // --- UIオプション設定
@@ -1223,7 +1223,7 @@ function App() {
           }
           if (saved.pseudo_threshold !== undefined && saved.pseudo_threshold !== null) {
             // 設定ファイルはpips単位で保存されているため変換不要。0の場合はデフォルト値を使用。
-            setPseudoThreshold(saved.pseudo_threshold > 0 ? saved.pseudo_threshold : 1.5);
+            setPseudoThreshold(saved.pseudo_threshold > 0 ? saved.pseudo_threshold : 1.0);
           }
           if (saved.pseudo_sensitivity !== undefined && saved.pseudo_sensitivity !== null) {
             setPseudoSensitivity(saved.pseudo_sensitivity);
@@ -1821,7 +1821,7 @@ function App() {
     }
     if (session.settings.pseudo_threshold !== undefined) {
       // セッションはpips単位で保存されているため変換不要。0の場合はデフォルト値を使用。
-      setPseudoThreshold(session.settings.pseudo_threshold > 0 ? session.settings.pseudo_threshold : 1.5);
+      setPseudoThreshold(session.settings.pseudo_threshold > 0 ? session.settings.pseudo_threshold : 1.0);
     }
     if (session.settings.pseudo_sensitivity !== undefined) {
       setPseudoSensitivity(session.settings.pseudo_sensitivity);
@@ -1876,9 +1876,9 @@ function App() {
           sym,
           // セッションはpips単位で保存されているため、priceDiffToPipsは不要
           (session.settings.pseudo_threshold !== undefined && session.settings.pseudo_threshold > 0)
-            ? session.settings.pseudo_threshold : 1.5
+            ? session.settings.pseudo_threshold : 1.0
         ),
-        pseudo_sensitivity: session.settings.pseudo_sensitivity !== undefined ? session.settings.pseudo_sensitivity : 1.025,
+        pseudo_sensitivity: session.settings.pseudo_sensitivity !== undefined ? session.settings.pseudo_sensitivity : 0.35,
       };
 
       await sendCommand(initCmd);

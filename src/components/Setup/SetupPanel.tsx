@@ -951,25 +951,30 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                       content={
                         <div style={{ lineHeight: 1.7, fontSize: "12px" }}>
                           <p style={{ margin: "0 0 8px" }}>
-                            MT5のヒストリカルデータはスプレッドが0や非常に小さい値になっていることがあります。
-                            このオプションを有効にすると、国内ブローカーに近いリアルなスプレッドをシミュレートできます。
+                            MT5（OANDA等）の広めの変動スプレッドから、国内ブローカー（DMM等）の実態に合わせた「原則固定スプレッド」および「早朝・指標時の適応スプレッド」を高精度に再現します。
                           </p>
-                          <p style={{ margin: "0 0 6px", fontWeight: 600 }}>📐 計算式</p>
+                          <p style={{ margin: "0 0 6px", fontWeight: 600 }}>📐 計算仕様</p>
                           <p style={{ margin: "0 0 4px" }}>
-                            <strong>MT5スプレッド ≦ 拡大しきい値 の場合：</strong><br />
+                            <strong>平常時（08:00〜翌05:00 JST）：</strong><br />
                             <code style={{ background: "rgba(255,255,255,0.1)", padding: "1px 4px", borderRadius: 3 }}>
-                              適用スプレッド = 平常時スプレッド
+                              MT5 ≦ しきい値：平常時スプレッド（例: 0.2 pips）
+                            </code>
+                          </p>
+                          <p style={{ margin: "0 0 4px" }}>
+                            <strong>早朝ロールオーバー（06:00〜07:00 JST）：</strong><br />
+                            <code style={{ background: "rgba(255,255,255,0.1)", padding: "1px 4px", borderRadius: 3 }}>
+                              DMM基準値（約3.5 pips）＋ 連動拡大（07:00〜07:15に滑らかに復帰）
                             </code>
                           </p>
                           <p style={{ margin: "0" }}>
-                            <strong>MT5スプレッド ＞ 拡大しきい値 の場合：</strong><br />
+                            <strong>急変動・指標時（MT5 ＞ しきい値）：</strong><br />
                             <code style={{ background: "rgba(255,255,255,0.1)", padding: "1px 4px", borderRadius: 3 }}>
-                              適用スプレッド = 平常時スプレッド + 感度係数 × (MT5スプレッド − しきい値)
+                              適用スプレッド = 基準値 + 感度係数 × (MT5スプレッド − しきい値)
                             </code>
                           </p>
                         </div>
                       }
-                      tip="指標発表などでMT5のスプレッドが急拡大した場合も、感度係数で国内業者風に穏やかに反映できます。"
+                      tip="平常時は狭小固定スプレッドを維持し、早朝ロールオーバーや指標発表時はDMM実態に合わせたリアルな拡大カーブで再現します。"
                     />
                   </div>
                 </div>
@@ -1000,10 +1005,11 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                                 </p>
                                 <p style={{ margin: "0 0 4px", fontWeight: 600 }}>推奨値の目安：</p>
                                 <ul style={{ margin: "0", paddingLeft: 16 }}>
-                                  <li>USDJPY：0.2〜0.3 pips</li>
-                                  <li>EURUSD：0.3〜0.5 pips</li>
-                                  <li>GBPJPY：0.8〜1.0 pips</li>
-                                  <li>XAUUSD（Gold）：1.5〜2.0 pips</li>
+                                  <li>USDJPY：0.2 pips（DMM標準）</li>
+                                  <li>EURUSD：0.4 pips</li>
+                                  <li>GBPJPY：0.9 pips</li>
+                                  <li>EURJPY / AUDJPY：0.4〜0.6 pips</li>
+                                  <li>XAUUSD（Gold）：1.5 pips</li>
                                 </ul>
                               </div>
                             }
@@ -1028,15 +1034,15 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                             content={
                               <div style={{ lineHeight: 1.7, fontSize: "12px" }}>
                                 <p style={{ margin: "0 0 6px" }}>
-                                  MT5の生スプレッドがこの値を超えたとき、スプレッドの拡大計算が始まります。
-                                  通常時のMT5スプレッドがこの値以下であれば、常に「平常時スプレッド」が適用されます。
+                                  MT5の生スプレッドがこの値を超えたときにスプレッド拡大計算が始まります。
+                                  通常時のMT5スプレッドがこの値以下であれば、常に「平常時スプレッド」が維持されます。
                                 </p>
                                 <p style={{ margin: "0 0 4px", fontWeight: 600 }}>推奨値の目安：</p>
                                 <ul style={{ margin: "0", paddingLeft: 16 }}>
-                                  <li>USDJPY：1.5〜2.0 pips</li>
-                                  <li>EURUSD：1.0〜1.5 pips</li>
-                                  <li>GBPJPY：2.0〜3.0 pips</li>
-                                  <li>XAUUSD（Gold）：4.0〜6.0 pips</li>
+                                  <li>USDJPY：1.0 pips（実測最適値）</li>
+                                  <li>EURUSD：1.0 pips</li>
+                                  <li>GBPJPY：2.0 pips</li>
+                                  <li>XAUUSD（Gold）：4.0 pips</li>
                                 </ul>
                                 <p style={{ margin: "6px 0 0", color: "var(--status-warning)" }}>
                                   ⚠️ 0に設定するとすべてのティックで拡大計算が適用されるため、スプレッドが常に広くなります。
@@ -1067,16 +1073,15 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                                   MT5スプレッドが「拡大しきい値」を超えたとき、その超過分に掛ける倍率です。
                                 </p>
                                 <p style={{ margin: "0 0 4px" }}>
-                                  <strong>例（USDJPY、しきい値=1.5pips、感度=1.025、MT5スプレッド=3.0pips）：</strong><br />
+                                  <strong>例（USDJPY、しきい値=1.0pips、感度=0.35、MT5スプレッド=3.0pips）：</strong><br />
                                   <code style={{ background: "rgba(255,255,255,0.1)", padding: "1px 4px", borderRadius: 3 }}>
-                                    0.2 + 1.025 × (3.0 − 1.5) ≈ 1.74 pips
+                                    0.2 + 0.35 × (3.0 − 1.0) = 0.90 pips
                                   </code>
                                 </p>
                                 <ul style={{ margin: "6px 0 0", paddingLeft: 16 }}>
-                                  <li><strong>1.0</strong>：MT5スプレッド急拡大をそのまま反映</li>
-                                  <li><strong>1.025</strong>：推奨値。わずかに上乗せして穏やかに拡大</li>
-                                  <li><strong>0.5未満</strong>：急拡大の影響を大幅に抑制</li>
-                                  <li><strong>0.0</strong>：急拡大しても平常時スプレッドのまま</li>
+                                  <li><strong>0.35</strong>：実測最適推奨値。急拡大時も国内業者風に穏やかに反映</li>
+                                  <li><strong>1.0</strong>：MT5スプレッド急拡大超過分をそのまま反映</li>
+                                  <li><strong>0.0</strong>：急拡大時も平常時スプレッドのまま固定</li>
                                 </ul>
                               </div>
                             }
@@ -1084,7 +1089,7 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                         </label>
                         <input
                           type="number"
-                          step="0.01"
+                          step="0.05"
                           min="0"
                           max="2"
                           className="input-compact font-data"
