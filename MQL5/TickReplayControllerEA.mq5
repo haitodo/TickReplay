@@ -116,6 +116,27 @@ bool                    m_pseudo_rollover_enabled = true;      // 早朝ロー�
 double                  m_pseudo_rollover_spread = 0.035;       // 早朝ロールオーバー基準スプレッド
 int                     m_pseudo_rollover_recovery_min = 15;    // 早朝復帰時間（分）
 
+//--- 疑似DMMレート構造体
+struct PseudoRate
+{
+   double bid;
+   double ask;
+   double spread;
+};
+
+PseudoRate m_pseudo_rates[]; // 全ティック分の疑似DMMレートキャッシュ
+
+//--- 疑似DMM状態列挙型
+enum ENUM_PSEUDO_STATE
+{
+   PSEUDO_STATE_NORMAL,
+   PSEUDO_STATE_STRESS,
+   PSEUDO_STATE_ROLLOVER_EXTREME,
+   PSEUDO_STATE_ROLLOVER_MID,
+   PSEUDO_STATE_ROLLOVER_WIDE,
+   PSEUDO_STATE_RECOVERY
+};
+
 //--- チャートレイアウト情報構造体
 struct ChartLayoutInfo
 {
@@ -193,7 +214,7 @@ void ExportTradeTicksJson(int ticket);
 void VirtualOrderCloseBuy(string reason);
 void VirtualOrderCloseSell(string reason);
 void VirtualOrderModify(int ticket, double sl_price, double tp_price);
-void EvaluatePositionsByTick(MqlTick &tick);
+void EvaluatePositionsByTick(MqlTick &tick, int tick_idx = -1);
 double CalculateVirtualProfit(string symbol, ENUM_POSITION_TYPE type, double volume, double openPrice, double currentPrice);
 void SetHistoryVisibility(bool show);
 void RedrawHistoryObjects();
@@ -205,6 +226,10 @@ void SyncVirtualTradesOnSeek(long target_msc);
 
 //--- 前方宣言
 double RoundHalfUp(double value, int digits); // 厳密な四捨五入（ハーフアップ）
+int ToUnit(double price, double unit);
+double ToPrice(int units, double unit, int digits);
+void PrecalculatePseudoRates();
+bool GetPseudoRateAtIndex(int index, double &bid, double &ask, double &spread);
 void GetPseudoRates(MqlTick &src_tick, double &out_bid, double &out_ask, double &out_spread); // 疑似レート・スプレッド計算
 bool InitializeReplaySymbol(string replay_symbol, string source_symbol);
 bool LoadHistoricalTicks(string source_symbol, datetime start, datetime end);
@@ -467,7 +492,7 @@ void OnTimer()
                      int added = CustomTicksAdd(m_replay_symbol, send_array);
                      if(added > 0)
                      {
-                        for(int k = 0; k < added; k++) { EvaluatePositionsByTick(send_array[k]); }
+                        for(int k = 0; k < added; k++) { EvaluatePositionsByTick(send_array[k], start_idx + k); }
                         m_current_idx += added;
                         UpdateChartObjects();
                         ticks_delivered = true;
@@ -999,6 +1024,7 @@ void ProcessCommand(string line)
       {
          m_virtual_current_msc = m_all_ticks[0].time_msc;
          m_virtual_current_msc_acc = (double)m_virtual_current_msc;
+         PrecalculatePseudoRates();
       }
       
       // ティックデータのロード (Sub)
@@ -1376,6 +1402,8 @@ void ProcessCommand(string line)
             (m_pseudo_rate_enabled?"ON":"OFF"), m_domestic_base_spread, m_mt5_threshold, m_sensitivity_coeff,
             (m_pseudo_rollover_enabled?"ON":"OFF"), m_pseudo_rollover_spread, m_pseudo_rollover_recovery_min));
 
+         PrecalculatePseudoRates();
+
          if(m_total_ticks > 0 && m_current_idx > 0 && m_current_idx <= m_total_ticks)
          {
             EvaluatePositionsByTick(m_all_ticks[m_current_idx - 1]);
@@ -1730,9 +1758,34 @@ void WriteStatusFile()
    double bid = 0.0;
    double ask = 0.0;
    double spread = 0.0;
+   double dmm_bid = 0.0;
+   double dmm_ask = 0.0;
+   double dmm_spread = 0.0;
    if(m_total_ticks > 0 && m_current_idx > 0 && m_current_idx <= m_total_ticks)
    {
-      GetPseudoRates(m_all_ticks[m_current_idx - 1], bid, ask, spread);
+      int idx = m_current_idx - 1;
+      bid = m_all_ticks[idx].bid;
+      ask = m_all_ticks[idx].ask;
+      if(bid <= 0) bid = m_all_ticks[idx].last;
+      if(ask <= 0) ask = m_all_ticks[idx].last;
+      if(ask > bid)
+      {
+         double pt = SymbolInfoDouble(m_source_symbol, SYMBOL_POINT);
+         int dig = (int)SymbolInfoInteger(m_source_symbol, SYMBOL_DIGITS);
+         if(dig == 0) dig = (StringFind(m_source_symbol, "JPY") >= 0) ? 3 : 5;
+         double pip_unit = (dig == 3 || dig == 5) ? pt * 10.0 : pt;
+         if(pip_unit > 0) spread = (ask - bid) / pip_unit;
+      }
+      
+      GetPseudoRateAtIndex(idx, dmm_bid, dmm_ask, dmm_spread);
+      if(dmm_ask > dmm_bid)
+      {
+         double pt = SymbolInfoDouble(m_source_symbol, SYMBOL_POINT);
+         int dig = (int)SymbolInfoInteger(m_source_symbol, SYMBOL_DIGITS);
+         if(dig == 0) dig = (StringFind(m_source_symbol, "JPY") >= 0) ? 3 : 5;
+         double pip_unit = (dig == 3 || dig == 5) ? pt * 10.0 : pt;
+         if(pip_unit > 0) dmm_spread = (dmm_ask - dmm_bid) / pip_unit;
+      }
    }
    
    string sub_feed_json = "\"dual_feed\":false";
@@ -1762,11 +1815,11 @@ void WriteStatusFile()
    
    int max_bars = (int)TerminalInfoInteger(TERMINAL_MAXBARS);
    string msg = StringFormat(
-      "{\"status\":\"ACTIVE\",\"current_idx\":%d,\"total_ticks\":%d,\"virtual_time_msc\":%I64d,\"is_playing\":%s,\"speed_mode\":\"%s\",\"multiplier\":%s,\"tick_step\":%d,\"bid\":%.5f,\"ask\":%.5f,\"spread\":%.2f,\"max_bars\":%d,\"session_boundaries\":{\"TYO\":%s,\"LDN\":%s,\"NY\":%s},\"loop\":{\"active\":%s,\"a_msc\":%I64d,\"b_msc\":%I64d,\"a_idx\":%d,\"b_idx\":%d},%s,%s}",
+      "{\"status\":\"ACTIVE\",\"current_idx\":%d,\"total_ticks\":%d,\"virtual_time_msc\":%I64d,\"is_playing\":%s,\"speed_mode\":\"%s\",\"multiplier\":%s,\"tick_step\":%d,\"bid\":%.5f,\"ask\":%.5f,\"spread\":%.2f,\"dmm_bid\":%.5f,\"dmm_ask\":%.5f,\"dmm_spread\":%.2f,\"max_bars\":%d,\"session_boundaries\":{\"TYO\":%s,\"LDN\":%s,\"NY\":%s},\"loop\":{\"active\":%s,\"a_msc\":%I64d,\"b_msc\":%I64d,\"a_idx\":%d,\"b_idx\":%d},%s,%s}",
       m_current_idx, m_total_ticks, m_virtual_current_msc,
       (m_is_playing ? "true" : "false"),
       speed_mode_str, DoubleToString(m_time_multiplier, 1), m_tick_step_count,
-      bid, ask, spread, max_bars,
+      bid, ask, spread, dmm_bid, dmm_ask, dmm_spread, max_bars,
       g_tyo_json, g_ldn_json, g_ny_json,
       loop_active_str, m_loop_a_msc, m_loop_b_msc, loop_a_idx, loop_b_idx,
       sub_feed_json,
@@ -1788,9 +1841,34 @@ void WriteReadyStatus()
    double bid = 0.0;
    double ask = 0.0;
    double spread = 0.0;
+   double dmm_bid = 0.0;
+   double dmm_ask = 0.0;
+   double dmm_spread = 0.0;
    if(m_total_ticks > 0 && m_current_idx > 0 && m_current_idx <= m_total_ticks)
    {
-      GetPseudoRates(m_all_ticks[m_current_idx - 1], bid, ask, spread);
+      int idx = m_current_idx - 1;
+      bid = m_all_ticks[idx].bid;
+      ask = m_all_ticks[idx].ask;
+      if(bid <= 0) bid = m_all_ticks[idx].last;
+      if(ask <= 0) ask = m_all_ticks[idx].last;
+      if(ask > bid)
+      {
+         double pt = SymbolInfoDouble(m_source_symbol, SYMBOL_POINT);
+         int dig = (int)SymbolInfoInteger(m_source_symbol, SYMBOL_DIGITS);
+         if(dig == 0) dig = (StringFind(m_source_symbol, "JPY") >= 0) ? 3 : 5;
+         double pip_unit = (dig == 3 || dig == 5) ? pt * 10.0 : pt;
+         if(pip_unit > 0) spread = (ask - bid) / pip_unit;
+      }
+      
+      GetPseudoRateAtIndex(idx, dmm_bid, dmm_ask, dmm_spread);
+      if(dmm_ask > dmm_bid)
+      {
+         double pt = SymbolInfoDouble(m_source_symbol, SYMBOL_POINT);
+         int dig = (int)SymbolInfoInteger(m_source_symbol, SYMBOL_DIGITS);
+         if(dig == 0) dig = (StringFind(m_source_symbol, "JPY") >= 0) ? 3 : 5;
+         double pip_unit = (dig == 3 || dig == 5) ? pt * 10.0 : pt;
+         if(pip_unit > 0) dmm_spread = (dmm_ask - dmm_bid) / pip_unit;
+      }
    }
    
    string sub_feed_json = "\"dual_feed\":false";
@@ -1820,10 +1898,10 @@ void WriteReadyStatus()
    
    int max_bars = (int)TerminalInfoInteger(TERMINAL_MAXBARS);
    string msg = StringFormat(
-      "{\"status\":\"READY\",\"total_ticks\":%d,\"current_idx\":%d,\"virtual_time_msc\":%I64d,\"speed_mode\":\"%s\",\"multiplier\":%s,\"tick_step\":%d,\"bid\":%.5f,\"ask\":%.5f,\"spread\":%.2f,\"max_bars\":%d,\"session_boundaries\":{\"TYO\":%s,\"LDN\":%s,\"NY\":%s},%s,%s}",
+      "{\"status\":\"READY\",\"total_ticks\":%d,\"current_idx\":%d,\"virtual_time_msc\":%I64d,\"speed_mode\":\"%s\",\"multiplier\":%s,\"tick_step\":%d,\"bid\":%.5f,\"ask\":%.5f,\"spread\":%.2f,\"dmm_bid\":%.5f,\"dmm_ask\":%.5f,\"dmm_spread\":%.2f,\"max_bars\":%d,\"session_boundaries\":{\"TYO\":%s,\"LDN\":%s,\"NY\":%s},%s,%s}",
       m_total_ticks, m_current_idx, m_virtual_current_msc,
       speed_mode_str, DoubleToString(m_time_multiplier, 1), m_tick_step_count,
-      bid, ask, spread, max_bars,
+      bid, ask, spread, dmm_bid, dmm_ask, dmm_spread, max_bars,
       g_tyo_json, g_ldn_json, g_ny_json,
       sub_feed_json,
       trade_json
@@ -2177,6 +2255,7 @@ bool LoadHistoricalTicks(string source_symbol, datetime start, datetime end)
    {
       m_current_idx = 0;
       m_virtual_current_msc = m_all_ticks[0].time_msc;
+      PrecalculatePseudoRates();
    }
    return ok;
 }
@@ -3991,7 +4070,10 @@ void VirtualOrderOpen(string type_str, double volume, double sl_points, double t
    double bid = 0.0;
    double ask = 0.0;
    double spread = 0.0;
-   GetPseudoRates(m_all_ticks[m_current_idx - 1], bid, ask, spread);
+   if(!GetPseudoRateAtIndex(m_current_idx - 1, bid, ask, spread))
+   {
+      GetPseudoRates(m_all_ticks[m_current_idx - 1], bid, ask, spread);
+   }
    if(bid <= 0) bid = m_all_ticks[m_current_idx - 1].last;
    if(ask <= 0) ask = m_all_ticks[m_current_idx - 1].last;
    if(bid <= 0) bid = SymbolInfoDouble(m_replay_symbol, SYMBOL_BID);
@@ -4145,7 +4227,10 @@ void VirtualOrderClose(int ticket, double volume, string reason)
    double bid = 0.0;
    double ask = 0.0;
    double spread = 0.0;
-   GetPseudoRates(m_all_ticks[m_current_idx - 1], bid, ask, spread);
+   if(!GetPseudoRateAtIndex(m_current_idx - 1, bid, ask, spread))
+   {
+      GetPseudoRates(m_all_ticks[m_current_idx - 1], bid, ask, spread);
+   }
    if(bid <= 0) bid = m_all_ticks[m_current_idx - 1].last;
    if(ask <= 0) ask = m_all_ticks[m_current_idx - 1].last;
    if(bid <= 0) bid = SymbolInfoDouble(m_replay_symbol, SYMBOL_BID);
@@ -4355,12 +4440,21 @@ void VirtualOrderModify(int ticket, double sl_price, double tp_price)
 //+------------------------------------------------------------------+
 //| 1ティックずつの仮想口座・ポジション評価（SL/TP約定含む）           |
 //+------------------------------------------------------------------+
-void EvaluatePositionsByTick(MqlTick &tick)
+void EvaluatePositionsByTick(MqlTick &tick, int tick_idx = -1)
 {
    double bid = 0.0;
    double ask = 0.0;
    double spread = 0.0;
-   GetPseudoRates(tick, bid, ask, spread);
+   if(tick_idx >= 0 && tick_idx < ArraySize(m_pseudo_rates))
+   {
+      bid = m_pseudo_rates[tick_idx].bid;
+      ask = m_pseudo_rates[tick_idx].ask;
+      spread = m_pseudo_rates[tick_idx].spread;
+   }
+   else
+   {
+      GetPseudoRates(tick, bid, ask, spread);
+   }
 
    int pos_size = ArraySize(m_virtual_positions);
    
@@ -5025,11 +5119,212 @@ double RoundHalfUp(double value, int digits)
 }
 
 //+------------------------------------------------------------------+
-//| 疑似レートとスプレッドを取得するヘルパー関数                          |
+//| 価格を整数Unit（0.001単位等）に変換するヘルパー関数               |
+//+------------------------------------------------------------------+
+int ToUnit(double price, double unit)
+{
+   if(unit <= 0.0) return 0;
+   return (int)MathRound(price / unit);
+}
+
+//+------------------------------------------------------------------+
+//| 整数Unitから実価格（正規化済み）に変換するヘルパー関数            |
+//+------------------------------------------------------------------+
+double ToPrice(int units, double unit, int digits)
+{
+   return NormalizeDouble((double)units * unit, digits);
+}
+
+//+------------------------------------------------------------------+
+//| インデックス指定で事前計算済み疑似DMMレートを取得                 |
+//+------------------------------------------------------------------+
+bool GetPseudoRateAtIndex(int index, double &bid, double &ask, double &spread)
+{
+   if(index < 0 || index >= ArraySize(m_pseudo_rates))
+   {
+      if(index >= 0 && index < m_total_ticks)
+      {
+         GetPseudoRates(m_all_ticks[index], bid, ask, spread);
+         return true;
+      }
+      return false;
+   }
+   bid = m_pseudo_rates[index].bid;
+   ask = m_pseudo_rates[index].ask;
+   spread = m_pseudo_rates[index].spread;
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| ロード時に全ティックの疑似DMMレートを一括事前計算する             |
+//+------------------------------------------------------------------+
+void PrecalculatePseudoRates()
+{
+   if(m_total_ticks <= 0)
+   {
+      ArrayFree(m_pseudo_rates);
+      return;
+   }
+   
+   ArrayResize(m_pseudo_rates, m_total_ticks);
+   
+   string sym = (m_source_symbol != "") ? m_source_symbol : _Symbol;
+   int digits = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
+   if(digits <= 0) digits = (StringFind(sym, "JPY") >= 0) ? 3 : 5;
+   double price_unit = MathPow(10.0, -digits);
+   
+   int base_spread_unit = MathMax(1, ToUnit(m_domestic_base_spread, price_unit));
+   int threshold_unit = MathMax(1, ToUnit(m_mt5_threshold, price_unit));
+   int rollover_base_unit = (m_pseudo_rollover_spread > 0) ? ToUnit(m_pseudo_rollover_spread, price_unit) : (int)MathRound(base_spread_unit * 17.5);
+   
+   int prev_bid_unit = 0;
+   int prev_ask_unit = 0;
+   int prev_spread_unit = 0;
+   ENUM_PSEUDO_STATE prev_state = PSEUDO_STATE_NORMAL;
+   
+   for(int i = 0; i < m_total_ticks; i++)
+   {
+      if(!m_pseudo_rate_enabled)
+      {
+         m_pseudo_rates[i].bid = m_all_ticks[i].bid;
+         m_pseudo_rates[i].ask = m_all_ticks[i].ask;
+         m_pseudo_rates[i].spread = m_pseudo_rates[i].ask - m_pseudo_rates[i].bid;
+         continue;
+      }
+      
+      double orig_bid = m_all_ticks[i].bid;
+      double orig_ask = m_all_ticks[i].ask;
+      if(orig_bid <= 0) orig_bid = m_all_ticks[i].last;
+      if(orig_ask <= 0) orig_ask = m_all_ticks[i].last;
+      
+      if(orig_bid <= 0 || orig_ask <= 0 || orig_bid == orig_ask)
+      {
+         m_pseudo_rates[i].bid = orig_bid;
+         m_pseudo_rates[i].ask = orig_ask;
+         m_pseudo_rates[i].spread = orig_ask - orig_bid;
+         continue;
+      }
+      
+      int oanda_bid_unit = ToUnit(orig_bid, price_unit);
+      int oanda_ask_unit = ToUnit(orig_ask, price_unit);
+      int oanda_spread_unit = oanda_ask_unit - oanda_bid_unit;
+      if(oanda_spread_unit <= 0) oanda_spread_unit = 1;
+      
+      int oanda_mid_unit = (int)MathRound((oanda_bid_unit + oanda_ask_unit) / 2.0);
+      
+      // ティック時刻（JST）から時・分を取得
+      MqlDateTime dt;
+      TimeToStruct(m_all_ticks[i].time, dt);
+      int hour = dt.hour;
+      int min  = dt.min;
+      
+      ENUM_PSEUDO_STATE current_state = PSEUDO_STATE_NORMAL;
+      int spread_unit = base_spread_unit;
+      
+      // ロールオーバー時間帯判定（実測分布モデル）
+      if(m_pseudo_rollover_enabled)
+      {
+         if(hour == 6)
+         {
+            if(min <= 3)
+            {
+               current_state = PSEUDO_STATE_ROLLOVER_EXTREME;
+               spread_unit = (int)MathRound(rollover_base_unit * 4.54); // 例: 35 * 4.54 ≈ 159 (0.159)
+            }
+            else if(min <= 9)
+            {
+               current_state = PSEUDO_STATE_ROLLOVER_MID;
+               spread_unit = (int)MathRound(rollover_base_unit * 1.46); // 例: 35 * 1.46 ≈ 51 (0.051)
+            }
+            else
+            {
+               current_state = PSEUDO_STATE_ROLLOVER_WIDE;
+               spread_unit = rollover_base_unit; // 35 (0.035)
+            }
+         }
+         else if(hour == 7 && min < 10)
+         {
+            current_state = PSEUDO_STATE_ROLLOVER_WIDE;
+            spread_unit = rollover_base_unit; // 07:00〜07:09 は 35 (0.035) を維持
+         }
+         else if(hour == 7 && min < m_pseudo_rollover_recovery_min && m_pseudo_rollover_recovery_min > 10)
+         {
+            current_state = PSEUDO_STATE_RECOVERY;
+            spread_unit = base_spread_unit;
+         }
+         else
+         {
+            current_state = PSEUDO_STATE_NORMAL;
+         }
+      }
+      
+      // 通常時間帯 または ロールオーバー時のOANDAスプレッド急拡大（STRESS）判定
+      if(current_state == PSEUDO_STATE_NORMAL)
+      {
+         if(oanda_spread_unit > threshold_unit)
+         {
+            current_state = PSEUDO_STATE_STRESS;
+            spread_unit = base_spread_unit + (int)MathRound(m_sensitivity_coeff * (double)(oanda_spread_unit - threshold_unit));
+         }
+         else
+         {
+            spread_unit = base_spread_unit;
+         }
+      }
+      else if(current_state == PSEUDO_STATE_ROLLOVER_WIDE)
+      {
+         int roll_thresh_unit = (int)MathRound(threshold_unit * 3.0);
+         if(oanda_spread_unit > roll_thresh_unit)
+         {
+            spread_unit = rollover_base_unit + (int)MathRound(m_sensitivity_coeff * (double)(oanda_spread_unit - roll_thresh_unit));
+         }
+      }
+      
+      // 上限・下限ガード
+      int max_limit_unit = base_spread_unit * 80;
+      if(spread_unit > max_limit_unit) spread_unit = max_limit_unit;
+      if(spread_unit < base_spread_unit) spread_unit = base_spread_unit;
+      
+      int target_mid_unit = oanda_mid_unit;
+      int candidate_bid_unit = (int)MathRound((double)target_mid_unit - (double)spread_unit / 2.0);
+      int candidate_ask_unit = candidate_bid_unit + spread_unit;
+      
+      // クォート保持判定 (Quote Stickiness)
+      bool update_quote = true;
+      if(i > 0 && prev_state == current_state && prev_spread_unit == spread_unit)
+      {
+         if(candidate_bid_unit == prev_bid_unit && candidate_ask_unit == prev_ask_unit)
+         {
+            update_quote = false;
+         }
+      }
+      
+      if(update_quote || i == 0)
+      {
+         prev_bid_unit = candidate_bid_unit;
+         prev_ask_unit = candidate_ask_unit;
+         prev_spread_unit = spread_unit;
+         prev_state = current_state;
+         
+         m_pseudo_rates[i].bid = ToPrice(candidate_bid_unit, price_unit, digits);
+         m_pseudo_rates[i].ask = ToPrice(candidate_ask_unit, price_unit, digits);
+         m_pseudo_rates[i].spread = ToPrice(spread_unit, price_unit, digits);
+      }
+      else
+      {
+         m_pseudo_rates[i] = m_pseudo_rates[i - 1];
+      }
+   }
+   
+   Print(StringFormat("[Info] Precalculated pseudo rates for %d ticks. Unit=%.5f, BaseUnit=%d, Digits=%d", 
+      m_total_ticks, price_unit, base_spread_unit, digits));
+}
+
+//+------------------------------------------------------------------+
+//| 単一ティック用疑似レート取得関数（後方互換フォールバック）        |
 //+------------------------------------------------------------------+
 void GetPseudoRates(MqlTick &src_tick, double &out_bid, double &out_ask, double &out_spread)
 {
-   // 疑似レート生成が無効な場合は元のレートをそのまま返す
    if(!m_pseudo_rate_enabled)
    {
       out_bid = src_tick.bid;
@@ -5043,7 +5338,6 @@ void GetPseudoRates(MqlTick &src_tick, double &out_bid, double &out_ask, double 
    if(bid <= 0) bid = src_tick.last;
    if(ask <= 0) ask = src_tick.last;
 
-   // レートが取得できない、またはダミータックの場合は処理をバイパスする
    if(bid <= 0 || ask <= 0 || bid == ask)
    {
       out_bid = bid;
@@ -5054,62 +5348,85 @@ void GetPseudoRates(MqlTick &src_tick, double &out_bid, double &out_ask, double 
 
    string sym = (m_source_symbol != "") ? m_source_symbol : _Symbol;
    int digits = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
-   if(digits <= 0) digits = _Digits;
+   if(digits <= 0) digits = (StringFind(sym, "JPY") >= 0) ? 3 : 5;
+   double price_unit = MathPow(10.0, -digits);
 
-   double mt5_spread = ask - bid;
-   double mid = (bid + ask) / 2.0;
+   int base_spread_unit = MathMax(1, ToUnit(m_domestic_base_spread, price_unit));
+   int threshold_unit = MathMax(1, ToUnit(m_mt5_threshold, price_unit));
+   int rollover_base_unit = (m_pseudo_rollover_spread > 0) ? ToUnit(m_pseudo_rollover_spread, price_unit) : (int)MathRound(base_spread_unit * 17.5);
 
-   // ティック時刻（JST）から時・分を取得してセッション適応判定
+   int oanda_bid_unit = ToUnit(bid, price_unit);
+   int oanda_ask_unit = ToUnit(ask, price_unit);
+   int oanda_spread_unit = oanda_ask_unit - oanda_bid_unit;
+   if(oanda_spread_unit <= 0) oanda_spread_unit = 1;
+   int oanda_mid_unit = (int)MathRound((oanda_bid_unit + oanda_ask_unit) / 2.0);
+
    MqlDateTime dt;
    TimeToStruct(src_tick.time, dt);
    int hour = dt.hour;
    int min  = dt.min;
 
-   double base_spread = m_domestic_base_spread;
-   double threshold   = m_mt5_threshold;
-   double sensitivity = m_sensitivity_coeff;
+   ENUM_PSEUDO_STATE current_state = PSEUDO_STATE_NORMAL;
+   int spread_unit = base_spread_unit;
 
-   // 早朝ロールオーバー（06:00-06:59 JST）
-   if(m_pseudo_rollover_enabled && hour == 6)
+   if(m_pseudo_rollover_enabled)
    {
-      double rollover_base = (m_pseudo_rollover_spread > 0) ? m_pseudo_rollover_spread : (m_domestic_base_spread * 17.5);
-      base_spread = rollover_base;
-      threshold   = m_mt5_threshold * 5.5;                  // 例: USDJPY(0.010) → 0.055
+      if(hour == 6)
+      {
+         if(min <= 3)
+         {
+            current_state = PSEUDO_STATE_ROLLOVER_EXTREME;
+            spread_unit = (int)MathRound(rollover_base_unit * 4.54);
+         }
+         else if(min <= 9)
+         {
+            current_state = PSEUDO_STATE_ROLLOVER_MID;
+            spread_unit = (int)MathRound(rollover_base_unit * 1.46);
+         }
+         else
+         {
+            current_state = PSEUDO_STATE_ROLLOVER_WIDE;
+            spread_unit = rollover_base_unit;
+         }
+      }
+      else if(hour == 7 && min < 10)
+      {
+         current_state = PSEUDO_STATE_ROLLOVER_WIDE;
+         spread_unit = rollover_base_unit;
+      }
+      else if(hour == 7 && min < m_pseudo_rollover_recovery_min && m_pseudo_rollover_recovery_min > 10)
+      {
+         current_state = PSEUDO_STATE_RECOVERY;
+         spread_unit = base_spread_unit;
+      }
    }
-   // 早朝復帰帯（07:00〜復帰時間 JST）: 滑らかに減衰復帰
-   else if(m_pseudo_rollover_enabled && hour == 7 && min < m_pseudo_rollover_recovery_min && m_pseudo_rollover_recovery_min > 0)
+
+   if(current_state == PSEUDO_STATE_NORMAL)
    {
-      double rollover_base = (m_pseudo_rollover_spread > 0) ? m_pseudo_rollover_spread : (m_domestic_base_spread * 17.5);
-      base_spread = rollover_base - (rollover_base - m_domestic_base_spread) * ((double)min / (double)m_pseudo_rollover_recovery_min);
-      threshold   = m_mt5_threshold * 3.0;                  // 例: USDJPY → 0.030
+      if(oanda_spread_unit > threshold_unit)
+      {
+         spread_unit = base_spread_unit + (int)MathRound(m_sensitivity_coeff * (double)(oanda_spread_unit - threshold_unit));
+      }
    }
-
-   // 目標スプレッドの計算（しきい値超過分に感度係数を適用）
-   double target_spread = 0.0;
-   if(mt5_spread <= threshold)
+   else if(current_state == PSEUDO_STATE_ROLLOVER_WIDE)
    {
-      target_spread = base_spread;
+      int roll_thresh_unit = (int)MathRound(threshold_unit * 3.0);
+      if(oanda_spread_unit > roll_thresh_unit)
+      {
+         spread_unit = rollover_base_unit + (int)MathRound(m_sensitivity_coeff * (double)(oanda_spread_unit - roll_thresh_unit));
+      }
    }
-   else
-   {
-      target_spread = base_spread + sensitivity * (mt5_spread - threshold);
-   }
 
-   // 最大スプレッドの上限ガード（異常値防止: ベーススプレッドの80倍）
-   double max_spread_limit = m_domestic_base_spread * 80.0;
-   if(target_spread > max_spread_limit) target_spread = max_spread_limit;
+   int max_limit_unit = base_spread_unit * 80;
+   if(spread_unit > max_limit_unit) spread_unit = max_limit_unit;
+   if(spread_unit < base_spread_unit) spread_unit = base_spread_unit;
 
-   // ① target_spread を先に3桁精度で丸める（0.001単位にスナップ）
-   //    → bid/askを独立に丸めると端数の向きが逆転して0.3銭に化ける問題を根絶
-   double target_rounded = MathFloor(target_spread * 1000.0 + 0.5 + 1e-9) / 1000.0;
-   // ② 丸めで base_spread を下回った場合はベース値に切り上げ（e.g. 0.002 割れ防止）
-   if(target_rounded < m_domestic_base_spread)
-      target_rounded = m_domestic_base_spread;
+   int candidate_bid_unit = (int)MathRound((double)oanda_mid_unit - (double)spread_unit / 2.0);
+   int candidate_ask_unit = candidate_bid_unit + spread_unit;
 
-   // ③ bidを丸めてから ask = bid + target_rounded で固定（独立丸め禁止）
-   out_bid = RoundHalfUp(mid - target_rounded / 2.0, digits);
-   out_ask = NormalizeDouble(out_bid + target_rounded, digits);
-   out_spread = out_ask - out_bid;
+   out_bid = ToPrice(candidate_bid_unit, price_unit, digits);
+   out_ask = ToPrice(candidate_ask_unit, price_unit, digits);
+   out_spread = ToPrice(spread_unit, price_unit, digits);
 }
 
 //+------------------------------------------------------------------+
@@ -5211,7 +5528,8 @@ void ExportTradeTicksJson(int ticket)
       double bid = 0.0;
       double ask = 0.0;
       double spread = 0.0;
-      GetPseudoRates(m_all_ticks[i], bid, ask, spread);
+      if(!GetPseudoRateAtIndex(i, bid, ask, spread))
+         GetPseudoRates(m_all_ticks[i], bid, ask, spread);
       if(bid <= 0) bid = m_all_ticks[i].last;
       if(ask <= 0) ask = m_all_ticks[i].last;
       
@@ -5226,7 +5544,8 @@ void ExportTradeTicksJson(int ticket)
       double bid = 0.0;
       double ask = 0.0;
       double spread = 0.0;
-      GetPseudoRates(m_all_ticks[end_idx], bid, ask, spread);
+      if(!GetPseudoRateAtIndex(end_idx, bid, ask, spread))
+         GetPseudoRates(m_all_ticks[end_idx], bid, ask, spread);
       if(bid <= 0) bid = m_all_ticks[end_idx].last;
       if(ask <= 0) ask = m_all_ticks[end_idx].last;
       string tick_json = StringFormat("  {\"time\":%I64d,\"bid\":%.5f,\"ask\":%.5f}", m_all_ticks[end_idx].time_msc, bid, ask);

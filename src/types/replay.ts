@@ -72,6 +72,9 @@ export interface ReplayProgressPayload {
   bid?: number;
   ask?: number;
   spread?: number;
+  dmm_bid?: number;
+  dmm_ask?: number;
+  dmm_spread?: number;
   dual_feed?: boolean;
   sub_symbol?: string;
   sub_bid?: number;

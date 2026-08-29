@@ -267,8 +267,10 @@ export const SpeedOrderWindowContent: React.FC = () => {
           invoke("send_command", { commandJson: JSON.stringify({ command: "SET_HISTORY_VISIBILITY", show: currentShow }) }).catch(console.error);
           invoke("send_command", { commandJson: JSON.stringify({ command: "SET_CONTRACT_SIZE", size: currentContractSize }) }).catch(console.error);
           invoke("send_command", { commandJson: JSON.stringify({ command: "SET_HEDGING", allowed: currentHedging }) }).catch(console.error);
-          if (data.bid) setBid(data.bid);
-          if (data.ask) setAsk(data.ask);
+          const initBid = data.dmm_bid !== undefined ? data.dmm_bid : data.bid;
+          const initAsk = data.dmm_ask !== undefined ? data.dmm_ask : data.ask;
+          if (initBid) setBid(initBid);
+          if (initAsk) setAsk(initAsk);
           if (data.account) setAccount(data.account);
           if (data.positions) setPositions(data.positions);
           if (data.is_playing !== undefined) setIsPlaying(data.is_playing);
@@ -293,32 +295,34 @@ export const SpeedOrderWindowContent: React.FC = () => {
           }
           prevStatusRef.current = data.status;
           setStatus(data.status);
-          if (data.bid !== undefined) {
+          const nextBid = data.dmm_bid !== undefined ? data.dmm_bid : data.bid;
+          if (nextBid !== undefined) {
             setBid((prev) => {
               if (prev > 0) {
-                if (data.bid > prev) {
+                if (nextBid > prev) {
                   setBidFlash("up");
                   setTimeout(() => setBidFlash(null), 300);
-                } else if (data.bid < prev) {
+                } else if (nextBid < prev) {
                   setBidFlash("down");
                   setTimeout(() => setBidFlash(null), 300);
                 }
               }
-              return data.bid;
+              return nextBid;
             });
           }
-          if (data.ask !== undefined) {
+          const nextAsk = data.dmm_ask !== undefined ? data.dmm_ask : data.ask;
+          if (nextAsk !== undefined) {
             setAsk((prev) => {
               if (prev > 0) {
-                if (data.ask > prev) {
+                if (nextAsk > prev) {
                   setAskFlash("up");
                   setTimeout(() => setAskFlash(null), 300);
-                } else if (data.ask < prev) {
+                } else if (nextAsk < prev) {
                   setAskFlash("down");
                   setTimeout(() => setAskFlash(null), 300);
                 }
               }
-              return data.ask;
+              return nextAsk;
             });
           }
           if (data.account) {
