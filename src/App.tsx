@@ -42,16 +42,19 @@ import {
   MaxBarsInfo
 } from "./utils/hotkeyUtils";
 import { TerminalInfo } from "./types/terminal";
+import {
+  ReplayProgressPayload,
+  SessionBoundariesData,
+  TimeStepItem,
+} from "./types";
+import { SavedSession } from "./types/session";
+import { PersistedSettings } from "./types/settings";
+import { TradeHistoryItem, VirtualAccount, VirtualPosition } from "./types/trading";
 import { translateErrorMessage } from "./utils/i18nUtils";
 import { organizeSessions, getCurrentSession } from "./domain/sessionBoundaries";
+import { ReplayCommand, sendReplayCommand } from "./utils/command";
 
 
-
-export interface TimeStepItem {
-  id: string;
-  seconds: number;
-  label: string;
-}
 
 export const DEFAULT_TIME_STEPS: TimeStepItem[] = [
   { id: "ts-1", seconds: 10, label: "10S" },
@@ -59,6 +62,36 @@ export const DEFAULT_TIME_STEPS: TimeStepItem[] = [
   { id: "ts-3", seconds: 600, label: "10M" },
   { id: "ts-4", seconds: 3600, label: "1H" },
 ];
+
+export type { TimeStepItem } from "./types/replay";
+
+interface SymbolSelectionPayload {
+  sourceSymbol?: string;
+  subSourceSymbol?: string;
+  enableDualFeed?: boolean;
+  syncSymbols?: string[] | string;
+  dateRange?: { start?: string; end?: string };
+}
+
+interface AppHandlers {
+  handlePlayPause: () => void;
+  handleStep: (delta: number) => void;
+  handleSessionJump: (session: string, direction: "PREV" | "NEXT") => void;
+  handleTimeJump: (seconds: number) => void;
+  handleCoarseSpeed: (increment: boolean) => void;
+  handleMediumSpeed: (increment: boolean) => void;
+  handleFineSpeed: (increment: boolean) => void;
+  updateSpeed: (mode: "TEMPORAL" | "COUNT", multiplier: number, tickStep: number) => void;
+  speedMode: "TEMPORAL" | "COUNT";
+  multiplier: number;
+  tickStep: number;
+  handleSetLoopA: () => void;
+  handleSetLoopB: () => void;
+  handleClearLoop: () => void;
+  handleReset: () => void;
+  hotkeys: Record<string, string>;
+  recordingAction: string | null;
+}
 
 const PRESET_TIME_OPTIONS: { seconds: number; label: string }[] = [
   { seconds: 5, label: "5S" },
@@ -144,12 +177,12 @@ function App() {
   const [_loopB, setLoopB] = useState(-1);
   const [_loopAIdx, setLoopAIdx] = useState(-1);
   const [_loopBIdx, setLoopBIdx] = useState(-1);
-  const [sessionBoundaries, setSessionBoundaries] = useState<any>({ TYO: [], LDN: [], NY: [] });
+  const [sessionBoundaries, setSessionBoundaries] = useState<SessionBoundariesData>({ TYO: [], LDN: [], NY: [] });
 
   // --- ローディング状態 (リプレイ初期化中)
   const [isReplayInitializing, setIsReplayInitializingState] = useState(false);
   const isReplayInitializingRef = useRef(false);
-  const initTimeoutRef = useRef<any>(null);
+  const initTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const setIsReplayInitializing = (val: boolean) => {
     isReplayInitializingRef.current = val;
     setIsReplayInitializingState(val);
@@ -169,14 +202,14 @@ function App() {
   };
 
   const [setupTab, setSetupTab] = useState<"replay" | "trading" | "resume">("replay");
-  const [restoringSession, setRestoringSession] = useState<any>(null);
-  const restoringSessionRef = useRef<any>(null);
+  const [restoringSession, setRestoringSession] = useState<SavedSession | null>(null);
+  const restoringSessionRef = useRef<SavedSession | null>(null);
   const isRestoringRef = useRef(false);
-  const updateRestoringSession = (session: any) => {
+  const updateRestoringSession = (session: SavedSession | null) => {
     restoringSessionRef.current = session;
     setRestoringSession(session);
   };
-  const [savedSessions, setSavedSessions] = useState<any[]>([]);
+  const [savedSessions, setSavedSessions] = useState<SavedSession[]>([]);
   const [isSaveSessionOpen, setIsSaveSessionOpen] = useState(false);
   const [isDeleteSessionConfirmOpen, setIsDeleteSessionConfirmOpen] = useState(false);
   const [sessionsToDelete, setSessionsToDelete] = useState<string[]>([]);
@@ -252,9 +285,9 @@ function App() {
   const [isInitialized, setIsInitialized] = useState(false);
 
   // --- 仮想取引関連のステータス
-  const [account, setAccount] = useState<any>(null);
-  const [positions, setPositions] = useState<any[]>([]);
-  const [history, setHistory] = useState<any[]>([]);
+  const [account, setAccount] = useState<VirtualAccount | null>(null);
+  const [positions, setPositions] = useState<VirtualPosition[]>([]);
+  const [history, setHistory] = useState<TradeHistoryItem[]>([]);
 
   // --- 自動スキャン・設定用状態
   const [terminals, setTerminals] = useState<TerminalInfo[]>([]);
@@ -418,7 +451,7 @@ function App() {
 
   // セレクターウィンドウからの選択結果適用イベントを受信
   useEffect(() => {
-    const unlisten = listen<any>("apply-symbol-selection", (event) => {
+    const unlisten = listen<SymbolSelectionPayload>("apply-symbol-selection", (event) => {
       const data = event.payload;
       if (data.sourceSymbol) setSourceSymbol(data.sourceSymbol);
       if (data.subSourceSymbol !== undefined) setSubSourceSymbol(data.subSourceSymbol);
@@ -674,23 +707,23 @@ function App() {
     () => (localStorage.getItem("speed-order-holding-time-mode") as "pc" | "server") || "pc"
   );
   const isDraggingRef = useRef(false);
-  const savedConfig = useRef<any>(null); // 保存された設定キャッシュ用のRef
+  const savedConfig = useRef<PersistedSettings | null>(null); // 保存された設定キャッシュ用のRef
 
-  const handlersRef = useRef<any>(null);
+  const handlersRef = useRef<AppHandlers | null>(null);
 
   const handleStatusString = (payload: string) => {
     try {
-      const data = JSON.parse(payload);
+      const data = JSON.parse(payload) as ReplayProgressPayload;
       if (data.status === "READY") {
         const isReconnecting = status === "DISCONNECTED" || status === "CONNECTED";
         setStatus((prev) => prev !== "READY" ? "READY" : prev);
-        setTotalTicks((prev) => prev !== data.total_ticks ? data.total_ticks : prev);
-        setCurrentIdx((prev) => prev !== data.current_idx ? data.current_idx : prev);
-        setVirtualTimeMsc((prev) => prev !== data.virtual_time_msc ? data.virtual_time_msc : prev);
+        if (data.total_ticks !== undefined) setTotalTicks((prev) => prev !== (data.total_ticks ?? prev) ? (data.total_ticks ?? prev) : prev);
+        if (data.current_idx !== undefined) setCurrentIdx((prev) => prev !== (data.current_idx ?? prev) ? (data.current_idx ?? prev) : prev);
+        if (data.virtual_time_msc !== undefined) setVirtualTimeMsc((prev) => prev !== (data.virtual_time_msc ?? prev) ? (data.virtual_time_msc ?? prev) : prev);
         if (data.session_boundaries) {
-          setSessionBoundaries((prev: any) => {
+          setSessionBoundaries((prev) => {
             if (JSON.stringify(prev) === JSON.stringify(data.session_boundaries)) return prev;
-            return data.session_boundaries;
+            return data.session_boundaries ?? prev;
           });
         }
         if (isReconnecting) {
@@ -699,13 +732,13 @@ function App() {
             const m = typeof data.multiplier === "number" ? data.multiplier : parseFloat(data.multiplier) || 1.0;
             setMultiplier((prev) => prev !== m ? m : prev);
           }
-          if (data.tick_step !== undefined) setTickStep((prev) => prev !== data.tick_step ? data.tick_step : prev);
+          if (data.tick_step !== undefined) setTickStep((prev) => prev !== (data.tick_step ?? prev) ? (data.tick_step ?? prev) : prev);
         }
         setErrorMessage((prev) => prev !== "" ? "" : prev);
         if (data.account) {
-          setAccount((prev: any) => {
+          setAccount((prev) => {
             if (JSON.stringify(prev) === JSON.stringify(data.account)) return prev;
-            return data.account;
+            return data.account ?? prev;
           });
         }
         if (data.bid !== undefined && data.ask !== undefined) {
@@ -727,15 +760,15 @@ function App() {
           setSubFeedRate(null);
         }
         if (data.positions) {
-          setPositions((prev: any[]) => {
+          setPositions((prev) => {
             if (JSON.stringify(prev) === JSON.stringify(data.positions)) return prev;
-            return data.positions;
+            return data.positions ?? prev;
           });
         }
         if (data.history) {
-          setHistory((prev: any[]) => {
+          setHistory((prev) => {
             if (JSON.stringify(prev) === JSON.stringify(data.history)) return prev;
-            return data.history;
+            return data.history ?? prev;
           });
         }
         if (restoringSessionRef.current) {
@@ -749,14 +782,14 @@ function App() {
             if (session.virtual_trade) {
               const vt = session.virtual_trade;
               if (vt.positions) {
-                vt.positions.forEach((p: any) => {
+                vt.positions.forEach((p) => {
                   if (p.accumulated_real_time !== undefined) {
                     restoredTimes[p.ticket] = p.accumulated_real_time;
                   }
                 });
               }
               if (vt.history) {
-                vt.history.forEach((h: any) => {
+                vt.history.forEach((h) => {
                   if (h.accumulated_real_time !== undefined) {
                     restoredTimes[h.ticket] = h.accumulated_real_time;
                   }
@@ -874,9 +907,9 @@ function App() {
       } else if (data.status === "CONNECTED") {
         setStatus((prev) => prev !== "CONNECTED" ? "CONNECTED" : prev);
         if (data.symbol) {
-          setChartSymbol((prev) => prev !== data.symbol ? data.symbol : prev);
+          setChartSymbol((prev) => prev !== (data.symbol ?? prev) ? (data.symbol ?? prev) : prev);
           if (!hasSavedSymbolRef.current) {
-            setSourceSymbol((prev) => prev !== data.symbol ? data.symbol : prev);
+            setSourceSymbol((prev) => prev !== (data.symbol ?? prev) ? (data.symbol ?? prev) : prev);
           }
         }
       } else if (data.status === "ACTIVE") {
@@ -884,15 +917,15 @@ function App() {
         setStatus((prev) => prev !== "ACTIVE" ? "ACTIVE" : prev);
         // ドラッグ中でなければ現在インデックスを更新する
         if (!isDraggingRef.current) {
-          setCurrentIdx((prev) => prev !== data.current_idx ? data.current_idx : prev);
+          if (data.current_idx !== undefined) setCurrentIdx((prev) => prev !== (data.current_idx ?? prev) ? (data.current_idx ?? prev) : prev);
         }
-        setTotalTicks((prev) => prev !== data.total_ticks ? data.total_ticks : prev);
-        setVirtualTimeMsc((prev) => prev !== data.virtual_time_msc ? data.virtual_time_msc : prev);
-        setIsPlaying((prev) => prev !== data.is_playing ? data.is_playing : prev);
+        if (data.total_ticks !== undefined) setTotalTicks((prev) => prev !== (data.total_ticks ?? prev) ? (data.total_ticks ?? prev) : prev);
+        if (data.virtual_time_msc !== undefined) setVirtualTimeMsc((prev) => prev !== (data.virtual_time_msc ?? prev) ? (data.virtual_time_msc ?? prev) : prev);
+        if (data.is_playing !== undefined) setIsPlaying((prev) => prev !== (data.is_playing ?? prev) ? (data.is_playing ?? prev) : prev);
         if (data.session_boundaries) {
-          setSessionBoundaries((prev: any) => {
+          setSessionBoundaries((prev) => {
             if (JSON.stringify(prev) === JSON.stringify(data.session_boundaries)) return prev;
-            return data.session_boundaries;
+            return data.session_boundaries ?? prev;
           });
         }
         if (isReconnecting) {
@@ -901,19 +934,20 @@ function App() {
             const m = typeof data.multiplier === "number" ? data.multiplier : parseFloat(data.multiplier) || 1.0;
             setMultiplier((prev) => prev !== m ? m : prev);
           }
-          if (data.tick_step !== undefined) setTickStep((prev) => prev !== data.tick_step ? data.tick_step : prev);
+          if (data.tick_step !== undefined) setTickStep((prev) => prev !== (data.tick_step ?? prev) ? (data.tick_step ?? prev) : prev);
         }
         if (data.loop) {
-          setLoopActive((prev) => prev !== data.loop.active ? data.loop.active : prev);
-          setLoopA((prev) => prev !== data.loop.a_msc ? data.loop.a_msc : prev);
-          setLoopB((prev) => prev !== data.loop.b_msc ? data.loop.b_msc : prev);
-          setLoopAIdx((prev) => prev !== (data.loop.a_idx !== undefined ? data.loop.a_idx : -1) ? (data.loop.a_idx !== undefined ? data.loop.a_idx : -1) : prev);
-          setLoopBIdx((prev) => prev !== (data.loop.b_idx !== undefined ? data.loop.b_idx : -1) ? (data.loop.b_idx !== undefined ? data.loop.b_idx : -1) : prev);
+          const loop = data.loop;
+          setLoopActive((prev) => prev !== loop.active ? loop.active : prev);
+          setLoopA((prev) => prev !== loop.a_msc ? loop.a_msc : prev);
+          setLoopB((prev) => prev !== loop.b_msc ? loop.b_msc : prev);
+          setLoopAIdx((prev) => prev !== (loop.a_idx ?? -1) ? (loop.a_idx ?? -1) : prev);
+          setLoopBIdx((prev) => prev !== (loop.b_idx ?? -1) ? (loop.b_idx ?? -1) : prev);
         }
         if (data.account) {
-          setAccount((prev: any) => {
+          setAccount((prev) => {
             if (JSON.stringify(prev) === JSON.stringify(data.account)) return prev;
-            return data.account;
+            return data.account ?? prev;
           });
         }
         if (data.bid !== undefined && data.ask !== undefined) {
@@ -935,15 +969,15 @@ function App() {
           setSubFeedRate(null);
         }
         if (data.positions) {
-          setPositions((prev: any[]) => {
+          setPositions((prev) => {
             if (JSON.stringify(prev) === JSON.stringify(data.positions)) return prev;
-            return data.positions;
+            return data.positions ?? prev;
           });
         }
         if (data.history) {
-          setHistory((prev: any[]) => {
+          setHistory((prev) => {
             if (JSON.stringify(prev) === JSON.stringify(data.history)) return prev;
-            return data.history;
+            return data.history ?? prev;
           });
         }
       } else if (data.status === "ERROR") {
@@ -954,7 +988,7 @@ function App() {
           lowerMsg.includes("replay is not initialized");
 
         if (!isOrderError) {
-          setErrorMessage(translateErrorMessage(data.message));
+          setErrorMessage(translateErrorMessage(data.message || ""));
           setIsReplayInitializing(false);
         }
       } else if (data.status === "DISCONNECTED") {
@@ -965,7 +999,7 @@ function App() {
         setLoopB((prev) => prev !== -1 ? -1 : prev);
         setLoopAIdx((prev) => prev !== -1 ? -1 : prev);
         setLoopBIdx((prev) => prev !== -1 ? -1 : prev);
-        setAccount((prev: any) => prev !== null ? null : prev);
+        setAccount((prev) => prev !== null ? null : prev);
         setPositions((prev) => prev.length > 0 ? [] : prev);
         setHistory((prev) => prev.length > 0 ? [] : prev);
 
@@ -999,11 +1033,11 @@ function App() {
     pendingStatusPayloadRef.current = payload;
 
     try {
-      const data = JSON.parse(payload);
+      const data = JSON.parse(payload) as ReplayProgressPayload;
       if (data.session_boundaries) {
-        setSessionBoundaries((prev: any) => {
+        setSessionBoundaries((prev) => {
           if (JSON.stringify(prev) === JSON.stringify(data.session_boundaries)) return prev;
-          return data.session_boundaries;
+          return data.session_boundaries ?? prev;
         });
       }
     } catch (_) {}
@@ -1160,7 +1194,7 @@ function App() {
       let loadedShortcutsActive = false;
       let loadedAlwaysOnTop = false;
       try {
-        const saved = await invoke<any>("load_settings");
+        const saved = await invoke<PersistedSettings>("load_settings");
         if (saved) {
           savedConfig.current = saved;
           if (saved.source_symbol) {
@@ -1176,11 +1210,11 @@ function App() {
           if (saved.additional_symbols !== undefined && saved.additional_symbols !== null) {
             setAdditionalSymbols(saved.additional_symbols);
           }
-          setStartTime(saved.start_time);
-          setEndTime(saved.end_time);
+          if (saved.start_time) setStartTime(saved.start_time);
+          if (saved.end_time) setEndTime(saved.end_time);
 
-          setPreloadedBars(saved.preloaded_bars);
-          setAutoScrollSync(saved.auto_scroll_sync);
+          if (saved.preloaded_bars !== undefined) setPreloadedBars(saved.preloaded_bars);
+          if (saved.auto_scroll_sync !== undefined) setAutoScrollSync(saved.auto_scroll_sync);
           if (saved.limit_tick_history !== undefined && saved.limit_tick_history !== null) {
             setLimitTickHistory(saved.limit_tick_history);
           }
@@ -1208,7 +1242,7 @@ function App() {
           }
           if (saved.theme_mode) {
             if (["dark", "dim", "light", "sepia", "warm-sepia"].includes(saved.theme_mode)) {
-              setTheme(saved.theme_mode as any);
+              setTheme(saved.theme_mode);
             }
           }
           if (saved.always_on_top !== undefined && saved.always_on_top !== null) {
@@ -1311,8 +1345,9 @@ function App() {
         setTerminals(res);
         if (res.length > 0) {
           let targetPath = res[0].path;
-          if (savedConfig.current && res.some((t) => t.path === savedConfig.current.selected_terminal)) {
-            targetPath = savedConfig.current.selected_terminal;
+          const savedTerminal = savedConfig.current?.selected_terminal;
+          if (savedTerminal && res.some((t) => t.path === savedTerminal)) {
+            targetPath = savedTerminal;
           } else {
             // 保存された設定のターミナルが存在しない場合、キャッシュをクリアして初回ロード完了とする
             savedConfig.current = null;
@@ -1382,16 +1417,17 @@ function App() {
           setMaxBarsInfo(null);
         });
 
-      invoke("get_profiles", { terminalPath: selectedTerminal })
-        .then((res: any) => {
+      invoke<string[]>("get_profiles", { terminalPath: selectedTerminal })
+        .then((res) => {
           setProfiles(res);
           if (res.length > 0) {
             let targetProfile = res[0];
-            if (savedConfig.current && savedConfig.current.selected_terminal === selectedTerminal) {
-              if (savedConfig.current.selected_profile === "") {
+            const savedProfile = savedConfig.current?.selected_profile;
+            if (savedConfig.current?.selected_terminal === selectedTerminal) {
+              if (savedProfile === "") {
                 targetProfile = res[0];
-              } else if (res.includes(savedConfig.current.selected_profile)) {
-                targetProfile = savedConfig.current.selected_profile;
+              } else if (savedProfile && res.includes(savedProfile)) {
+                targetProfile = savedProfile;
               }
             }
             setSelectedProfile(targetProfile);
@@ -1454,9 +1490,9 @@ function App() {
 
   // --- 2. 各種制御関数
 
-  const sendCommand = async (cmd: any) => {
+  const sendCommand = async (cmd: ReplayCommand) => {
     try {
-      await invoke("send_command", { commandJson: JSON.stringify(cmd) });
+      await sendReplayCommand(cmd);
     } catch (e) {
       console.error("Failed to send command", e);
       setErrorMessage(translateErrorMessage("Command error: " + e));
@@ -1782,7 +1818,7 @@ function App() {
 
   const loadSavedSessions = async () => {
     try {
-      const res = await invoke<any[]>("get_saved_sessions");
+      const res = await invoke<SavedSession[]>("get_saved_sessions");
       setSavedSessions(res);
     } catch (e) {
       console.error("Failed to load saved sessions", e);
@@ -1827,7 +1863,7 @@ function App() {
     }
   };
 
-  const handleResumeSession = async (session: any) => {
+  const handleResumeSession = async (session: SavedSession) => {
     setErrorMessage("");
 
     // 保存された設定項目をフロントエンドの状態に反映

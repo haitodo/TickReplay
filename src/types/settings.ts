@@ -4,6 +4,7 @@
 
 import { ThemeType } from "../constants/themePresets";
 import { OrderColorStyle, PlColorStyle } from "./trading";
+import { SessionReplaySettings } from "./session";
 
 export type HotkeyActionKey =
   | "togglePlay"
@@ -36,6 +37,7 @@ export interface AppSettings {
   order_color_style?: OrderColorStyle;
   always_on_top?: boolean;
   is_shortcuts_active?: boolean;
+  shortcuts_active?: boolean;
   auto_scroll_sync?: boolean;
   auto_skip_weekend?: boolean;
   limit_tick_history?: boolean;
@@ -46,3 +48,6 @@ export interface AppSettings {
   fred_api_key?: string;
   finnhub_api_key?: string;
 }
+
+/** Settings returned by the backend, including replay-specific persisted values. */
+export type PersistedSettings = Partial<AppSettings> & Partial<SessionReplaySettings>;

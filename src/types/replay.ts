@@ -1,3 +1,5 @@
+import { TradeHistoryItem, VirtualAccount, VirtualPosition } from "./trading";
+
 /**
  * リプレイエンジンおよび再生制御に関連するドメイン型定義
  */
@@ -35,9 +37,9 @@ export interface SessionBoundaryItem {
 }
 
 export interface SessionBoundariesData {
-  TYO: SessionBoundaryItem[];
-  LDN: SessionBoundaryItem[];
-  NY: SessionBoundaryItem[];
+  TYO: number[];
+  LDN: number[];
+  NY: number[];
 }
 
 export interface SessionBlock {
@@ -60,7 +62,7 @@ export interface ReplayPlaybackState {
 }
 
 export interface ReplayProgressPayload {
-  status?: ReplayStatus;
+  status?: ReplayStatus | "ERROR";
   total_ticks?: number;
   current_idx?: number;
   virtual_time_msc?: number;
@@ -69,6 +71,7 @@ export interface ReplayProgressPayload {
   multiplier?: number | string;
   tick_step?: number;
   symbol?: string;
+  source_symbol?: string;
   bid?: number;
   ask?: number;
   spread?: number;
@@ -86,11 +89,21 @@ export interface ReplayProgressPayload {
   loop_a_idx?: number;
   loop_b_idx?: number;
   session_boundaries?: SessionBoundariesData;
-  account?: any;
-  positions?: any[];
-  history?: any[];
+  account?: VirtualAccount;
+  positions?: VirtualPosition[];
+  history?: TradeHistoryItem[];
+  loop?: ReplayLoopPayload;
   error?: string;
+  message?: string;
   is_reconnecting?: boolean;
+}
+
+export interface ReplayLoopPayload {
+  active: boolean;
+  a_msc: number;
+  b_msc: number;
+  a_idx?: number;
+  b_idx?: number;
 }
 
 export interface ReplayStatusPayload extends ReplayProgressPayload {}

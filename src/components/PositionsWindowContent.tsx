@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useRef } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { formatRate } from "../utils/rateUtils";
 import { useTheme } from "../hooks/useTheme";
+import { VirtualAccount, VirtualPosition } from "../types/trading";
+import { ReplayProgressPayload } from "../types/replay";
+import { ReplayCommand, sendReplayCommand } from "../utils/command";
 
 export const PositionsWindowContent: React.FC = () => {
   useTheme();
 
-  const [positions, setPositions] = useState<any[]>([]);
-  const [account, setAccount] = useState<any>(null);
+  const [positions, setPositions] = useState<VirtualPosition[]>([]);
+  const [account, setAccount] = useState<VirtualAccount | null>(null);
   const [status, setStatus] = useState<string>("DISCONNECTED");
   const [contractSize] = useState<number>(() => {
     const saved = localStorage.getItem("speed-order-contract-size");
@@ -54,9 +56,9 @@ export const PositionsWindowContent: React.FC = () => {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isDepositConfirmOpen, isWithdrawConfirmOpen, isResetConfirmOpen, activeFundingAction]);
 
-  const sendCommand = async (cmd: any) => {
+  const sendCommand = async (cmd: ReplayCommand) => {
     try {
-      await invoke("send_command", { commandJson: JSON.stringify(cmd) });
+      await sendReplayCommand(cmd);
     } catch (e) {
       console.error("Failed to send command from account & positions window:", e);
     }
@@ -65,23 +67,23 @@ export const PositionsWindowContent: React.FC = () => {
   useEffect(() => {
     const unlisten = listen<string>("mt5-status", (event) => {
       try {
-        const data = JSON.parse(event.payload);
+        const data = JSON.parse(event.payload) as ReplayProgressPayload;
         if (data.status) setStatus(data.status);
         if (data.account) {
-          setAccount((prev: any) => {
+          setAccount((prev) => {
             if (JSON.stringify(prev) === JSON.stringify(data.account)) return prev;
-            return data.account;
+            return data.account ?? prev;
           });
         }
         if (data.positions) {
-          setPositions((prev: any[]) => {
+          setPositions((prev) => {
             if (JSON.stringify(prev) === JSON.stringify(data.positions)) return prev;
-            return data.positions;
+            return data.positions ?? prev;
           });
         }
         if (data.status === "DISCONNECTED") {
           setPositions((prev) => (prev.length > 0 ? [] : prev));
-          setAccount((prev: any) => (prev !== null ? null : prev));
+          setAccount((prev) => (prev !== null ? null : prev));
         }
       } catch (e) {
         console.error("Failed to parse mt5-status in account & positions window:", e);

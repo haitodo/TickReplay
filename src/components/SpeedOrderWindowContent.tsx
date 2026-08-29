@@ -7,6 +7,10 @@ import { listen, emit } from "@tauri-apps/api/event";
 import { CustomSelect } from "../CustomSelect";
 import { useTheme } from "../hooks/useTheme";
 import { getContractSizeLabel } from "../domain/contractUtils";
+import { VirtualAccount, VirtualPosition } from "../types/trading";
+import { ReplayProgressPayload } from "../types/replay";
+import { PersistedSettings } from "../types/settings";
+import { ReplayCommand, sendReplayCommand } from "../utils/command";
 
 export const SpeedOrderWindowContent: React.FC = () => {
   useTheme();
@@ -72,8 +76,8 @@ export const SpeedOrderWindowContent: React.FC = () => {
     const saved = localStorage.getItem("speed-order-max-spread-enabled");
     return saved === "true";
   });
-  const [account, setAccount] = useState<any>(null);
-  const [positions, setPositions] = useState<any[]>([]);
+  const [account, setAccount] = useState<VirtualAccount | null>(null);
+  const [positions, setPositions] = useState<VirtualPosition[]>([]);
   const [showHoldingTime, setShowHoldingTime] = useState<boolean>(() => {
     const saved = localStorage.getItem("speed-order-show-holding-time");
     return saved !== "false";
@@ -103,7 +107,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length >= 1) {
           const valid = parsed
-            .map((v: any) => parseFloat(v))
+            .map((v: unknown) => parseFloat(String(v)))
             .filter((v: number) => !isNaN(v) && v > 0);
           if (valid.length >= 1) {
             return valid.slice(0, 5).sort((a, b) => a - b);
@@ -220,7 +224,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
           const parsed = JSON.parse(e.newValue);
           if (Array.isArray(parsed) && parsed.length >= 1) {
             const valid = parsed
-              .map((v: any) => parseFloat(v))
+              .map((v: unknown) => parseFloat(String(v)))
               .filter((v: number) => !isNaN(v) && v > 0);
             if (valid.length >= 1) {
               setQuickLots(valid.slice(0, 5).sort((a, b) => a - b));
@@ -235,9 +239,9 @@ export const SpeedOrderWindowContent: React.FC = () => {
     return () => window.removeEventListener("storage", handleStorage);
   }, []);
 
-  const sendCommand = async (cmd: any) => {
+  const sendCommand = async (cmd: ReplayCommand) => {
     try {
-      await invoke("send_command", { commandJson: JSON.stringify(cmd) });
+      await sendReplayCommand(cmd);
     } catch (e) {
       console.error("Failed to send command", e);
       setErrorMessage(translateErrorMessage("Command error: " + e));
@@ -246,7 +250,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
 
   useEffect(() => {
     // ホットキー設定の読み込み
-    invoke<any>("load_settings").then((saved) => {
+    invoke<PersistedSettings>("load_settings").then((saved) => {
       if (saved && saved.hotkeys) {
         const merged = { ...DEFAULT_HOTKEYS, ...saved.hotkeys };
         setHotkeys(merged);
@@ -257,16 +261,16 @@ export const SpeedOrderWindowContent: React.FC = () => {
     // キャッシュされている最後のステータスを取得して初期化
     invoke<string>("get_last_status").then((last) => {
       if (last && last.trim() !== "") {
-        const data = JSON.parse(last);
+        const data = JSON.parse(last) as ReplayProgressPayload;
         if (data.status === "ACTIVE" || data.status === "READY" || data.status === "CONNECTED") {
           setStatus(data.status);
           prevStatusRef.current = data.status;
           const currentShow = localStorage.getItem("speed-order-show-history") === "true";
           const currentContractSize = parseInt(localStorage.getItem("speed-order-contract-size") || "10000", 10);
           const currentHedging = localStorage.getItem("speed-order-hedging") === "true";
-          invoke("send_command", { commandJson: JSON.stringify({ command: "SET_HISTORY_VISIBILITY", show: currentShow }) }).catch(console.error);
-          invoke("send_command", { commandJson: JSON.stringify({ command: "SET_CONTRACT_SIZE", size: currentContractSize }) }).catch(console.error);
-          invoke("send_command", { commandJson: JSON.stringify({ command: "SET_HEDGING", allowed: currentHedging }) }).catch(console.error);
+          sendCommand({ command: "SET_HISTORY_VISIBILITY", show: currentShow });
+          sendCommand({ command: "SET_CONTRACT_SIZE", size: currentContractSize });
+          sendCommand({ command: "SET_HEDGING", allowed: currentHedging });
           const initBid = data.dmm_bid !== undefined ? data.dmm_bid : data.bid;
           const initAsk = data.dmm_ask !== undefined ? data.dmm_ask : data.ask;
           if (initBid) setBid(initBid);
@@ -282,16 +286,16 @@ export const SpeedOrderWindowContent: React.FC = () => {
     // ステータス更新イベントのリッスン
     const unlistenStatus = listen<string>("mt5-status", (event) => {
       try {
-        const data = JSON.parse(event.payload);
+        const data = JSON.parse(event.payload) as ReplayProgressPayload;
         if (data.status === "ACTIVE" || data.status === "READY" || data.status === "CONNECTED") {
           const prev = prevStatusRef.current;
           if (prev === "DISCONNECTED") {
             const currentShow = localStorage.getItem("speed-order-show-history") === "true";
             const currentContractSize = parseInt(localStorage.getItem("speed-order-contract-size") || "10000", 10);
             const currentHedging = localStorage.getItem("speed-order-hedging") === "true";
-            invoke("send_command", { commandJson: JSON.stringify({ command: "SET_HISTORY_VISIBILITY", show: currentShow }) }).catch(console.error);
-            invoke("send_command", { commandJson: JSON.stringify({ command: "SET_CONTRACT_SIZE", size: currentContractSize }) }).catch(console.error);
-            invoke("send_command", { commandJson: JSON.stringify({ command: "SET_HEDGING", allowed: currentHedging }) }).catch(console.error);
+            sendCommand({ command: "SET_HISTORY_VISIBILITY", show: currentShow });
+            sendCommand({ command: "SET_CONTRACT_SIZE", size: currentContractSize });
+            sendCommand({ command: "SET_HEDGING", allowed: currentHedging });
           }
           prevStatusRef.current = data.status;
           setStatus(data.status);
@@ -326,36 +330,36 @@ export const SpeedOrderWindowContent: React.FC = () => {
             });
           }
           if (data.account) {
-            setAccount((prev: any) => {
+            setAccount((prev) => {
               if (JSON.stringify(prev) === JSON.stringify(data.account)) return prev;
-              return data.account;
+              return data.account ?? prev;
             });
           }
           if (data.positions) {
-            setPositions((prev: any[]) => {
+            setPositions((prev) => {
               if (JSON.stringify(prev) === JSON.stringify(data.positions)) return prev;
-              return data.positions;
+              return data.positions ?? prev;
             });
           }
           if (data.source_symbol) {
             setSourceSymbol((prev) => {
               if (prev !== data.source_symbol) {
-                localStorage.setItem("speed-order-symbol", data.source_symbol);
-                return data.source_symbol;
+                localStorage.setItem("speed-order-symbol", data.source_symbol ?? prev);
+                return data.source_symbol ?? prev;
               }
               return prev;
             });
           }
-          if (data.is_playing !== undefined) setIsPlaying((prev) => prev !== data.is_playing ? data.is_playing : prev);
-          if (data.virtual_time_msc !== undefined) setVirtualTimeMsc((prev) => prev !== data.virtual_time_msc ? data.virtual_time_msc : prev);
+          if (data.is_playing !== undefined) setIsPlaying((prev) => prev !== (data.is_playing ?? prev) ? (data.is_playing ?? prev) : prev);
+          if (data.virtual_time_msc !== undefined) setVirtualTimeMsc((prev) => prev !== (data.virtual_time_msc ?? prev) ? (data.virtual_time_msc ?? prev) : prev);
         } else if (data.status === "ERROR") {
-          setErrorMessage(translateErrorMessage(data.message));
+          setErrorMessage(translateErrorMessage(data.message || ""));
         } else if (data.status === "DISCONNECTED") {
           prevStatusRef.current = "DISCONNECTED";
           setStatus("DISCONNECTED");
           setBid(0);
           setAsk(0);
-          setAccount((prev: any) => prev !== null ? null : prev);
+          setAccount((prev) => prev !== null ? null : prev);
           setPositions((prev) => prev.length > 0 ? [] : prev);
         }
       } catch (e) {
@@ -417,7 +421,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
   const stopwatchStateRef = useRef<Record<number, StopwatchState>>({});
 
   const syncStopwatchState = (
-    currentPositions: any[], 
+    currentPositions: VirtualPosition[],
     playing: boolean, 
     virtualTime: number
   ) => {
@@ -622,7 +626,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
   const sellPositions = positions.filter(p => p.type === "SELL");
   const totalBuyLots = buyPositions.reduce((sum, p) => sum + p.volume, 0);
   const totalSellLots = sellPositions.reduce((sum, p) => sum + p.volume, 0);
-  const totalPL = account ? account.total_profit : 0;
+  const totalPL = account?.total_profit ?? 0;
 
   // 発注可能ロット数計算
   const leverage = account?.leverage || 25;
@@ -1020,7 +1024,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
             >
               CLR
             </button>
-            {sortedQuickLots.map((v: any, idx: number) => (
+            {sortedQuickLots.map((v: number, idx: number) => (
               <button
                 key={`${v}-${idx}`}
                 className="quick-lot-btn"

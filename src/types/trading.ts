@@ -52,6 +52,7 @@ export interface VirtualAccount {
   leverage?: number;
   currency?: string;
   profit?: number;
+  total_profit?: number;
 }
 
 export interface TradeStatisticsSummary {

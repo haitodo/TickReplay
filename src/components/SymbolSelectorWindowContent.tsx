@@ -20,6 +20,14 @@ import {
 import { getMonthRange, getYearRange } from "../utils/dateUtils";
 import { useTheme } from "../hooks/useTheme";
 
+interface SymbolSelectorInitPayload {
+  sourceSymbol?: string;
+  subSourceSymbol?: string;
+  enableDualFeed?: boolean;
+  additionalSymbols?: string;
+  availableSymbols?: SymbolItem[];
+}
+
 export const SymbolSelectorWindowContent: React.FC = () => {
   useTheme();
 
@@ -102,7 +110,7 @@ export const SymbolSelectorWindowContent: React.FC = () => {
     }
 
     // メインウィンドウからの初期化・更新イベントを受信
-    const unlistenInit = listen<any>("symbol-selector-init", (event) => {
+    const unlistenInit = listen<SymbolSelectorInitPayload>("symbol-selector-init", (event) => {
       const data = event.payload;
       if (data.sourceSymbol) {
         setSelectedSource(data.sourceSymbol);

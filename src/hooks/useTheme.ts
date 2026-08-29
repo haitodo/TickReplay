@@ -5,6 +5,14 @@ import { listen } from "@tauri-apps/api/event";
 const THEME_STORAGE_KEY = "tickreplay_theme";
 const VALID_THEMES: ThemeType[] = ["dark", "dim", "light", "sepia", "warm-sepia"];
 
+interface SettingsUpdatedPayload {
+  theme?: string;
+  themeMode?: string;
+  themeId?: string;
+  plColorStyle?: "red-blue" | "green-red";
+  orderColorStyle?: "blue-red" | "red-green";
+}
+
 function getInitialTheme(): ThemeType {
   try {
     const saved = (localStorage.getItem(THEME_STORAGE_KEY) ||
@@ -151,7 +159,7 @@ export function useTheme() {
     window.addEventListener("storage", handleStorage);
 
     let unlistenTauri: (() => void) | undefined;
-    listen<any>("settings-updated", (event) => {
+    listen<SettingsUpdatedPayload>("settings-updated", (event) => {
       if (event.payload) {
         const { theme: updatedTheme, themeMode, themeId, plColorStyle: updatedPl, orderColorStyle: updatedOrder } = event.payload;
         const candidate = updatedTheme || themeMode || themeId;

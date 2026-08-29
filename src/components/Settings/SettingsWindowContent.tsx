@@ -18,6 +18,7 @@ import {
   ApiTestResult,
 } from "../../utils/apiKeyTester";
 import { useTheme } from "../../hooks/useTheme";
+import { PersistedSettings } from "../../types/settings";
 
 export const SettingsWindowContent: React.FC = () => {
   const {
@@ -65,7 +66,7 @@ export const SettingsWindowContent: React.FC = () => {
   useEffect(() => {
     const initLoad = async () => {
       try {
-        const data: any = await invoke("load_settings");
+        const data = await invoke<PersistedSettings>("load_settings");
         if (data) {
           if (data.hotkeys) setHotkeys({ ...DEFAULT_HOTKEYS, ...data.hotkeys });
           if (data.time_presets) setTimePresets(data.time_presets);

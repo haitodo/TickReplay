@@ -2,7 +2,7 @@
  * セッション保存・スナップショット・復元に関連するドメイン型定義
  */
 
-import { VirtualPosition, TradeHistoryItem, VirtualAccount } from "./trading";
+import { PositionType, TradeReason } from "./trading";
 
 export interface SessionReplaySettings {
   selected_terminal: string;
@@ -16,6 +16,9 @@ export interface SessionReplaySettings {
   preloaded_bars: number;
   auto_scroll_sync: boolean;
   auto_skip_weekend?: boolean;
+  hedging?: boolean;
+  show_holding_time?: boolean;
+  holding_time_mode?: "pc" | "server";
   preload_mode?: "BARS" | "DATE";
   preload_date?: string;
   preload_timeframe?: string;
@@ -48,11 +51,41 @@ export interface SessionProgressState {
 }
 
 export interface SessionVirtualTradeState {
+  initial_balance: number;
   balance: number;
-  account?: VirtualAccount;
-  positions?: VirtualPosition[];
-  history?: TradeHistoryItem[];
-  real_time_accumulated_sec?: number;
+  equity: number;
+  leverage: number;
+  margin: number;
+  free_margin: number;
+  margin_level: number;
+  next_ticket: number;
+  positions: SessionPositionSnapshot[];
+  history: SessionHistorySnapshot[];
+}
+
+/** Position fields persisted in a session snapshot and sent back to the EA. */
+export interface SessionPositionSnapshot {
+  ticket: number;
+  type: PositionType;
+  volume: number;
+  open_price: number;
+  open_time_msc: number;
+  sl?: number;
+  tp?: number;
+  current_price?: number;
+  profit: number;
+  accumulated_real_time?: number;
+  mfe_pips?: number;
+  mae_pips?: number;
+  spread_entry?: number;
+  volatility?: number;
+  volume_60s?: number;
+}
+
+export interface SessionHistorySnapshot extends SessionPositionSnapshot {
+  close_price: number;
+  close_time_msc: number;
+  close_reason: TradeReason;
 }
 
 export interface SavedSession {

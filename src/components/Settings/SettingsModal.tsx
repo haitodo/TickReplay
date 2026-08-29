@@ -57,7 +57,7 @@ export interface SettingsModalProps {
     nextHotkeys?: Record<string, string>,
     nextTimePresets?: number[],
     nextTickPresets?: number[],
-    nextTheme?: any
+    nextTheme?: ThemeType
   ) => void;
   timePresets: number[];
   tickPresets: number[];

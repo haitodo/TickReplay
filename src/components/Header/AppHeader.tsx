@@ -2,13 +2,14 @@ import React, { useState, useRef, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { formatJstTime, formatServerTime } from "../../utils/timeUtils";
 import { THEME_LIST, ThemeType } from "../../constants/themePresets";
+import { SessionBoundaryInfo } from "../../domain/sessionBoundaries";
 
 export interface AppHeaderProps {
   status: "DISCONNECTED" | "CONNECTED" | "READY" | "ACTIVE";
   virtualTimeMsc: number;
   timezoneMode: "JST" | "SERVER";
   setTimezoneMode: (mode: "JST" | "SERVER") => void;
-  currentSession: any;
+  currentSession: SessionBoundaryInfo | null;
   subFeedRate: { active: boolean; symbol: string; bid: number; ask: number; spread: number } | null;
   mainFeedRate: { bid: number; ask: number; spread: number };
   sourceSymbol: string;
@@ -19,8 +20,13 @@ export interface AppHeaderProps {
   cycleTheme?: () => void;
   themeMode?: "dark" | "light";
   setThemeMode?: (mode: "dark" | "light") => void;
-  saveAllSettings: (...args: any[]) => void;
-  hotkeys: any;
+  saveAllSettings: (
+    nextHotkeys?: Record<string, string>,
+    nextTimePresets?: number[],
+    nextTickPresets?: number[],
+    nextTheme?: ThemeType
+  ) => void;
+  hotkeys: Record<string, string>;
   timePresets: number[];
   tickPresets: number[];
   handleAlwaysOnTopToggle: () => void;

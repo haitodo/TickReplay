@@ -5,6 +5,9 @@ import { ControlDashboard } from "./ControlDashboard";
 import { useTheme } from "../../hooks/useTheme";
 import { formatJstTime, formatServerTime } from "../../utils/timeUtils";
 import { TimeStepItem, DEFAULT_TIME_STEPS, formatSecondsToLabel } from "../../App";
+import { ReplayCommand, sendReplayCommand } from "../../utils/command";
+import { PersistedSettings } from "../../types/settings";
+import { ReplayProgressPayload } from "../../types/replay";
 
 export const ControllerWindowContent: React.FC = () => {
   useTheme();
@@ -80,12 +83,12 @@ export const ControllerWindowContent: React.FC = () => {
   // 設定およびステータス受信リスナー
   useEffect(() => {
     // 起動時に保存された設定（銘柄・期間など）を取得
-    invoke<any>("load_settings")
+    invoke<PersistedSettings>("load_settings")
       .then((settings) => {
         if (settings) {
           if (settings.start_time) setStartTime(settings.start_time);
           if (settings.end_time) setEndTime(settings.end_time);
-          if (settings.source_symbol) setSourceSymbol((prev) => prev || settings.source_symbol);
+          if (settings.source_symbol) setSourceSymbol((prev) => prev || settings.source_symbol || "");
           if (settings.timezone_mode) setTimezoneMode(settings.timezone_mode as "JST" | "SERVER");
           if (settings.time_presets && Array.isArray(settings.time_presets) && settings.time_presets.length > 0) {
             setTimePresets(settings.time_presets);
@@ -125,8 +128,8 @@ export const ControllerWindowContent: React.FC = () => {
 
   const handleStatusPayload = (payload: string) => {
     try {
-      const data = JSON.parse(payload);
-      if (data.status) {
+      const data = JSON.parse(payload) as ReplayProgressPayload;
+      if (data.status && data.status !== "ERROR") {
         setStatus(data.status);
       }
       if (data.total_ticks !== undefined) setTotalTicks(data.total_ticks);
@@ -154,9 +157,9 @@ export const ControllerWindowContent: React.FC = () => {
   };
 
   // --- IPC 送信コマンド ---
-  const sendCommand = async (cmd: any) => {
+  const sendCommand = async (cmd: ReplayCommand) => {
     try {
-      await invoke("send_command", { commandJson: JSON.stringify(cmd) });
+      await sendReplayCommand(cmd);
     } catch (e) {
       console.error("Failed to send command:", cmd, e);
     }

@@ -13,6 +13,7 @@ import {
 import { TerminalInfo } from "../../types/terminal";
 import { MaxBarsInfo } from "../../utils/hotkeyUtils";
 import { formatJstTime, getNewsTimeForDisplay } from "../../utils/timeUtils";
+import { SavedSession } from "../../types/session";
 import {
   getMonthRange,
   getYearRange,
@@ -91,12 +92,12 @@ export interface SetupPanelProps {
   setPseudoRolloverSpread?: (val: number) => void;
   pseudoRolloverRecoveryMin?: number;
   setPseudoRolloverRecoveryMin?: (val: number) => void;
-  savedSessions: any[];
+  savedSessions: SavedSession[];
   expandedGroups: { [key: string]: boolean };
   setExpandedGroups: React.Dispatch<React.SetStateAction<{ [key: string]: boolean }>>;
   handleClearAllSessions: () => void;
   handleDeleteSessions: (ids: string[], msg: string) => void;
-  handleResumeSession: (session: any) => void;
+  handleResumeSession: (session: SavedSession) => void;
   loadSavedSessions: () => void;
   handleResetReplaySettings: () => void;
   handleResetTradingSettings: () => void;
@@ -1357,7 +1358,7 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
           /* 3. セッション再開タブ (広々カードグリッド)               */
           /* ======================================================== */
           (() => {
-            const groupedSessions: { [key: string]: any[] } = {};
+            const groupedSessions: Record<string, SavedSession[]> = {};
             savedSessions.forEach((session) => {
               const gid = session.group_session_id || session.id;
               if (!groupedSessions[gid]) {
