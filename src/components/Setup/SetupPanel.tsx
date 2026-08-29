@@ -193,10 +193,10 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
     const sym = (sourceSymbol || "USDJPY").toUpperCase();
 
     if (mode === "dmm") {
-      // DMMリアル再現モード（実測最適値）
+      // DMMリアル再現モード（41.8万ティック検証による実測最適値）
       if (sym.includes("USDJPY")) {
         setPseudoBaseSpread(0.2);
-        setPseudoThreshold(1.0);
+        setPseudoThreshold(1.8);  // 実測最適: 1.8 pips（旧 1.0 から更新）
         if (setPseudoRolloverSpread) setPseudoRolloverSpread(3.5);
       } else if (sym.includes("EURUSD")) {
         setPseudoBaseSpread(0.4);
@@ -211,7 +211,7 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
         setPseudoThreshold(1.2);
         if (setPseudoRolloverSpread) setPseudoRolloverSpread(3.5);
       }
-      setPseudoSensitivity(0.35);
+      setPseudoSensitivity(sym.includes("USDJPY") ? 0.30 : 0.35);  // USDJPYのみ実測最適 0.30
       if (setPseudoRolloverEnabled) setPseudoRolloverEnabled(true);
       if (setPseudoRolloverRecoveryMin) setPseudoRolloverRecoveryMin(15);
     } else if (mode === "fixed") {
@@ -1075,7 +1075,7 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                           type="button"
                           className={`pseudo-preset-btn ${pseudoMode === "dmm" ? "active" : ""}`}
                           onClick={() => handleSelectPreset("dmm")}
-                          title="DMMの実測挙動（0.2銭固定＋早朝3.5銭＋最適感度0.35）を高精度再現"
+                          title="DMMの実測挙動（0.2銭固定＋早朝3.5銭＋最適感度0.30）を高精度再現"
                         >
                           ⭐ DMM再現
                         </button>
@@ -1157,7 +1157,7 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                                   </p>
                                   <p style={{ margin: "0 0 4px", fontWeight: 600 }}>推奨値の目安：</p>
                                   <ul style={{ margin: "0", paddingLeft: 16 }}>
-                                    <li>USDJPY：1.0 pips（実測最適値）</li>
+                                    <li>USDJPY：1.8 pips（41.8万ティック実測最適値）</li>
                                     <li>EURUSD：1.0 pips</li>
                                     <li>GBPJPY：2.0 pips</li>
                                     <li>XAUUSD（Gold）：4.0 pips</li>
@@ -1194,13 +1194,13 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
                                     MT5スプレッドが「拡大しきい値」を超えたとき、その超過分に掛ける倍率です。
                                   </p>
                                   <p style={{ margin: "0 0 4px" }}>
-                                    <strong>例（USDJPY、しきい値=1.0pips、感度=0.35、MT5スプレッド=3.0pips）：</strong><br />
+                                    <strong>例（USDJPY、しきい値=1.8pips、感度=0.30、MT5スプレッド=3.0pips）：</strong><br />
                                     <code style={{ background: "rgba(255,255,255,0.1)", padding: "1px 4px", borderRadius: 3 }}>
-                                      0.2 + 0.35 × (3.0 − 1.0) = 0.90 pips
+                                      0.2 + 0.30 × (3.0 − 1.8) = 0.56 ➔ 0.6 pips
                                     </code>
                                   </p>
                                   <ul style={{ margin: "6px 0 0", paddingLeft: 16 }}>
-                                    <li><strong>0.35</strong>：実測最適推奨値。急拡大時も国内業者風に穏やかに反映</li>
+                                    <li><strong>0.30</strong>：USDJPY実測最適推奨値。急拡大時も国内業者風に穏やかに反映</li>
                                     <li><strong>1.0</strong>：MT5スプレッド急拡大超過分をそのまま反映</li>
                                     <li><strong>0.0</strong>：急拡大時も平常時スプレッドのまま固定</li>
                                   </ul>

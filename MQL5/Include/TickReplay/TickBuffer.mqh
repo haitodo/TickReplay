@@ -96,9 +96,15 @@ public:
       double max_limit = base_spread * 80.0;
       if(target_spread > max_limit) target_spread = max_limit;
       
-      double half_spread = target_spread / 2.0;
-      out_bid = RoundHalfUp(mid - half_spread, 3);
-      out_ask = RoundHalfUp(mid + half_spread, 3);
+      // ① target_spread を先に3桁精度で丸める（0.001単位にスナップ）
+      //    → bid/askを独立に丸めると端数の向きが逆転して0.3銭に化ける問題を根絶
+      double target_rounded = MathFloor(target_spread * 1000.0 + 0.5 + 1e-9) / 1000.0;
+      // ② 丸めで base_spread を下回った場合はベース値に切り上げ
+      if(target_rounded < base_spread) target_rounded = base_spread;
+      
+      // ③ bidを丸めてから ask = bid + target_rounded で固定（独立丸め禁止）
+      out_bid = RoundHalfUp(mid - target_rounded / 2.0, 3);
+      out_ask = NormalizeDouble(out_bid + target_rounded, 3);
       out_spread = out_ask - out_bid;
    }
 

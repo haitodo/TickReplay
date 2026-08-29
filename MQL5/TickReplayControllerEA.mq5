@@ -109,9 +109,9 @@ bool                    m_auto_skip_weekend = true;             // 週末など�
 bool                    m_initialized = false;                  // リプレイ初期化完了フラグ
 bool                    m_hedging = false;                      // 両建て許可フラグ（デフォルトOFF）
 bool                    m_pseudo_rate_enabled = true;          // 疑似レート生成機能の有効化フラグ
-double                  m_domestic_base_spread = 0.002;         // 国内基準スプレッド
-double                  m_mt5_threshold = 0.010;                // MT5側判定閾値
-double                  m_sensitivity_coeff = 0.35;             // 拡大感度（係数）
+double                  m_domestic_base_spread = 0.002;         // 国内基準スプレッド（USDJPY: 0.2銭）
+double                  m_mt5_threshold = 0.018;                // MT5側判定閾値（USDJPY実測最適: 1.8 pips）
+double                  m_sensitivity_coeff = 0.30;             // 拡大感度（USDJPY実測最適: 0.30）
 bool                    m_pseudo_rollover_enabled = true;      // 早朝ロールオーバー適応フラグ
 double                  m_pseudo_rollover_spread = 0.035;       // 早朝ロールオーバー基準スプレッド
 int                     m_pseudo_rollover_recovery_min = 15;    // 早朝復帰時間（分）
@@ -5099,13 +5099,16 @@ void GetPseudoRates(MqlTick &src_tick, double &out_bid, double &out_ask, double 
    double max_spread_limit = m_domestic_base_spread * 80.0;
    if(target_spread > max_spread_limit) target_spread = max_spread_limit;
 
-   double half_spread = target_spread / 2.0;
-   double bid_raw = mid - half_spread;
-   double ask_raw = mid + half_spread;
+   // ① target_spread を先に3桁精度で丸める（0.001単位にスナップ）
+   //    → bid/askを独立に丸めると端数の向きが逆転して0.3銭に化ける問題を根絶
+   double target_rounded = MathFloor(target_spread * 1000.0 + 0.5 + 1e-9) / 1000.0;
+   // ② 丸めで base_spread を下回った場合はベース値に切り上げ（e.g. 0.002 割れ防止）
+   if(target_rounded < m_domestic_base_spread)
+      target_rounded = m_domestic_base_spread;
 
-   // 厳密な四捨五入による丸め処理
-   out_bid = RoundHalfUp(bid_raw, digits);
-   out_ask = RoundHalfUp(ask_raw, digits);
+   // ③ bidを丸めてから ask = bid + target_rounded で固定（独立丸め禁止）
+   out_bid = RoundHalfUp(mid - target_rounded / 2.0, digits);
+   out_ask = NormalizeDouble(out_bid + target_rounded, digits);
    out_spread = out_ask - out_bid;
 }
 

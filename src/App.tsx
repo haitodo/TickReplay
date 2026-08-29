@@ -241,9 +241,9 @@ function App() {
 
 
   const [enablePseudoRate, setEnablePseudoRate] = useState(true);
-  const [pseudoBaseSpread, setPseudoBaseSpread] = useState(0.2); // 0.2 pips
-  const [pseudoThreshold, setPseudoThreshold] = useState(1.0); // 1.0 pips
-  const [pseudoSensitivity, setPseudoSensitivity] = useState(0.35);
+  const [pseudoBaseSpread, setPseudoBaseSpread] = useState(0.2);  // 0.2 pips
+  const [pseudoThreshold, setPseudoThreshold] = useState(1.8);    // 1.8 pips（USDJPY実測最適）
+  const [pseudoSensitivity, setPseudoSensitivity] = useState(0.30); // USDJPY実測最適
   const [pseudoMode, setPseudoMode] = useState<"dmm" | "fixed" | "aggressive" | "custom">("dmm");
   const [pseudoRolloverEnabled, setPseudoRolloverEnabled] = useState(true);
   const [pseudoRolloverSpread, setPseudoRolloverSpread] = useState(3.5); // 3.5 pips
@@ -470,7 +470,7 @@ function App() {
     const sym = sourceSymbol.toUpperCase();
     if (sym.includes("USDJPY")) {
       setPseudoBaseSpread(0.2);
-      setPseudoThreshold(1.0);
+      setPseudoThreshold(1.8);  // 実測最適: 1.8 pips
       setPseudoRolloverSpread(3.5);
     } else if (sym.includes("EURUSD")) {
       setPseudoBaseSpread(0.4);
@@ -501,7 +501,7 @@ function App() {
       setPseudoThreshold(1.2);
       setPseudoRolloverSpread(3.5);
     }
-    setPseudoSensitivity(0.35);
+    setPseudoSensitivity(sym.includes("USDJPY") ? 0.30 : 0.35); // USDJPYのみ実測最適 0.30
     setPseudoRolloverEnabled(true);
     setPseudoRolloverRecoveryMin(15);
     setPseudoMode("dmm");
