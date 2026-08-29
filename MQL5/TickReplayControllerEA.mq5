@@ -1406,7 +1406,7 @@ void ProcessCommand(string line)
 
          if(m_total_ticks > 0 && m_current_idx > 0 && m_current_idx <= m_total_ticks)
          {
-            EvaluatePositionsByTick(m_all_ticks[m_current_idx - 1]);
+            EvaluatePositionsByTick(m_all_ticks[m_current_idx - 1], m_current_idx - 1);
          }
          WriteStatusFile();
       }
@@ -1445,7 +1445,7 @@ void ProcessCommand(string line)
          if(m_total_ticks > 0 && m_current_idx > 0 && m_current_idx <= m_total_ticks)
          {
             m_trade_json_dirty = true;
-            EvaluatePositionsByTick(m_all_ticks[m_current_idx - 1]);
+            EvaluatePositionsByTick(m_all_ticks[m_current_idx - 1], m_current_idx - 1);
          }
          else
          {
@@ -4206,11 +4206,19 @@ void VirtualOrderOpen(string type_str, double volume, double sl_points, double t
    UpdateChartObjects();
    
    // 証拠金・P&Lの再計算
-   MqlTick tick;
-   tick.bid = bid;
-   tick.ask = ask;
-   tick.time_msc = m_virtual_current_msc;
-   EvaluatePositionsByTick(tick);
+   int current_tick_idx = (m_current_idx > 0) ? (m_current_idx - 1) : 0;
+   if(m_total_ticks > 0 && current_tick_idx < m_total_ticks)
+   {
+      EvaluatePositionsByTick(m_all_ticks[current_tick_idx], current_tick_idx);
+   }
+   else
+   {
+      MqlTick tick;
+      tick.bid = bid;
+      tick.ask = ask;
+      tick.time_msc = m_virtual_current_msc;
+      EvaluatePositionsByTick(tick, -1);
+   }
    
    // 即座にステータスを書き出し
    m_trade_json_dirty = true;
@@ -4361,11 +4369,19 @@ void VirtualOrderCloseEx(int ticket, double volume, string reason, double closeP
    }
    
    // 他ポジション含めた口座ステータス更新
-   MqlTick dummy;
-   dummy.bid = closePrice;
-   dummy.ask = closePrice;
-   dummy.time_msc = closeTimeMsc;
-   EvaluatePositionsByTick(dummy);
+   int current_tick_idx = (m_current_idx > 0) ? (m_current_idx - 1) : 0;
+   if(m_total_ticks > 0 && current_tick_idx < m_total_ticks)
+   {
+      EvaluatePositionsByTick(m_all_ticks[current_tick_idx], current_tick_idx);
+   }
+   else
+   {
+      MqlTick dummy;
+      dummy.bid = closePrice;
+      dummy.ask = closePrice;
+      dummy.time_msc = closeTimeMsc;
+      EvaluatePositionsByTick(dummy, -1);
+   }
    
    // 即座にステータス書き出し
    m_trade_json_dirty = true;
@@ -4925,16 +4941,11 @@ void SyncVirtualTradesOnSeek(long target_msc)
    }
    
    // 口座状態の再計算
-   MqlTick last_tick;
-   if(m_current_idx > 0 && m_current_idx <= m_total_ticks)
+   int last_idx = (m_current_idx > 0 && m_current_idx <= m_total_ticks) ? (m_current_idx - 1) : 0;
+   if(m_total_ticks > 0)
    {
-      last_tick = m_all_ticks[m_current_idx - 1];
+      EvaluatePositionsByTick(m_all_ticks[last_idx], last_idx);
    }
-   else
-   {
-      last_tick = m_all_ticks[0];
-   }
-   EvaluatePositionsByTick(last_tick);
    m_trade_json_dirty = true;
 }
 
@@ -5199,9 +5210,17 @@ void PrecalculatePseudoRates()
       
       if(orig_bid <= 0 || orig_ask <= 0 || orig_bid == orig_ask)
       {
-         m_pseudo_rates[i].bid = orig_bid;
-         m_pseudo_rates[i].ask = orig_ask;
-         m_pseudo_rates[i].spread = orig_ask - orig_bid;
+         // 直前の有効な疑似レートがあれば引き継ぐ（無効ティックによるキャッシュ破壊防止）
+         if(i > 0 && m_pseudo_rates[i - 1].bid > 0 && m_pseudo_rates[i - 1].ask > m_pseudo_rates[i - 1].bid)
+         {
+            m_pseudo_rates[i] = m_pseudo_rates[i - 1];
+         }
+         else
+         {
+            m_pseudo_rates[i].bid = orig_bid;
+            m_pseudo_rates[i].ask = orig_ask;
+            m_pseudo_rates[i].spread = orig_ask - orig_bid;
+         }
          continue;
       }
       
@@ -5212,9 +5231,10 @@ void PrecalculatePseudoRates()
       
       int oanda_mid_unit = (int)MathRound((oanda_bid_unit + oanda_ask_unit) / 2.0);
       
-      // ティック時刻（JST）から時・分を取得
+      // ティック時刻（サーバー時間）を JST に変換して時・分を取得
+      datetime jst_time = ConvertServerToJST(m_all_ticks[i].time);
       MqlDateTime dt;
-      TimeToStruct(m_all_ticks[i].time, dt);
+      TimeToStruct(jst_time, dt);
       int hour = dt.hour;
       int min  = dt.min;
       
@@ -5361,8 +5381,9 @@ void GetPseudoRates(MqlTick &src_tick, double &out_bid, double &out_ask, double 
    if(oanda_spread_unit <= 0) oanda_spread_unit = 1;
    int oanda_mid_unit = (int)MathRound((oanda_bid_unit + oanda_ask_unit) / 2.0);
 
+   datetime jst_time = ConvertServerToJST(src_tick.time);
    MqlDateTime dt;
-   TimeToStruct(src_tick.time, dt);
+   TimeToStruct(jst_time, dt);
    int hour = dt.hour;
    int min  = dt.min;
 
