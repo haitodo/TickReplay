@@ -207,8 +207,8 @@ ulong             gl_start_tick_count = 0;      // 起動時のGetMicrosecondCou
 
 //--- 新規追加の仮想取引関数宣言
 void VirtualOrderOpen(string type_str, double volume, double sl_points, double tp_points);
-void VirtualOrderClose(int ticket, double volume, string reason);
-void VirtualOrderCloseEx(int ticket, double volume, string reason, double closePrice, long closeTimeMsc);
+void VirtualOrderClose(int ticket, double volume, string reason, bool trigger_reeval = true);
+void VirtualOrderCloseEx(int ticket, double volume, string reason, double closePrice, long closeTimeMsc, int tick_idx = -1, bool trigger_reeval = true);
 void VirtualOrderCloseAll(string reason);
 void ExportTradeTicksJson(int ticket);
 void VirtualOrderCloseBuy(string reason);
@@ -4104,7 +4104,7 @@ void VirtualOrderOpen(string type_str, double volume, double sl_points, double t
             double close_vol = (pos_vol <= remaining_volume) ? pos_vol : remaining_volume;
             int ticket_to_close = m_virtual_positions[i].ticket;
             
-            VirtualOrderCloseEx(ticket_to_close, close_vol, "SETTLEMENT", settle_price, m_virtual_current_msc);
+            VirtualOrderCloseEx(ticket_to_close, close_vol, "SETTLEMENT", settle_price, m_virtual_current_msc, m_current_idx - 1, false);
             remaining_volume -= close_vol;
             
             // 全決済された場合は配列要素が詰められているためインデックスを進めない
@@ -4228,19 +4228,20 @@ void VirtualOrderOpen(string type_str, double volume, double sl_points, double t
 //+------------------------------------------------------------------+
 //| 仮想ポジション決済                                               |
 //+------------------------------------------------------------------+
-void VirtualOrderClose(int ticket, double volume, string reason)
+void VirtualOrderClose(int ticket, double volume, string reason, bool trigger_reeval = true)
 {
    if(!m_initialized || m_total_ticks <= 0 || m_current_idx <= 0) return;
    
+   int current_tick_idx = m_current_idx - 1;
    double bid = 0.0;
    double ask = 0.0;
    double spread = 0.0;
-   if(!GetPseudoRateAtIndex(m_current_idx - 1, bid, ask, spread))
+   if(!GetPseudoRateAtIndex(current_tick_idx, bid, ask, spread))
    {
-      GetPseudoRates(m_all_ticks[m_current_idx - 1], bid, ask, spread);
+      GetPseudoRates(m_all_ticks[current_tick_idx], bid, ask, spread);
    }
-   if(bid <= 0) bid = m_all_ticks[m_current_idx - 1].last;
-   if(ask <= 0) ask = m_all_ticks[m_current_idx - 1].last;
+   if(bid <= 0) bid = m_all_ticks[current_tick_idx].last;
+   if(ask <= 0) ask = m_all_ticks[current_tick_idx].last;
    if(bid <= 0) bid = SymbolInfoDouble(m_replay_symbol, SYMBOL_BID);
    if(ask <= 0) ask = SymbolInfoDouble(m_replay_symbol, SYMBOL_ASK);
    
@@ -4258,14 +4259,14 @@ void VirtualOrderClose(int ticket, double volume, string reason)
    if(pos_idx >= 0)
    {
       double close_price = (m_virtual_positions[pos_idx].type == POSITION_TYPE_BUY) ? bid : ask;
-      VirtualOrderCloseEx(ticket, volume, reason, close_price, m_virtual_current_msc);
+      VirtualOrderCloseEx(ticket, volume, reason, close_price, m_virtual_current_msc, current_tick_idx, trigger_reeval);
    }
 }
 
 //+------------------------------------------------------------------+
 //| 仮想ポジション決済 (価格指定内部用)                              |
 //+------------------------------------------------------------------+
-void VirtualOrderCloseEx(int ticket, double volume, string reason, double closePrice, long closeTimeMsc)
+void VirtualOrderCloseEx(int ticket, double volume, string reason, double closePrice, long closeTimeMsc, int tick_idx = -1, bool trigger_reeval = true)
 {
    int pos_idx = -1;
    int pos_size = ArraySize(m_virtual_positions);
@@ -4368,24 +4369,27 @@ void VirtualOrderCloseEx(int ticket, double volume, string reason, double closeP
       }
    }
    
-   // 他ポジション含めた口座ステータス更新
-   int current_tick_idx = (m_current_idx > 0) ? (m_current_idx - 1) : 0;
-   if(m_total_ticks > 0 && current_tick_idx < m_total_ticks)
+   // 他ポジション含めた口座ステータス更新（再評価が要求された場合のみ）
+   if(trigger_reeval)
    {
-      EvaluatePositionsByTick(m_all_ticks[current_tick_idx], current_tick_idx);
+      int eval_idx = (tick_idx >= 0) ? tick_idx : ((m_current_idx > 0) ? (m_current_idx - 1) : 0);
+      if(m_total_ticks > 0 && eval_idx >= 0 && eval_idx < m_total_ticks)
+      {
+         EvaluatePositionsByTick(m_all_ticks[eval_idx], eval_idx);
+      }
+      else
+      {
+         MqlTick dummy;
+         dummy.bid = closePrice;
+         dummy.ask = closePrice;
+         dummy.time_msc = closeTimeMsc;
+         EvaluatePositionsByTick(dummy, -1);
+      }
+      
+      // 即座にステータス書き出し
+      m_trade_json_dirty = true;
+      WriteStatusFile();
    }
-   else
-   {
-      MqlTick dummy;
-      dummy.bid = closePrice;
-      dummy.ask = closePrice;
-      dummy.time_msc = closeTimeMsc;
-      EvaluatePositionsByTick(dummy, -1);
-   }
-   
-   // 即座にステータス書き出し
-   m_trade_json_dirty = true;
-   WriteStatusFile();
 }
 
 //+------------------------------------------------------------------+
@@ -4396,8 +4400,14 @@ void VirtualOrderCloseAll(string reason)
    int pos_size = ArraySize(m_virtual_positions);
    for(int i = pos_size - 1; i >= 0; i--)
    {
-      VirtualOrderClose(m_virtual_positions[i].ticket, m_virtual_positions[i].volume, reason);
+      VirtualOrderClose(m_virtual_positions[i].ticket, m_virtual_positions[i].volume, reason, false);
    }
+   if(m_total_ticks > 0 && m_current_idx > 0 && m_current_idx <= m_total_ticks)
+   {
+      EvaluatePositionsByTick(m_all_ticks[m_current_idx - 1], m_current_idx - 1);
+   }
+   m_trade_json_dirty = true;
+   WriteStatusFile();
 }
 
 //+------------------------------------------------------------------+
@@ -4410,9 +4420,15 @@ void VirtualOrderCloseBuy(string reason)
    {
       if(m_virtual_positions[i].type == POSITION_TYPE_BUY)
       {
-         VirtualOrderClose(m_virtual_positions[i].ticket, m_virtual_positions[i].volume, reason);
+         VirtualOrderClose(m_virtual_positions[i].ticket, m_virtual_positions[i].volume, reason, false);
       }
    }
+   if(m_total_ticks > 0 && m_current_idx > 0 && m_current_idx <= m_total_ticks)
+   {
+      EvaluatePositionsByTick(m_all_ticks[m_current_idx - 1], m_current_idx - 1);
+   }
+   m_trade_json_dirty = true;
+   WriteStatusFile();
 }
 
 //+------------------------------------------------------------------+
@@ -4425,9 +4441,15 @@ void VirtualOrderCloseSell(string reason)
    {
       if(m_virtual_positions[i].type == POSITION_TYPE_SELL)
       {
-         VirtualOrderClose(m_virtual_positions[i].ticket, m_virtual_positions[i].volume, reason);
+         VirtualOrderClose(m_virtual_positions[i].ticket, m_virtual_positions[i].volume, reason, false);
       }
    }
+   if(m_total_ticks > 0 && m_current_idx > 0 && m_current_idx <= m_total_ticks)
+   {
+      EvaluatePositionsByTick(m_all_ticks[m_current_idx - 1], m_current_idx - 1);
+   }
+   m_trade_json_dirty = true;
+   WriteStatusFile();
 }
 
 //+------------------------------------------------------------------+
@@ -4516,7 +4538,7 @@ void EvaluatePositionsByTick(MqlTick &tick, int tick_idx = -1)
          
          if(sl_hit)
          {
-            VirtualOrderCloseEx(m_virtual_positions[i].ticket, m_virtual_positions[i].volume, "SL", m_virtual_positions[i].sl, tick.time_msc);
+            VirtualOrderCloseEx(m_virtual_positions[i].ticket, m_virtual_positions[i].volume, "SL", m_virtual_positions[i].sl, tick.time_msc, tick_idx, false);
             pos_size = ArraySize(m_virtual_positions); // 配列サイズ再取得
             continue;
          }
@@ -4531,7 +4553,7 @@ void EvaluatePositionsByTick(MqlTick &tick, int tick_idx = -1)
          
          if(tp_hit)
          {
-            VirtualOrderCloseEx(m_virtual_positions[i].ticket, m_virtual_positions[i].volume, "TP", m_virtual_positions[i].tp, tick.time_msc);
+            VirtualOrderCloseEx(m_virtual_positions[i].ticket, m_virtual_positions[i].volume, "TP", m_virtual_positions[i].tp, tick.time_msc, tick_idx, false);
             pos_size = ArraySize(m_virtual_positions); // 配列サイズ再取得
             continue;
          }
