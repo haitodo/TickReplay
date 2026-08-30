@@ -441,6 +441,12 @@ pub fn convert_zip_to_mql_bin(
     // 概算ティック容量をあらかじめ予約 (無用な再メモリ拡張を排除)
     let mut ticks: Vec<MqlTick> = Vec::with_capacity(buffer.len() / 35 + 100);
 
+    let parsed_info = analyze_zip_path(zip_path, Path::new(""));
+    let pair = parsed_info.as_ref().map(|p| p.pair.as_str()).unwrap_or("USDJPY");
+    let ym = parsed_info.as_ref().map(|p| p.year_month.as_str()).unwrap_or("2026-08");
+
+    let mut pseudo_dmm = crate::pseudo_dmm::PseudoDmmEngine::new(pair, ym);
+
     for line_bytes in buffer.split(|&b| b == b'\n') {
         let trimmed = trim_ascii_bytes(line_bytes);
         if trimmed.is_empty() || trimmed[0] == b'#' || trimmed[0] == b'D' || trimmed[0] == b'd' {
@@ -494,16 +500,19 @@ pub fn convert_zip_to_mql_bin(
         };
         let time_sec = time_msc / 1000;
 
-        ticks.push(MqlTick {
-            time: time_sec,
-            bid,
-            ask,
-            last: 0.0,
-            volume: 0,
-            time_msc,
-            flags: 6,
-            volume_real: 0.0,
-        });
+        // 疑似DMM 4層レート生成パイプラインの適用
+        if let Some((dmm_bid, dmm_ask, _)) = pseudo_dmm.process_tick(time_msc, bid, ask) {
+            ticks.push(MqlTick {
+                time: time_sec,
+                bid: dmm_bid,
+                ask: dmm_ask,
+                last: 0.0,
+                volume: 0,
+                time_msc,
+                flags: 6,
+                volume_real: 0.0,
+            });
+        }
     }
 
     if ticks.is_empty() {

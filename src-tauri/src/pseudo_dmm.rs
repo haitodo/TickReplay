@@ -1,0 +1,483 @@
+use std::collections::HashMap;
+use std::fs::File;
+use std::path::PathBuf;
+use serde::{Deserialize, Serialize};
+use chrono::{Datelike, Timelike, Weekday};
+use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use arrow::array::{StringArray, Int64Array};
+
+/// 指標プロファイル定義（辞書からロード）
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct IndicatorProfile {
+    pub currency: String,
+    pub event_name: String,
+    pub importance: String,
+    pub tier: u8,
+    pub dmm_advance_seconds: i64,
+    pub dmm_base_pre_spread: f64,
+    pub dmm_base_peak_spread: f64,
+    pub dmm_recovery_seconds: i64,
+}
+
+/// メモリ内で高速参照するための経済指標イベント
+#[derive(Debug, Clone)]
+pub struct EconomicEvent {
+    pub event_id: i64,
+    pub utc_ms: i64,
+    pub currency: String,
+    pub event_name: String,
+    pub importance: String,
+    pub tier: u8,
+    pub advance_ms: i64,
+    pub base_pre_spread: f64,
+    pub base_peak_spread: f64,
+    pub recovery_ms: i64,
+}
+
+/// 疑似DMMレート生成エンジン（4層パイプライン）
+pub struct PseudoDmmEngine {
+    pub symbol: String,
+    pub year: i32,
+    pub month: u32,
+    pub events: Vec<EconomicEvent>,
+    // Layer 4: クォート間引き用ステート
+    last_emitted_msc: i64,
+    last_emitted_mid: f64,
+    last_emitted_spread: f64,
+    // Layer 3: 直近10秒間のプライスボラティリティ追跡 (utc_ms, mid)
+    recent_ticks: Vec<(i64, f64)>,
+}
+
+impl PseudoDmmEngine {
+    /// 新しいエンジンインスタンスを生成
+    pub fn new(symbol: &str, year_month: &str) -> Self {
+        let parts: Vec<&str> = year_month.split('-').collect();
+        let year: i32 = parts.get(0).and_then(|s| s.parse().ok()).unwrap_or(2026);
+        let month: u32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(8);
+
+        let profiles = Self::load_profile_matrix();
+        let events = Self::load_monthly_events(symbol, year, month, &profiles);
+
+        Self {
+            symbol: symbol.to_uppercase(),
+            year,
+            month,
+            events,
+            last_emitted_msc: 0,
+            last_emitted_mid: 0.0,
+            last_emitted_spread: 0.002,
+            recent_ticks: Vec::with_capacity(500),
+        }
+    }
+
+    /// プロファイル辞書をロード（見つからない場合は主要指標のデフォルトをフォールバック）
+    pub fn load_profile_matrix() -> HashMap<String, IndicatorProfile> {
+        let possible_paths = [
+            PathBuf::from("data/analysis/indicator_profile_matrix.json"),
+            PathBuf::from("../data/analysis/indicator_profile_matrix.json"),
+            PathBuf::from(r"D:\dev\TickReplay\data\analysis\indicator_profile_matrix.json"),
+            PathBuf::from(r"D:\Drehis\analysis\indicator_profile_matrix.json"),
+        ];
+
+        for p in &possible_paths {
+            if p.exists() {
+                if let Ok(content) = std::fs::read_to_string(p) {
+                    if let Ok(map) = serde_json::from_str::<HashMap<String, IndicatorProfile>>(&content) {
+                        return map;
+                    }
+                }
+            }
+        }
+
+        // デフォルトフォールバック
+        let mut map = HashMap::new();
+        map.insert("USD:非農業部門雇用者数".to_string(), IndicatorProfile {
+            currency: "USD".to_string(),
+            event_name: "非農業部門雇用者数".to_string(),
+            importance: "high".to_string(),
+            tier: 1,
+            dmm_advance_seconds: 25,
+            dmm_base_pre_spread: 0.025,
+            dmm_base_peak_spread: 0.039,
+            dmm_recovery_seconds: 60,
+        });
+        map.insert("USD:CPI".to_string(), IndicatorProfile {
+            currency: "USD".to_string(),
+            event_name: "CPI".to_string(),
+            importance: "high".to_string(),
+            tier: 1,
+            dmm_advance_seconds: 25,
+            dmm_base_pre_spread: 0.025,
+            dmm_base_peak_spread: 0.039,
+            dmm_recovery_seconds: 60,
+        });
+        map.insert("USD:Fed金利決定".to_string(), IndicatorProfile {
+            currency: "USD".to_string(),
+            event_name: "Fed金利決定".to_string(),
+            importance: "high".to_string(),
+            tier: 1,
+            dmm_advance_seconds: 25,
+            dmm_base_pre_spread: 0.025,
+            dmm_base_peak_spread: 0.039,
+            dmm_recovery_seconds: 60,
+        });
+        map
+    }
+
+    /// 当月の events.parquet から指標データをミリ秒でロード
+    pub fn load_monthly_events(
+        symbol: &str,
+        year: i32,
+        month: u32,
+        profiles: &HashMap<String, IndicatorProfile>,
+    ) -> Vec<EconomicEvent> {
+        let sym_lower = symbol.to_lowercase();
+        let month_str = format!("{:02}", month);
+        let possible_parquet_paths = [
+            PathBuf::from(format!(r"D:\Drehis\economic\{}\year={}\month={}\events.parquet", sym_lower, year, month_str)),
+            PathBuf::from(format!("data/economic/{}/year={}/month={}/events.parquet", sym_lower, year, month_str)),
+            PathBuf::from(format!("../data/economic/{}/year={}/month={}/events.parquet", sym_lower, year, month_str)),
+            PathBuf::from(format!(r"D:\dev\TickReplay\data\economic\{}\year={}\month={}\events.parquet", sym_lower, year, month_str)),
+        ];
+
+        for path in &possible_parquet_paths {
+            if path.exists() {
+                if let Ok(file) = File::open(path) {
+                    if let Ok(builder) = ParquetRecordBatchReaderBuilder::try_new(file) {
+                        if let Ok(mut reader) = builder.build() {
+                            let mut events = Vec::new();
+                            while let Some(Ok(batch)) = reader.next() {
+                                let schema = batch.schema();
+                                let event_id_idx = schema.index_of("event_id").ok();
+                                let utc_ms_idx = schema.index_of("utc_ms").ok();
+                                let ccy_idx = schema.index_of("currency").ok();
+                                let name_idx = schema.index_of("event_name").ok();
+                                let imp_idx = schema.index_of("importance").ok();
+
+                                if let (Some(u_idx), Some(c_idx), Some(n_idx)) = (utc_ms_idx, ccy_idx, name_idx) {
+                                    let utc_col = batch.column(u_idx).as_any().downcast_ref::<Int64Array>();
+                                    let ccy_col = batch.column(c_idx).as_any().downcast_ref::<StringArray>();
+                                    let name_col = batch.column(n_idx).as_any().downcast_ref::<StringArray>();
+                                    let id_col = event_id_idx.and_then(|i| batch.column(i).as_any().downcast_ref::<Int64Array>());
+                                    let imp_col = imp_idx.and_then(|i| batch.column(i).as_any().downcast_ref::<StringArray>());
+
+                                    if let (Some(u_arr), Some(c_arr), Some(n_arr)) = (utc_col, ccy_col, name_col) {
+                                        for row in 0..batch.num_rows() {
+                                            let utc_ms = u_arr.value(row);
+                                            let ccy = c_arr.value(row).to_string();
+                                            let name = n_arr.value(row).to_string();
+                                            let event_id = id_col.map(|arr| arr.value(row)).unwrap_or(0);
+                                            let imp = imp_col.map(|arr| arr.value(row).to_string()).unwrap_or_else(|| "none".to_string());
+
+                                            let profile_key = format!("{}:{}", ccy, name);
+                                            let (tier, adv_s, pre_s, peak_s, rec_s) = if let Some(p) = profiles.get(&profile_key) {
+                                                (p.tier, p.dmm_advance_seconds, p.dmm_base_pre_spread, p.dmm_base_peak_spread, p.dmm_recovery_seconds)
+                                            } else {
+                                                match imp.as_str() {
+                                                    "high" => (2, 15, 0.015, 0.030, 40),
+                                                    "medium" => (3, 10, 0.008, 0.018, 25),
+                                                    _ => (4, 0, 0.002, 0.002, 0),
+                                                }
+                                            };
+
+                                            events.push(EconomicEvent {
+                                                event_id,
+                                                utc_ms,
+                                                currency: ccy,
+                                                event_name: name,
+                                                importance: imp,
+                                                tier,
+                                                advance_ms: adv_s * 1000,
+                                                base_pre_spread: pre_s,
+                                                base_peak_spread: peak_s,
+                                                recovery_ms: rec_s * 1000,
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+
+                            events.sort_by_key(|e| e.utc_ms);
+                            return events;
+                        }
+                    }
+                }
+            }
+        }
+
+        Vec::new()
+    }
+
+    /// 米国夏時間 (US DST) 判定 (3月第2日曜日〜11月第1日曜日)
+    #[inline]
+    pub fn is_us_dst(year: i32, month: u32, day: u32, hour: u32) -> bool {
+        if month < 3 || month > 11 {
+            return false;
+        }
+        if month > 3 && month < 11 {
+            return true;
+        }
+
+        // 3月: 第2日曜日 02:00 から夏時間
+        if month == 3 {
+            // 3月1日の曜日 (1=Mon, 7=Sun)
+            let march1_w = chrono::NaiveDate::from_ymd_opt(year, 3, 1)
+                .map(|d| d.weekday().number_from_monday())
+                .unwrap_or(1);
+            let first_sun = if march1_w == 7 { 1 } else { 8 - march1_w + 1 };
+            let second_sun = first_sun + 7;
+            if day > second_sun {
+                return true;
+            } else if day == second_sun {
+                return hour >= 2;
+            } else {
+                return false;
+            }
+        }
+
+        // 11月: 第1日曜日 02:00 に冬時間へ戻る
+        if month == 11 {
+            let nov1_w = chrono::NaiveDate::from_ymd_opt(year, 11, 1)
+                .map(|d| d.weekday().number_from_monday())
+                .unwrap_or(1);
+            let first_sun = if nov1_w == 7 { 1 } else { 8 - nov1_w + 1 };
+            if day < first_sun {
+                return true;
+            } else if day == first_sun {
+                return hour < 2;
+            } else {
+                return false;
+            }
+        }
+
+        false
+    }
+
+    /// 単一ティックを4層パイプラインで疑似DMMレートに変換
+    /// 間引き対象の場合は None を返す
+    #[inline]
+    pub fn process_tick(
+        &mut self,
+        mt5_time_msc: i64,
+        raw_bid: f64,
+        raw_ask: f64,
+    ) -> Option<(f64, f64, f64)> {
+        let mid = (raw_bid + raw_ask) / 2.0;
+        let raw_oanda_spread = (raw_ask - raw_bid).abs();
+
+        // MT5時刻から UTC ms および JST ms を計算
+        let naive_mt5_sec = mt5_time_msc / 1000;
+        let naive_dt = chrono::DateTime::from_timestamp(naive_mt5_sec, 0)
+            .map(|dt| dt.naive_utc())
+            .unwrap_or_default();
+        
+        let y = naive_dt.year();
+        let m = naive_dt.month();
+        let d = naive_dt.day();
+        let h = naive_dt.hour();
+        let is_dst = Self::is_us_dst(y, m, d, h);
+
+        // MT5夏時間 = UTC+3 (オフセット3h), 冬時間 = UTC+2 (オフセット2h)
+        let offset_ms = if is_dst { 3 * 3600 * 1000 } else { 2 * 3600 * 1000 };
+        let utc_ms = mt5_time_msc - offset_ms;
+        let jst_ms = utc_ms + 9 * 3600 * 1000;
+
+        // JST 時刻情報の分解
+        let jst_sec = jst_ms / 1000;
+        let jst_dt = chrono::DateTime::from_timestamp(jst_sec, 0)
+            .map(|dt| dt.naive_utc())
+            .unwrap_or_default();
+        let jst_hour = jst_dt.hour();
+        let jst_min = jst_dt.minute();
+        let jst_wday = jst_dt.weekday();
+        let jst_day = jst_dt.day();
+
+        // --- Layer 0: ベーススプレッド (DMM標準: 0.2銭) ---
+        let mut target_spread = 0.002;
+
+        // --- Layer 1: 仲値制御 (平日 9:55〜10:00 JST) ---
+        if jst_wday != Weekday::Sat && jst_wday != Weekday::Sun {
+            if jst_hour == 9 && jst_min >= 55 {
+                // ゴトー日判定 (5, 10, 15, 20, 25, 30日)
+                let is_gotobi = jst_day % 5 == 0;
+                let fixing_spread = if is_gotobi { 0.008 } else { 0.006 };
+                if fixing_spread > target_spread {
+                    target_spread = fixing_spread;
+                }
+            }
+        }
+
+        // --- Layer 2: 早朝制御 (夏 5:00〜7:00 / 冬 6:00〜8:00 JST) ---
+        if is_dst {
+            // 夏時間 (5:00〜7:00 JST)
+            if jst_hour == 5 || jst_hour == 6 {
+                let early_spread = if jst_hour == 5 && jst_min >= 30 || jst_hour == 6 && jst_min < 30 {
+                    0.025 // 早朝ピーク: 2.5銭
+                } else {
+                    0.015 // 早朝前後: 1.5銭
+                };
+                if early_spread > target_spread {
+                    target_spread = early_spread;
+                }
+            }
+        } else {
+            // 冬時間 (6:00〜8:00 JST)
+            if jst_hour == 6 || jst_hour == 7 {
+                let early_spread = if jst_hour == 6 && jst_min >= 30 || jst_hour == 7 && jst_min < 30 {
+                    0.028 // 冬早朝ピーク: 2.8銭
+                } else {
+                    0.018 // 冬早朝前後: 1.8銭
+                };
+                if early_spread > target_spread {
+                    target_spread = early_spread;
+                }
+            }
+        }
+
+        // --- Layer 3: 経済指標動的制御 ---
+        // 直近10秒間のティック履歴を更新（10秒以上古いものは削除）
+        let cutoff_10s = utc_ms - 10000;
+        self.recent_ticks.retain(|&(t, _)| t >= cutoff_10s);
+        self.recent_ticks.push((utc_ms, mid));
+
+        // 直近10秒間の値幅 (pips)
+        let mut min_mid_10s = mid;
+        let mut max_mid_10s = mid;
+        for &(_, p) in &self.recent_ticks {
+            if p < min_mid_10s { min_mid_10s = p; }
+            if p > max_mid_10s { max_mid_10s = p; }
+        }
+        let price_volatility_10s_pips = (max_mid_10s - min_mid_10s) * 100.0;
+
+        // アクティブな指標ウィンドウを検索
+        for ev in &self.events {
+            let t_start = ev.utc_ms - ev.advance_ms;
+            let t_end = ev.utc_ms + ev.recovery_ms;
+
+            if utc_ms >= t_start && utc_ms <= t_end {
+                let indicator_spread = if utc_ms < ev.utc_ms {
+                    // 事前拡大フェーズ (T - advance 〜 T): 0.2銭から base_pre_spread へ線形上昇
+                    let progress = (utc_ms - t_start) as f64 / (ev.advance_ms as f64).max(1.0);
+                    0.002 + (ev.base_pre_spread - 0.002) * progress
+                } else if utc_ms <= ev.utc_ms + 15000 {
+                    // 初動・ピークフェーズ (T 〜 T+15s): 逆算回帰モデル式を適用
+                    let oanda_excess = (raw_oanda_spread - 0.004).max(0.0);
+                    let dyn_spread = ev.base_peak_spread + 0.25 * oanda_excess + 0.05 * price_volatility_10s_pips;
+                    dyn_spread.min(0.039) // DMM USDJPY 上限 3.9銭
+                } else {
+                    // 収束フェーズ (T+15s 〜 T+recovery): ピークから通常スプレッドへ滑らかに減衰
+                    let peak_base = ev.base_peak_spread.min(0.039);
+                    let rem_progress = (utc_ms - (ev.utc_ms + 15000)) as f64 / ((ev.recovery_ms - 15000) as f64).max(1.0);
+                    let decay = (1.0 - rem_progress).max(0.0).powi(2);
+                    0.002 + (peak_base - 0.002) * decay
+                };
+
+                if indicator_spread > target_spread {
+                    target_spread = indicator_spread;
+                }
+            }
+        }
+
+        // 上限・下限の厳格適用 (USDJPY: 0.2銭〜3.9銭)
+        let final_spread = target_spread.clamp(0.002, 0.039);
+
+        // --- Layer 4: クォート間引き＆レート正規化 ---
+        let dt_msc = mt5_time_msc - self.last_emitted_msc;
+        let d_mid = (mid - self.last_emitted_mid).abs();
+        let d_spr = (final_spread - self.last_emitted_spread).abs();
+
+        // 40ms未満で価格変動が0.1pip未満かつスプレッド不変の冗長ティックは間引き
+        if dt_msc < 40 && d_mid < 0.001 && d_spr < 0.0002 && self.last_emitted_msc > 0 {
+            return None;
+        }
+
+        // 更新を記録
+        self.last_emitted_msc = mt5_time_msc;
+        self.last_emitted_mid = mid;
+        self.last_emitted_spread = final_spread;
+
+        // DMM クォート生成 (小数点第3位に丸め)
+        let half_spr = final_spread / 2.0;
+        let dmm_bid = ((mid - half_spr) * 1000.0).round() / 1000.0;
+        let dmm_ask = ((mid + half_spr) * 1000.0).round() / 1000.0;
+
+        Some((dmm_bid, dmm_ask, final_spread))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normal_hours_spread() {
+        let mut engine = PseudoDmmEngine::new("USDJPY", "2026-08");
+        // 平日 14:00 JST (05:00 UTC, 08:00 MT5夏時間)
+        let mt5_msc = 1785571200000; // 2026-08-01 08:00:00 MT5
+        let res = engine.process_tick(mt5_msc, 150.000, 150.004);
+        assert!(res.is_some());
+        let (bid, ask, spr) = res.unwrap();
+        assert!((spr - 0.002).abs() < 0.0001, "Normal hours spread should be 0.2銭, got {}", spr);
+        assert_eq!(bid, 150.001);
+        assert_eq!(ask, 150.003);
+    }
+
+    #[test]
+    fn test_fixing_hours_spread() {
+        let mut engine = PseudoDmmEngine::new("USDJPY", "2026-08");
+        // 2026-08-03 (月) 09:56:00 JST (00:56:00 UTC, 03:56:00 MT5)
+        let mt5_dt = NaiveDateTime::parse_from_str("2026-08-03 03:56:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        let mt5_msc = mt5_dt.and_utc().timestamp() * 1000;
+        let res = engine.process_tick(mt5_msc, 150.000, 150.004);
+        assert!(res.is_some());
+        let (_, _, spr) = res.unwrap();
+        assert!(spr >= 0.006, "Fixing spread should be at least 0.6銭, got {}", spr);
+    }
+
+    #[test]
+    fn test_early_morning_spread() {
+        let mut engine = PseudoDmmEngine::new("USDJPY", "2026-08");
+        // 2026-08-03 (月) 06:00:00 JST (夏時間: 21:00:00 UTC, 00:00:00 MT5)
+        let mt5_dt = NaiveDateTime::parse_from_str("2026-08-03 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        let mt5_msc = mt5_dt.and_utc().timestamp() * 1000;
+        let res = engine.process_tick(mt5_msc, 150.000, 150.004);
+        assert!(res.is_some());
+        let (_, _, spr) = res.unwrap();
+        assert!(spr >= 0.015, "Early morning spread should be at least 1.5銭, got {}", spr);
+    }
+
+    #[test]
+    fn test_economic_indicator_dynamic_spread() {
+        let mut engine = PseudoDmmEngine::new("USDJPY", "2026-08");
+        // 指標イベントを手動注入 (2026-08-07 21:30:00 JST / 12:30:00 UTC / 15:30:00 MT5)
+        let mt5_event_dt = NaiveDateTime::parse_from_str("2026-08-07 15:30:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        let utc_event_ms = mt5_event_dt.and_utc().timestamp() * 1000 - 3 * 3600 * 1000;
+
+        engine.events.push(EconomicEvent {
+            event_id: 999999,
+            utc_ms: utc_event_ms,
+            currency: "USD".to_string(),
+            event_name: "非農業部門雇用者数".to_string(),
+            importance: "high".to_string(),
+            tier: 1,
+            advance_ms: 25000,
+            base_pre_spread: 0.025,
+            base_peak_spread: 0.039,
+            recovery_ms: 60000,
+        });
+
+        // 1. 発表 20秒前 (T - 20s): 事前拡大
+        let mt5_pre_msc = (mt5_event_dt.and_utc().timestamp() - 20) * 1000;
+        let res_pre = engine.process_tick(mt5_pre_msc, 150.000, 150.004);
+        assert!(res_pre.is_some());
+        let (_, _, spr_pre) = res_pre.unwrap();
+        assert!(spr_pre >= 0.005, "Pre-event spread should ramp up, got {}", spr_pre);
+
+        // 2. 発表直後 (T + 2s): ピーク拡大 (3.9銭上限到達)
+        let mt5_peak_msc = (mt5_event_dt.and_utc().timestamp() + 2) * 1000;
+        let res_peak = engine.process_tick(mt5_peak_msc, 150.000, 150.050);
+        assert!(res_peak.is_some());
+        let (_, _, spr_peak) = res_peak.unwrap();
+        assert_eq!(spr_peak, 0.039, "Peak spread should reach 3.9銭 on Tier 1 event");
+    }
+}

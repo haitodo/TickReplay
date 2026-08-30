@@ -7,6 +7,7 @@ pub mod mt5;
 pub mod ipc;
 pub mod shortcut;
 pub mod custom_symbol;
+pub mod pseudo_dmm;
 pub mod commands_replay;
 pub mod commands_mt5;
 pub mod commands_custom_symbol;
