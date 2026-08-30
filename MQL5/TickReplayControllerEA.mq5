@@ -5189,6 +5189,46 @@ bool GetPseudoRateAtIndex(int index, double &bid, double &ask, double &spread)
 }
 
 //+------------------------------------------------------------------+
+//| 実質ゴトー日判定（平日5の倍数、週末前倒し金曜日、月末営業日）      |
+//+------------------------------------------------------------------+
+bool IsEffectiveGotobi(datetime jst_time)
+{
+   MqlDateTime dt;
+   TimeToStruct(jst_time, dt);
+   int day = dt.day;
+   int dow = dt.day_of_week;
+   int mon = dt.mon;
+   int year = dt.year;
+
+   // 1. 平日の5, 10, 15, 20, 25, 30日
+   if(day % 5 == 0 && dow >= 1 && dow <= 5) return true;
+
+   // 2. 金曜日の前倒しゴトー日（土曜が5の倍数、または日曜が5の倍数）
+   if(dow == 5)
+   {
+      int sat_day = day + 1;
+      int sun_day = day + 2;
+      if(sat_day % 5 == 0 || sun_day % 5 == 0) return true;
+
+      // 月末金曜日（土日が月末跨ぎ）
+      int days_in_mon = 30;
+      if(mon==1 || mon==3 || mon==5 || mon==7 || mon==8 || mon==10 || mon==12) days_in_mon = 31;
+      else if(mon==2) days_in_mon = ((year%4==0 && year%100!=0) || year%400==0) ? 29 : 28;
+
+      if(day == days_in_mon || day + 1 == days_in_mon || day + 2 == days_in_mon) return true;
+   }
+
+   // 3. 平日の月末最終営業日
+   int days_in_mon = 30;
+   if(mon==1 || mon==3 || mon==5 || mon==7 || mon==8 || mon==10 || mon==12) days_in_mon = 31;
+   else if(mon==2) days_in_mon = ((year%4==0 && year%100!=0) || year%400==0) ? 29 : 28;
+
+   if(day == days_in_mon && dow >= 1 && dow <= 5) return true;
+
+   return false;
+}
+
+//+------------------------------------------------------------------+
 //| ロード時に全ティックの疑似DMMレートを一括事前計算する             |
 //+------------------------------------------------------------------+
 void PrecalculatePseudoRates()
@@ -5259,46 +5299,78 @@ void PrecalculatePseudoRates()
       TimeToStruct(jst_time, dt);
       int hour = dt.hour;
       int min  = dt.min;
+      int day  = dt.day;
+      int dow  = dt.day_of_week;
       
       ENUM_PSEUDO_STATE current_state = PSEUDO_STATE_NORMAL;
       int spread_unit = base_spread_unit;
       
-      // ロールオーバー時間帯判定（実測分布モデル）
-      if(m_pseudo_rollover_enabled)
+      // 仲値制御 (平日 9:53〜09:55:30 JST / 実測データ準拠)
+      if(dow >= 1 && dow <= 5 && hour == 9)
       {
-         if(hour == 6)
+         bool is_gotobi = IsEffectiveGotobi(jst_time);
+         double fix_spread = 0.0;
+         if(min == 54)
          {
-            if(min <= 3)
+            fix_spread = is_gotobi ? 0.010 : 0.008; // 09:54 ピーク: 0.8銭 / 実質ゴトー日 1.0銭
+         }
+         else if(min == 55 && dt.sec < 30)
+         {
+            fix_spread = is_gotobi ? 0.007 : 0.005; // 09:55:00〜29 収束帯: 0.5銭 / 実質ゴトー日 0.7銭
+         }
+         else if(min == 53 && dt.sec < 30)
+         {
+            fix_spread = 0.004; // 09:53 事前動意: 0.4銭
+         }
+         
+         if(fix_spread > 0.0)
+         {
+            current_state = PSEUDO_STATE_STRESS;
+            spread_unit = MathMax(spread_unit, ToUnit(fix_spread, price_unit));
+         }
+      }
+      // 早朝ロールオーバー時間帯判定（実測データ準拠: 夏 05:50〜07:14 / 冬 06:50〜08:14 JST）
+      else if(m_pseudo_rollover_enabled)
+      {
+         int roll_hour = IsSummerTimeUS(m_all_ticks[i].time) ? 6 : 7;
+         int pre_hour = roll_hour - 1;
+         
+         if(hour == pre_hour && min >= 50)
+         {
+            current_state = PSEUDO_STATE_STRESS;
+            double prog = (double)(min - 50) / 10.0;
+            spread_unit = ToUnit(0.005 + 0.010 * prog, price_unit); // 05:50〜: 0.5〜1.5銭
+         }
+         else if(hour == roll_hour)
+         {
+            if(min <= 5)
             {
                current_state = PSEUDO_STATE_ROLLOVER_EXTREME;
-               spread_unit = (int)MathRound(rollover_base_unit * 4.54); // 例: 35 * 4.54 ≈ 159 (0.159)
-            }
-            else if(min <= 9)
-            {
-               current_state = PSEUDO_STATE_ROLLOVER_MID;
-               spread_unit = (int)MathRound(rollover_base_unit * 1.46); // 例: 35 * 1.46 ≈ 51 (0.051)
+               spread_unit = ToUnit(0.065, price_unit); // ロールオーバー直後スパイク (平均6.5銭)
             }
             else
             {
                current_state = PSEUDO_STATE_ROLLOVER_WIDE;
-               spread_unit = rollover_base_unit; // 35 (0.035)
+               spread_unit = ToUnit(0.035, price_unit); // 早朝ワイド帯 (3.5銭)
             }
          }
-         else if(hour == 7 && min < 10)
+         else if(hour == roll_hour + 1 && min < 10)
          {
             current_state = PSEUDO_STATE_ROLLOVER_WIDE;
-            spread_unit = rollover_base_unit; // 07:00〜07:09 は 35 (0.035) を維持
+            spread_unit = ToUnit(0.035, price_unit); // 07:00〜07:09: 3.5銭維持
          }
-         else if(hour == 7 && min < m_pseudo_rollover_recovery_min && m_pseudo_rollover_recovery_min > 10)
+         else if(hour == roll_hour + 1 && min < 15)
          {
             current_state = PSEUDO_STATE_RECOVERY;
-            spread_unit = base_spread_unit;
+            double prog = (double)(min - 10) / 5.0;
+            spread_unit = ToUnit(0.035 - (0.035 - 0.002) * prog, price_unit); // 07:10〜07:14: 3.5銭から急減衰
          }
          else
          {
             current_state = PSEUDO_STATE_NORMAL;
          }
       }
+
       
       // 通常時間帯 または ロールオーバー時のOANDAスプレッド急拡大（STRESS）判定
       if(current_state == PSEUDO_STATE_NORMAL)
@@ -5408,39 +5480,75 @@ void GetPseudoRates(MqlTick &src_tick, double &out_bid, double &out_ask, double 
    TimeToStruct(jst_time, dt);
    int hour = dt.hour;
    int min  = dt.min;
+   int day  = dt.day;
+   int dow  = dt.day_of_week;
 
    ENUM_PSEUDO_STATE current_state = PSEUDO_STATE_NORMAL;
    int spread_unit = base_spread_unit;
 
-   if(m_pseudo_rollover_enabled)
+   // 仲値制御 (平日 9:53〜09:55:30 JST / 実測データ準拠)
+   if(dow >= 1 && dow <= 5 && hour == 9)
    {
-      if(hour == 6)
+      bool is_gotobi = IsEffectiveGotobi(jst_time);
+      double fix_spread = 0.0;
+      if(min == 54)
       {
-         if(min <= 3)
+         fix_spread = is_gotobi ? 0.010 : 0.008; // 09:54 ピーク: 0.8銭 / 実質ゴトー日 1.0銭
+      }
+      else if(min == 55 && dt.sec < 30)
+      {
+         fix_spread = is_gotobi ? 0.007 : 0.005; // 09:55:00〜29 収束帯: 0.5銭 / 実質ゴトー日 0.7銭
+      }
+      else if(min == 53 && dt.sec < 30)
+      {
+         fix_spread = 0.004; // 09:53 事前動意: 0.4銭
+      }
+      
+      if(fix_spread > 0.0)
+      {
+         current_state = PSEUDO_STATE_STRESS;
+         spread_unit = MathMax(spread_unit, ToUnit(fix_spread, price_unit));
+      }
+   }
+   // 早朝ロールオーバー時間帯判定（実測データ準拠: 夏 05:50〜07:14 / 冬 06:50〜08:14 JST）
+   else if(m_pseudo_rollover_enabled)
+   {
+      int roll_hour = IsSummerTimeUS(src_tick.time) ? 6 : 7;
+      int pre_hour = roll_hour - 1;
+      
+      if(hour == pre_hour && min >= 50)
+      {
+         current_state = PSEUDO_STATE_STRESS;
+         double prog = (double)(min - 50) / 10.0;
+         spread_unit = ToUnit(0.005 + 0.010 * prog, price_unit); // 05:50〜: 0.5〜1.5銭
+      }
+      else if(hour == roll_hour)
+      {
+         if(min <= 5)
          {
             current_state = PSEUDO_STATE_ROLLOVER_EXTREME;
-            spread_unit = (int)MathRound(rollover_base_unit * 4.54);
-         }
-         else if(min <= 9)
-         {
-            current_state = PSEUDO_STATE_ROLLOVER_MID;
-            spread_unit = (int)MathRound(rollover_base_unit * 1.46);
+            spread_unit = ToUnit(0.065, price_unit); // ロールオーバー直後スパイク (平均6.5銭)
          }
          else
          {
             current_state = PSEUDO_STATE_ROLLOVER_WIDE;
-            spread_unit = rollover_base_unit;
+            spread_unit = ToUnit(0.035, price_unit); // 早朝ワイド帯 (3.5銭)
          }
       }
-      else if(hour == 7 && min < 10)
+      else if(hour == roll_hour + 1 && min < 10)
       {
          current_state = PSEUDO_STATE_ROLLOVER_WIDE;
-         spread_unit = rollover_base_unit;
+         spread_unit = ToUnit(0.035, price_unit); // 07:00〜07:09: 3.5銭維持
       }
-      else if(hour == 7 && min < m_pseudo_rollover_recovery_min && m_pseudo_rollover_recovery_min > 10)
+      else if(hour == roll_hour + 1 && min < 15)
       {
          current_state = PSEUDO_STATE_RECOVERY;
-         spread_unit = base_spread_unit;
+         double prog = (double)(min - 10) / 5.0;
+         spread_unit = ToUnit(0.035 - (0.035 - 0.002) * prog, price_unit); // 07:10〜07:14: 3.5銭から急減衰
+      }
+      else
+      {
+         current_state = PSEUDO_STATE_NORMAL;
       }
    }
 

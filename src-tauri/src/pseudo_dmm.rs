@@ -253,6 +253,46 @@ impl PseudoDmmEngine {
         false
     }
 
+    /// 実質ゴトー日判定（平日5の倍数、週末前倒し金曜日、月末営業日）
+    pub fn is_effective_gotobi(year: i32, month: u32, day: u32, wday: Weekday) -> bool {
+        // 1. 平日の 5, 10, 15, 20, 25, 30日
+        if day % 5 == 0 && wday != Weekday::Sat && wday != Weekday::Sun {
+            return true;
+        }
+
+        // 2. 金曜日の前倒しゴトー日（土曜が5の倍数、または日曜が5の倍数）
+        if wday == Weekday::Fri {
+            let sat_day = day + 1;
+            let sun_day = day + 2;
+            if sat_day % 5 == 0 || sun_day % 5 == 0 {
+                return true;
+            }
+            // 月末金曜日（土日が月末跨ぎ）
+            let days_in_month = match month {
+                1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+                4 | 6 | 9 | 11 => 30,
+                2 => if (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0) { 29 } else { 28 },
+                _ => 30,
+            };
+            if day == days_in_month || day + 1 == days_in_month || day + 2 == days_in_month {
+                return true;
+            }
+        }
+
+        // 3. 平日の月末最終日（28, 29, 31日）
+        let days_in_month = match month {
+            1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+            4 | 6 | 9 | 11 => 30,
+            2 => if (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0) { 29 } else { 28 },
+            _ => 30,
+        };
+        if day == days_in_month && wday != Weekday::Sat && wday != Weekday::Sun {
+            return true;
+        }
+
+        false
+    }
+
     /// 単一ティックを4層パイプラインで疑似DMMレートに変換
     /// 間引き対象の場合は None を返す
     #[inline]
@@ -295,42 +335,64 @@ impl PseudoDmmEngine {
         // --- Layer 0: ベーススプレッド (DMM標準: 0.2銭) ---
         let mut target_spread = 0.002;
 
-        // --- Layer 1: 仲値制御 (平日 9:55〜10:00 JST) ---
+        // --- Layer 1: 仲値制御 (平日 9:53〜09:55:30 JST / 実測データ準拠) ---
         if jst_wday != Weekday::Sat && jst_wday != Weekday::Sun {
-            if jst_hour == 9 && jst_min >= 55 {
-                // ゴトー日判定 (5, 10, 15, 20, 25, 30日)
-                let is_gotobi = jst_day % 5 == 0;
-                let fixing_spread = if is_gotobi { 0.008 } else { 0.006 };
+            if jst_hour == 9 {
+                let is_gotobi = Self::is_effective_gotobi(y, m, jst_day, jst_wday);
+                let jst_sec_of_min = jst_dt.second();
+
+                let fixing_spread = if jst_min == 54 {
+                    // 09:54:00〜09:54:59 (仲値直前ピーク): 通常 0.8銭 / 実質ゴトー日 1.0銭
+                    if is_gotobi { 0.010 } else { 0.008 }
+                } else if jst_min == 55 && jst_sec_of_min < 30 {
+                    // 09:55:00〜09:55:29 (仲値通過・急収束): 通常 0.5銭 / 実質ゴトー日 0.7銭
+                    if is_gotobi { 0.007 } else { 0.005 }
+                } else if jst_min == 53 && jst_sec_of_min < 30 {
+                    // 09:53:00〜09:53:29 (事前動意): 0.4銭
+                    0.004
+                } else {
+                    0.002
+                };
+
                 if fixing_spread > target_spread {
                     target_spread = fixing_spread;
                 }
             }
         }
 
-        // --- Layer 2: 早朝制御 (夏 5:00〜7:00 / 冬 6:00〜8:00 JST) ---
-        if is_dst {
-            // 夏時間 (5:00〜7:00 JST)
-            if jst_hour == 5 || jst_hour == 6 {
-                let early_spread = if jst_hour == 5 && jst_min >= 30 || jst_hour == 6 && jst_min < 30 {
-                    0.025 // 早朝ピーク: 2.5銭
-                } else {
-                    0.015 // 早朝前後: 1.5銭
-                };
-                if early_spread > target_spread {
-                    target_spread = early_spread;
-                }
+        // --- Layer 2: 早朝ロールオーバー制御 (実測データ準拠) ---
+        // 夏時間: 05:50〜07:10 JST (06:00ロールオーバー) / 冬時間: 06:50〜08:10 JST (07:00ロールオーバー)
+        let rollover_hour = if is_dst { 6 } else { 7 };
+        let pre_hour = rollover_hour - 1;
+
+        if jst_hour == pre_hour && jst_min >= 50 {
+            // ロールオーバー10分前 (05:50〜05:59 / 06:50〜06:59): 0.5銭〜1.5銭
+            let progress = (jst_min - 50) as f64 / 10.0;
+            let early_spread = 0.005 + 0.010 * progress;
+            if early_spread > target_spread {
+                target_spread = early_spread;
             }
-        } else {
-            // 冬時間 (6:00〜8:00 JST)
-            if jst_hour == 6 || jst_hour == 7 {
-                let early_spread = if jst_hour == 6 && jst_min >= 30 || jst_hour == 7 && jst_min < 30 {
-                    0.028 // 冬早朝ピーク: 2.8銭
-                } else {
-                    0.018 // 冬早朝前後: 1.8銭
-                };
-                if early_spread > target_spread {
-                    target_spread = early_spread;
-                }
+        } else if jst_hour == rollover_hour {
+            let early_spread = if jst_min <= 5 {
+                0.065 // ロールオーバー直後スパイク (平均6.5銭 / 上限3.9銭でクリップ)
+            } else {
+                0.035 // 早朝ワイドスプレッド (3.5銭)
+            };
+            if early_spread > target_spread {
+                target_spread = early_spread;
+            }
+        } else if jst_hour == rollover_hour + 1 && jst_min < 10 {
+            // 早朝残存帯 (07:00〜07:09 / 08:00〜08:09): 3.5銭
+            let early_spread = 0.035;
+            if early_spread > target_spread {
+                target_spread = early_spread;
+            }
+        } else if jst_hour == rollover_hour + 1 && jst_min < 15 {
+            // 復帰急減衰帯 (07:10〜07:14 / 08:10〜08:14): 3.5銭から0.2銭へ減衰
+            let progress = (jst_min - 10) as f64 / 5.0;
+            let early_spread = 0.035 - (0.035 - 0.002) * progress;
+            if early_spread > target_spread {
+                target_spread = early_spread;
             }
         }
 
@@ -396,10 +458,10 @@ impl PseudoDmmEngine {
         self.last_emitted_mid = mid;
         self.last_emitted_spread = final_spread;
 
-        // DMM クォート生成 (小数点第3位に丸め)
-        let half_spr = final_spread / 2.0;
-        let dmm_bid = ((mid - half_spr) * 1000.0).round() / 1000.0;
-        let dmm_ask = ((mid + half_spr) * 1000.0).round() / 1000.0;
+        // DMM クォート生成 (スプレッド幅が厳密に一致するよう、bid丸め後に正確なスプレッドを加算)
+        let spr_points = (final_spread * 1000.0).round() / 1000.0;
+        let dmm_bid = ((mid - final_spread / 2.0) * 1000.0).round() / 1000.0;
+        let dmm_ask = ((dmm_bid + spr_points) * 1000.0).round() / 1000.0;
 
         Some((dmm_bid, dmm_ask, final_spread))
     }
@@ -408,6 +470,7 @@ impl PseudoDmmEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::NaiveDateTime;
 
     #[test]
     fn test_normal_hours_spread() {
@@ -425,25 +488,57 @@ mod tests {
     #[test]
     fn test_fixing_hours_spread() {
         let mut engine = PseudoDmmEngine::new("USDJPY", "2026-08");
-        // 2026-08-03 (月) 09:56:00 JST (00:56:00 UTC, 03:56:00 MT5)
-        let mt5_dt = NaiveDateTime::parse_from_str("2026-08-03 03:56:00", "%Y-%m-%d %H:%M:%S").unwrap();
-        let mt5_msc = mt5_dt.and_utc().timestamp() * 1000;
-        let res = engine.process_tick(mt5_msc, 150.000, 150.004);
-        assert!(res.is_some());
-        let (_, _, spr) = res.unwrap();
-        assert!(spr >= 0.006, "Fixing spread should be at least 0.6銭, got {}", spr);
+        // 2026-08-03 (月) 09:54:30 JST (00:54:30 UTC, 03:54:30 MT5) -> ピーク 0.8銭
+        let mt5_dt_peak = NaiveDateTime::parse_from_str("2026-08-03 03:54:30", "%Y-%m-%d %H:%M:%S").unwrap();
+        let mt5_msc_peak = mt5_dt_peak.and_utc().timestamp() * 1000;
+        let res_peak = engine.process_tick(mt5_msc_peak, 150.000, 150.004);
+        assert!(res_peak.is_some());
+        let (_, _, spr_peak) = res_peak.unwrap();
+        assert!((spr_peak - 0.008).abs() < 0.0001, "Fixing peak spread should be 0.8銭, got {}", spr_peak);
+
+        // 2026-08-03 (月) 09:56:00 JST (00:56:00 UTC, 03:56:00 MT5) -> 正常復帰 0.2銭
+        let mt5_dt_norm = NaiveDateTime::parse_from_str("2026-08-03 03:56:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        let mt5_msc_norm = mt5_dt_norm.and_utc().timestamp() * 1000;
+        let res_norm = engine.process_tick(mt5_msc_norm, 150.000, 150.004);
+        assert!(res_norm.is_some());
+        let (_, _, spr_norm) = res_norm.unwrap();
+        assert!((spr_norm - 0.002).abs() < 0.0001, "Fixing after spread should be 0.2銭, got {}", spr_norm);
     }
 
     #[test]
     fn test_early_morning_spread() {
         let mut engine = PseudoDmmEngine::new("USDJPY", "2026-08");
-        // 2026-08-03 (月) 06:00:00 JST (夏時間: 21:00:00 UTC, 00:00:00 MT5)
-        let mt5_dt = NaiveDateTime::parse_from_str("2026-08-03 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
-        let mt5_msc = mt5_dt.and_utc().timestamp() * 1000;
-        let res = engine.process_tick(mt5_msc, 150.000, 150.004);
-        assert!(res.is_some());
-        let (_, _, spr) = res.unwrap();
-        assert!(spr >= 0.015, "Early morning spread should be at least 1.5銭, got {}", spr);
+        // 2026-08-03 (月) 05:30:00 JST (夏時間: 20:30:00 UTC, 23:30:00 MT5前日) -> 平時 0.2銭
+        let mt5_dt_pre = NaiveDateTime::parse_from_str("2026-08-02 23:30:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        let mt5_msc_pre = mt5_dt_pre.and_utc().timestamp() * 1000;
+        let res_pre = engine.process_tick(mt5_msc_pre, 150.000, 150.004);
+        assert!(res_pre.is_some());
+        let (_, _, spr_pre) = res_pre.unwrap();
+        assert!((spr_pre - 0.002).abs() < 0.0001, "Pre-rollover 05:30 spread should be 0.2銭, got {}", spr_pre);
+
+        // 2026-08-03 (月) 06:00:00 JST (夏時間: 21:00:00 UTC, 00:00:00 MT5) -> 上限 3.9銭
+        let mt5_dt_peak = NaiveDateTime::parse_from_str("2026-08-03 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        let mt5_msc_peak = mt5_dt_peak.and_utc().timestamp() * 1000;
+        let res_peak = engine.process_tick(mt5_msc_peak, 150.000, 150.004);
+        assert!(res_peak.is_some());
+        let (_, _, spr_peak) = res_peak.unwrap();
+        assert_eq!(spr_peak, 0.039, "Rollover 06:00 peak should be capped at 3.9銭, got {}", spr_peak);
+
+        // 2026-08-03 (月) 06:30:00 JST (夏時間: 21:30:00 UTC, 00:30:00 MT5) -> 3.5銭
+        let mt5_dt_mid = NaiveDateTime::parse_from_str("2026-08-03 00:30:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        let mt5_msc_mid = mt5_dt_mid.and_utc().timestamp() * 1000;
+        let res_mid = engine.process_tick(mt5_msc_mid, 150.000, 150.004);
+        assert!(res_mid.is_some());
+        let (_, _, spr_mid) = res_mid.unwrap();
+        assert!((spr_mid - 0.035).abs() < 0.0001, "Early morning 06:30 spread should be 3.5銭, got {}", spr_mid);
+
+        // 2026-08-03 (月) 07:15:00 JST (夏時間: 22:15:00 UTC, 01:15:00 MT5) -> 復帰 0.2銭
+        let mt5_dt_rec = NaiveDateTime::parse_from_str("2026-08-03 01:15:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        let mt5_msc_rec = mt5_dt_rec.and_utc().timestamp() * 1000;
+        let res_rec = engine.process_tick(mt5_msc_rec, 150.000, 150.004);
+        assert!(res_rec.is_some());
+        let (_, _, spr_rec) = res_rec.unwrap();
+        assert!((spr_rec - 0.002).abs() < 0.0001, "Morning recovery 07:15 spread should be 0.2銭, got {}", spr_rec);
     }
 
     #[test]
