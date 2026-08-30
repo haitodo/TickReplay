@@ -51,12 +51,17 @@ pub struct PseudoDmmEngine {
 impl PseudoDmmEngine {
     /// 新しいエンジンインスタンスを生成
     pub fn new(symbol: &str, year_month: &str) -> Self {
+        Self::new_with_custom_dir(symbol, year_month, None)
+    }
+
+    /// 経済指標フォルダーを明示指定して新しいエンジンインスタンスを生成
+    pub fn new_with_custom_dir(symbol: &str, year_month: &str, custom_dir: Option<&str>) -> Self {
         let parts: Vec<&str> = year_month.split('-').collect();
         let year: i32 = parts.get(0).and_then(|s| s.parse().ok()).unwrap_or(2026);
         let month: u32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(8);
 
         let profiles = Self::load_profile_matrix();
-        let events = Self::load_monthly_events(symbol, year, month, &profiles);
+        let events = Self::load_events_for_month(symbol, year, month, &profiles, custom_dir);
 
         Self {
             symbol: symbol.to_uppercase(),
@@ -124,20 +129,52 @@ impl PseudoDmmEngine {
         map
     }
 
-    /// 当月の events.parquet から指標データをミリ秒でロード
-    pub fn load_monthly_events(
+    /// Drenhis 側の設定から経済指標エクスポート先パスを取得する（戻り値で直接判定）
+    pub fn get_drenhis_export_dir() -> PathBuf {
+        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+            let conf_path = PathBuf::from(local_app_data)
+                .join("com.drenhis.app")
+                .join("economic_export_config.json");
+            if conf_path.exists() {
+                if let Ok(content) = std::fs::read_to_string(conf_path) {
+                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                        if let Some(dir) = val.get("export_dir").and_then(|v| v.as_str()) {
+                            let p = PathBuf::from(dir);
+                            if p.exists() {
+                                return p;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Drenhis設定が存在しない場合の標準デフォルト
+        PathBuf::from(r"D:\Drehis\economic")
+    }
+
+    /// 当月の経済指標イベントを Parquet から読み込む
+    fn load_events_for_month(
         symbol: &str,
         year: i32,
         month: u32,
         profiles: &HashMap<String, IndicatorProfile>,
+        custom_dir: Option<&str>,
     ) -> Vec<EconomicEvent> {
         let sym_lower = symbol.to_lowercase();
         let month_str = format!("{:02}", month);
+
+        // 1. 指定パス または Drenhis設定パスを直接取得
+        let base_dir = match custom_dir {
+            Some(dir) => PathBuf::from(dir),
+            None => Self::get_drenhis_export_dir(),
+        };
+
         let possible_parquet_paths = [
-            PathBuf::from(format!(r"D:\Drehis\economic\{}\year={}\month={}\events.parquet", sym_lower, year, month_str)),
+            base_dir.join(&sym_lower).join(format!("year={}", year)).join(format!("month={}", month_str)).join("events.parquet"),
+            base_dir.join(&sym_lower).join(format!("year={}", year)).join(format!("month={}", month_str)).join("data.parquet"),
+            // プロジェクト相対フォールバック
             PathBuf::from(format!("data/economic/{}/year={}/month={}/events.parquet", sym_lower, year, month_str)),
             PathBuf::from(format!("../data/economic/{}/year={}/month={}/events.parquet", sym_lower, year, month_str)),
-            PathBuf::from(format!(r"D:\dev\TickReplay\data\economic\{}\year={}\month={}\events.parquet", sym_lower, year, month_str)),
         ];
 
         for path in &possible_parquet_paths {
