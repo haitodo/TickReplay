@@ -9,7 +9,7 @@ import time
 def parse_args():
     parser = argparse.ArgumentParser(description='Drenhis Economic Calendar Parquet Partition Exporter')
     parser.add_argument('--db-path', default=r'data\drehis\news.db', help='Path to drehis news.db')
-    parser.add_argument('--output-dir', default=r'D:\Drehis\economic', help='Target directory for partitioned Parquet files')
+    parser.add_argument('--output-dir', default=r'D:\Drehis', help='Target root directory for partitioned Parquet files')
     parser.add_argument('--symbol', default='USDJPY', help='Target symbol/pair (USDJPY, EURUSD, GBPJPY, ALL)')
     parser.add_argument('--force', action='store_true', help='Force overwrite all partitions regardless of diff')
     return parser.parse_args()
@@ -87,7 +87,10 @@ def export_partitions():
     df_all['month'] = df_all['jst_dt'].dt.strftime('%m')
     df_all.drop(columns=['jst_dt'], inplace=True)
     
-    sym_folder = os.path.join(output_root, symbol.lower())
+    if os.path.basename(output_root).lower() == "economic":
+        sym_folder = os.path.join(output_root, f"symbol={symbol.lower()}")
+    else:
+        sym_folder = os.path.join(output_root, "economic", f"symbol={symbol.lower()}")
     os.makedirs(sym_folder, exist_ok=True)
     
     grouped = df_all.groupby(['year', 'month'])

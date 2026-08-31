@@ -20,10 +20,11 @@ pub struct IndicatorProfile {
 }
 
 /// メモリ内で高速参照するための経済指標イベント
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EconomicEvent {
     pub event_id: i64,
     pub utc_ms: i64,
+    pub mt5_ms: i64,
     pub currency: String,
     pub event_name: String,
     pub importance: String,
@@ -44,7 +45,7 @@ pub struct PseudoDmmEngine {
     last_emitted_msc: i64,
     last_emitted_mid: f64,
     last_emitted_spread: f64,
-    // Layer 3: 直近10秒間のプライスボラティリティ追跡 (utc_ms, mid)
+    // Layer 3: 直近10秒間のプライスボラティリティ追跡 (mt5_ms, mid)
     recent_ticks: Vec<(i64, f64)>,
 }
 
@@ -149,7 +150,7 @@ impl PseudoDmmEngine {
             }
         }
         // Drenhis設定が存在しない場合の標準デフォルト
-        PathBuf::from(r"D:\Drehis\economic")
+        PathBuf::from(r"D:\Drehis")
     }
 
     /// 当月の経済指標イベントを Parquet から読み込む
@@ -169,30 +170,54 @@ impl PseudoDmmEngine {
             None => Self::get_drenhis_export_dir(),
         };
 
+        let sym_folder = format!("symbol={}", sym_lower);
         let possible_parquet_paths = [
-            base_dir.join(&sym_lower).join(format!("year={}", year)).join(format!("month={}", month_str)).join("events.parquet"),
-            base_dir.join(&sym_lower).join(format!("year={}", year)).join(format!("month={}", month_str)).join("data.parquet"),
+            base_dir.join("economic").join(&sym_folder).join(format!("year={}", year)).join(format!("month={}", month_str)).join("events.parquet"),
+            base_dir.join("economic").join(&sym_folder).join(format!("year={}", year)).join(format!("month={}", month_str)).join("data.parquet"),
+            base_dir.join(&sym_folder).join(format!("year={}", year)).join(format!("month={}", month_str)).join("events.parquet"),
+            base_dir.join(&sym_folder).join(format!("year={}", year)).join(format!("month={}", month_str)).join("data.parquet"),
             // プロジェクト相対フォールバック
-            PathBuf::from(format!("data/economic/{}/year={}/month={}/events.parquet", sym_lower, year, month_str)),
-            PathBuf::from(format!("../data/economic/{}/year={}/month={}/events.parquet", sym_lower, year, month_str)),
+            PathBuf::from(format!("data/economic/{}/year={}/month={}/events.parquet", sym_folder, year, month_str)),
+            PathBuf::from(format!("../data/economic/{}/year={}/month={}/events.parquet", sym_folder, year, month_str)),
         ];
 
         for path in &possible_parquet_paths {
             if path.exists() {
                 if let Ok(file) = File::open(path) {
                     if let Ok(builder) = ParquetRecordBatchReaderBuilder::try_new(file) {
+                        let file_schema = builder.schema();
+                        let wanted_cols = ["event_id", "utc_ms", "mt5_ms", "currency", "event_name", "importance"];
+                        let mut root_indices = Vec::new();
+                        for (idx, field) in file_schema.fields().iter().enumerate() {
+                            if wanted_cols.iter().any(|&c| c.eq_ignore_ascii_case(field.name())) {
+                                root_indices.push(idx);
+                            }
+                        }
+
+                        let builder = if !root_indices.is_empty() {
+                            let mask = parquet::arrow::ProjectionMask::roots(
+                                builder.parquet_schema(),
+                                root_indices,
+                            );
+                            builder.with_projection(mask)
+                        } else {
+                            builder
+                        };
+
                         if let Ok(mut reader) = builder.build() {
                             let mut events = Vec::new();
                             while let Some(Ok(batch)) = reader.next() {
                                 let schema = batch.schema();
                                 let event_id_idx = schema.index_of("event_id").ok();
                                 let utc_ms_idx = schema.index_of("utc_ms").ok();
+                                let mt5_ms_idx = schema.index_of("mt5_ms").ok();
                                 let ccy_idx = schema.index_of("currency").ok();
                                 let name_idx = schema.index_of("event_name").ok();
                                 let imp_idx = schema.index_of("importance").ok();
 
                                 if let (Some(u_idx), Some(c_idx), Some(n_idx)) = (utc_ms_idx, ccy_idx, name_idx) {
                                     let utc_col = batch.column(u_idx).as_any().downcast_ref::<Int64Array>();
+                                    let mt5_col = mt5_ms_idx.and_then(|i| batch.column(i).as_any().downcast_ref::<Int64Array>());
                                     let ccy_col = batch.column(c_idx).as_any().downcast_ref::<StringArray>();
                                     let name_col = batch.column(n_idx).as_any().downcast_ref::<StringArray>();
                                     let id_col = event_id_idx.and_then(|i| batch.column(i).as_any().downcast_ref::<Int64Array>());
@@ -201,6 +226,17 @@ impl PseudoDmmEngine {
                                     if let (Some(u_arr), Some(c_arr), Some(n_arr)) = (utc_col, ccy_col, name_col) {
                                         for row in 0..batch.num_rows() {
                                             let utc_ms = u_arr.value(row);
+                                            let mt5_ms = if let Some(m_arr) = mt5_col {
+                                                m_arr.value(row)
+                                            } else {
+                                                let utc_sec = utc_ms / 1000;
+                                                let dt = chrono::DateTime::from_timestamp(utc_sec, 0)
+                                                    .map(|d| d.naive_utc())
+                                                    .unwrap_or_default();
+                                                let is_dst = Self::is_us_dst(dt.year(), dt.month(), dt.day(), dt.hour());
+                                                let offset = if is_dst { 3 * 3600 * 1000 } else { 2 * 3600 * 1000 };
+                                                utc_ms + offset
+                                            };
                                             let ccy = c_arr.value(row).to_string();
                                             let name = n_arr.value(row).to_string();
                                             let event_id = id_col.map(|arr| arr.value(row)).unwrap_or(0);
@@ -220,6 +256,7 @@ impl PseudoDmmEngine {
                                             events.push(EconomicEvent {
                                                 event_id,
                                                 utc_ms,
+                                                mt5_ms,
                                                 currency: ccy,
                                                 event_name: name,
                                                 importance: imp,
@@ -234,7 +271,7 @@ impl PseudoDmmEngine {
                                 }
                             }
 
-                            events.sort_by_key(|e| e.utc_ms);
+                            events.sort_by_key(|e| e.mt5_ms);
                             return events;
                         }
                     }
@@ -433,11 +470,11 @@ impl PseudoDmmEngine {
             }
         }
 
-        // --- Layer 3: 経済指標動的制御 ---
+        // --- Layer 3: 経済指標動的制御 (MT5サーバー時間で直接照合) ---
         // 直近10秒間のティック履歴を更新（10秒以上古いものは削除）
-        let cutoff_10s = utc_ms - 10000;
+        let cutoff_10s = mt5_time_msc - 10000;
         self.recent_ticks.retain(|&(t, _)| t >= cutoff_10s);
-        self.recent_ticks.push((utc_ms, mid));
+        self.recent_ticks.push((mt5_time_msc, mid));
 
         // 直近10秒間の値幅 (pips)
         let mut min_mid_10s = mid;
@@ -450,15 +487,15 @@ impl PseudoDmmEngine {
 
         // アクティブな指標ウィンドウを検索
         for ev in &self.events {
-            let t_start = ev.utc_ms - ev.advance_ms;
-            let t_end = ev.utc_ms + ev.recovery_ms;
+            let t_start = ev.mt5_ms - ev.advance_ms;
+            let t_end = ev.mt5_ms + ev.recovery_ms;
 
-            if utc_ms >= t_start && utc_ms <= t_end {
-                let indicator_spread = if utc_ms < ev.utc_ms {
+            if mt5_time_msc >= t_start && mt5_time_msc <= t_end {
+                let indicator_spread = if mt5_time_msc < ev.mt5_ms {
                     // 事前拡大フェーズ (T - advance 〜 T): 0.2銭から base_pre_spread へ線形上昇
-                    let progress = (utc_ms - t_start) as f64 / (ev.advance_ms as f64).max(1.0);
+                    let progress = (mt5_time_msc - t_start) as f64 / (ev.advance_ms as f64).max(1.0);
                     0.002 + (ev.base_pre_spread - 0.002) * progress
-                } else if utc_ms <= ev.utc_ms + 15000 {
+                } else if mt5_time_msc <= ev.mt5_ms + 15000 {
                     // 初動・ピークフェーズ (T 〜 T+15s): 逆算回帰モデル式を適用
                     let oanda_excess = (raw_oanda_spread - 0.004).max(0.0);
                     let dyn_spread = ev.base_peak_spread + 0.25 * oanda_excess + 0.05 * price_volatility_10s_pips;
@@ -466,7 +503,7 @@ impl PseudoDmmEngine {
                 } else {
                     // 収束フェーズ (T+15s 〜 T+recovery): ピークから通常スプレッドへ滑らかに減衰
                     let peak_base = ev.base_peak_spread.min(0.039);
-                    let rem_progress = (utc_ms - (ev.utc_ms + 15000)) as f64 / ((ev.recovery_ms - 15000) as f64).max(1.0);
+                    let rem_progress = (mt5_time_msc - (ev.mt5_ms + 15000)) as f64 / ((ev.recovery_ms - 15000) as f64).max(1.0);
                     let decay = (1.0 - rem_progress).max(0.0).powi(2);
                     0.002 + (peak_base - 0.002) * decay
                 };
@@ -728,11 +765,13 @@ mod tests {
         let mut engine = PseudoDmmEngine::new("USDJPY", "2026-08");
         // 指標イベントを手動注入 (2026-08-07 21:30:00 JST / 12:30:00 UTC / 15:30:00 MT5)
         let mt5_event_dt = NaiveDateTime::parse_from_str("2026-08-07 15:30:00", "%Y-%m-%d %H:%M:%S").unwrap();
-        let utc_event_ms = mt5_event_dt.and_utc().timestamp() * 1000 - 3 * 3600 * 1000;
+        let mt5_event_ms = mt5_event_dt.and_utc().timestamp() * 1000;
+        let utc_event_ms = mt5_event_ms - 3 * 3600 * 1000;
 
         engine.events.push(EconomicEvent {
             event_id: 999999,
             utc_ms: utc_event_ms,
+            mt5_ms: mt5_event_ms,
             currency: "USD".to_string(),
             event_name: "非農業部門雇用者数".to_string(),
             importance: "high".to_string(),
@@ -776,6 +815,70 @@ mod tests {
         assert_eq!(extract_base_pair("USDJPY_OANDA_2016"), "USDJPY");
         assert_eq!(extract_base_pair("EURUSD"), "EURUSD");
         assert_eq!(extract_base_pair("GBPJPY.cl"), "GBPJPY");
+    }
+
+    #[test]
+    fn test_load_events_symbol_partition() {
+        use arrow::datatypes::{DataType, Field, Schema};
+        use arrow::record_batch::RecordBatch;
+        use parquet::arrow::arrow_writer::ArrowWriter;
+        use std::sync::Arc;
+
+        let temp_dir = std::env::temp_dir().join("tickreplay_test_symbol_parquet");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+
+        let part_dir = temp_dir.join("economic").join("symbol=usdjpy").join("year=2026").join("month=08");
+        std::fs::create_dir_all(&part_dir).unwrap();
+        let part_file = part_dir.join("events.parquet");
+
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("event_id", DataType::Int64, false),
+            Field::new("utc_ms", DataType::Int64, false),
+            Field::new("mt5_ms", DataType::Int64, false),
+            Field::new("currency", DataType::Utf8, false),
+            Field::new("event_name", DataType::Utf8, false),
+            Field::new("importance", DataType::Utf8, false),
+        ]));
+
+        let event_ids = Arc::new(Int64Array::from(vec![101]));
+        let utc_mss = Arc::new(Int64Array::from(vec![1785571200000i64]));
+        let mt5_mss = Arc::new(Int64Array::from(vec![1785582000000i64]));
+        let currencies = Arc::new(StringArray::from(vec!["USD"]));
+        let event_names = Arc::new(StringArray::from(vec!["非農業部門雇用者数"]));
+        let importances = Arc::new(StringArray::from(vec!["high"]));
+
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                event_ids,
+                utc_mss,
+                mt5_mss,
+                currencies,
+                event_names,
+                importances,
+            ],
+        ).unwrap();
+
+        let file = File::create(&part_file).unwrap();
+        let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
+        writer.write(&batch).unwrap();
+        writer.close().unwrap();
+
+        let profiles = PseudoDmmEngine::load_profile_matrix();
+        let events = PseudoDmmEngine::load_events_for_month(
+            "USDJPY",
+            2026,
+            8,
+            &profiles,
+            Some(temp_dir.to_str().unwrap()),
+        );
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_id, 101);
+        assert_eq!(events[0].event_name, "非農業部門雇用者数");
+        assert_eq!(events[0].currency, "USD");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
 

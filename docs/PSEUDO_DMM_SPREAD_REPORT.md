@@ -161,9 +161,9 @@ flowchart TD
 
 ## 5. データ連携アーキテクチャ（Drenhis ↔ Parquet ↔ TickReplay）
 
-### 5.1 なぜ Hiveパーティション形式 Parquet（`year=YYYY/month=MM/events.parquet`）なのか？
+### 5.1 なぜ Hiveパーティション形式 Parquet（`economic/symbol=usdjpy/year=YYYY/month=MM/events.parquet`）なのか？
 
-| 比較項目 | 単一ファイル (`events.parquet`) | 採用したHiveパーティション形式 (`year=YYYY/month=MM/events.parquet`) |
+| 比較項目 | 単一ファイル (`events.parquet`) | 採用したHiveパーティション形式 (`economic/symbol=usdjpy/year=YYYY/month=MM/events.parquet`) |
 | :--- | :--- | :--- |
 | **リプレイ時の読込** | 10万件ロード後にメモリ抽出 (約 2ms) | **当月（約250件 / 8KB）のみを直接開くため 0.1ms 未満（最速）** |
 | **Drenhis更新速度** | 毎回全10年分を再エンコード (約 0.2s) | **変更があった月（8KB）のみをピンポイント書き換え (約 0.01s)** |
@@ -177,7 +177,7 @@ flowchart TD
 生のカレンダーデータと、DMMスプレッド制御用の分析パラメータを分離して配置：
 
 ```
-D:\Drehis\economic\usdjpy\year=YYYY\month=MM\events.parquet  <-- 【生データ】Drenhisが出力
+D:\Drehis\economic\symbol=usdjpy\year=YYYY\month=MM\events.parquet  <-- 【生データ】Drenhisが出力
 d:\dev\TickReplay\data\analysis\indicator_profile_matrix.json <-- 【設定辞書】格付け・パラメータ
 ```
 
