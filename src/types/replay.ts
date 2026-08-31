@@ -70,6 +70,7 @@ export interface ReplayProgressPayload {
   speed_mode?: SpeedMode;
   multiplier?: number | string;
   tick_step?: number;
+  history_revision?: number;
   symbol?: string;
   source_symbol?: string;
   bid?: number;

@@ -296,6 +296,7 @@ function App() {
   const [account, setAccount] = useState<VirtualAccount | null>(null);
   const [positions, setPositions] = useState<VirtualPosition[]>([]);
   const [history, setHistory] = useState<TradeHistoryItem[]>([]);
+  const historyRevisionRef = useRef<number | undefined>(undefined);
 
   // --- 自動スキャン・設定用状態
   const [terminals, setTerminals] = useState<TerminalInfo[]>([]);
@@ -773,11 +774,9 @@ function App() {
             return data.positions ?? prev;
           });
         }
-        if (data.history) {
-          setHistory((prev) => {
-            if (JSON.stringify(prev) === JSON.stringify(data.history)) return prev;
-            return data.history ?? prev;
-          });
+        if (data.history && (data.history_revision === undefined || historyRevisionRef.current !== data.history_revision)) {
+          historyRevisionRef.current = data.history_revision;
+          setHistory(data.history);
         }
         if (restoringSessionRef.current) {
           const session = restoringSessionRef.current;
@@ -982,11 +981,9 @@ function App() {
             return data.positions ?? prev;
           });
         }
-        if (data.history) {
-          setHistory((prev) => {
-            if (JSON.stringify(prev) === JSON.stringify(data.history)) return prev;
-            return data.history ?? prev;
-          });
+        if (data.history && (data.history_revision === undefined || historyRevisionRef.current !== data.history_revision)) {
+          historyRevisionRef.current = data.history_revision;
+          setHistory(data.history);
         }
       } else if (data.status === "ERROR") {
         const lowerMsg = (data.message || "").toLowerCase();
@@ -1010,6 +1007,7 @@ function App() {
         setAccount((prev) => prev !== null ? null : prev);
         setPositions((prev) => prev.length > 0 ? [] : prev);
         setHistory((prev) => prev.length > 0 ? [] : prev);
+        historyRevisionRef.current = undefined;
 
         // スピード発注画面も自動で終了する
         WebviewWindow.getByLabel("speed_order")
@@ -1039,16 +1037,6 @@ function App() {
       skippedCountRef.current++;
     }
     pendingStatusPayloadRef.current = payload;
-
-    try {
-      const data = JSON.parse(payload) as ReplayProgressPayload;
-      if (data.session_boundaries) {
-        setSessionBoundaries((prev) => {
-          if (JSON.stringify(prev) === JSON.stringify(data.session_boundaries)) return prev;
-          return data.session_boundaries ?? prev;
-        });
-      }
-    } catch (_) {}
 
     if (rafIdRef.current === null) {
       rafIdRef.current = requestAnimationFrame(() => {

@@ -199,8 +199,9 @@ double            m_account_margin_level = 0.0;  // 証拠金維持率 (%)
 VirtualPosition   m_virtual_positions[];         // 保有ポジション配列
 VirtualPosition   m_virtual_history[];           // 決済履歴の動的配列
 bool              m_show_history = false;        // 決済履歴の表示有無
-string            m_cached_trade_json = "";      // 取引情報JSONの高速キャッシュ
-bool              m_trade_json_dirty = true;     // 取引情報JSONの再構築が必要かどうかのフラグ
+bool              m_history_json_dirty = true;   // 決済履歴JSONの再構築が必要かどうかのフラグ
+int               m_history_revision = 0;        // 決済履歴の変更世代番号（UI比較用）
+bool              m_status_dirty = true;         // 前回送信後に再生/取引状態が変化したか
 
 //--- ミリ秒時間取得用キャリブレーション変数
 long              gl_start_time_msc = 0;        // 起動時のPCローカル時間(ミリ秒)
@@ -217,6 +218,9 @@ void VirtualOrderCloseSell(string reason);
 void VirtualOrderModify(int ticket, double sl_price, double tp_price);
 void EvaluatePositionsByTick(MqlTick &tick, int tick_idx = -1);
 double CalculateVirtualProfit(string symbol, ENUM_POSITION_TYPE type, double volume, double openPrice, double currentPrice);
+double CalculateVirtualProfitWithRate(ENUM_POSITION_TYPE type, double volume, double openPrice, double currentPrice, double conversion_rate);
+double GetProfitConversionRate(string symbol);
+void MarkTradeHistoryDirty();
 void SetHistoryVisibility(bool show);
 void RedrawHistoryObjects();
 void UpdateChartObjects();
@@ -495,7 +499,7 @@ void OnTimer()
                      {
                         for(int k = 0; k < added; k++) { EvaluatePositionsByTick(send_array[k], start_idx + k); }
                         m_current_idx += added;
-                        UpdateChartObjects();
+                        m_status_dirty = true;
                         ticks_delivered = true;
                      }
                      else if(added < 0)
@@ -528,6 +532,7 @@ void OnTimer()
                         if(added_sub > 0)
                         {
                            m_current_idx_sub += added_sub;
+                           m_status_dirty = true;
                            ticks_delivered = true;
                         }
                         else
@@ -585,7 +590,9 @@ void OnTimer()
    {
       m_is_playing = false;
       m_last_real_timer_us = 0;
+      m_status_dirty = true;
       Print("[Info] すべてのリプレイティック配信が完了しました。");
+      WriteStatusFile();
    }
    else if(!m_is_playing)
    {
@@ -598,7 +605,7 @@ void OnTimer()
    {
       static ulong last_status_write_us = 0;
       ulong now_us = GetMicrosecondCount();
-      if(now_us - last_status_write_us >= 40000)
+      if(m_status_dirty && now_us - last_status_write_us >= 40000)
       {
          WriteStatusFile();
          last_status_write_us = now_us;
@@ -775,6 +782,8 @@ void ProcessBinaryCommand(const BinaryCommandPacket &packet)
       default:
          break;
    }
+   // コマンドによる状態変更も、次回の定期ステータス送信へ反映する
+   m_status_dirty = true;
 }
 
 //+------------------------------------------------------------------+
@@ -907,6 +916,7 @@ void ProcessCommand(string line)
 {
    string command = GetJsonString(line, "command");
    if(command == "") return;
+   m_status_dirty = true;
    
    Print("[Info] コマンド受信: ", line);
    
@@ -1345,8 +1355,7 @@ void ProcessCommand(string line)
       ArrayFree(m_virtual_positions);
       ArrayFree(m_virtual_history);
       ClearChartTradeObjects();
-      m_trade_json_dirty = true;
-      m_cached_trade_json = "";
+      MarkTradeHistoryDirty();
       
       m_current_idx = 0;
       m_total_ticks = 0;
@@ -1501,12 +1510,10 @@ void ProcessCommand(string line)
          
          if(m_total_ticks > 0 && m_current_idx > 0 && m_current_idx <= m_total_ticks)
          {
-            m_trade_json_dirty = true;
             EvaluatePositionsByTick(m_all_ticks[m_current_idx - 1], m_current_idx - 1);
          }
          else
          {
-            m_trade_json_dirty = true;
             WriteStatusFile();
          }
       }
@@ -1530,7 +1537,7 @@ void ProcessCommand(string line)
       Print(StringFormat("[Info] RESTORE_ACCOUNT: Balance restored to %.2f, Leverage %.1fx, NextTicket %d", 
          m_account_balance, m_account_leverage, m_next_ticket));
       
-      m_trade_json_dirty = true;
+      MarkTradeHistoryDirty();
       WriteStatusFile();
    }
    else if(command == "RESTORE_POSITION")
@@ -1565,7 +1572,6 @@ void ProcessCommand(string line)
          m_virtual_positions[size].ticket, type_str, m_virtual_positions[size].volume, m_virtual_positions[size].open_price));
          
       UpdateChartObjects();
-      m_trade_json_dirty = true;
       WriteStatusFile();
    }
    else if(command == "RESTORE_HISTORY")
@@ -1603,7 +1609,7 @@ void ProcessCommand(string line)
       {
          RedrawHistoryObjects();
       }
-      m_trade_json_dirty = true;
+      MarkTradeHistoryDirty();
       WriteStatusFile();
    }
    else if(command == "PING")
@@ -1874,17 +1880,18 @@ void WriteStatusFile()
    
    int max_bars = (int)TerminalInfoInteger(TERMINAL_MAXBARS);
    string msg = StringFormat(
-      "{\"status\":\"ACTIVE\",\"current_idx\":%d,\"total_ticks\":%d,\"virtual_time_msc\":%I64d,\"is_playing\":%s,\"speed_mode\":\"%s\",\"multiplier\":%s,\"tick_step\":%d,\"bid\":%.5f,\"ask\":%.5f,\"spread\":%.2f,\"dmm_bid\":%.5f,\"dmm_ask\":%.5f,\"dmm_spread\":%.2f,\"max_bars\":%d,\"session_boundaries\":{\"TYO\":%s,\"LDN\":%s,\"NY\":%s},\"loop\":{\"active\":%s,\"a_msc\":%I64d,\"b_msc\":%I64d,\"a_idx\":%d,\"b_idx\":%d},%s,%s}",
+      "{\"status\":\"ACTIVE\",\"current_idx\":%d,\"total_ticks\":%d,\"virtual_time_msc\":%I64d,\"is_playing\":%s,\"speed_mode\":\"%s\",\"multiplier\":%s,\"tick_step\":%d,\"bid\":%.5f,\"ask\":%.5f,\"spread\":%.2f,\"dmm_bid\":%.5f,\"dmm_ask\":%.5f,\"dmm_spread\":%.2f,\"max_bars\":%d,\"history_revision\":%d,\"session_boundaries\":{\"TYO\":%s,\"LDN\":%s,\"NY\":%s},\"loop\":{\"active\":%s,\"a_msc\":%I64d,\"b_msc\":%I64d,\"a_idx\":%d,\"b_idx\":%d},%s,%s}",
       m_current_idx, m_total_ticks, m_virtual_current_msc,
       (m_is_playing ? "true" : "false"),
       speed_mode_str, DoubleToString(m_time_multiplier, 1), m_tick_step_count,
-      bid, ask, spread, dmm_bid, dmm_ask, dmm_spread, max_bars,
+      bid, ask, spread, dmm_bid, dmm_ask, dmm_spread, max_bars, m_history_revision,
       g_tyo_json, g_ldn_json, g_ny_json,
       loop_active_str, m_loop_a_msc, m_loop_b_msc, loop_a_idx, loop_b_idx,
       sub_feed_json,
       trade_json
    );
    WritePipeStatus(msg);
+   m_status_dirty = false;
 }
 
 //+------------------------------------------------------------------+
@@ -1957,15 +1964,16 @@ void WriteReadyStatus()
    
    int max_bars = (int)TerminalInfoInteger(TERMINAL_MAXBARS);
    string msg = StringFormat(
-      "{\"status\":\"READY\",\"total_ticks\":%d,\"current_idx\":%d,\"virtual_time_msc\":%I64d,\"speed_mode\":\"%s\",\"multiplier\":%s,\"tick_step\":%d,\"bid\":%.5f,\"ask\":%.5f,\"spread\":%.2f,\"dmm_bid\":%.5f,\"dmm_ask\":%.5f,\"dmm_spread\":%.2f,\"max_bars\":%d,\"session_boundaries\":{\"TYO\":%s,\"LDN\":%s,\"NY\":%s},%s,%s}",
+      "{\"status\":\"READY\",\"total_ticks\":%d,\"current_idx\":%d,\"virtual_time_msc\":%I64d,\"speed_mode\":\"%s\",\"multiplier\":%s,\"tick_step\":%d,\"bid\":%.5f,\"ask\":%.5f,\"spread\":%.2f,\"dmm_bid\":%.5f,\"dmm_ask\":%.5f,\"dmm_spread\":%.2f,\"max_bars\":%d,\"history_revision\":%d,\"session_boundaries\":{\"TYO\":%s,\"LDN\":%s,\"NY\":%s},%s,%s}",
       m_total_ticks, m_current_idx, m_virtual_current_msc,
       speed_mode_str, DoubleToString(m_time_multiplier, 1), m_tick_step_count,
-      bid, ask, spread, dmm_bid, dmm_ask, dmm_spread, max_bars,
+      bid, ask, spread, dmm_bid, dmm_ask, dmm_spread, max_bars, m_history_revision,
       g_tyo_json, g_ldn_json, g_ny_json,
       sub_feed_json,
       trade_json
    );
    WritePipeStatus(msg);
+   m_status_dirty = false;
 }
 
 //+------------------------------------------------------------------+
@@ -4280,7 +4288,6 @@ void VirtualOrderOpen(string type_str, double volume, double sl_points, double t
    }
    
    // 即座にステータスを書き出し
-   m_trade_json_dirty = true;
    WriteStatusFile();
 }
 
@@ -4354,6 +4361,7 @@ void VirtualOrderCloseEx(int ticket, double volume, string reason, double closeP
    m_virtual_history[hist_size].close_time_msc = closeTimeMsc;
    m_virtual_history[hist_size].profit = realized_profit;
    m_virtual_history[hist_size].close_reason = reason;
+   MarkTradeHistoryDirty();
    
    // 口座残高を更新
    m_account_balance += realized_profit;
@@ -4446,7 +4454,6 @@ void VirtualOrderCloseEx(int ticket, double volume, string reason, double closeP
       }
       
       // 即座にステータス書き出し
-      m_trade_json_dirty = true;
       WriteStatusFile();
    }
 }
@@ -4465,7 +4472,6 @@ void VirtualOrderCloseAll(string reason)
    {
       EvaluatePositionsByTick(m_all_ticks[m_current_idx - 1], m_current_idx - 1);
    }
-   m_trade_json_dirty = true;
    WriteStatusFile();
 }
 
@@ -4486,7 +4492,7 @@ void VirtualOrderCloseBuy(string reason)
    {
       EvaluatePositionsByTick(m_all_ticks[m_current_idx - 1], m_current_idx - 1);
    }
-   m_trade_json_dirty = true;
+   MarkTradeHistoryDirty();
    WriteStatusFile();
 }
 
@@ -4507,7 +4513,7 @@ void VirtualOrderCloseSell(string reason)
    {
       EvaluatePositionsByTick(m_all_ticks[m_current_idx - 1], m_current_idx - 1);
    }
-   m_trade_json_dirty = true;
+   MarkTradeHistoryDirty();
    WriteStatusFile();
 }
 
@@ -4530,7 +4536,6 @@ void VirtualOrderModify(int ticket, double sl_price, double tp_price)
    // チャートの表示線を移動
    UpdateChartObjects();
    // 即座にステータス書き出し
-   m_trade_json_dirty = true;
    WriteStatusFile();
 }
 
@@ -4554,6 +4559,19 @@ void EvaluatePositionsByTick(MqlTick &tick, int tick_idx = -1)
    }
 
    int pos_size = ArraySize(m_virtual_positions);
+   if(pos_size == 0)
+   {
+      // ポジションがない間は価格換算・SL/TP判定を行う必要がない。
+      // 口座値だけ正規化して、通常再生時の毎ティック処理を早期終了する。
+      m_account_equity = m_account_balance;
+      m_account_margin = 0.0;
+      m_account_free_margin = m_account_balance;
+      m_account_margin_level = 0.0;
+      return;
+   }
+
+   double profit_conversion_rate = GetProfitConversionRate(m_replay_symbol);
+   double one_pip = (StringFind(m_replay_symbol, "JPY") >= 0) ? 0.01 : 0.0001;
    
    // 1. 各ポジションの含み損益計算およびSL/TP到達チェック
    for(int i = pos_size - 1; i >= 0; i--)
@@ -4562,16 +4580,15 @@ void EvaluatePositionsByTick(MqlTick &tick, int tick_idx = -1)
       m_virtual_positions[i].current_price = current_price;
       
       // 含み損益更新
-      m_virtual_positions[i].profit = CalculateVirtualProfit(
-         m_replay_symbol, 
-         m_virtual_positions[i].type, 
-         m_virtual_positions[i].volume, 
-         m_virtual_positions[i].open_price, 
-         current_price
+      m_virtual_positions[i].profit = CalculateVirtualProfitWithRate(
+         m_virtual_positions[i].type,
+         m_virtual_positions[i].volume,
+         m_virtual_positions[i].open_price,
+         current_price,
+         profit_conversion_rate
       );
       
       // MFE / MAE の更新 (pips単位)
-      double one_pip = (StringFind(m_replay_symbol, "JPY") >= 0) ? 0.01 : 0.0001;
       double diff_pips = (m_virtual_positions[i].type == POSITION_TYPE_BUY) ? 
                          (current_price - m_virtual_positions[i].open_price) : 
                          (m_virtual_positions[i].open_price - current_price);
@@ -4684,6 +4701,31 @@ double CalculateVirtualProfit(string symbol, ENUM_POSITION_TYPE type, double vol
 //+------------------------------------------------------------------+
 //| チャート上へのポジションライン描画・更新                           |
 //+------------------------------------------------------------------+
+// 同一ティック内の全ポジションで共通の換算レートを使う軽量な損益計算。
+double CalculateVirtualProfitWithRate(ENUM_POSITION_TYPE type, double volume, double openPrice, double currentPrice, double conversion_rate)
+{
+   double profit_val = (type == POSITION_TYPE_BUY)
+      ? (currentPrice - openPrice) * volume * m_contract_size
+      : (openPrice - currentPrice) * volume * m_contract_size;
+   return profit_val * conversion_rate;
+}
+
+double GetProfitConversionRate(string symbol)
+{
+   string sym_upper = symbol;
+   StringToUpper(sym_upper);
+   if(StringFind(sym_upper, "JPY") >= 0)
+      return 1.0;
+
+   double usdjpy_rate = 150.0;
+   MqlTick tick;
+   if(SymbolInfoTick("USDJPY", tick) && tick.bid > 0)
+      usdjpy_rate = tick.bid;
+   else if(SymbolInfoTick("USDJPY.cl", tick) && tick.bid > 0)
+      usdjpy_rate = tick.bid;
+   return usdjpy_rate;
+}
+
 void UpdateChartObjects()
 {
    int pos_size = ArraySize(m_virtual_positions);
@@ -4822,7 +4864,7 @@ void ResetAccount(double initial_balance, double leverage)
    ArrayFree(m_virtual_positions);
    ArrayFree(m_virtual_history);
    ClearChartTradeObjects();
-   m_trade_json_dirty = true;
+   MarkTradeHistoryDirty();
    
    Print(StringFormat("[Info] Virtual Account Reset. Balance: %.2f JPY, Leverage: %.1fx", initial_balance, leverage));
    WriteStatusFile();
@@ -4833,23 +4875,22 @@ void ResetAccount(double initial_balance, double leverage)
 //+------------------------------------------------------------------+
 static string m_cached_history_json = "";
 
+void MarkTradeHistoryDirty()
+{
+   m_history_json_dirty = true;
+   m_history_revision++;
+}
+
 string SerializePositionsAndHistoryToJson()
 {
    int pos_size = ArraySize(m_virtual_positions);
-
-   // 保有ポジションが無く取引履歴に変更がない場合は、計算済みのJSON文字列を即座に返却してCPUアロケーションを回避する
-   if(pos_size == 0 && !m_trade_json_dirty && m_cached_trade_json != "")
-   {
-      return m_cached_trade_json;
-   }
-
    string json = "";
    
    // 口座残高
    json += StringFormat("\"account\":{\"balance\":%.2f,\"equity\":%.2f,\"margin\":%.2f,\"free_margin\":%.2f,\"margin_level\":%.2f,\"total_profit\":%.2f,\"leverage\":%.2f}",
       m_account_balance, m_account_equity, m_account_margin, m_account_free_margin, m_account_margin_level, (m_account_equity - m_account_balance), m_account_leverage);
    
-   // 保有ポジション配列のシリアライズ
+   // 保有ポジション配列のシリアライズ（保有ポジションは価格変動に応じて毎ステータス構築）
    json += ",\"positions\":[";
    for(int i = 0; i < pos_size; i++)
    {
@@ -4875,8 +4916,8 @@ string SerializePositionsAndHistoryToJson()
    }
    json += "]";
    
-   // 取引履歴配列のシリアライズ（変更時のみ再構築）
-   if(m_trade_json_dirty || m_cached_history_json == "")
+   // 取引履歴配列のシリアライズ（決済・復元等の変更時のみ再構築してキャッシュ）
+   if(m_history_json_dirty || m_cached_history_json == "")
    {
       string hist_str = ",\"history\":[";
       int hist_size = ArraySize(m_virtual_history);
@@ -4910,11 +4951,8 @@ string SerializePositionsAndHistoryToJson()
    }
    json += m_cached_history_json;
    
-   if(pos_size == 0)
-   {
-      m_cached_trade_json = json;
-      m_trade_json_dirty = false;
-   }
+   // 履歴キャッシュは有効のまま維持
+   m_history_json_dirty = false;
    
    return json;
 }
@@ -5027,7 +5065,7 @@ void SyncVirtualTradesOnSeek(long target_msc)
    {
       EvaluatePositionsByTick(m_all_ticks[last_idx], last_idx);
    }
-   m_trade_json_dirty = true;
+   MarkTradeHistoryDirty();
 }
 
 //+------------------------------------------------------------------+
