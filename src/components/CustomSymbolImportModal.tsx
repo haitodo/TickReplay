@@ -706,15 +706,15 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
               borderRadius: "6px",
               fontSize: "12px",
               backgroundColor: formatStats.hasParquet
-                ? "rgba(168, 85, 247, 0.1)"
+                ? "rgba(var(--primary-rgb), 0.12)"
                 : formatStats.hasZip
-                ? "rgba(245, 158, 11, 0.1)"
-                : "var(--surface-container-low)",
+                ? "var(--status-warning-bg)"
+                : "var(--surface-container-high)",
               border: `1px solid ${
                 formatStats.hasParquet
-                  ? "rgba(168, 85, 247, 0.35)"
+                  ? "rgba(var(--primary-rgb), 0.35)"
                   : formatStats.hasZip
-                  ? "rgba(245, 158, 11, 0.35)"
+                  ? "var(--status-warning)"
                   : "var(--outline-variant)"
               }`,
               flexShrink: 0
@@ -726,16 +726,16 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                 style={{
                   fontSize: "18px",
                   color: formatStats.hasParquet
-                    ? "#c084fc"
+                    ? "var(--primary-color)"
                     : formatStats.hasZip
-                    ? "#fbbf24"
+                    ? "var(--status-warning)"
                     : "var(--primary-color)"
                 }}
               >
                 {formatStats.hasParquet ? "bolt" : formatStats.hasZip ? "archive" : "dataset"}
               </span>
               <div>
-                <span style={{ fontWeight: 700, color: formatStats.hasParquet ? "#c084fc" : formatStats.hasZip ? "#fbbf24" : "var(--on-surface)" }}>
+                <span style={{ fontWeight: 700, color: formatStats.hasParquet ? "var(--primary-color)" : formatStats.hasZip ? "var(--status-warning)" : "var(--on-surface)" }}>
                   {formatStats.isParquetOnly
                     ? "⚡ Parquetモード (Drenhis連動 / 高速ダイレクトロード)"
                     : formatStats.isZipOnly
@@ -765,9 +765,9 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                   padding: "2px 8px",
                   fontSize: "11px",
                   height: "22px",
-                  backgroundColor: "rgba(168, 85, 247, 0.15)",
-                  borderColor: "rgba(168, 85, 247, 0.4)",
-                  color: "#c084fc",
+                  backgroundColor: "rgba(var(--primary-rgb), 0.15)",
+                  borderColor: "var(--primary-color)",
+                  color: "var(--primary-color)",
                   display: "flex",
                   alignItems: "center",
                   gap: "4px"
@@ -788,7 +788,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
               </label>
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 {rootDir === defaultRootDir ? (
-                  <span style={{ fontSize: "10.5px", color: "#a855f7", fontWeight: 600, display: "flex", alignItems: "center", gap: "3px" }}>
+                  <span style={{ fontSize: "10.5px", color: "var(--status-success)", fontWeight: 600, display: "flex", alignItems: "center", gap: "3px" }}>
                     <span className="material-symbols-outlined" style={{ fontSize: "13px" }}>check_circle</span>
                     Drenhis標準フォルダ適用中
                   </span>
@@ -945,9 +945,9 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                           padding: "2px 8px",
                           fontSize: "11px",
                           borderRadius: "4px",
-                          border: `1px solid ${selectedFormatFilter === "parquet" ? "#a855f7" : "var(--outline-variant)"}`,
-                          backgroundColor: selectedFormatFilter === "parquet" ? "rgba(168, 85, 247, 0.2)" : "var(--btn-default-bg)",
-                          color: selectedFormatFilter === "parquet" ? "#c084fc" : "var(--btn-default-color)",
+                          border: `1px solid ${selectedFormatFilter === "parquet" ? "var(--primary-color)" : "var(--outline-variant)"}`,
+                          backgroundColor: selectedFormatFilter === "parquet" ? "rgba(var(--primary-rgb), 0.18)" : "var(--btn-default-bg)",
+                          color: selectedFormatFilter === "parquet" ? "var(--primary-color)" : "var(--btn-default-color)",
                           cursor: "pointer",
                           fontWeight: selectedFormatFilter === "parquet" ? 700 : "normal",
                           display: "flex",
@@ -966,9 +966,9 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                           padding: "2px 8px",
                           fontSize: "11px",
                           borderRadius: "4px",
-                          border: `1px solid ${selectedFormatFilter === "zip" ? "#f59e0b" : "var(--outline-variant)"}`,
-                          backgroundColor: selectedFormatFilter === "zip" ? "rgba(245, 158, 11, 0.2)" : "var(--btn-default-bg)",
-                          color: selectedFormatFilter === "zip" ? "#fbbf24" : "var(--btn-default-color)",
+                          border: `1px solid ${selectedFormatFilter === "zip" ? "var(--status-warning)" : "var(--outline-variant)"}`,
+                          backgroundColor: selectedFormatFilter === "zip" ? "var(--status-warning-bg)" : "var(--btn-default-bg)",
+                          color: selectedFormatFilter === "zip" ? "var(--status-warning)" : "var(--btn-default-color)",
                           cursor: "pointer",
                           fontWeight: selectedFormatFilter === "zip" ? 700 : "normal",
                           display: "flex",
@@ -1010,7 +1010,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                         borderRadius: "3px",
                         cursor: "pointer",
                         backgroundColor: selectedStatusFilter === "unimported_only" ? "var(--status-warning)" : "transparent",
-                        color: selectedStatusFilter === "unimported_only" ? "#1c1b1f" : "var(--on-surface-variant)",
+                        color: selectedStatusFilter === "unimported_only" ? "var(--on-primary, #fff)" : "var(--on-surface-variant)",
                         fontWeight: selectedStatusFilter === "unimported_only" ? 700 : 400
                       }}
                       title="未完了のデータを含むシンボルのみ表示"
@@ -1027,7 +1027,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                         borderRadius: "3px",
                         cursor: "pointer",
                         backgroundColor: selectedStatusFilter === "imported_only" ? "var(--status-success)" : "transparent",
-                        color: selectedStatusFilter === "imported_only" ? "#fff" : "var(--on-surface-variant)",
+                        color: selectedStatusFilter === "imported_only" ? "var(--on-primary, #fff)" : "var(--on-surface-variant)",
                         fontWeight: selectedStatusFilter === "imported_only" ? 700 : 400
                       }}
                       title="全月インポート完了済みのシンボルのみ表示"
@@ -1419,12 +1419,12 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                                     
                                     {/* フォーマット識別バッジ */}
                                     {hasParquetInGroup && (
-                                      <span style={{ fontSize: "9.5px", fontWeight: 700, padding: "1px 5px", borderRadius: "3px", backgroundColor: "rgba(168, 85, 247, 0.15)", color: "#c084fc", border: "1px solid rgba(168, 85, 247, 0.4)", display: "flex", alignItems: "center", gap: "2px" }}>
+                                      <span style={{ fontSize: "9.5px", fontWeight: 700, padding: "1px 5px", borderRadius: "3px", backgroundColor: "rgba(var(--primary-rgb), 0.15)", color: "var(--primary-color)", border: "1px solid rgba(var(--primary-rgb), 0.4)", display: "flex", alignItems: "center", gap: "2px" }}>
                                         <span>⚡ Parquet</span>
                                       </span>
                                     )}
                                     {hasZipInGroup && (
-                                      <span style={{ fontSize: "9.5px", fontWeight: 700, padding: "1px 5px", borderRadius: "3px", backgroundColor: "rgba(245, 158, 11, 0.15)", color: "#fbbf24", border: "1px solid rgba(245, 158, 11, 0.4)", display: "flex", alignItems: "center", gap: "2px" }}>
+                                      <span style={{ fontSize: "9.5px", fontWeight: 700, padding: "1px 5px", borderRadius: "3px", backgroundColor: "var(--status-warning-bg)", color: "var(--status-warning)", border: "1px solid var(--status-warning)", display: "flex", alignItems: "center", gap: "2px" }}>
                                         <span>📦 ZIP</span>
                                       </span>
                                     )}
@@ -1439,7 +1439,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                                         ⏳ 一部済 ({importedF}/{totalF}ヶ月)
                                       </span>
                                     ) : group.already_exists_in_mt5 ? (
-                                      <span style={{ fontSize: "10px", fontWeight: 600, padding: "1px 6px", borderRadius: "4px", backgroundColor: "rgba(56, 189, 248, 0.15)", color: "#38bdf8", border: "1px solid rgba(56, 189, 248, 0.4)" }}>
+                                      <span style={{ fontSize: "10px", fontWeight: 600, padding: "1px 6px", borderRadius: "4px", backgroundColor: "rgba(var(--primary-rgb), 0.12)", color: "var(--primary-color)", border: "1px solid rgba(var(--primary-rgb), 0.35)" }}>
                                         🏛️ MT5登録済 (データ未込 0/{totalF}ヶ月)
                                       </span>
                                     ) : (
@@ -1544,9 +1544,9 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                                             fontWeight: 700,
                                             padding: "0 3px",
                                             borderRadius: "2px",
-                                            backgroundColor: isParquet ? "rgba(168, 85, 247, 0.2)" : "rgba(245, 158, 11, 0.2)",
-                                            color: isParquet ? "#c084fc" : "#fbbf24",
-                                            border: `1px solid ${isParquet ? "rgba(168, 85, 247, 0.35)" : "rgba(245, 158, 11, 0.35)"}`,
+                                            backgroundColor: isParquet ? "rgba(var(--primary-rgb), 0.18)" : "var(--status-warning-bg)",
+                                            color: isParquet ? "var(--primary-color)" : "var(--status-warning)",
+                                            border: `1px solid ${isParquet ? "rgba(var(--primary-rgb), 0.35)" : "var(--status-warning)"}`,
                                           }}
                                           title={isParquet ? "Parquet形式" : "ZIP形式"}
                                         >
