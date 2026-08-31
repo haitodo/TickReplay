@@ -8,9 +8,27 @@ import { TimeStepItem, DEFAULT_TIME_STEPS, formatSecondsToLabel } from "../../Ap
 import { ReplayCommand, sendReplayCommand } from "../../utils/command";
 import { PersistedSettings } from "../../types/settings";
 import { ReplayProgressPayload } from "../../types/replay";
+import { getCachedEconomicAvailabilityMap, isEconomicSpreadActive } from "../../utils/economicDataUtils";
 
 export const ControllerWindowContent: React.FC = () => {
   useTheme();
+
+  // --- 経済指標データ充足状態 ---
+  const [economicMap, setEconomicMap] = useState<Record<string, boolean>>(() => getCachedEconomicAvailabilityMap());
+
+  useEffect(() => {
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === "replay-economic-availability" && e.newValue) {
+        try {
+          setEconomicMap(JSON.parse(e.newValue));
+        } catch (err) {
+          console.error("Failed to parse economic availability in controller", err);
+        }
+      }
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
 
   // --- 再生ステータス State ---
   const [status, setStatus] = useState<"DISCONNECTED" | "CONNECTED" | "READY" | "ACTIVE">("DISCONNECTED");
@@ -347,6 +365,7 @@ export const ControllerWindowContent: React.FC = () => {
   };
 
   const progressPercent = totalTicks > 0 ? (currentIdx / totalTicks) * 100 : 0;
+  const isEconomicMode = isEconomicSpreadActive(virtualTimeMsc, economicMap);
   const timeDisplayStr =
     virtualTimeMsc > 0
       ? timezoneMode === "JST"
@@ -361,6 +380,17 @@ export const ControllerWindowContent: React.FC = () => {
         <div className="ctrl-header-left">
           <span className={`ctrl-status-dot ${status.toLowerCase()}`} title={`Status: ${status}`} />
           <span className="ctrl-symbol-tag">{sourceSymbol || "REPLAY"}</span>
+          <div
+            className={`ctrl-spread-mode-badge ${isEconomicMode ? "mode-indicator" : "mode-normal"}`}
+            title={
+              isEconomicMode
+                ? "【指標連動モード】現在の期間は経済指標データに基づいて、発表前後のスプレッドが強度に応じて先行拡大・動的変動します。"
+                : "【通常モード】現在の期間は経済指標データがないため、平時固定スプレッド（仲値・早朝流動性制御のみ）で動作しています。"
+            }
+          >
+            <span className="spread-mode-dot" />
+            <span className="spread-mode-label">{isEconomicMode ? "指標連動" : "通常"}</span>
+          </div>
           <button
             type="button"
             className="ctrl-time-btn font-data"

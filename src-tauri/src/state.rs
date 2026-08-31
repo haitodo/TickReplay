@@ -39,6 +39,8 @@ pub struct ReplayState {
     pub settings: RwLock<SettingsState>,
     // 前回のステータス内容（変化検知用）
     pub last_status: Mutex<String>,
+    // メモリ上にキャッシュされた経済指標イベント (キー: "YYYY-MM")
+    pub economic_events: Mutex<std::collections::HashMap<String, Vec<crate::pseudo_dmm::EconomicEvent>>>,
     // Named Pipe へコマンドを送るための送信チャネル
     pub command_tx: tokio::sync::mpsc::UnboundedSender<String>,
     // 外部ツール（Drenhisなど）へステータスを配信するためのブロードキャストチャネル
@@ -94,6 +96,7 @@ impl ReplayState {
                 tick_presets: default_tick_presets,
             }),
             last_status: Mutex::new(String::new()),
+            economic_events: Mutex::new(std::collections::HashMap::new()),
             command_tx,
             sync_tx,
         }

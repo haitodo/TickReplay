@@ -8889,6 +8889,263 @@ html[data-theme="sepia"] .mode-badge-btn.tick-mode {
   color: var(--status-danger);
 }
 
+/* ====================================================
+ * Spread Mode Badge Styling (Controller & App Header)
+ * ==================================================== */
+.ctrl-spread-mode-badge,
+.hud-spread-mode-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1.5px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.2;
+  user-select: none;
+  cursor: default;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.ctrl-spread-mode-badge .spread-mode-dot,
+.hud-spread-mode-badge .spread-mode-dot {
+  width: 5.5px;
+  height: 5.5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* 指標連動モード (経済指標データあり: シアン/ティール系) */
+.ctrl-spread-mode-badge.mode-indicator,
+.hud-spread-mode-badge.mode-indicator {
+  background: rgba(0, 180, 216, 0.12);
+  border: 1px solid rgba(0, 180, 216, 0.35);
+  color: #00b4d8;
+}
+
+.ctrl-spread-mode-badge.mode-indicator .spread-mode-dot,
+.hud-spread-mode-badge.mode-indicator .spread-mode-dot {
+  background-color: #00b4d8;
+  box-shadow: 0 0 4px rgba(0, 180, 216, 0.6);
+}
+
+/* 通常モード (経済指標データなし: 落ち着いたニュートラルグレー) */
+.ctrl-spread-mode-badge.mode-normal,
+.hud-spread-mode-badge.mode-normal {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--on-surface-variant, #8e8e93);
+}
+
+.ctrl-spread-mode-badge.mode-normal .spread-mode-dot,
+.hud-spread-mode-badge.mode-normal .spread-mode-dot {
+  background-color: #71717a;
+}
+
+/* ====================================================
+ * Economic Data Missing Modal Styling
+ * ==================================================== */
+.economic-missing-modal {
+  display: flex;
+  flex-direction: column;
+  background-color: var(--surface-container, #1e1e24);
+  border: 1px solid var(--outline-variant, rgba(255, 255, 255, 0.12));
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.economic-missing-modal .modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  background-color: var(--surface-container-high, #24242c);
+  border-bottom: 1px solid var(--outline-variant, rgba(255, 255, 255, 0.08));
+}
+
+.economic-missing-modal .modal-title-with-icon {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.economic-missing-modal .modal-header-icon {
+  font-size: 20px;
+}
+
+.economic-missing-modal .modal-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--on-surface, #f4f4f5);
+}
+
+.economic-missing-modal .modal-body {
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.economic-summary-box {
+  background-color: var(--surface-container-lowest, #141418);
+  border: 1px solid var(--outline-variant, rgba(255, 255, 255, 0.08));
+  border-radius: var(--radius-sm, 6px);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.economic-summary-box .summary-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+}
+
+.economic-summary-box .summary-label {
+  color: var(--on-surface-variant, #999);
+  min-width: 76px;
+  font-weight: 500;
+}
+
+.economic-summary-box .summary-val-badge {
+  background: var(--surface-container-high, #282830);
+  color: var(--primary, #38bdf8);
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid rgba(56, 189, 248, 0.2);
+}
+
+.economic-summary-box .summary-val-time {
+  color: var(--on-surface, #eee);
+  font-weight: 600;
+}
+
+.economic-missing-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.missing-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--on-surface, #eee);
+}
+
+.missing-section-title .icon {
+  font-size: 16px;
+}
+
+.missing-months-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.missing-month-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background-color: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.missing-month-tag .dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background-color: #ef4444;
+}
+
+.available-months-note {
+  font-size: 10.5px;
+  color: var(--on-surface-variant, #888);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.available-months-note .note-val {
+  color: #34d399;
+  font-weight: 600;
+}
+
+.economic-info-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background-color: rgba(56, 189, 248, 0.06);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  border-radius: var(--radius-sm, 6px);
+  padding: 10px 12px;
+}
+
+.economic-info-alert .alert-icon {
+  font-size: 18px;
+  color: var(--primary, #38bdf8);
+  margin-top: 1px;
+  flex-shrink: 0;
+}
+
+.economic-info-alert .alert-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.economic-info-alert .alert-main-desc {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--on-surface, #e4e4e7);
+}
+
+.economic-info-alert .alert-sub-desc {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--on-surface-variant, #a1a1aa);
+}
+
+.economic-confirm-prompt {
+  margin: 2px 0 0 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--on-surface, #f4f4f5);
+}
+
+.economic-missing-modal .modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 18px;
+  background-color: var(--surface-container-high, #24242c);
+  border-top: 1px solid var(--outline-variant, rgba(255, 255, 255, 0.08));
+}
+
+.economic-missing-modal .btn-proceed {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+
 
 
 

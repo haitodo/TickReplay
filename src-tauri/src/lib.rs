@@ -11,6 +11,7 @@ pub mod pseudo_dmm;
 pub mod commands_replay;
 pub mod commands_mt5;
 pub mod commands_custom_symbol;
+pub mod commands_economic;
 pub mod commands_settings;
 pub mod commands_window;
 pub mod commands;
@@ -286,6 +287,8 @@ pub fn run() {
             commands::import_custom_symbol_chunk,
             commands::get_available_symbols,
             commands::select_folder,
+            commands::check_economic_data_availability,
+            commands::check_month_economic_availability,
             commands::exit_app
         ])
         .run(tauri::generate_context!())

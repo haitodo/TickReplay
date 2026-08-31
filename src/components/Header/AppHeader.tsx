@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { formatJstTime, formatServerTime } from "../../utils/timeUtils";
 import { THEME_LIST, ThemeType } from "../../constants/themePresets";
 import { SessionBoundaryInfo } from "../../domain/sessionBoundaries";
+import { getCachedEconomicAvailabilityMap, isEconomicSpreadActive } from "../../utils/economicDataUtils";
 
 export interface AppHeaderProps {
   status: "DISCONNECTED" | "CONNECTED" | "READY" | "ACTIVE";
@@ -81,6 +82,25 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   const [isSubmenuOpen, setIsSubmenuOpen] = useState(false);
   const submenuRef = useRef<HTMLDivElement | null>(null);
 
+  // --- 経済指標データ充足状態 ---
+  const [economicMap, setEconomicMap] = useState<Record<string, boolean>>(() => getCachedEconomicAvailabilityMap());
+
+  useEffect(() => {
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === "replay-economic-availability" && e.newValue) {
+        try {
+          setEconomicMap(JSON.parse(e.newValue));
+        } catch (err) {
+          console.error("Failed to parse economic availability in header", err);
+        }
+      }
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
+
+  const isEconomicMode = isEconomicSpreadActive(virtualTimeMsc, economicMap);
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (submenuRef.current && !submenuRef.current.contains(event.target as Node)) {
@@ -146,6 +166,21 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             </div>
           ) : (
             <span className="hud-date-compact">{formattedDate.substring(5)}</span>
+          )}
+
+          {/* 経済指標連動 / 通常モードバッジ */}
+          {(status === "ACTIVE" || status === "READY") && (
+            <div
+              className={`hud-spread-mode-badge ${isEconomicMode ? "mode-indicator" : "mode-normal"}`}
+              title={
+                isEconomicMode
+                  ? "【指標連動モード】現在の期間は経済指標データに基づいて、発表前後のスプレッドが強度に応じて先行拡大・動的変動します。"
+                  : "【通常モード】現在の期間は経済指標データがないため、平時固定スプレッド（仲値・早朝流動性制御のみ）で動作しています。"
+              }
+            >
+              <span className="spread-mode-dot" />
+              <span className="spread-mode-label">{isEconomicMode ? "指標連動" : "通常"}</span>
+            </div>
           )}
         </div>
 

@@ -153,7 +153,7 @@ impl PseudoDmmEngine {
     }
 
     /// 当月の経済指標イベントを Parquet から読み込む
-    fn load_events_for_month(
+    pub fn load_events_for_month(
         symbol: &str,
         year: i32,
         month: u32,
@@ -504,6 +504,151 @@ impl PseudoDmmEngine {
     }
 }
 
+/// 月別の経済指標データ存在ステータス
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct EconomicMonthStatus {
+    pub year_month: String, // "YYYY-MM"
+    pub exists: bool,
+    pub event_count: usize,
+}
+
+/// 期間内の経済指標データ充足状況
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct EconomicDataAvailability {
+    pub symbol: String,
+    pub pair: String,
+    pub is_all_available: bool,
+    pub has_any_data: bool,
+    pub total_events: usize,
+    pub months: Vec<EconomicMonthStatus>,
+    pub missing_months: Vec<String>,
+    pub available_months: Vec<String>,
+}
+
+/// シンボル名から既知のベース通貨ペア名を抽出
+pub fn extract_base_pair(symbol: &str) -> String {
+    let upper = symbol.to_uppercase();
+    for &kp in crate::custom_symbol::KNOWN_PAIRS {
+        if upper.starts_with(kp) {
+            return kp.to_string();
+        }
+    }
+    let first = symbol.split(&['_', '.', '-'][..]).next().unwrap_or(symbol);
+    first.to_uppercase()
+}
+
+/// 日時文字列の範囲から含まれる年月 (YYYY, MM) の一覧を取得
+pub fn get_year_months_between(start_dt_str: &str, end_dt_str: &str) -> Vec<(i32, u32)> {
+    let parse_ym = |s: &str| -> Option<(i32, u32)> {
+        let clean = s.replace('T', " ");
+        let first_part = clean.split(' ').next()?;
+        let parts: Vec<&str> = first_part.split(&['-', '/', '.'][..]).collect();
+        if parts.len() >= 2 {
+            let y = parts[0].parse::<i32>().ok()?;
+            let m = parts[1].parse::<u32>().ok()?;
+            if (1..=12).contains(&m) {
+                return Some((y, m));
+            }
+        }
+        None
+    };
+
+    let start_ym = parse_ym(start_dt_str).unwrap_or((2026, 5));
+    let end_ym = parse_ym(end_dt_str).unwrap_or(start_ym);
+
+    let mut result = Vec::new();
+    let mut curr_y = start_ym.0;
+    let mut curr_m = start_ym.1;
+
+    let end_cmp = end_ym.0 * 12 + (end_ym.1 as i32);
+
+    while curr_y * 12 + (curr_m as i32) <= end_cmp {
+        result.push((curr_y, curr_m));
+        curr_m += 1;
+        if curr_m > 12 {
+            curr_m = 1;
+            curr_y += 1;
+        }
+        if result.len() > 120 { // 最大10年分
+            break;
+        }
+    }
+
+    if result.is_empty() {
+        result.push(start_ym);
+    }
+    result
+}
+
+/// 指定期間内の全月のParquetを走査・ロードし、充足判定とロード済みイベントを同時に返す (単一パス/IO重複排除)
+pub fn load_and_check_economic_data_range(
+    symbol: &str,
+    start_dt_str: &str,
+    end_dt_str: &str,
+    preload_mode: Option<&str>,
+    preload_date_str: Option<&str>,
+    custom_dir: Option<&str>,
+) -> (EconomicDataAvailability, HashMap<String, Vec<EconomicEvent>>) {
+    let pair = extract_base_pair(symbol);
+    let effective_start = if preload_mode == Some("DATE") && preload_date_str.is_some() {
+        let p_date = preload_date_str.unwrap();
+        if !p_date.is_empty() && p_date < start_dt_str {
+            p_date
+        } else {
+            start_dt_str
+        }
+    } else {
+        start_dt_str
+    };
+
+    let ym_list = get_year_months_between(effective_start, end_dt_str);
+    let profiles = PseudoDmmEngine::load_profile_matrix();
+
+    let mut months = Vec::new();
+    let mut missing_months = Vec::new();
+    let mut available_months = Vec::new();
+    let mut loaded_events_map = HashMap::new();
+    let mut total_events = 0;
+
+    for (y, m) in ym_list {
+        let ym_str = format!("{:04}-{:02}", y, m);
+        let events = PseudoDmmEngine::load_events_for_month(&pair, y, m, &profiles, custom_dir);
+        let count = events.len();
+        let exists = count > 0;
+
+        if exists {
+            total_events += count;
+            available_months.push(ym_str.clone());
+            loaded_events_map.insert(ym_str.clone(), events);
+        } else {
+            missing_months.push(ym_str.clone());
+        }
+
+        months.push(EconomicMonthStatus {
+            year_month: ym_str,
+            exists,
+            event_count: count,
+        });
+    }
+
+    let is_all_available = missing_months.is_empty();
+    let has_any_data = !available_months.is_empty();
+
+    (
+        EconomicDataAvailability {
+            symbol: symbol.to_string(),
+            pair,
+            is_all_available,
+            has_any_data,
+            total_events,
+            months,
+            missing_months,
+            available_months,
+        },
+        loaded_events_map,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -612,4 +757,25 @@ mod tests {
         let (_, _, spr_peak) = res_peak.unwrap();
         assert_eq!(spr_peak, 0.039, "Peak spread should reach 3.9銭 on Tier 1 event");
     }
+
+    #[test]
+    fn test_get_year_months_between() {
+        let ym = get_year_months_between("2026-05-01 00:00:00", "2026-07-15 23:59:59");
+        assert_eq!(ym, vec![(2026, 5), (2026, 6), (2026, 7)]);
+
+        let ym_cross_year = get_year_months_between("2025-11-01", "2026-02-01");
+        assert_eq!(ym_cross_year, vec![(2025, 11), (2025, 12), (2026, 1), (2026, 2)]);
+
+        let ym_single = get_year_months_between("2026-05-01", "2026-05-10");
+        assert_eq!(ym_single, vec![(2026, 5)]);
+    }
+
+    #[test]
+    fn test_extract_base_pair() {
+        assert_eq!(extract_base_pair("USDJPY.dmm2026"), "USDJPY");
+        assert_eq!(extract_base_pair("USDJPY_OANDA_2016"), "USDJPY");
+        assert_eq!(extract_base_pair("EURUSD"), "EURUSD");
+        assert_eq!(extract_base_pair("GBPJPY.cl"), "GBPJPY");
+    }
 }
+

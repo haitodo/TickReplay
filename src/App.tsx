@@ -14,6 +14,7 @@ import { SpeedOrderWindowContent } from "./components/SpeedOrderWindowContent";
 import { PositionsWindowContent } from "./components/PositionsWindowContent";
 import { SettingsWindowContent } from "./components/Settings/SettingsWindowContent";
 import { DeleteSessionModal } from "./components/DeleteSessionModal";
+import { EconomicDataMissingModal } from "./components/Modals/EconomicDataMissingModal";
 import { TerminalNameModal } from "./components/Modals/TerminalNameModal";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { AppHeader } from "./components/Header/AppHeader";
@@ -22,6 +23,7 @@ import { RemoteHudBar } from "./components/Remote/RemoteHudBar";
 import { SettingsModal } from "./components/Settings/SettingsModal";
 import { parseSymbolName, getCompanionSymbols, switchSymbolSuffix, getAllYears, checkSymbolYearMismatch } from "./utils/symbolUtils";
 import { parseDateTimeStr, alignDateRangeToYear } from "./utils/dateUtils";
+import { checkEconomicDataAvailability } from "./utils/economicDataUtils";
 import { useTheme } from "./hooks/useTheme";
 import {
   getServerToJstOffsetHours,
@@ -224,6 +226,12 @@ function App() {
   const [currentGroupSessionId, setCurrentGroupSessionId] = useState<string | null>(null);
   const [saveAsNewSnapshot, setSaveAsNewSnapshot] = useState<boolean>(false);
   const [expandedGroups, setExpandedGroups] = useState<{ [key: string]: boolean }>({});
+
+  // 経済指標データの充足確認モーダル用 State
+  const [isEconomicWarningOpen, setIsEconomicWarningOpen] = useState(false);
+  const [economicMissingMonths, setEconomicMissingMonths] = useState<string[]>([]);
+  const [economicAvailableMonths, setEconomicAvailableMonths] = useState<string[]>([]);
+  const [_economicAvailabilityMap, setEconomicAvailabilityMap] = useState<Record<string, boolean>>({});
 
   // 新規スナップショット保存チェックボックス切り替え時に保存名を動的に更新する
   useEffect(() => {
@@ -1649,12 +1657,49 @@ function App() {
       }
     }
 
+    // 経済指標データの充足確認＆一括メモリロード (単一パス/IO重複排除)
+    try {
+      const checkResult = await checkEconomicDataAvailability(
+        sourceSymbol,
+        startTime,
+        endTime,
+        preloadMode,
+        preloadDate
+      );
+      if (checkResult) {
+        const map: Record<string, boolean> = {};
+        checkResult.months.forEach((m) => {
+          map[m.year_month] = m.exists;
+        });
+        setEconomicAvailabilityMap(map);
+
+        if (!checkResult.is_all_available) {
+          setEconomicMissingMonths(checkResult.missing_months);
+          setEconomicAvailableMonths(checkResult.available_months);
+          setIsEconomicWarningOpen(true);
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn("Economic data availability check error:", e);
+    }
+
     // チャート最大バー数が Unlimited でない場合の確認警告
     if (maxBarsInfo && !maxBarsInfo.is_unlimited) {
       setIsMaxBarsWarningOpen(true);
       return;
     }
 
+    await executeInitReplay();
+  };
+
+  // 経済指標データ不足確認モーダルで「このまま開始する」が押された場合の処理
+  const handleProceedWithMissingEconomicData = async () => {
+    setIsEconomicWarningOpen(false);
+    if (maxBarsInfo && !maxBarsInfo.is_unlimited) {
+      setIsMaxBarsWarningOpen(true);
+      return;
+    }
     await executeInitReplay();
   };
 
@@ -3103,6 +3148,18 @@ function App() {
         message={deleteConfirmMessage}
         onConfirm={executeDeleteSession}
         onClose={() => setIsDeleteSessionConfirmOpen(false)}
+      />
+
+      {/* Economic Data Missing Confirmation Modal */}
+      <EconomicDataMissingModal
+        isOpen={isEconomicWarningOpen}
+        onClose={() => setIsEconomicWarningOpen(false)}
+        onProceed={handleProceedWithMissingEconomicData}
+        symbol={sourceSymbol}
+        missingMonths={economicMissingMonths}
+        availableMonths={economicAvailableMonths}
+        startTime={startTime}
+        endTime={endTime}
       />
 
       {/* Clear All Sessions Modal */}
