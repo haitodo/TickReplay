@@ -112,9 +112,15 @@ pub async fn import_custom_symbol_chunk(
 }
 
 #[tauri::command]
+pub async fn get_default_custom_symbol_dir() -> Result<String, AppError> {
+    let p = crate::custom_symbol::get_default_tick_dir();
+    Ok(p.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 pub async fn select_folder() -> Result<Option<String>, AppError> {
     let folder = rfd::AsyncFileDialog::new()
-        .set_title("OANDA ZIP データ保存先フォルダを選択")
+        .set_title("ティックデータ保存先フォルダを選択 (Parquet / ZIP)")
         .pick_folder()
         .await;
 

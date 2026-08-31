@@ -27,6 +27,8 @@ pub struct ScannedZipFile {
     pub year_month: String,
     pub file_path: String,
     pub already_imported: bool,
+    #[serde(default)]
+    pub file_type: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -468,6 +470,61 @@ pub fn scan_directory_for_ticks(
     Ok(result)
 }
 
+/// Drenhis 側の設定または標準パスからティックデータのデフォルトディレクトリを取得する
+pub fn get_default_tick_dir() -> std::path::PathBuf {
+    if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+        let conf_path = std::path::PathBuf::from(&local_app_data)
+            .join("com.drenhis.app")
+            .join("tick_export_config.json");
+        if conf_path.exists() {
+            if let Ok(content) = fs::read_to_string(&conf_path) {
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(dir) = val.get("output_dir").and_then(|v| v.as_str()) {
+                        let p = std::path::PathBuf::from(dir);
+                        let tick_p = p.join("tick");
+                        if tick_p.exists() {
+                            return tick_p;
+                        } else if p.exists() {
+                            return p;
+                        }
+                    }
+                }
+            }
+        }
+        let econ_conf_path = std::path::PathBuf::from(&local_app_data)
+            .join("com.drenhis.app")
+            .join("economic_export_config.json");
+        if econ_conf_path.exists() {
+            if let Ok(content) = fs::read_to_string(&econ_conf_path) {
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(dir) = val.get("export_dir").and_then(|v| v.as_str()) {
+                        let p = std::path::PathBuf::from(dir);
+                        let tick_p = p.join("tick");
+                        if tick_p.exists() {
+                            return tick_p;
+                        } else if p.exists() {
+                            return p;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let drehis_tick = std::path::PathBuf::from(r"D:\Drehis\tick");
+    if drehis_tick.exists() {
+        return drehis_tick;
+    }
+    let drehis = std::path::PathBuf::from(r"D:\Drehis");
+    if drehis.exists() {
+        return drehis;
+    }
+    let tick_data = std::path::PathBuf::from(r"D:\TickData");
+    if tick_data.exists() {
+        return tick_data;
+    }
+    std::path::PathBuf::from(r"D:\Drehis\tick")
+}
+
 fn walk_dir_collect(
     dir: &Path,
     root: &Path,
@@ -480,11 +537,12 @@ fn walk_dir_collect(
             if path.is_dir() {
                 walk_dir_collect(&path, root, map, manifest);
             } else if path.is_file() {
-                let is_tick_file = path.extension().and_then(|s| s.to_str()).map(|e| {
-                    e.eq_ignore_ascii_case("zip") || e.eq_ignore_ascii_case("parquet")
-                }) == Some(true);
+                let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+                let is_parquet = ext.eq_ignore_ascii_case("parquet");
+                let is_zip = ext.eq_ignore_ascii_case("zip");
 
-                if is_tick_file {
+                if is_parquet || is_zip {
+                    let file_type = if is_parquet { "parquet".to_string() } else { "zip".to_string() };
                     if let Some(parsed) = analyze_zip_path(&path, root) {
                         let already = manifest.is_imported(&parsed.suggested_symbol_name, &parsed.year_month);
                         let key = (
@@ -498,6 +556,7 @@ fn walk_dir_collect(
                             year_month: parsed.year_month,
                             file_path: path.to_string_lossy().to_string(),
                             already_imported: already,
+                            file_type,
                         });
                     }
                 }

@@ -6,6 +6,7 @@ export interface ScannedZipFile {
   year_month: string;
   file_path: string;
   already_imported: boolean;
+  file_type?: "parquet" | "zip" | string;
 }
 
 export interface ScannedPairGroup {
@@ -42,9 +43,10 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
   onImportComplete,
   onApplyToReplay
 }) => {
-  // 初期フォルダパス: localStorageから取得、なければ D:\TickData
+  // 初期フォルダパス: localStorageから取得、なければデフォルト (Drenhis tick)
+  const [defaultRootDir, setDefaultRootDir] = useState<string>("D:\\Drehis\\tick");
   const [rootDir, setRootDir] = useState<string>(() => {
-    return localStorage.getItem(STORAGE_KEY) || "D:\\TickData";
+    return localStorage.getItem(STORAGE_KEY) || "D:\\Drehis\\tick";
   });
   const [scannedGroups, setScannedGroups] = useState<ScannedPairGroup[]>([]);
   const [isScanning, setIsScanning] = useState(false);
@@ -56,6 +58,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
   const [selectedBrokerFilter, setSelectedBrokerFilter] = useState<string>("ALL");
   const [selectedYearFilter, setSelectedYearFilter] = useState<string>("ALL");
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<"ALL" | "unimported_only" | "imported_only">("ALL");
+  const [selectedFormatFilter, setSelectedFormatFilter] = useState<"ALL" | "parquet" | "zip">("ALL");
   const [searchQuery, setSearchQuery] = useState<string>("");
   
   const [isImporting, setIsImporting] = useState(false);
@@ -91,15 +94,33 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
     return "";
   };
 
-  // モーダル表示時に MT5 EA 接続状態を確認 ＆ 自動スキャン
+  // モーダル表示時に MT5 EA 接続状態を確認 ＆ デフォルトパス取得 ＆ 自動スキャン
   useEffect(() => {
     if (isOpen) {
       checkMt5Connection();
       setImportCompletedSuccessfully(false);
       setLastImportedSymbols([]);
-      if (rootDir && rootDir.trim()) {
-        handleScanWithDir(rootDir.trim());
-      }
+      
+      invoke<string>("get_default_custom_symbol_dir")
+        .then((defDir) => {
+          if (defDir) {
+            setDefaultRootDir(defDir);
+            const stored = localStorage.getItem(STORAGE_KEY);
+            const targetDir = (stored && stored.trim()) ? stored.trim() : defDir;
+            if (!stored || !stored.trim()) {
+              setRootDir(defDir);
+              localStorage.setItem(STORAGE_KEY, defDir);
+            }
+            handleScanWithDir(targetDir);
+          } else if (rootDir && rootDir.trim()) {
+            handleScanWithDir(rootDir.trim());
+          }
+        })
+        .catch(() => {
+          if (rootDir && rootDir.trim()) {
+            handleScanWithDir(rootDir.trim());
+          }
+        });
     }
   }, [isOpen]);
 
@@ -132,6 +153,22 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
       }
     } catch (err: any) {
       console.error("Failed to open folder picker:", err);
+    }
+  };
+
+  // デフォルトフォルダ (Drenhis Parquet出力) へリセット
+  const handleResetToDefault = async () => {
+    try {
+      const defDir = await invoke<string>("get_default_custom_symbol_dir");
+      const target = defDir || defaultRootDir || "D:\\Drehis\\tick";
+      setDefaultRootDir(target);
+      updateRootDir(target);
+      setSelectedFormatFilter("ALL");
+      handleScanWithDir(target);
+    } catch (e) {
+      const fallback = defaultRootDir || "D:\\Drehis\\tick";
+      updateRootDir(fallback);
+      handleScanWithDir(fallback);
     }
   };
 
@@ -189,6 +226,28 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
     handleScanWithDir(rootDir);
   };
 
+  // フォーマット統計 (Parquet / ZIP の件数と混在判定)
+  const formatStats = useMemo(() => {
+    let parquetCount = 0;
+    let zipCount = 0;
+    scannedGroups.forEach(g => {
+      g.files.forEach(f => {
+        const isP = f.file_type === "parquet" || f.file_path.toLowerCase().endsWith(".parquet");
+        if (isP) parquetCount++;
+        else zipCount++;
+      });
+    });
+    return {
+      parquetCount,
+      zipCount,
+      hasParquet: parquetCount > 0,
+      hasZip: zipCount > 0,
+      isParquetOnly: parquetCount > 0 && zipCount === 0,
+      isZipOnly: zipCount > 0 && parquetCount === 0,
+      isMixed: parquetCount > 0 && zipCount > 0,
+    };
+  }, [scannedGroups]);
+
   // 全業者リスト
   const allBrokers = useMemo(() => {
     const set = new Set<string>();
@@ -230,35 +289,50 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
 
   // フィルタリング適用後のグループ
   const filteredGroups = useMemo(() => {
-    return scannedGroups.filter(g => {
-      const b = getGroupBroker(g);
-      const y = getGroupYear(g);
-      if (selectedBrokerFilter !== "ALL" && b !== selectedBrokerFilter) return false;
-      if (selectedYearFilter !== "ALL" && y !== selectedYearFilter) return false;
-      
-      const totalFiles = g.files.length;
-      const importedFiles = g.files.filter(f => f.already_imported).length;
-      const isComplete = importedFiles === totalFiles && totalFiles > 0;
-      
-      if (selectedStatusFilter === "unimported_only" && isComplete) return false;
-      if (selectedStatusFilter === "imported_only" && !isComplete) return false;
+    return scannedGroups
+      .map(g => {
+        const filteredFiles = g.files.filter(f => {
+          if (selectedFormatFilter === "ALL") return true;
+          const isP = f.file_type === "parquet" || f.file_path.toLowerCase().endsWith(".parquet");
+          if (selectedFormatFilter === "parquet") return isP;
+          if (selectedFormatFilter === "zip") return !isP;
+          return true;
+        });
+        return {
+          ...g,
+          files: filteredFiles
+        };
+      })
+      .filter(g => {
+        if (g.files.length === 0) return false;
+        const b = getGroupBroker(g);
+        const y = getGroupYear(g);
+        if (selectedBrokerFilter !== "ALL" && b !== selectedBrokerFilter) return false;
+        if (selectedYearFilter !== "ALL" && y !== selectedYearFilter) return false;
+        
+        const totalFiles = g.files.length;
+        const importedFiles = g.files.filter(f => f.already_imported).length;
+        const isComplete = importedFiles === totalFiles && totalFiles > 0;
+        
+        if (selectedStatusFilter === "unimported_only" && isComplete) return false;
+        if (selectedStatusFilter === "imported_only" && !isComplete) return false;
 
-      if (searchQuery.trim()) {
-        const q = searchQuery.trim().toUpperCase();
-        const key = getGroupKey(g);
-        const symName = symbolNames[key] || g.suggested_symbol_name || "";
-        if (
-          !g.pair_name.toUpperCase().includes(q) &&
-          !symName.toUpperCase().includes(q) &&
-          !b.toUpperCase().includes(q) &&
-          !y.includes(q)
-        ) {
-          return false;
+        if (searchQuery.trim()) {
+          const q = searchQuery.trim().toUpperCase();
+          const key = getGroupKey(g);
+          const symName = symbolNames[key] || g.suggested_symbol_name || "";
+          if (
+            !g.pair_name.toUpperCase().includes(q) &&
+            !symName.toUpperCase().includes(q) &&
+            !b.toUpperCase().includes(q) &&
+            !y.includes(q)
+          ) {
+            return false;
+          }
         }
-      }
-      return true;
-    });
-  }, [scannedGroups, selectedBrokerFilter, selectedYearFilter, selectedStatusFilter, searchQuery, symbolNames]);
+        return true;
+      });
+  }, [scannedGroups, selectedBrokerFilter, selectedYearFilter, selectedStatusFilter, selectedFormatFilter, searchQuery, symbolNames]);
 
   // フィルタ後のファイル一覧
   const visibleFiles = useMemo(() => {
@@ -622,16 +696,117 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
             </button>
           </div>
 
+          {/* モード / データソース表示バナー */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "8px 12px",
+              borderRadius: "6px",
+              fontSize: "12px",
+              backgroundColor: formatStats.hasParquet
+                ? "rgba(168, 85, 247, 0.1)"
+                : formatStats.hasZip
+                ? "rgba(245, 158, 11, 0.1)"
+                : "var(--surface-container-low)",
+              border: `1px solid ${
+                formatStats.hasParquet
+                  ? "rgba(168, 85, 247, 0.35)"
+                  : formatStats.hasZip
+                  ? "rgba(245, 158, 11, 0.35)"
+                  : "var(--outline-variant)"
+              }`,
+              flexShrink: 0
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+              <span
+                className="material-symbols-outlined"
+                style={{
+                  fontSize: "18px",
+                  color: formatStats.hasParquet
+                    ? "#c084fc"
+                    : formatStats.hasZip
+                    ? "#fbbf24"
+                    : "var(--primary-color)"
+                }}
+              >
+                {formatStats.hasParquet ? "bolt" : formatStats.hasZip ? "archive" : "dataset"}
+              </span>
+              <div>
+                <span style={{ fontWeight: 700, color: formatStats.hasParquet ? "#c084fc" : formatStats.hasZip ? "#fbbf24" : "var(--on-surface)" }}>
+                  {formatStats.isParquetOnly
+                    ? "⚡ Parquetモード (Drenhis連動 / 高速ダイレクトロード)"
+                    : formatStats.isZipOnly
+                    ? "📦 ZIPモード (CSV圧縮アーカイブ展開)"
+                    : formatStats.isMixed
+                    ? "⚡ Parquet & 📦 ZIP 混在モード"
+                    : "⚡ Parquet (Drenhis連動) / 📦 ZIP 両対応"}
+                </span>
+                <span style={{ fontSize: "11px", color: "var(--on-surface-variant)", marginLeft: "8px" }}>
+                  {formatStats.hasParquet
+                    ? `検出: Parquet ${formatStats.parquetCount}件`
+                    : formatStats.hasZip
+                    ? `検出: ZIP ${formatStats.zipCount}件`
+                    : "Drenhis出力のParquetまたはZIPファイルが対象です"}
+                  {formatStats.isMixed && ` (Parquet ${formatStats.parquetCount}件 / ZIP ${formatStats.zipCount}件)`}
+                </span>
+              </div>
+            </div>
+
+            {rootDir !== defaultRootDir && (
+              <button
+                type="button"
+                className="pro-btn"
+                onClick={handleResetToDefault}
+                disabled={isScanning || isImporting}
+                style={{
+                  padding: "2px 8px",
+                  fontSize: "11px",
+                  height: "22px",
+                  backgroundColor: "rgba(168, 85, 247, 0.15)",
+                  borderColor: "rgba(168, 85, 247, 0.4)",
+                  color: "#c084fc",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px"
+                }}
+                title={`Drenhis標準Parquetフォルダ (${defaultRootDir}) に戻す`}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: "13px" }}>restart_alt</span>
+                Drenhis標準に戻す
+              </button>
+            )}
+          </div>
+
           {/* フォルダ指定とスキャン */}
           <div className="form-group" style={{ marginBottom: 0, flexShrink: 0 }}>
-            <label className="form-label" style={{ fontSize: "11px" }}>データ格納ディレクトリパス (業者フォルダや年別ZIPフォルダ)</label>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+              <label className="form-label" style={{ fontSize: "11px", margin: 0 }}>
+                ティックデータ格納フォルダ (Parquet / ZIP)
+              </label>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                {rootDir === defaultRootDir ? (
+                  <span style={{ fontSize: "10.5px", color: "#a855f7", fontWeight: 600, display: "flex", alignItems: "center", gap: "3px" }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: "13px" }}>check_circle</span>
+                    Drenhis標準フォルダ適用中
+                  </span>
+                ) : (
+                  <span style={{ fontSize: "10.5px", color: "var(--on-surface-variant)", opacity: 0.8 }}>
+                    カスタムフォルダ指定中
+                  </span>
+                )}
+              </div>
+            </div>
+
             <div className="input-with-button-container">
               <input
                 type="text"
                 className="pro-input input-with-button"
                 value={rootDir}
                 onChange={(e) => updateRootDir(e.target.value)}
-                placeholder="e.g. D:\TickData または D:\TickData\OANDA"
+                placeholder="e.g. D:\Drehis\tick または D:\TickData"
                 disabled={isImporting}
                 style={{ fontSize: "12px" }}
               />
@@ -645,6 +820,26 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
               >
                 <span className="material-symbols-outlined" style={{ fontSize: "15px" }}>folder_open</span>
                 参照...
+              </button>
+              <button
+                type="button"
+                className="pro-btn"
+                onClick={handleResetToDefault}
+                disabled={isScanning || isImporting}
+                style={{
+                  padding: "0 10px",
+                  height: "30px",
+                  fontSize: "11px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  borderColor: rootDir !== defaultRootDir ? "var(--primary-color)" : undefined,
+                  color: rootDir !== defaultRootDir ? "var(--primary-color)" : undefined,
+                }}
+                title={`Drenhis標準Parquet出力フォルダ (${defaultRootDir}) にリセット`}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: "15px" }}>restart_alt</span>
+                デフォルトに戻す
               </button>
               <button
                 type="button"
@@ -678,7 +873,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                 flexShrink: 0
               }}
             >
-              {/* 業者 ＆ 状態 ＆ 検索 */}
+              {/* 業者 ＆ 形式 ＆ 状態 ＆ 検索 */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
                 {/* 業者フィルタ */}
                 {allBrokers.length > 0 && (
@@ -719,6 +914,71 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                         🏢 {b}
                       </button>
                     ))}
+                  </div>
+                )}
+
+                {/* 形式フィルタ (Parquet / ZIP) */}
+                {(formatStats.hasParquet || formatStats.hasZip) && (
+                  <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                    <span style={{ fontSize: "11px", color: "var(--on-surface-variant)", fontWeight: 600 }}>形式:</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedFormatFilter("ALL")}
+                      style={{
+                        padding: "2px 8px",
+                        fontSize: "11px",
+                        borderRadius: "4px",
+                        border: `1px solid ${selectedFormatFilter === "ALL" ? "var(--primary-color)" : "var(--outline-variant)"}`,
+                        backgroundColor: selectedFormatFilter === "ALL" ? "rgba(var(--primary-rgb), 0.15)" : "var(--btn-default-bg)",
+                        color: selectedFormatFilter === "ALL" ? "var(--primary-color)" : "var(--btn-default-color)",
+                        cursor: "pointer",
+                        fontWeight: selectedFormatFilter === "ALL" ? 700 : "normal"
+                      }}
+                    >
+                      すべて
+                    </button>
+                    {formatStats.hasParquet && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedFormatFilter("parquet")}
+                        style={{
+                          padding: "2px 8px",
+                          fontSize: "11px",
+                          borderRadius: "4px",
+                          border: `1px solid ${selectedFormatFilter === "parquet" ? "#a855f7" : "var(--outline-variant)"}`,
+                          backgroundColor: selectedFormatFilter === "parquet" ? "rgba(168, 85, 247, 0.2)" : "var(--btn-default-bg)",
+                          color: selectedFormatFilter === "parquet" ? "#c084fc" : "var(--btn-default-color)",
+                          cursor: "pointer",
+                          fontWeight: selectedFormatFilter === "parquet" ? 700 : "normal",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "3px"
+                        }}
+                      >
+                        <span>⚡ Parquet ({formatStats.parquetCount})</span>
+                      </button>
+                    )}
+                    {formatStats.hasZip && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedFormatFilter("zip")}
+                        style={{
+                          padding: "2px 8px",
+                          fontSize: "11px",
+                          borderRadius: "4px",
+                          border: `1px solid ${selectedFormatFilter === "zip" ? "#f59e0b" : "var(--outline-variant)"}`,
+                          backgroundColor: selectedFormatFilter === "zip" ? "rgba(245, 158, 11, 0.2)" : "var(--btn-default-bg)",
+                          color: selectedFormatFilter === "zip" ? "#fbbf24" : "var(--btn-default-color)",
+                          cursor: "pointer",
+                          fontWeight: selectedFormatFilter === "zip" ? 700 : "normal",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "3px"
+                        }}
+                      >
+                        <span>📦 ZIP ({formatStats.zipCount})</span>
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -1132,6 +1392,9 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                             const isComplete = importedF === totalF && totalF > 0;
                             const isPartial = importedF > 0 && importedF < totalF;
 
+                            const hasParquetInGroup = group.files.some(f => f.file_type === "parquet" || f.file_path.toLowerCase().endsWith(".parquet"));
+                            const hasZipInGroup = group.files.some(f => f.file_type === "zip" || f.file_path.toLowerCase().endsWith(".zip"));
+
                             return (
                               <div
                                 key={key}
@@ -1154,6 +1417,18 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                                   <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                                     <strong style={{ fontSize: "13px", color: "var(--on-surface)" }}>{group.pair_name}</strong>
                                     
+                                    {/* フォーマット識別バッジ */}
+                                    {hasParquetInGroup && (
+                                      <span style={{ fontSize: "9.5px", fontWeight: 700, padding: "1px 5px", borderRadius: "3px", backgroundColor: "rgba(168, 85, 247, 0.15)", color: "#c084fc", border: "1px solid rgba(168, 85, 247, 0.4)", display: "flex", alignItems: "center", gap: "2px" }}>
+                                        <span>⚡ Parquet</span>
+                                      </span>
+                                    )}
+                                    {hasZipInGroup && (
+                                      <span style={{ fontSize: "9.5px", fontWeight: 700, padding: "1px 5px", borderRadius: "3px", backgroundColor: "rgba(245, 158, 11, 0.15)", color: "#fbbf24", border: "1px solid rgba(245, 158, 11, 0.4)", display: "flex", alignItems: "center", gap: "2px" }}>
+                                        <span>📦 ZIP</span>
+                                      </span>
+                                    )}
+
                                     {/* シンボル名完全一致・インポート状態バッジ */}
                                     {isComplete ? (
                                       <span style={{ fontSize: "10px", fontWeight: 700, padding: "1px 6px", borderRadius: "4px", backgroundColor: "var(--status-success-bg)", color: "var(--status-success)", border: "1px solid var(--status-success)" }}>
@@ -1239,6 +1514,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(105px, 1fr))", gap: "4px", maxHeight: "95px", overflowY: "auto", paddingRight: "2px" }}>
                                   {group.files.map(f => {
                                     const isChecked = !!selectedMonths[f.file_path];
+                                    const isParquet = f.file_type === "parquet" || f.file_path.toLowerCase().endsWith(".parquet");
                                     return (
                                       <label
                                         key={f.file_path}
@@ -1262,7 +1538,21 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                                           onChange={(e) => setSelectedMonths({ ...selectedMonths, [f.file_path]: e.target.checked })}
                                           style={{ width: "12px", height: "12px", margin: 0 }}
                                         />
-                                        <span style={{ textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }} title={f.year_month}>
+                                        <span
+                                          style={{
+                                            fontSize: "8.5px",
+                                            fontWeight: 700,
+                                            padding: "0 3px",
+                                            borderRadius: "2px",
+                                            backgroundColor: isParquet ? "rgba(168, 85, 247, 0.2)" : "rgba(245, 158, 11, 0.2)",
+                                            color: isParquet ? "#c084fc" : "#fbbf24",
+                                            border: `1px solid ${isParquet ? "rgba(168, 85, 247, 0.35)" : "rgba(245, 158, 11, 0.35)"}`,
+                                          }}
+                                          title={isParquet ? "Parquet形式" : "ZIP形式"}
+                                        >
+                                          {isParquet ? "P" : "Z"}
+                                        </span>
+                                        <span style={{ textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }} title={`${f.year_month} (${isParquet ? "Parquet" : "ZIP"})`}>
                                           {f.year_month}
                                         </span>
                                         {f.already_imported ? (
@@ -1291,23 +1581,34 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
           ) : !errorMessage && (
             <div style={{ padding: "36px 20px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: "12px", border: "1px dashed var(--outline-variant)", borderRadius: "8px", backgroundColor: "var(--surface-container-low)" }}>
               <span className="material-symbols-outlined" style={{ fontSize: "40px", color: "var(--primary-color)", opacity: 0.85 }}>
-                folder_zip
+                dataset
               </span>
               <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--on-surface)" }}>
-                ZIPティックデータのスキャン
+                ティックデータの一括スキャン (Parquet / ZIP)
               </div>
-              <div style={{ fontSize: "11.5px", color: "var(--on-surface-variant)", maxWidth: "440px", lineHeight: "1.5" }}>
-                上のデータ格納ディレクトリ（例: <code>D:\TickData</code>）を指定し、「スキャン」ボタンをクリックして業者・年度ごとのティックデータを読み込んでください。
+              <div style={{ fontSize: "11.5px", color: "var(--on-surface-variant)", maxWidth: "480px", lineHeight: "1.6" }}>
+                デフォルトで <strong>Drenhis の Parquet 出力フォルダ</strong>（<code>{defaultRootDir}</code>）が設定されています。ZIP 形式のデータフォルダも指定可能で、「デフォルトに戻す」ボタンでいつでも Drenhis の標準出力先へ復元できます。
               </div>
-              <button
-                type="button"
-                className="pro-btn pro-btn-primary"
-                onClick={handleScan}
-                style={{ marginTop: "4px", padding: "6px 16px", fontSize: "12px", display: "flex", alignItems: "center", gap: "6px" }}
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>search</span>
-                スキャンを開始
-              </button>
+              <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
+                <button
+                  type="button"
+                  className="pro-btn"
+                  onClick={handleResetToDefault}
+                  style={{ padding: "6px 14px", fontSize: "12px", display: "flex", alignItems: "center", gap: "6px" }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>restart_alt</span>
+                  Drenhis標準に戻す
+                </button>
+                <button
+                  type="button"
+                  className="pro-btn pro-btn-primary"
+                  onClick={handleScan}
+                  style={{ padding: "6px 16px", fontSize: "12px", display: "flex", alignItems: "center", gap: "6px" }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>search</span>
+                  スキャンを開始
+                </button>
+              </div>
             </div>
           )}
 

@@ -283,6 +283,7 @@ pub fn run() {
             commands::clear_all_sessions,
             commands::scan_custom_symbol_files,
             commands::import_custom_symbol_chunk,
+            commands::get_default_custom_symbol_dir,
             commands::get_available_symbols,
             commands::select_folder,
             commands::check_economic_data_availability,
