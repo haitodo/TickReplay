@@ -81,9 +81,7 @@ pub fn run() {
                     };
 
                     if is_standard_main {
-                        tauri::async_runtime::spawn(async move {
-                            let _ = commands_settings::save_window_position_to_disk(&app_handle, &label, x, y).await;
-                        });
+                        commands_settings::queue_window_position_save(app_handle, label, x, y);
                     }
                 }
                 tauri::WindowEvent::ScaleFactorChanged { .. } => {

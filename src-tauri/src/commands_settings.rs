@@ -56,11 +56,58 @@ pub async fn set_shortcuts_active(
     Ok(())
 }
 
+static SETTINGS_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+static POSITION_QUEUE: std::sync::OnceLock<tokio::sync::mpsc::UnboundedSender<(AppHandle, String, i32, i32)>> = std::sync::OnceLock::new();
+
+/// ウィンドウ移動イベントをデバウンスして非同期に保存キューへ追加
+pub fn queue_window_position_save(app_handle: AppHandle, label: String, x: i32, y: i32) {
+    let tx = POSITION_QUEUE.get_or_init(|| {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<(AppHandle, String, i32, i32)>();
+        tauri::async_runtime::spawn(async move {
+            let mut pending: std::collections::HashMap<String, (AppHandle, i32, i32)> = std::collections::HashMap::new();
+            loop {
+                match rx.recv().await {
+                    Some((handle, lbl, pos_x, pos_y)) => {
+                        pending.insert(lbl, (handle, pos_x, pos_y));
+                        while let Ok((h, l, px, py)) = rx.try_recv() {
+                            pending.insert(l, (h, px, py));
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                        while let Ok((h, l, px, py)) = rx.try_recv() {
+                            pending.insert(l, (h, px, py));
+                        }
+                        for (l, (h, px, py)) in pending.drain() {
+                            let _ = save_window_position_to_disk(&h, &l, px, py).await;
+                        }
+                    }
+                    None => break,
+                }
+            }
+        });
+        tx
+    });
+    let _ = tx.send((app_handle, label, x, y));
+}
+
+/// 一時ファイルを経由したアトミックな設定書き込み
+async fn atomic_write_settings(config_dir: &std::path::Path, settings: &ReplaySettings) -> Result<(), AppError> {
+    if !config_dir.exists() {
+        tokio::fs::create_dir_all(config_dir).await?;
+    }
+    let config_file = config_dir.join("settings.json");
+    let temp_file = config_dir.join("settings.json.tmp");
+    let json_str = serde_json::to_string_pretty(settings)?;
+    tokio::fs::write(&temp_file, &json_str).await?;
+    tokio::fs::rename(&temp_file, &config_file).await?;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn save_settings(
     app_handle: AppHandle,
     mut settings: ReplaySettings,
 ) -> Result<(), AppError> {
+    let _guard = SETTINGS_LOCK.lock().await;
     let existing = load_settings(app_handle.clone()).await.unwrap_or(None);
 
     if let Some(ref existing_settings) = existing {
@@ -210,12 +257,7 @@ pub async fn save_settings(
     }
 
     let config_dir = app_handle.path().app_config_dir()?;
-    if !config_dir.exists() {
-        tokio::fs::create_dir_all(&config_dir).await?;
-    }
-    let config_file = config_dir.join("settings.json");
-    let json_str = serde_json::to_string_pretty(&settings)?;
-    tokio::fs::write(config_file, json_str).await?;
+    atomic_write_settings(&config_dir, &settings).await?;
     Ok(())
 }
 
@@ -225,6 +267,7 @@ pub async fn save_window_position_to_disk(
     x: i32,
     y: i32,
 ) -> Result<(), AppError> {
+    let _guard = SETTINGS_LOCK.lock().await;
     let config_dir = app_handle.path().app_config_dir()?;
     let config_file = config_dir.join("settings.json");
     
@@ -236,45 +279,44 @@ pub async fn save_window_position_to_disk(
     };
 
     if let Some(ref mut s) = settings {
+        let mut changed = false;
         if label == "main" {
-            if s.main_window_x == Some(x) && s.main_window_y == Some(y) {
-                return Ok(());
+            if s.main_window_x != Some(x) || s.main_window_y != Some(y) {
+                s.main_window_x = Some(x);
+                s.main_window_y = Some(y);
+                changed = true;
             }
-            s.main_window_x = Some(x);
-            s.main_window_y = Some(y);
         } else if label == "speed_order" {
-            if s.speed_order_window_x == Some(x) && s.speed_order_window_y == Some(y) {
-                return Ok(());
+            if s.speed_order_window_x != Some(x) || s.speed_order_window_y != Some(y) {
+                s.speed_order_window_x = Some(x);
+                s.speed_order_window_y = Some(y);
+                changed = true;
             }
-            s.speed_order_window_x = Some(x);
-            s.speed_order_window_y = Some(y);
         } else if label == "positions" {
-            if s.positions_window_x == Some(x) && s.positions_window_y == Some(y) {
-                return Ok(());
+            if s.positions_window_x != Some(x) || s.positions_window_y != Some(y) {
+                s.positions_window_x = Some(x);
+                s.positions_window_y = Some(y);
+                changed = true;
             }
-            s.positions_window_x = Some(x);
-            s.positions_window_y = Some(y);
         } else if label == "controller" {
-            if s.controller_window_x == Some(x) && s.controller_window_y == Some(y) {
-                return Ok(());
+            if s.controller_window_x != Some(x) || s.controller_window_y != Some(y) {
+                s.controller_window_x = Some(x);
+                s.controller_window_y = Some(y);
+                changed = true;
             }
-            s.controller_window_x = Some(x);
-            s.controller_window_y = Some(y);
         } else if label == "settings" {
-            if s.settings_window_x == Some(x) && s.settings_window_y == Some(y) {
-                return Ok(());
+            if s.settings_window_x != Some(x) || s.settings_window_y != Some(y) {
+                s.settings_window_x = Some(x);
+                s.settings_window_y = Some(y);
+                changed = true;
             }
-            s.settings_window_x = Some(x);
-            s.settings_window_y = Some(y);
         } else {
             return Ok(());
         }
 
-        if !config_dir.exists() {
-            tokio::fs::create_dir_all(&config_dir).await?;
+        if changed {
+            atomic_write_settings(&config_dir, s).await?;
         }
-        let json_str = serde_json::to_string_pretty(s)?;
-        tokio::fs::write(config_file, json_str).await?;
     }
 
     Ok(())

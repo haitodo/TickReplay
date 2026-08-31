@@ -39,7 +39,10 @@ impl BinaryCommandPacket {
         
         match cmd {
             "SEEK" => {
-                let target_index = v.get("target_index")?.as_i64()?;
+                let target_index = v
+                    .get("target_index")
+                    .or_else(|| v.get("target_idx"))?
+                    .as_i64()?;
                 Some(Self {
                     magic: TRBI_MAGIC,
                     cmd_type: 1,

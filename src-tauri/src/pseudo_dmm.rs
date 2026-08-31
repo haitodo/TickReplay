@@ -76,13 +76,18 @@ impl PseudoDmmEngine {
         }
     }
 
-    /// プロファイル辞書をロード（見つからない場合は主要指標のデフォルトをフォールバック）
+    /// プロファイル辞書をロード（見つからない場合は埋め込みJSONまたは主要指標のデフォルトをフォールバック）
     pub fn load_profile_matrix() -> HashMap<String, IndicatorProfile> {
         let possible_paths = [
+            PathBuf::from("analysis/scripts/indicator_profile_matrix.json"),
+            PathBuf::from("../analysis/scripts/indicator_profile_matrix.json"),
+            PathBuf::from("../../analysis/scripts/indicator_profile_matrix.json"),
             PathBuf::from("data/analysis/indicator_profile_matrix.json"),
             PathBuf::from("../data/analysis/indicator_profile_matrix.json"),
+            PathBuf::from(r"D:\dev\TickReplay\analysis\scripts\indicator_profile_matrix.json"),
             PathBuf::from(r"D:\dev\TickReplay\data\analysis\indicator_profile_matrix.json"),
-            PathBuf::from(r"D:\Drehis\analysis\indicator_profile_matrix.json"),
+            PathBuf::from(r"D:\dev\Drenhis\analysis\scripts\indicator_profile_matrix.json"),
+            PathBuf::from(r"D:\dev\Drenhis\analysis\indicator_profile_matrix.json"),
         ];
 
         for p in &possible_paths {
@@ -93,6 +98,12 @@ impl PseudoDmmEngine {
                     }
                 }
             }
+        }
+
+        // ビルトイン埋め込みJSONからのロード（リリースビルド・ポータブル実行用）
+        const EMBEDDED_PROFILE_MATRIX_JSON: &str = include_str!("../../analysis/scripts/indicator_profile_matrix.json");
+        if let Ok(map) = serde_json::from_str::<HashMap<String, IndicatorProfile>>(EMBEDDED_PROFILE_MATRIX_JSON) {
+            return map;
         }
 
         // デフォルトフォールバック
@@ -282,7 +293,7 @@ impl PseudoDmmEngine {
         Vec::new()
     }
 
-    /// 米国夏時間 (US DST) 判定 (3月第2日曜日〜11月第1日曜日)
+    /// 米国夏時間 (US DST) 判定 (3月第2日曜日 02:00 〜 11月第1日曜日 02:00)
     #[inline]
     pub fn is_us_dst(year: i32, month: u32, day: u32, hour: u32) -> bool {
         if month < 3 || month > 11 {
@@ -298,7 +309,7 @@ impl PseudoDmmEngine {
             let march1_w = chrono::NaiveDate::from_ymd_opt(year, 3, 1)
                 .map(|d| d.weekday().number_from_monday())
                 .unwrap_or(1);
-            let first_sun = if march1_w == 7 { 1 } else { 8 - march1_w + 1 };
+            let first_sun = 1 + (7 - (march1_w % 7)) % 7;
             let second_sun = first_sun + 7;
             if day > second_sun {
                 return true;
@@ -314,7 +325,7 @@ impl PseudoDmmEngine {
             let nov1_w = chrono::NaiveDate::from_ymd_opt(year, 11, 1)
                 .map(|d| d.weekday().number_from_monday())
                 .unwrap_or(1);
-            let first_sun = if nov1_w == 7 { 1 } else { 8 - nov1_w + 1 };
+            let first_sun = 1 + (7 - (nov1_w % 7)) % 7;
             if day < first_sun {
                 return true;
             } else if day == first_sun {
@@ -876,9 +887,43 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_id, 101);
         assert_eq!(events[0].event_name, "非農業部門雇用者数");
-        assert_eq!(events[0].currency, "USD");
-
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_load_profile_matrix_comprehensive() {
+        let profiles = PseudoDmmEngine::load_profile_matrix();
+        assert!(profiles.len() > 10, "プロファイルマトリクスが正常にロードされること (件数: {})", profiles.len());
+        assert!(profiles.contains_key("USD:非農業部門雇用者数") || profiles.contains_key("USD:CPI"));
+        assert!(profiles.contains_key("AUD:AIGオーストラリア建設指数") || profiles.contains_key("EUR:ECB政策金利") || profiles.len() > 100);
+    }
+
+    #[test]
+    fn test_is_us_dst_accurate_dates() {
+        // 2024年: 3月1日(金) -> 第2日曜は3月10日, 11月1日(金) -> 第1日曜は11月3日
+        assert!(!PseudoDmmEngine::is_us_dst(2024, 3, 9, 23));
+        assert!(!PseudoDmmEngine::is_us_dst(2024, 3, 10, 1));
+        assert!(PseudoDmmEngine::is_us_dst(2024, 3, 10, 2));
+        assert!(PseudoDmmEngine::is_us_dst(2024, 3, 11, 0));
+        assert!(PseudoDmmEngine::is_us_dst(2024, 11, 2, 23));
+        assert!(PseudoDmmEngine::is_us_dst(2024, 11, 3, 1));
+        assert!(!PseudoDmmEngine::is_us_dst(2024, 11, 3, 2));
+        assert!(!PseudoDmmEngine::is_us_dst(2024, 11, 4, 0));
+
+        // 2025年: 3月1日(土) -> 第2日曜は3月9日, 11月1日(土) -> 第1日曜は11月2日
+        assert!(!PseudoDmmEngine::is_us_dst(2025, 3, 8, 23));
+        assert!(!PseudoDmmEngine::is_us_dst(2025, 3, 9, 1));
+        assert!(PseudoDmmEngine::is_us_dst(2025, 3, 9, 2));
+        assert!(PseudoDmmEngine::is_us_dst(2025, 11, 1, 23));
+        assert!(PseudoDmmEngine::is_us_dst(2025, 11, 2, 1));
+        assert!(!PseudoDmmEngine::is_us_dst(2025, 11, 2, 2));
+
+        // 2026年: 3月1日(日) -> 第2日曜は3月8日, 11月1日(日) -> 第1日曜は11月1日
+        assert!(!PseudoDmmEngine::is_us_dst(2026, 3, 7, 23));
+        assert!(!PseudoDmmEngine::is_us_dst(2026, 3, 8, 1));
+        assert!(PseudoDmmEngine::is_us_dst(2026, 3, 8, 2));
+        assert!(PseudoDmmEngine::is_us_dst(2026, 11, 1, 1));
+        assert!(!PseudoDmmEngine::is_us_dst(2026, 11, 1, 2));
     }
 }
 

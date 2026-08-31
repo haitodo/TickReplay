@@ -101,7 +101,8 @@ string                  InpNYCoreWinter     = "22:00";
 
 //--- Named Pipe IPC 状態変数
 long                    hReplayPipe = INVALID_HANDLE_VALUE;     // 単一の全二重名前付きパイプハンドル
-string                  m_accumulated_commands = "";            // 受信バッファ（コマンド分割用）
+string                  m_accumulated_commands = "";            // 受信バッファ（後方互換用）
+uchar                   m_ipc_raw_buf[];                        // IPC 受信ストリームバッファ（複数コマンド・バイナリ保持用）
 datetime                m_last_connect_attempt = 0;             // 前回の接続試行時刻
 uint                    m_last_status_write = 0;                // 前回ステータス書き込み時刻
 bool                    m_sync_enabled = false;                 // 同期処理の有効化フラグ
@@ -809,39 +810,93 @@ void CheckAndProcessCommand()
    if(bytes_read <= 0)
       return;
 
-   // バイナリ通信（TRBIマジックヘッダー）の検出とゼロコピー解釈
-   if(bytes_read >= 40)
+   // 読み込んだデータを未処理ストリームバッファへ追記
+   int old_len = ArraySize(m_ipc_raw_buf);
+   ArrayResize(m_ipc_raw_buf, old_len + (int)bytes_read, 4096);
+   ArrayCopy(m_ipc_raw_buf, buf, old_len, 0, (int)bytes_read);
+
+   // 受信ストリームから順次バイナリパケットまたはテキストJSONを抽出して実行
+   while(ArraySize(m_ipc_raw_buf) > 0)
    {
-      uint magic = (uint)buf[0] | ((uint)buf[1] << 8) | ((uint)buf[2] << 16) | ((uint)buf[3] << 24);
-      if(magic == TRBI_MAGIC)
+      int current_len = ArraySize(m_ipc_raw_buf);
+
+      // 1. TRBIマジックヘッダー（バイナリコマンド 40バイト）のチェック
+      if(current_len >= 4)
       {
-         BinaryCommandPacket packet;
-         if(CharArrayToStruct(packet, buf, 0))
+         uint magic = (uint)m_ipc_raw_buf[0] | ((uint)m_ipc_raw_buf[1] << 8) | ((uint)m_ipc_raw_buf[2] << 16) | ((uint)m_ipc_raw_buf[3] << 24);
+         if(magic == TRBI_MAGIC)
          {
-            ProcessBinaryCommand(packet);
-            return;
+            if(current_len < 40)
+            {
+               // 40バイト揃うまで次回の読み込みを待つ
+               break;
+            }
+
+            BinaryCommandPacket packet;
+            if(CharArrayToStruct(packet, m_ipc_raw_buf, 0))
+            {
+               ProcessBinaryCommand(packet);
+            }
+
+            // 40バイト消費してバッファ先頭を詰める
+            int remain = current_len - 40;
+            if(remain > 0)
+            {
+               ArrayCopy(m_ipc_raw_buf, m_ipc_raw_buf, 0, 40, remain);
+               ArrayResize(m_ipc_raw_buf, remain);
+            }
+            else
+            {
+               ArrayResize(m_ipc_raw_buf, 0);
+            }
+            continue;
          }
       }
-   }
 
-   string new_content = CharArrayToString(buf, 0, (int)bytes_read, CP_UTF8);
-   m_accumulated_commands += new_content;
-
-   // 改行コードでコマンドを分割して順次実行
-   int next_newline = StringFind(m_accumulated_commands, "\n");
-   while(next_newline >= 0)
-   {
-      string msg = StringSubstr(m_accumulated_commands, 0, next_newline);
-      m_accumulated_commands = StringSubstr(m_accumulated_commands, next_newline + 1);
-
-      StringTrimLeft(msg);
-      StringTrimRight(msg);
-      if(msg != "")
+      // 2. テキスト/JSONコマンド（改行区切り）の処理
+      int newline_pos = -1;
+      for(int i = 0; i < current_len; i++)
       {
-         ProcessCommand(msg);
+         if(m_ipc_raw_buf[i] == '\n')
+         {
+            newline_pos = i;
+            break;
+         }
       }
 
-      next_newline = StringFind(m_accumulated_commands, "\n");
+      if(newline_pos >= 0)
+      {
+         if(newline_pos > 0)
+         {
+            string msg = CharArrayToString(m_ipc_raw_buf, 0, newline_pos, CP_UTF8);
+            StringTrimLeft(msg);
+            StringTrimRight(msg);
+            if(msg != "")
+            {
+               ProcessCommand(msg);
+            }
+         }
+
+         int remain = current_len - (newline_pos + 1);
+         if(remain > 0)
+         {
+            ArrayCopy(m_ipc_raw_buf, m_ipc_raw_buf, 0, newline_pos + 1, remain);
+            ArrayResize(m_ipc_raw_buf, remain);
+         }
+         else
+         {
+            ArrayResize(m_ipc_raw_buf, 0);
+         }
+         continue;
+      }
+
+      // メモリ保護: 改行もマジックもない不正データが64KB超蓄積した場合はクリア
+      if(current_len > 65536)
+      {
+         Print("[Warning] IPC 受信ストリームバッファが異常肥大化したためクリアします: ", current_len, " bytes");
+         ArrayResize(m_ipc_raw_buf, 0);
+      }
+      break;
    }
 }
 
@@ -1157,7 +1212,9 @@ void ProcessCommand(string line)
    }
    else if(command == "SEEK")
    {
-      int target_index = (int)GetJsonDouble(line, "target_index");
+      string idx_str = GetJsonKeyValue(line, "target_index");
+      if(idx_str == "") idx_str = GetJsonKeyValue(line, "target_idx");
+      int target_index = (int)StringToDouble(idx_str);
       SeekToPosition(target_index);
    }
    else if(command == "SEEK_RELATIVE")
@@ -1639,6 +1696,8 @@ void ClosePipes()
       CloseHandle(hReplayPipe);
       hReplayPipe = INVALID_HANDLE_VALUE;
    }
+   ArrayResize(m_ipc_raw_buf, 0);
+   m_accumulated_commands = "";
    if(was_connected)
    {
       UpdateSyncButtonUI();

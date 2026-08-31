@@ -192,7 +192,6 @@ export const ControllerWindowContent: React.FC = () => {
       speed_mode: speedMode,
       multiplier: multiplier,
       tick_step: tickStep,
-      auto_skip_weekend: false,
     });
   };
 
@@ -213,7 +212,6 @@ export const ControllerWindowContent: React.FC = () => {
       speed_mode: mode,
       multiplier: mult,
       tick_step: step,
-      auto_skip_weekend: false,
     });
   };
 
@@ -272,7 +270,7 @@ export const ControllerWindowContent: React.FC = () => {
   const sendSeekCommand = (targetIdx: number) => {
     sendCommand({
       command: "SEEK",
-      target_idx: targetIdx,
+      target_index: targetIdx,
     });
   };
 
