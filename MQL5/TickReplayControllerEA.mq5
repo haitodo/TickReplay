@@ -909,10 +909,12 @@ void CheckAndProcessCommand()
    if(m_ipc_read_offset > 0)
    {
       int unconsumed = old_len - m_ipc_read_offset;
-      if(unconsumed > 0)
+      if(unconsumed > 0 && m_ipc_read_offset < old_len)
       {
-         ArrayCopy(m_ipc_raw_buf, m_ipc_raw_buf, 0, m_ipc_read_offset, unconsumed);
+         uchar temp[];
+         ArrayCopy(temp, m_ipc_raw_buf, 0, m_ipc_read_offset, unconsumed);
          ArrayResize(m_ipc_raw_buf, unconsumed + (int)bytes_read, 4096);
+         ArrayCopy(m_ipc_raw_buf, temp, 0, 0, unconsumed);
          ArrayCopy(m_ipc_raw_buf, buf, unconsumed, 0, (int)bytes_read);
       }
       else
@@ -928,15 +930,16 @@ void CheckAndProcessCommand()
       ArrayCopy(m_ipc_raw_buf, buf, old_len, 0, (int)bytes_read);
    }
 
-   int total_buf_len = ArraySize(m_ipc_raw_buf);
-
    // 受信ストリームからオフセットを進めながら順次バイナリパケットまたはテキストJSONを抽出して実行（ゼロコピー）
-   while(m_ipc_read_offset < total_buf_len)
+   while(hReplayPipe != INVALID_HANDLE_VALUE && m_ipc_read_offset < ArraySize(m_ipc_raw_buf))
    {
-      int current_len = total_buf_len - m_ipc_read_offset;
+      int current_buf_len = ArraySize(m_ipc_raw_buf);
+      int current_len = current_buf_len - m_ipc_read_offset;
+      if(current_len <= 0)
+         break;
 
       // 1. TRBIマジックヘッダー（バイナリコマンド 40バイト）のチェック
-      if(current_len >= 4)
+      if(current_len >= 4 && (m_ipc_read_offset + 3) < current_buf_len)
       {
          uint magic = (uint)m_ipc_raw_buf[m_ipc_read_offset] | 
                       ((uint)m_ipc_raw_buf[m_ipc_read_offset + 1] << 8) | 
@@ -956,6 +959,10 @@ void CheckAndProcessCommand()
                ProcessBinaryCommand(packet);
             }
 
+            // コマンド処理中に切断やバッファクリアが発生した場合は即終了
+            if(hReplayPipe == INVALID_HANDLE_VALUE || ArraySize(m_ipc_raw_buf) == 0)
+               return;
+
             m_ipc_read_offset += 40;
             continue;
          }
@@ -963,7 +970,7 @@ void CheckAndProcessCommand()
 
       // 2. テキスト/JSONコマンド（改行区切り）の処理
       int newline_pos = -1;
-      for(int i = m_ipc_read_offset; i < total_buf_len; i++)
+      for(int i = m_ipc_read_offset; i < current_buf_len; i++)
       {
          if(m_ipc_raw_buf[i] == '\n')
          {
@@ -986,6 +993,10 @@ void CheckAndProcessCommand()
             }
          }
 
+         // コマンド処理中に切断やバッファクリアが発生した場合は即終了
+         if(hReplayPipe == INVALID_HANDLE_VALUE || ArraySize(m_ipc_raw_buf) == 0)
+            return;
+
          m_ipc_read_offset = newline_pos + 1;
          continue;
       }
@@ -1001,7 +1012,7 @@ void CheckAndProcessCommand()
    }
 
    // 全データ消費完了時はバッファをリセット
-   if(m_ipc_read_offset >= total_buf_len)
+   if(m_ipc_read_offset >= ArraySize(m_ipc_raw_buf))
    {
       m_ipc_read_offset = 0;
       ArrayResize(m_ipc_raw_buf, 0);
