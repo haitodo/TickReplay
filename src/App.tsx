@@ -67,6 +67,49 @@ export const DEFAULT_TIME_STEPS: TimeStepItem[] = [
 
 export type { TimeStepItem } from "./types/replay";
 
+/**
+ * 口座情報の高速等価比較（JSON.stringify による毎フレームGCアロケーションを抑止）
+ */
+function isAccountEqual(a: VirtualAccount | null, b?: VirtualAccount): boolean {
+  if (!a || !b) return a === b;
+  return (
+    a.balance === b.balance &&
+    a.equity === b.equity &&
+    a.margin === b.margin &&
+    a.free_margin === b.free_margin &&
+    a.margin_level === b.margin_level &&
+    a.total_profit === b.total_profit &&
+    a.leverage === b.leverage
+  );
+}
+
+/**
+ * 保有ポジション配列の高速等価比較（JSON.stringify による毎フレームGCアロケーションを抑止）
+ */
+function arePositionsEqual(a?: VirtualPosition[], b?: VirtualPosition[]): boolean {
+  if (!a || !b) return a === b;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const p1 = a[i];
+    const p2 = b[i];
+    if (
+      p1.ticket !== p2.ticket ||
+      p1.type !== p2.type ||
+      p1.volume !== p2.volume ||
+      p1.open_price !== p2.open_price ||
+      p1.current_price !== p2.current_price ||
+      p1.profit !== p2.profit ||
+      p1.sl !== p2.sl ||
+      p1.tp !== p2.tp ||
+      p1.mfe_pips !== p2.mfe_pips ||
+      p1.mae_pips !== p2.mae_pips
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 interface SymbolSelectionPayload {
   sourceSymbol?: string;
   subSourceSymbol?: string;
@@ -746,31 +789,32 @@ function App() {
         setErrorMessage((prev) => prev !== "" ? "" : prev);
         if (data.account) {
           setAccount((prev) => {
-            if (JSON.stringify(prev) === JSON.stringify(data.account)) return prev;
+            if (isAccountEqual(prev, data.account)) return prev;
             return data.account ?? prev;
           });
         }
         if (data.bid !== undefined && data.ask !== undefined) {
-          setMainFeedRate({
-            bid: data.bid,
-            ask: data.ask,
-            spread: data.spread !== undefined ? data.spread : 0,
+          const spread = data.spread !== undefined ? data.spread : 0;
+          setMainFeedRate((prev) => {
+            if (prev.bid === data.bid && prev.ask === data.ask && prev.spread === spread) return prev;
+            return { bid: data.bid!, ask: data.ask!, spread };
           });
         }
         if (data.dual_feed) {
-          setSubFeedRate({
-            active: true,
-            symbol: data.sub_symbol || "",
-            bid: data.sub_bid || 0,
-            ask: data.sub_ask || 0,
-            spread: data.sub_spread !== undefined ? data.sub_spread : 0,
+          const sym = data.sub_symbol || "";
+          const sBid = data.sub_bid || 0;
+          const sAsk = data.sub_ask || 0;
+          const sSpread = data.sub_spread !== undefined ? data.sub_spread : 0;
+          setSubFeedRate((prev) => {
+            if (prev && prev.active && prev.symbol === sym && prev.bid === sBid && prev.ask === sAsk && prev.spread === sSpread) return prev;
+            return { active: true, symbol: sym, bid: sBid, ask: sAsk, spread: sSpread };
           });
         } else {
-          setSubFeedRate(null);
+          setSubFeedRate((prev) => prev === null ? prev : null);
         }
         if (data.positions) {
           setPositions((prev) => {
-            if (JSON.stringify(prev) === JSON.stringify(data.positions)) return prev;
+            if (arePositionsEqual(prev, data.positions)) return prev;
             return data.positions ?? prev;
           });
         }
@@ -953,31 +997,32 @@ function App() {
         }
         if (data.account) {
           setAccount((prev) => {
-            if (JSON.stringify(prev) === JSON.stringify(data.account)) return prev;
+            if (isAccountEqual(prev, data.account)) return prev;
             return data.account ?? prev;
           });
         }
         if (data.bid !== undefined && data.ask !== undefined) {
-          setMainFeedRate({
-            bid: data.bid,
-            ask: data.ask,
-            spread: data.spread !== undefined ? data.spread : 0,
+          const spread = data.spread !== undefined ? data.spread : 0;
+          setMainFeedRate((prev) => {
+            if (prev.bid === data.bid && prev.ask === data.ask && prev.spread === spread) return prev;
+            return { bid: data.bid!, ask: data.ask!, spread };
           });
         }
         if (data.dual_feed) {
-          setSubFeedRate({
-            active: true,
-            symbol: data.sub_symbol || "",
-            bid: data.sub_bid || 0,
-            ask: data.sub_ask || 0,
-            spread: data.sub_spread !== undefined ? data.sub_spread : 0,
+          const sym = data.sub_symbol || "";
+          const sBid = data.sub_bid || 0;
+          const sAsk = data.sub_ask || 0;
+          const sSpread = data.sub_spread !== undefined ? data.sub_spread : 0;
+          setSubFeedRate((prev) => {
+            if (prev && prev.active && prev.symbol === sym && prev.bid === sBid && prev.ask === sAsk && prev.spread === sSpread) return prev;
+            return { active: true, symbol: sym, bid: sBid, ask: sAsk, spread: sSpread };
           });
         } else {
-          setSubFeedRate(null);
+          setSubFeedRate((prev) => prev === null ? prev : null);
         }
         if (data.positions) {
           setPositions((prev) => {
-            if (JSON.stringify(prev) === JSON.stringify(data.positions)) return prev;
+            if (arePositionsEqual(prev, data.positions)) return prev;
             return data.positions ?? prev;
           });
         }

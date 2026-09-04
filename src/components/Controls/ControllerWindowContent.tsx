@@ -148,27 +148,61 @@ export const ControllerWindowContent: React.FC = () => {
     try {
       const data = JSON.parse(payload) as ReplayProgressPayload;
       if (data.status && data.status !== "ERROR") {
-        setStatus(data.status);
+        const nextStatus = data.status as "DISCONNECTED" | "CONNECTED" | "READY" | "ACTIVE";
+        setStatus((prev) => prev !== nextStatus ? nextStatus : prev);
       }
-      if (data.total_ticks !== undefined) setTotalTicks(data.total_ticks);
-      if (data.current_idx !== undefined && !isDraggingRef.current) setCurrentIdx(data.current_idx);
-      if (data.virtual_time_msc !== undefined) setVirtualTimeMsc(data.virtual_time_msc);
-      if (data.is_playing !== undefined) setIsPlaying(data.is_playing);
-      if (data.speed_mode) setSpeedMode(data.speed_mode as "TEMPORAL" | "COUNT");
+      if (data.total_ticks !== undefined) {
+        const total = data.total_ticks;
+        setTotalTicks((prev) => prev !== total ? total : prev);
+      }
+      if (data.current_idx !== undefined && !isDraggingRef.current) {
+        const cur = data.current_idx;
+        setCurrentIdx((prev) => prev !== cur ? cur : prev);
+      }
+      if (data.virtual_time_msc !== undefined) {
+        const vtime = data.virtual_time_msc;
+        setVirtualTimeMsc((prev) => prev !== vtime ? vtime : prev);
+      }
+      if (data.is_playing !== undefined) {
+        const playing = data.is_playing;
+        setIsPlaying((prev) => prev !== playing ? playing : prev);
+      }
+      if (data.speed_mode) {
+        const mode = data.speed_mode as "TEMPORAL" | "COUNT";
+        setSpeedMode((prev) => prev !== mode ? mode : prev);
+      }
       if (data.multiplier !== undefined) {
         const m = typeof data.multiplier === "number" ? data.multiplier : parseFloat(data.multiplier) || 1.0;
-        setMultiplier(m);
+        setMultiplier((prev) => prev !== m ? m : prev);
       }
       if (data.tick_step !== undefined) {
-        const ts = typeof data.tick_step === "number" ? data.tick_step : parseInt(data.tick_step, 10) || 1;
-        setTickStep(ts);
+        const ts = typeof data.tick_step === "number" ? data.tick_step : parseInt(String(data.tick_step), 10) || 1;
+        setTickStep((prev) => prev !== ts ? ts : prev);
       }
-      if (data.source_symbol) setSourceSymbol(data.source_symbol);
-      if (data.loop_active !== undefined) setLoopActive(data.loop_active);
-      if (data.loop_a !== undefined) setLoopA(data.loop_a);
-      if (data.loop_b !== undefined) setLoopB(data.loop_b);
-      if (data.loop_a_idx !== undefined) setLoopAIdx(data.loop_a_idx);
-      if (data.loop_b_idx !== undefined) setLoopBIdx(data.loop_b_idx);
+      if (data.source_symbol) {
+        const sym = data.source_symbol;
+        setSourceSymbol((prev) => prev !== sym ? sym : prev);
+      }
+      if (data.loop_active !== undefined) {
+        const lActive = data.loop_active;
+        setLoopActive((prev) => prev !== lActive ? lActive : prev);
+      }
+      if (data.loop_a !== undefined) {
+        const la = data.loop_a;
+        setLoopA((prev) => prev !== la ? la : prev);
+      }
+      if (data.loop_b !== undefined) {
+        const lb = data.loop_b;
+        setLoopB((prev) => prev !== lb ? lb : prev);
+      }
+      if (data.loop_a_idx !== undefined) {
+        const laIdx = data.loop_a_idx;
+        setLoopAIdx((prev) => prev !== laIdx ? laIdx : prev);
+      }
+      if (data.loop_b_idx !== undefined) {
+        const lbIdx = data.loop_b_idx;
+        setLoopBIdx((prev) => prev !== lbIdx ? lbIdx : prev);
+      }
     } catch (e) {
       console.error("Error parsing mt5-status in controller:", e);
     }

@@ -105,7 +105,50 @@ export interface SetupPanelProps {
   handleInit: () => void;
 }
 
-export const SetupPanel: React.FC<SetupPanelProps> = ({
+const areSetupPanelPropsEqual = (prev: SetupPanelProps, next: SetupPanelProps): boolean => {
+  return (
+    prev.status === next.status &&
+    prev.setupTab === next.setupTab &&
+    prev.selectedTerminal === next.selectedTerminal &&
+    prev.selectedProfile === next.selectedProfile &&
+    prev.enableDualFeed === next.enableDualFeed &&
+    prev.sourceSymbol === next.sourceSymbol &&
+    prev.subSourceSymbol === next.subSourceSymbol &&
+    prev.additionalSymbols === next.additionalSymbols &&
+    prev.startTime === next.startTime &&
+    prev.endTime === next.endTime &&
+    prev.timezoneMode === next.timezoneMode &&
+    prev.preloadMode === next.preloadMode &&
+    prev.preloadTimeframe === next.preloadTimeframe &&
+    prev.preloadedBars === next.preloadedBars &&
+    prev.preloadDate === next.preloadDate &&
+    prev.limitTickHistory === next.limitTickHistory &&
+    prev.tickHistoryTimeframe === next.tickHistoryTimeframe &&
+    prev.maxHistoryBars === next.maxHistoryBars &&
+    prev.autoScrollSync === next.autoScrollSync &&
+    prev.autoSkipWeekend === next.autoSkipWeekend &&
+    prev.initialBalance === next.initialBalance &&
+    prev.leverage === next.leverage &&
+    prev.contractSize === next.contractSize &&
+    prev.enablePseudoRate === next.enablePseudoRate &&
+    prev.pseudoBaseSpread === next.pseudoBaseSpread &&
+    prev.pseudoThreshold === next.pseudoThreshold &&
+    prev.pseudoSensitivity === next.pseudoSensitivity &&
+    prev.pseudoMode === next.pseudoMode &&
+    prev.pseudoRolloverEnabled === next.pseudoRolloverEnabled &&
+    prev.pseudoRolloverSpread === next.pseudoRolloverSpread &&
+    prev.pseudoRolloverRecoveryMin === next.pseudoRolloverRecoveryMin &&
+    prev.terminals === next.terminals &&
+    prev.profiles === next.profiles &&
+    prev.maxBarsInfo === next.maxBarsInfo &&
+    prev.availableSymbols === next.availableSymbols &&
+    prev.companionSymbols === next.companionSymbols &&
+    prev.savedSessions === next.savedSessions &&
+    prev.expandedGroups === next.expandedGroups
+  );
+};
+
+const SetupPanelComponent: React.FC<SetupPanelProps> = ({
   status,
   setupTab,
   setSetupTab,
@@ -1593,3 +1636,6 @@ export const SetupPanel: React.FC<SetupPanelProps> = ({
     </div>
   );
 };
+
+export const SetupPanel = React.memo(SetupPanelComponent, areSetupPanelPropsEqual);
+
