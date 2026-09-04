@@ -14,6 +14,7 @@
 input int InpMaxTicksPerTimer = 2000;
 
 double m_tick_accumulator = 0.0;
+int    m_main_fail_count = 0;
 
 //--- Win32 API Named Pipe インポート
 #import "kernel32.dll"
@@ -521,13 +522,23 @@ void OnTimer()
          // Bound work per timer callback. The source stream remains lossless:
          // m_current_idx is advanced only by the batch actually evaluated.
          if(end_idx - start_idx > batch_limit)
+         {
             end_idx = start_idx + batch_limit;
+            // 時間比率モードにおいてバックプレッシャー発生時、仮想時計が実処理を追い越して
+            // 先走るのを防ぐため、実際に評価可能な終端ティック時刻へクランプする（Graceful Slowdown）
+            if(m_speed_mode == REPLAY_MODE_TEMPORAL && end_idx > start_idx)
+            {
+               long actual_evaluated_msc = (long)m_all_ticks[end_idx - 1].time_msc;
+               m_virtual_current_msc = actual_evaluated_msc;
+               m_virtual_current_msc_acc = (double)actual_evaluated_msc;
+            }
+         }
 
          // If the virtual clock leaps over B, deliver the queued source ticks
          // through B first. Otherwise a high multiplier can repeatedly jump
          // back to A without ever validating the interval A..B.
          int end_idx_before_loop = end_idx;
-         bool loop_active = (m_loop_a_msc != -1 && m_loop_b_msc != -1 && m_loop_b_idx >= 0);
+         bool loop_active = (m_loop_a_msc != -1 && m_loop_b_msc != -1 && m_loop_a_idx >= 0 && m_loop_b_idx >= 0);
          bool loop_boundary_pending = (loop_active && m_virtual_current_msc >= m_loop_b_msc && m_current_idx <= m_loop_b_idx);
          if(loop_boundary_pending && end_idx > m_loop_b_idx + 1)
             end_idx = m_loop_b_idx + 1;
@@ -555,9 +566,11 @@ void OnTimer()
                {
                   if(ArrayCopy(send_array, m_all_ticks, 0, start_idx, count_to_send) >= 0)
                   {
+                     ResetLastError();
                      int added = CustomTicksAdd(m_replay_symbol, send_array);
                      if(added >= 0)
                      {
+                        m_main_fail_count = 0;
                         // Validation follows the source stream, not the
                         // custom-symbol return count. Rendering can reject a
                         // duplicate while the strategy must still see it.
@@ -569,21 +582,34 @@ void OnTimer()
                      }
                      else if(added < 0)
                      {
-                        Print("[Warning] CustomTicksAdd failed (Main). Code: ", GetLastError());
+                        m_main_fail_count++;
+                        int err = GetLastError();
+                        if(m_main_fail_count <= 3 || m_main_fail_count % 50 == 0)
+                           Print("[Warning] CustomTicksAdd failed (Main). Code: ", err, " count: ", m_main_fail_count);
+                        if(m_main_fail_count > 5)
+                        {
+                           Print("[Error] CustomTicksAdd 連続失敗のため破損ティック(インデックス ", m_current_idx, ")をスキップします。");
+                           m_current_idx++;
+                           m_main_fail_count = 0;
+                        }
                      }
                   }
                }
             }
             
-            // デュアルフィード同期配信 (Sub)
+            // デュアルフィード同期配信 (Sub): Mainシンボルの実際の進捗時刻に厳密同期させ、かつバッチ制限を適用
             if(m_enable_dual_feed && m_total_ticks_sub > 0 && m_replay_symbol_sub != "")
             {
+               long target_sub_msc = (m_current_idx > 0) ? (long)m_all_ticks[m_current_idx - 1].time_msc : m_virtual_current_msc;
                int start_idx_sub = m_current_idx_sub;
                int end_idx_sub = start_idx_sub;
-               while(end_idx_sub < m_total_ticks_sub && m_all_ticks_sub[end_idx_sub].time_msc <= m_virtual_current_msc)
+               while(end_idx_sub < m_total_ticks_sub && m_all_ticks_sub[end_idx_sub].time_msc <= target_sub_msc)
                {
                   end_idx_sub++;
                }
+               if(end_idx_sub - start_idx_sub > batch_limit)
+                  end_idx_sub = start_idx_sub + batch_limit;
+
                int count_sub = end_idx_sub - start_idx_sub;
                if(count_sub > 0)
                {
@@ -592,12 +618,17 @@ void OnTimer()
                   {
                      if(ArrayCopy(send_array_sub, m_all_ticks_sub, 0, start_idx_sub, count_sub) >= 0)
                      {
+                        ResetLastError();
                         int added_sub = CustomTicksAdd(m_replay_symbol_sub, send_array_sub);
                         if(added_sub >= 0)
                         {
                            m_current_idx_sub = end_idx_sub;
                            m_status_dirty = true;
                            ticks_delivered = true;
+                        }
+                        else
+                        {
+                           Print("[Warning] CustomTicksAdd failed (Sub). Code: ", GetLastError());
                         }
                      }
                   }
@@ -788,6 +819,13 @@ void ProcessBinaryCommand(const BinaryCommandPacket &packet)
             else if(prev_playing && !m_is_playing)
             {
                m_last_real_timer_us = 0;
+               m_tick_accumulator = 0.0;
+               m_main_fail_count = 0;
+               if(m_current_idx > 0 && m_current_idx <= m_total_ticks)
+               {
+                  m_virtual_current_msc = (long)m_all_ticks[m_current_idx - 1].time_msc;
+                  m_virtual_current_msc_acc = (double)m_virtual_current_msc;
+               }
                RedrawAllViewerCharts();
             }
          }
@@ -809,6 +847,12 @@ void ProcessBinaryCommand(const BinaryCommandPacket &packet)
          m_is_playing = false;
          m_last_real_timer_us = 0;
          m_tick_accumulator = 0.0;
+         m_main_fail_count = 0;
+         if(m_current_idx > 0 && m_current_idx <= m_total_ticks)
+         {
+            m_virtual_current_msc = (long)m_all_ticks[m_current_idx - 1].time_msc;
+            m_virtual_current_msc_acc = (double)m_virtual_current_msc;
+         }
          RedrawAllViewerCharts();
          break;
       case 5: // RESET
@@ -888,13 +932,13 @@ void ProcessBinaryCommand(const BinaryCommandPacket &packet)
          break;
       case 10: // LOOP_SET_A
          m_loop_a_msc = m_virtual_current_msc;
-         m_loop_a_idx = m_current_idx - 1;
+         m_loop_a_idx = (m_current_idx > 0) ? (m_current_idx - 1) : 0;
          break;
       case 11: // LOOP_SET_B
          if(m_loop_a_msc != -1 && m_virtual_current_msc > m_loop_a_msc)
          {
             m_loop_b_msc = m_virtual_current_msc;
-            m_loop_b_idx = m_current_idx - 1;
+            m_loop_b_idx = (m_current_idx > 0) ? (m_current_idx - 1) : 0;
          }
          break;
       case 12: // LOOP_CLEAR
@@ -1343,6 +1387,14 @@ void ProcessCommand(string line)
       m_is_playing = GetJsonBool(line, "is_playing");
       if(prev_playing && !m_is_playing)
       {
+         m_last_real_timer_us = 0;
+         m_tick_accumulator = 0.0;
+         m_main_fail_count = 0;
+         if(m_current_idx > 0 && m_current_idx <= m_total_ticks)
+         {
+            m_virtual_current_msc = (long)m_all_ticks[m_current_idx - 1].time_msc;
+            m_virtual_current_msc_acc = (double)m_virtual_current_msc;
+         }
          // 再生停止時は最新状態を確実に描画するため全チャートを再描画
          int total_charts = ArraySize(m_viewer_chart_ids);
          for(int c_idx = 0; c_idx < total_charts; c_idx++)
@@ -1459,7 +1511,7 @@ void ProcessCommand(string line)
    else if(command == "LOOP_SET_A")
    {
       m_loop_a_msc = m_virtual_current_msc;
-      m_loop_a_idx = m_current_idx - 1;
+      m_loop_a_idx = (m_current_idx > 0) ? (m_current_idx - 1) : 0;
       Print("[Info] A-B Loop: Set A at ", TimeToString((datetime)(m_loop_a_msc/1000), TIME_DATE|TIME_MINUTES));
    }
    else if(command == "LOOP_SET_B")
@@ -1475,7 +1527,7 @@ void ProcessCommand(string line)
       else
       {
          m_loop_b_msc = m_virtual_current_msc;
-         m_loop_b_idx = m_current_idx - 1;
+         m_loop_b_idx = (m_current_idx > 0) ? (m_current_idx - 1) : 0;
          Print("[Info] A-B Loop: Set B at ", TimeToString((datetime)(m_loop_b_msc/1000), TIME_DATE|TIME_MINUTES));
          if(m_loop_a_idx >= 0) SeekToPosition(m_loop_a_idx);
       }
@@ -3397,6 +3449,7 @@ void SeekToPosition(int target_index)
    // シークに合わせたポジション・履歴状態の同期
    SyncVirtualTradesOnSeek(m_virtual_current_msc);
    m_tick_accumulator = 0.0;
+   m_main_fail_count = 0;
    
    // 即座に最新状態を書き込み
    WriteStatusFile();

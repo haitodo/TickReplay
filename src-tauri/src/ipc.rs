@@ -277,7 +277,9 @@ fn merge_control_commands(commands: &[String]) -> String {
     for command in commands {
         if let Ok(serde_json::Value::Object(fields)) = serde_json::from_str(command) {
             for (key, value) in fields {
-                merged.insert(key, value);
+                if !value.is_null() {
+                    merged.insert(key, value);
+                }
             }
         }
     }
@@ -576,6 +578,20 @@ mod tests {
         ];
 
         assert_eq!(coalesce_commands(pending).len(), 3);
+    }
+
+    #[test]
+    fn merging_controls_ignores_explicit_nulls() {
+        let pending = vec![
+            r#"{"command":"CONTROL","multiplier":5}"#.to_string(),
+            r#"{"command":"CONTROL","multiplier":null,"is_playing":true}"#.to_string(),
+        ];
+
+        let result = coalesce_commands(pending);
+        let merged: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
+
+        assert_eq!(merged["multiplier"], 5);
+        assert_eq!(merged["is_playing"], true);
     }
 }
 

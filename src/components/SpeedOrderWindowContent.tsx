@@ -22,6 +22,8 @@ export const SpeedOrderWindowContent: React.FC = () => {
   const [ask, setAsk] = useState<number>(0);
   const [bidFlash, setBidFlash] = useState<"up" | "down" | null>(null);
   const [askFlash, setAskFlash] = useState<"up" | "down" | null>(null);
+  const bidFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const askFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [showHistory, setShowHistory] = useState<boolean>(() => {
     return localStorage.getItem("speed-order-show-history") === "true";
@@ -330,11 +332,13 @@ export const SpeedOrderWindowContent: React.FC = () => {
             setBid((prev) => {
               if (prev > 0) {
                 if (nextBid > prev) {
+                  if (bidFlashTimerRef.current) clearTimeout(bidFlashTimerRef.current);
                   setBidFlash("up");
-                  setTimeout(() => setBidFlash(null), 300);
+                  bidFlashTimerRef.current = setTimeout(() => setBidFlash(null), 300);
                 } else if (nextBid < prev) {
+                  if (bidFlashTimerRef.current) clearTimeout(bidFlashTimerRef.current);
                   setBidFlash("down");
-                  setTimeout(() => setBidFlash(null), 300);
+                  bidFlashTimerRef.current = setTimeout(() => setBidFlash(null), 300);
                 }
               }
               return nextBid;
@@ -345,11 +349,13 @@ export const SpeedOrderWindowContent: React.FC = () => {
             setAsk((prev) => {
               if (prev > 0) {
                 if (nextAsk > prev) {
+                  if (askFlashTimerRef.current) clearTimeout(askFlashTimerRef.current);
                   setAskFlash("up");
-                  setTimeout(() => setAskFlash(null), 300);
+                  askFlashTimerRef.current = setTimeout(() => setAskFlash(null), 300);
                 } else if (nextAsk < prev) {
+                  if (askFlashTimerRef.current) clearTimeout(askFlashTimerRef.current);
                   setAskFlash("down");
-                  setTimeout(() => setAskFlash(null), 300);
+                  askFlashTimerRef.current = setTimeout(() => setAskFlash(null), 300);
                 }
               }
               return nextAsk;
@@ -410,11 +416,25 @@ export const SpeedOrderWindowContent: React.FC = () => {
       }
     };
     const unlistenStatus = listen<string>("mt5-status", (event) => {
+      // ERRORステータスは離散イベントのため、rAFスロットリングで上書き消失しないよう即座に適用する
+      if (event.payload.includes('"status":"ERROR"') || event.payload.includes('"status": "ERROR"')) {
+        try {
+          const parsed = JSON.parse(event.payload);
+          if (parsed.status === "ERROR") {
+            setErrorMessage(translateErrorMessage(parsed.message || ""));
+            return;
+          }
+        } catch (_) {}
+      }
       scheduleStatus(event.payload);
     });
 
     const unlistenDisconnect = listen("mt5-disconnected", () => {
       discardPendingStatus();
+      if (bidFlashTimerRef.current) clearTimeout(bidFlashTimerRef.current);
+      if (askFlashTimerRef.current) clearTimeout(askFlashTimerRef.current);
+      setBidFlash(null);
+      setAskFlash(null);
       prevStatusRef.current = "DISCONNECTED";
       setStatus("DISCONNECTED");
       setBid(0);
@@ -425,6 +445,8 @@ export const SpeedOrderWindowContent: React.FC = () => {
 
     return () => {
       if (statusFrame !== null) cancelAnimationFrame(statusFrame);
+      if (bidFlashTimerRef.current) clearTimeout(bidFlashTimerRef.current);
+      if (askFlashTimerRef.current) clearTimeout(askFlashTimerRef.current);
       pendingStatus = null;
       unlistenStatus.then((fn) => fn());
       unlistenDisconnect.then((fn) => fn());
