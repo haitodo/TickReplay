@@ -11,6 +11,7 @@ import { VirtualAccount, VirtualPosition } from "../types/trading";
 import { ReplayProgressPayload } from "../types/replay";
 import { PersistedSettings } from "../types/settings";
 import { ReplayCommand, sendReplayCommand } from "../utils/command";
+import { getCachedEconomicAvailabilityMap, isEconomicSpreadActive } from "../utils/economicDataUtils";
 
 export const SpeedOrderWindowContent: React.FC = () => {
   useTheme();
@@ -88,6 +89,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
   const [sourceSymbol, setSourceSymbol] = useState<string>(() => localStorage.getItem("speed-order-symbol") || "");
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [virtualTimeMsc, setVirtualTimeMsc] = useState<number>(0);
+  const [economicMap, setEconomicMap] = useState<Record<string, boolean>>(() => getCachedEconomicAvailabilityMap());
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const prevStatusRef = useRef<string>("DISCONNECTED");
   const [errorMessage, setErrorMessage] = useState<string>("");
@@ -232,6 +234,12 @@ export const SpeedOrderWindowContent: React.FC = () => {
           }
         } catch (err) {
           console.error("Failed to parse quick lots from storage event", err);
+        }
+      } else if (e.key === "replay-economic-availability" && e.newValue) {
+        try {
+          setEconomicMap(JSON.parse(e.newValue));
+        } catch (err) {
+          console.error("Failed to parse economic availability in speed order", err);
         }
       }
     };
@@ -709,6 +717,32 @@ export const SpeedOrderWindowContent: React.FC = () => {
     };
   }, [lots, status, totalBuyLots, totalSellLots, positions, slPoints, tpPoints, slEnabled, tpEnabled, maxSpreadPips, maxSpreadEnabled, ask, bid, isJpy]);
 
+  const isEconomicMode = isEconomicSpreadActive(virtualTimeMsc, economicMap);
+
+  // 統合インジケーター（単一ドット）の状態算出
+  const isDisconnected = status === "DISCONNECTED";
+  const isCurrentlyPlaying = !isDisconnected && (status === "ACTIVE" ? isPlaying : false);
+
+  const getIndicatorDotClass = () => {
+    if (isDisconnected) return "speed-status-dot disconnected";
+    const modeClass = isEconomicMode ? "indicator" : "normal";
+    const playClass = isCurrentlyPlaying ? "playing" : "paused";
+    return `speed-status-dot ${modeClass} ${playClass}`;
+  };
+
+  const getIndicatorTooltip = () => {
+    if (isDisconnected) {
+      return "【オフライン (未接続)】\n・再生状態: 未接続\n・再生コントローラーからリプレイを開始してください";
+    }
+    const modeTitle = isEconomicMode ? "指標連動モード" : "通常モード";
+    const playStatusStr = isCurrentlyPlaying ? "再生中 (Active)" : "一時停止中 (待機)";
+    const spreadDesc = isEconomicMode
+      ? "経済指標発表前後に動的拡大（Parquet連動）"
+      : "平時固定スプレッド（仲値・早朝流動性制御）";
+
+    return `【${modeTitle} - ${isCurrentlyPlaying ? "再生中" : "一時停止中"}】\n・スプレッド: ${spreadDesc}\n・再生状態: ${playStatusStr}`;
+  };
+
   return (
     <div className="speed-order-window" data-color-style={orderColorStyle} style={{ position: "relative" }}>
       {/* ヘッダー */}
@@ -784,10 +818,11 @@ export const SpeedOrderWindowContent: React.FC = () => {
 
           <div 
             className="speed-order-status" 
-            title={`Status: ${status === "DISCONNECTED" ? "Offline (未接続)" : status === "CONNECTED" ? "Connected (接続完了)" : status === "READY" ? "Ready (準備完了)" : "Active (動作中)"}`}
+            title={getIndicatorTooltip()}
             data-tauri-drag-region
           >
-            <span className={`status-dot ${status.toLowerCase()}`}></span>
+            {/* 統合ステータス＆モード判別ドット（単一） */}
+            <span className={getIndicatorDotClass()} />
           </div>
         </div>
       </div>

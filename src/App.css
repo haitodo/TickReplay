@@ -676,6 +676,147 @@ body {
   }
 }
 
+/* ====================================================
+ * スピード発注画面・統合ステータスインジケーター（単一ドット）
+ * ==================================================== */
+.speed-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+  transition: background-color 0.25s ease, box-shadow 0.25s ease, opacity 0.25s ease;
+}
+
+/* 1. 未接続 (オフライン): 赤・静止 */
+.speed-status-dot.disconnected {
+  background-color: var(--status-danger, #ef4444);
+  box-shadow: 0 0 4px var(--status-danger, #ef4444);
+  animation: none;
+}
+
+/* 2. 通常モード (固定スプレッド): テーマ連動エメラルドグリーン */
+.speed-status-dot.normal {
+  background-color: var(--color-emerald, #10b981);
+}
+
+/* 通常モード・再生中: グリーンパルス点滅 */
+.speed-status-dot.normal.playing {
+  animation: pulse-glow-green 1.4s infinite ease-in-out;
+}
+
+/* 通常モード・一時停止中: 静止点灯 (点滅なしで視覚的ノイズゼロ) */
+.speed-status-dot.normal.paused {
+  opacity: 0.85;
+  box-shadow: 0 0 3px rgba(16, 185, 129, 0.5);
+  animation: none;
+}
+
+/* 3. 指標連動モード (動的スプレッド): テーマ連動シアンブルー */
+.speed-status-dot.indicator {
+  background-color: var(--color-cyan, #00b4d8);
+}
+
+/* 指標連動モード・再生中: シアンパルス点滅 */
+.speed-status-dot.indicator.playing {
+  animation: pulse-glow-cyan 1.4s infinite ease-in-out;
+}
+
+/* 指標連動モード・一時停止中: 静止点灯 (点滅なしで視覚的ノイズゼロ) */
+.speed-status-dot.indicator.paused {
+  opacity: 0.85;
+  box-shadow: 0 0 3px rgba(0, 180, 216, 0.5);
+  animation: none;
+}
+
+/* ====================================================
+ * ライト & ウォームセピアテーマ（白背景・羊皮紙背景）専用の高視認性調整
+ * 白背景での白飛びを防ぎ、クッキリとした輪郭と十分なコントラストを保証
+ * ==================================================== */
+html[data-theme="light"] .speed-status-dot,
+html[data-theme="warm-sepia"] .speed-status-dot {
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.2);
+}
+
+html[data-theme="light"] .speed-status-dot.disconnected,
+html[data-theme="warm-sepia"] .speed-status-dot.disconnected {
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.2), 0 0 4px var(--status-danger, #dc2626);
+}
+
+html[data-theme="light"] .speed-status-dot.normal.paused,
+html[data-theme="warm-sepia"] .speed-status-dot.normal.paused {
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25), 0 0 2px rgba(4, 120, 87, 0.4);
+}
+
+html[data-theme="light"] .speed-status-dot.indicator.paused,
+html[data-theme="warm-sepia"] .speed-status-dot.indicator.paused {
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25), 0 0 2px rgba(2, 132, 199, 0.4);
+}
+
+html[data-theme="light"] .speed-status-dot.normal.playing,
+html[data-theme="warm-sepia"] .speed-status-dot.normal.playing {
+  animation: pulse-glow-green-light 1.4s infinite ease-in-out;
+}
+
+html[data-theme="light"] .speed-status-dot.indicator.playing,
+html[data-theme="warm-sepia"] .speed-status-dot.indicator.playing {
+  animation: pulse-glow-cyan-light 1.4s infinite ease-in-out;
+}
+
+/* ダーク系パルスアニメーション（深い背景用グロー） */
+@keyframes pulse-glow-green {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 6px rgba(16, 185, 129, 0.9);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.88);
+    box-shadow: 0 0 2px rgba(16, 185, 129, 0.3);
+  }
+}
+
+@keyframes pulse-glow-cyan {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 6px rgba(0, 180, 216, 0.9);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.88);
+    box-shadow: 0 0 2px rgba(0, 180, 216, 0.3);
+  }
+}
+
+/* 明るい背景用パルスアニメーション（輪郭保護＋白飛び防止） */
+@keyframes pulse-glow-green-light {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.2), 0 0 5px rgba(4, 120, 87, 0.6);
+  }
+  50% {
+    opacity: 0.65;
+    transform: scale(0.88);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25), 0 0 1px rgba(4, 120, 87, 0.2);
+  }
+}
+
+@keyframes pulse-glow-cyan-light {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.2), 0 0 5px rgba(2, 132, 199, 0.6);
+  }
+  50% {
+    opacity: 0.65;
+    transform: scale(0.88);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25), 0 0 1px rgba(2, 132, 199, 0.2);
+  }
+}
+
 .status-text {
   font-family: var(--font-ui);
   font-size: 10px;
@@ -8695,15 +8836,16 @@ html[data-theme="sepia"] .mode-badge-btn.tick-mode {
 .ctrl-time-btn {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   background-color: var(--surface-variant);
   border: 1px solid var(--outline-variant);
   border-radius: 3px;
-  padding: 2px 6px;
+  padding: 2px 7px;
   color: var(--on-surface);
   font-size: 10px;
   cursor: pointer;
   transition: var(--transition-fast);
+  white-space: nowrap;
 }
 
 .ctrl-time-btn:hover {
@@ -8714,6 +8856,12 @@ html[data-theme="sepia"] .mode-badge-btn.tick-mode {
   font-size: 8.5px;
   font-weight: 700;
   color: var(--primary-color);
+}
+
+.ctrl-time-btn .time-val {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .ctrl-header-right {
@@ -8890,9 +9038,8 @@ html[data-theme="sepia"] .mode-badge-btn.tick-mode {
 }
 
 /* ====================================================
- * Spread Mode Badge Styling (Controller & App Header)
+ * Spread Mode Badge Styling (App Header)
  * ==================================================== */
-.ctrl-spread-mode-badge,
 .hud-spread-mode-badge {
   display: inline-flex;
   align-items: center;
@@ -8908,7 +9055,6 @@ html[data-theme="sepia"] .mode-badge-btn.tick-mode {
   white-space: nowrap;
 }
 
-.ctrl-spread-mode-badge .spread-mode-dot,
 .hud-spread-mode-badge .spread-mode-dot {
   width: 5.5px;
   height: 5.5px;
@@ -8917,28 +9063,24 @@ html[data-theme="sepia"] .mode-badge-btn.tick-mode {
 }
 
 /* 指標連動モード (経済指標データあり: シアン/ティール系) */
-.ctrl-spread-mode-badge.mode-indicator,
 .hud-spread-mode-badge.mode-indicator {
   background: rgba(0, 180, 216, 0.12);
   border: 1px solid rgba(0, 180, 216, 0.35);
   color: #00b4d8;
 }
 
-.ctrl-spread-mode-badge.mode-indicator .spread-mode-dot,
 .hud-spread-mode-badge.mode-indicator .spread-mode-dot {
   background-color: #00b4d8;
   box-shadow: 0 0 4px rgba(0, 180, 216, 0.6);
 }
 
 /* 通常モード (経済指標データなし: 落ち着いたニュートラルグレー) */
-.ctrl-spread-mode-badge.mode-normal,
 .hud-spread-mode-badge.mode-normal {
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.12);
   color: var(--on-surface-variant, #8e8e93);
 }
 
-.ctrl-spread-mode-badge.mode-normal .spread-mode-dot,
 .hud-spread-mode-badge.mode-normal .spread-mode-dot {
   background-color: #71717a;
 }
