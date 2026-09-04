@@ -261,6 +261,29 @@ fn is_coalescable_seek(cmd_json: &str) -> bool {
     false
 }
 
+/// CONTROL is a state snapshot, not an event. If the UI changes speed or
+/// play/pause several times before the EA gets its next turn, only the newest
+/// adjacent snapshot has an observable effect. Never coalesce across another
+/// command because order commands and seeks are event-sensitive.
+fn is_coalescable_control(cmd_json: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(cmd_json)
+        .ok()
+        .and_then(|v| v.get("command").and_then(|c| c.as_str()).map(|c| c == "CONTROL"))
+        .unwrap_or(false)
+}
+
+fn merge_control_commands(commands: &[String]) -> String {
+    let mut merged = serde_json::Map::new();
+    for command in commands {
+        if let Ok(serde_json::Value::Object(fields)) = serde_json::from_str(command) {
+            for (key, value) in fields {
+                merged.insert(key, value);
+            }
+        }
+    }
+    serde_json::Value::Object(merged).to_string()
+}
+
 fn coalesce_commands(pending: Vec<String>) -> Vec<String> {
     if pending.len() <= 1 {
         return pending;
@@ -270,14 +293,23 @@ fn coalesce_commands(pending: Vec<String>) -> Vec<String> {
     let mut i = 0;
     while i < pending.len() {
         let current = &pending[i];
-        if is_coalescable_seek(current) {
-            let mut last_seek_idx = i;
+        let current_is_seek = is_coalescable_seek(current);
+        let current_is_control = is_coalescable_control(current);
+        if current_is_seek || current_is_control {
+            let mut last_idx = i;
             let mut j = i + 1;
-            while j < pending.len() && is_coalescable_seek(&pending[j]) {
-                last_seek_idx = j;
+            while j < pending.len()
+                && ((current_is_seek && is_coalescable_seek(&pending[j]))
+                    || (current_is_control && is_coalescable_control(&pending[j])))
+            {
+                last_idx = j;
                 j += 1;
             }
-            result.push(pending[last_seek_idx].clone());
+            if current_is_control {
+                result.push(merge_control_commands(&pending[i..j]));
+            } else {
+                result.push(pending[last_idx].clone());
+            }
             i = j;
         } else {
             result.push(current.clone());
@@ -498,6 +530,52 @@ async fn process_status_message(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn coalesces_adjacent_seek_and_control_snapshots() {
+        let pending = vec![
+            r#"{"command":"SEEK","target_index":10}"#.to_string(),
+            r#"{"command":"SEEK","target_index":20}"#.to_string(),
+            r#"{"command":"CONTROL","is_playing":true,"multiplier":1}"#.to_string(),
+            r#"{"command":"CONTROL","is_playing":false,"multiplier":5}"#.to_string(),
+        ];
+
+        let result = coalesce_commands(pending);
+
+        assert_eq!(result.len(), 2);
+        assert!(result[0].contains("target_index\":20"));
+        assert!(result[1].contains("multiplier\":5"));
+    }
+
+    #[test]
+    fn merging_controls_preserves_partial_state_updates() {
+        let pending = vec![
+            r#"{"command":"CONTROL","is_playing":true}"#.to_string(),
+            r#"{"command":"CONTROL","multiplier":5}"#.to_string(),
+        ];
+
+        let result = coalesce_commands(pending);
+        let merged: serde_json::Value = serde_json::from_str(&result[0]).unwrap();
+
+        assert_eq!(merged["is_playing"], true);
+        assert_eq!(merged["multiplier"], 5);
+    }
+
+    #[test]
+    fn does_not_coalesce_across_event_commands() {
+        let pending = vec![
+            r#"{"command":"SEEK","target_index":10}"#.to_string(),
+            r#"{"command":"PLAY"}"#.to_string(),
+            r#"{"command":"SEEK","target_index":20}"#.to_string(),
+        ];
+
+        assert_eq!(coalesce_commands(pending).len(), 3);
     }
 }
 

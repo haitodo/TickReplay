@@ -9,6 +9,12 @@
 #property version   "3.00"
 #property strict
 
+// Replay back-pressure: source ticks are never dropped. A bounded batch keeps
+// one timer callback from monopolizing MT5 when the virtual clock jumps.
+input int InpMaxTicksPerTimer = 2000;
+
+double m_tick_accumulator = 0.0;
+
 //--- Win32 API Named Pipe インポート
 #import "kernel32.dll"
 long CreateFileW(string lpFileName, uint dwDesiredAccess, uint dwShareMode, long lpSecurityAttributes, uint dwCreationDisposition, uint dwFlagsAndAttributes, long hTemplateFile);
@@ -257,6 +263,7 @@ datetime GetBarHistoryStartTime(string symbol, ENUM_TIMEFRAMES tf, datetime ref_
 bool PreloadHistoricalRates(string source_symbol, string replay_symbol, datetime start_time, int max_period_sec);
 void PrepareAdditionalSymbol(string sym, datetime start_time, datetime end_time, int max_period_sec = 60);
 void SeekToPosition(int target_index);
+int GetReplayBatchLimit();
 bool IsSummerTimeEurope(datetime dt);
 bool IsSummerTimeUS(datetime dt);
 void ParseTimeStrings(string time_str, int &out_hour, int &out_min);
@@ -400,6 +407,16 @@ void RedrawAllViewerCharts()
 //+------------------------------------------------------------------+
 //| Timer function                                                   |
 //+------------------------------------------------------------------+
+int GetReplayBatchLimit()
+{
+   // Very small batches amplify IPC/custom-symbol overhead; very large
+   // batches make MT5 chart events visibly stutter. Keep the input bounded.
+   int limit = InpMaxTicksPerTimer;
+   if(limit < 64) limit = 64;
+   if(limit > 10000) limit = 10000;
+   return limit;
+}
+
 void OnTimer()
 {
    // 1. パイプ接続の確認と再接続
@@ -442,6 +459,7 @@ void OnTimer()
 
          int start_idx = m_current_idx;
          int end_idx = m_current_idx;
+         int batch_limit = GetReplayBatchLimit();
 
          //--- 【モードA: 時間比率モード】
          if(m_speed_mode == REPLAY_MODE_TEMPORAL)
@@ -481,12 +499,13 @@ void OnTimer()
          //--- 【モードB: ティック枚数モード（実時間レート制御: m_tick_step_count Ticks / sec）】
          else if(m_speed_mode == REPLAY_MODE_COUNT)
          {
-            static double tick_accumulator = 0.0;
-            tick_accumulator += (real_elapsed_msc / 1000.0) * (double)m_tick_step_count;
-            int advance_count = (int)tick_accumulator;
+            m_tick_accumulator += (real_elapsed_msc / 1000.0) * (double)m_tick_step_count;
+            int advance_count = (int)m_tick_accumulator;
+            if(advance_count > batch_limit)
+               advance_count = batch_limit;
             if(advance_count > 0)
             {
-               tick_accumulator -= advance_count;
+               m_tick_accumulator -= advance_count;
                end_idx = start_idx + advance_count;
                if(end_idx > m_total_ticks) end_idx = m_total_ticks;
                
@@ -499,7 +518,23 @@ void OnTimer()
          }
 
          //--- A-Bループ判定: 終了点 B に到達した場合は開始点 A に戻る
-         if(m_loop_a_msc != -1 && m_loop_b_msc != -1 && m_virtual_current_msc >= m_loop_b_msc)
+         // Bound work per timer callback. The source stream remains lossless:
+         // m_current_idx is advanced only by the batch actually evaluated.
+         if(end_idx - start_idx > batch_limit)
+            end_idx = start_idx + batch_limit;
+
+         // If the virtual clock leaps over B, deliver the queued source ticks
+         // through B first. Otherwise a high multiplier can repeatedly jump
+         // back to A without ever validating the interval A..B.
+         int end_idx_before_loop = end_idx;
+         bool loop_active = (m_loop_a_msc != -1 && m_loop_b_msc != -1 && m_loop_b_idx >= 0);
+         bool loop_boundary_pending = (loop_active && m_virtual_current_msc >= m_loop_b_msc && m_current_idx <= m_loop_b_idx);
+         if(loop_boundary_pending && end_idx > m_loop_b_idx + 1)
+            end_idx = m_loop_b_idx + 1;
+         if(m_speed_mode == REPLAY_MODE_COUNT && end_idx < end_idx_before_loop)
+            m_tick_accumulator += (end_idx_before_loop - end_idx);
+
+         if(loop_active && m_virtual_current_msc >= m_loop_b_msc && m_current_idx > m_loop_b_idx)
          {
             if(m_loop_a_idx >= 0)
             {
@@ -521,17 +556,20 @@ void OnTimer()
                   if(ArrayCopy(send_array, m_all_ticks, 0, start_idx, count_to_send) >= 0)
                   {
                      int added = CustomTicksAdd(m_replay_symbol, send_array);
-                     if(added > 0)
+                     if(added >= 0)
                      {
-                        for(int k = 0; k < added; k++) { EvaluatePositionsByTick(send_array[k], start_idx + k); }
-                        m_current_idx += added;
+                        // Validation follows the source stream, not the
+                        // custom-symbol return count. Rendering can reject a
+                        // duplicate while the strategy must still see it.
+                        for(int k = 0; k < count_to_send; k++)
+                           EvaluatePositionsByTick(m_all_ticks[start_idx + k], start_idx + k);
+                        m_current_idx = end_idx;
                         m_status_dirty = true;
                         ticks_delivered = true;
                      }
                      else if(added < 0)
                      {
                         Print("[Warning] CustomTicksAdd failed (Main). Code: ", GetLastError());
-                        m_current_idx += count_to_send;
                      }
                   }
                }
@@ -555,15 +593,11 @@ void OnTimer()
                      if(ArrayCopy(send_array_sub, m_all_ticks_sub, 0, start_idx_sub, count_sub) >= 0)
                      {
                         int added_sub = CustomTicksAdd(m_replay_symbol_sub, send_array_sub);
-                        if(added_sub > 0)
+                        if(added_sub >= 0)
                         {
-                           m_current_idx_sub += added_sub;
+                           m_current_idx_sub = end_idx_sub;
                            m_status_dirty = true;
                            ticks_delivered = true;
-                        }
-                        else
-                        {
-                           m_current_idx_sub += count_sub;
                         }
                      }
                   }
@@ -736,6 +770,9 @@ void ProcessBinaryCommand(const BinaryCommandPacket &packet)
             SeekToPosition((int)packet.target_index);
          break;
       case 2: // CONTROL
+         // A speed-mode change starts a new wall-clock segment. Do not carry
+         // fractional COUNT progress across that boundary.
+         m_tick_accumulator = 0.0;
          if(packet.multiplier > 0)
             m_time_multiplier = packet.multiplier;
          if(packet.tick_step > 0)
@@ -766,10 +803,12 @@ void ProcessBinaryCommand(const BinaryCommandPacket &packet)
       case 3: // PLAY
          m_is_playing = true;
          m_last_real_timer_us = 0;
+         m_tick_accumulator = 0.0;
          break;
       case 4: // PAUSE
          m_is_playing = false;
          m_last_real_timer_us = 0;
+         m_tick_accumulator = 0.0;
          RedrawAllViewerCharts();
          break;
       case 5: // RESET
@@ -1332,6 +1371,7 @@ void ProcessCommand(string line)
          m_auto_skip_weekend = (skip_val == "true" || skip_val == "1");
       
       m_last_real_timer_us = 0; // 基準時間を安全に初期化
+      m_tick_accumulator = 0.0;
    }
    else if(command == "SEEK")
    {
@@ -3356,6 +3396,7 @@ void SeekToPosition(int target_index)
    
    // シークに合わせたポジション・履歴状態の同期
    SyncVirtualTradesOnSeek(m_virtual_current_msc);
+   m_tick_accumulator = 0.0;
    
    // 即座に最新状態を書き込み
    WriteStatusFile();

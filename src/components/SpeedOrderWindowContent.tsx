@@ -306,9 +306,13 @@ export const SpeedOrderWindowContent: React.FC = () => {
     }).catch(console.error);
 
     // ステータス更新イベントのリッスン
-    const unlistenStatus = listen<string>("mt5-status", (event) => {
+    // The EA can publish progress faster than this window can paint. Keep
+    // only the newest snapshot and apply it once per browser frame.
+    let pendingStatus: string | null = null;
+    let statusFrame: number | null = null;
+    const applyStatus = (payload: string) => {
       try {
-        const data = JSON.parse(event.payload) as ReplayProgressPayload;
+        const data = JSON.parse(payload) as ReplayProgressPayload;
         if (data.status === "ACTIVE" || data.status === "READY" || data.status === "CONNECTED") {
           const prev = prevStatusRef.current;
           if (prev === "DISCONNECTED") {
@@ -387,9 +391,30 @@ export const SpeedOrderWindowContent: React.FC = () => {
       } catch (e) {
         console.error(e);
       }
+    };
+    const scheduleStatus = (payload: string) => {
+      pendingStatus = payload;
+      if (statusFrame !== null) return;
+      statusFrame = requestAnimationFrame(() => {
+        statusFrame = null;
+        const latest = pendingStatus;
+        pendingStatus = null;
+        if (latest !== null) applyStatus(latest);
+      });
+    };
+    const discardPendingStatus = () => {
+      pendingStatus = null;
+      if (statusFrame !== null) {
+        cancelAnimationFrame(statusFrame);
+        statusFrame = null;
+      }
+    };
+    const unlistenStatus = listen<string>("mt5-status", (event) => {
+      scheduleStatus(event.payload);
     });
 
     const unlistenDisconnect = listen("mt5-disconnected", () => {
+      discardPendingStatus();
       prevStatusRef.current = "DISCONNECTED";
       setStatus("DISCONNECTED");
       setBid(0);
@@ -399,6 +424,8 @@ export const SpeedOrderWindowContent: React.FC = () => {
     });
 
     return () => {
+      if (statusFrame !== null) cancelAnimationFrame(statusFrame);
+      pendingStatus = null;
       unlistenStatus.then((fn) => fn());
       unlistenDisconnect.then((fn) => fn());
     };
