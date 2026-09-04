@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ControlDashboard } from "./ControlDashboard";
 import { useTheme } from "../../hooks/useTheme";
 import { formatJstTime, formatServerTime, splitShortDateTime } from "../../utils/timeUtils";
@@ -41,6 +42,17 @@ export const ControllerWindowContent: React.FC = () => {
     window.addEventListener("storage", handleStorage);
     return () => window.removeEventListener("storage", handleStorage);
   }, []);
+
+  // シンボル名更新時にOSウィンドウタイトルへ反映
+  useEffect(() => {
+    if (sourceSymbol) {
+      getCurrentWindow()
+        .setTitle(`リプレイ操作コントローラー [${sourceSymbol}] - TickReplay`)
+        .catch((err) => {
+          console.warn("Failed to set window title:", err);
+        });
+    }
+  }, [sourceSymbol]);
 
   // A-B ループ State
   const [loopActive, setLoopActive] = useState(false);
@@ -445,9 +457,19 @@ export const ControllerWindowContent: React.FC = () => {
     <div className="controller-window-root">
       {/* 上部ヘッダーバー (小型430px専用) */}
       <header className="controller-window-header">
-        <div className="ctrl-header-left">
-          <span className={`ctrl-status-dot ${status.toLowerCase()}`} title={`Status: ${status}`} />
-          <span className="ctrl-symbol-tag">{sourceSymbol || "REPLAY"}</span>
+        <div
+          className="ctrl-header-left"
+          title={`シンボル: ${sourceSymbol || "未指定"}\n接続状態: ${
+            status === "ACTIVE"
+              ? "リプレイ再生中"
+              : status === "READY"
+              ? "準備完了"
+              : status === "CONNECTED"
+              ? "接続完了"
+              : "未接続"
+          }`}
+        >
+          <span className={`ctrl-status-dot ${status.toLowerCase()}`} />
         </div>
 
         <button

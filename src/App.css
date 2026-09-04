@@ -8825,8 +8825,17 @@ html[data-theme="sepia"] .mode-badge-btn.tick-mode {
 .ctrl-header-left {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  width: 20px;
+  height: 24px;
+  border-radius: 4px;
+  cursor: help;
   flex-shrink: 0;
+  transition: background-color 0.15s ease;
+}
+
+.ctrl-header-left:hover {
+  background-color: var(--surface-container-high);
 }
 
 .ctrl-status-dot {
@@ -8834,6 +8843,11 @@ html[data-theme="sepia"] .mode-badge-btn.tick-mode {
   height: 7px;
   border-radius: 50%;
   background: #64748b;
+  transition: transform 0.15s ease;
+}
+
+.ctrl-header-left:hover .ctrl-status-dot {
+  transform: scale(1.3);
 }
 
 .ctrl-status-dot.active {
@@ -8848,17 +8862,6 @@ html[data-theme="sepia"] .mode-badge-btn.tick-mode {
 
 .ctrl-status-dot.disconnected {
   background-color: var(--status-danger);
-}
-
-.ctrl-symbol-tag {
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--primary-color);
-  background-color: rgba(var(--primary-rgb), 0.15);
-  border: 1px solid var(--primary-color);
-  padding: 1px 5px;
-  border-radius: 3px;
-  letter-spacing: 0.02em;
 }
 
 .ctrl-time-btn {

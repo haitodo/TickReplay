@@ -790,7 +790,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
             </span>
           </button>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "4px" }} data-tauri-drag-region>
+        <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }} data-tauri-drag-region>
           {/* 口座・ポジション管理（ポジション一覧）ウィンドウ起動ボタン */}
           <button
             className="speed-header-icon-btn"

@@ -137,8 +137,8 @@ describe("timeUtils", () => {
   });
 
   describe("formatShortDateTimeStr", () => {
-    it("formats YYYY-MM-DD HH:mm:ss to MM/DD HH:mm:ss", () => {
-      expect(formatShortDateTimeStr("2025-06-15 14:30:45")).toBe("06/15 14:30:45");
+    it("formats YYYY-MM-DD HH:mm:ss to YYYY.MM.DD HH:mm:ss", () => {
+      expect(formatShortDateTimeStr("2025-06-15 14:30:45")).toBe("2025.06.15 14:30:45");
     });
 
     it("handles invalid or --:--:-- correctly", () => {
@@ -150,7 +150,7 @@ describe("timeUtils", () => {
   describe("splitShortDateTime", () => {
     it("splits YYYY-MM-DD HH:mm:ss into datePart and timePart", () => {
       const res = splitShortDateTime("2025-06-15 14:30:45");
-      expect(res.datePart).toBe("06/15");
+      expect(res.datePart).toBe("2025.06.15");
       expect(res.timePart).toBe("14:30:45");
     });
 

@@ -115,12 +115,12 @@ export const formatServerTime = (virtualTimeMsc: number): string => {
 };
 
 /**
- * 日時文字列 ("YYYY-MM-DD HH:mm:ss") を年を省略した形式 ("MM/DD HH:mm:ss") へ変換
+ * 日時文字列 ("YYYY-MM-DD HH:mm:ss") を年を含む表示形式 ("YYYY.MM.DD HH:mm:ss") へ変換
  */
 export const formatShortDateTimeStr = (dateTimeStr: string): string => {
   if (!dateTimeStr || dateTimeStr === "--:--:--") return "--:--:--";
   if (dateTimeStr.length >= 19) {
-    return `${dateTimeStr.substring(5, 7)}/${dateTimeStr.substring(8, 10)} ${dateTimeStr.substring(11, 19)}`;
+    return `${dateTimeStr.substring(0, 10).replace(/-/g, ".")} ${dateTimeStr.substring(11, 19)}`;
   }
   return dateTimeStr;
 };
@@ -131,7 +131,7 @@ export interface FormattedShortTime {
 }
 
 /**
- * 日時文字列 ("YYYY-MM-DD HH:mm:ss") を日付部 ("MM/DD") と時刻部 ("HH:mm:ss") に分割
+ * 日時文字列 ("YYYY-MM-DD HH:mm:ss") を日付部 ("YYYY.MM.DD") と時刻部 ("HH:mm:ss") に分割
  */
 export const splitShortDateTime = (dateTimeStr: string): FormattedShortTime => {
   if (!dateTimeStr || dateTimeStr === "--:--:--") {
@@ -139,7 +139,7 @@ export const splitShortDateTime = (dateTimeStr: string): FormattedShortTime => {
   }
   if (dateTimeStr.length >= 19) {
     return {
-      datePart: `${dateTimeStr.substring(5, 7)}/${dateTimeStr.substring(8, 10)}`,
+      datePart: dateTimeStr.substring(0, 10).replace(/-/g, "."),
       timePart: dateTimeStr.substring(11, 19),
     };
   }
