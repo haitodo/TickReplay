@@ -382,6 +382,19 @@ void OnTick()
 }
 
 //+------------------------------------------------------------------+
+//| 全ビューアーチャートの強制即時再描画                              |
+//+------------------------------------------------------------------+
+void RedrawAllViewerCharts()
+{
+   int total_charts = ArraySize(m_viewer_chart_ids);
+   for(int c_idx = 0; c_idx < total_charts; c_idx++)
+   {
+      long cid = m_viewer_chart_ids[c_idx];
+      if(cid > 0) ChartRedraw(cid);
+   }
+}
+
+//+------------------------------------------------------------------+
 //| Timer function                                                   |
 //+------------------------------------------------------------------+
 void OnTimer()
@@ -545,16 +558,63 @@ void OnTimer()
             }
             
             // 階層型スマート再描画更新: 時間足に応じた個別リフレッシュ
-            // M1/ティック足: 16ms (60FPS), M5足: 50ms (20FPS), M15+足: 100ms (10FPS)
             static ulong s_last_redraw_m1_us = 0;
             static ulong s_last_redraw_m5_us = 0;
             static ulong s_last_redraw_htf_us = 0;
 
             ulong now_us = GetMicrosecondCount();
 
-            bool do_redraw_m1  = ((now_us - s_last_redraw_m1_us >= 16000 && ticks_delivered) || (now_us - s_last_redraw_m1_us >= 50000));
-            bool do_redraw_m5  = ((now_us - s_last_redraw_m5_us >= 50000 && ticks_delivered) || (now_us - s_last_redraw_m5_us >= 150000));
-            bool do_redraw_htf = ((now_us - s_last_redraw_htf_us >= 100000 && ticks_delivered) || (now_us - s_last_redraw_htf_us >= 300000));
+            // 再生速度に応じたアダプティブ再描画インターバル計算（超高速再生時のMT5 UIフリーズ防止）
+            ulong interval_m1_us  = 16000;  // 通常: 60 FPS (~16ms)
+            ulong interval_m5_us  = 50000;  // 通常: 20 FPS (~50ms)
+            ulong interval_htf_us = 100000; // 通常: 10 FPS (~100ms)
+
+            if(m_speed_mode == REPLAY_MODE_TEMPORAL)
+            {
+               if(m_time_multiplier >= 1000.0)
+               {
+                  interval_m1_us  = 70000;  // ~14 FPS
+                  interval_m5_us  = 150000; // ~6.6 FPS
+                  interval_htf_us = 300000; // ~3.3 FPS
+               }
+               else if(m_time_multiplier >= 100.0)
+               {
+                  interval_m1_us  = 50000;  // 20 FPS
+                  interval_m5_us  = 100000; // 10 FPS
+                  interval_htf_us = 200000; // 5 FPS
+               }
+               else if(m_time_multiplier >= 20.0)
+               {
+                  interval_m1_us  = 33000;  // 30 FPS
+                  interval_m5_us  = 66000;  // 15 FPS
+                  interval_htf_us = 150000; // 6.6 FPS
+               }
+            }
+            else if(m_speed_mode == REPLAY_MODE_COUNT)
+            {
+               if(m_tick_step_count > 500)
+               {
+                  interval_m1_us  = 70000;  // ~14 FPS
+                  interval_m5_us  = 150000; // ~6.6 FPS
+                  interval_htf_us = 300000; // ~3.3 FPS
+               }
+               else if(m_tick_step_count > 100)
+               {
+                  interval_m1_us  = 50000;  // 20 FPS
+                  interval_m5_us  = 100000; // 10 FPS
+                  interval_htf_us = 200000; // 5 FPS
+               }
+               else if(m_tick_step_count > 20)
+               {
+                  interval_m1_us  = 33000;  // 30 FPS
+                  interval_m5_us  = 66000;  // 15 FPS
+                  interval_htf_us = 150000; // 6.6 FPS
+               }
+            }
+
+            bool do_redraw_m1  = ((now_us - s_last_redraw_m1_us >= interval_m1_us && ticks_delivered) || (now_us - s_last_redraw_m1_us >= interval_m1_us * 3));
+            bool do_redraw_m5  = ((now_us - s_last_redraw_m5_us >= interval_m5_us && ticks_delivered) || (now_us - s_last_redraw_m5_us >= interval_m5_us * 3));
+            bool do_redraw_htf = ((now_us - s_last_redraw_htf_us >= interval_htf_us && ticks_delivered) || (now_us - s_last_redraw_htf_us >= interval_htf_us * 3));
 
             if(do_redraw_m1)  s_last_redraw_m1_us = now_us;
             if(do_redraw_m5)  s_last_redraw_m5_us = now_us;
@@ -591,6 +651,7 @@ void OnTimer()
       m_is_playing = false;
       m_last_real_timer_us = 0;
       m_status_dirty = true;
+      RedrawAllViewerCharts();
       Print("[Info] すべてのリプレイティック配信が完了しました。");
       WriteStatusFile();
    }
@@ -669,6 +730,11 @@ void ProcessBinaryCommand(const BinaryCommandPacket &packet)
             {
                m_last_real_timer_us = 0;
             }
+            else if(prev_playing && !m_is_playing)
+            {
+               m_last_real_timer_us = 0;
+               RedrawAllViewerCharts();
+            }
          }
          if((packet.flags & 0x08) != 0)
          {
@@ -686,6 +752,7 @@ void ProcessBinaryCommand(const BinaryCommandPacket &packet)
       case 4: // PAUSE
          m_is_playing = false;
          m_last_real_timer_us = 0;
+         RedrawAllViewerCharts();
          break;
       case 5: // RESET
          SeekToPosition(0);
@@ -3056,18 +3123,15 @@ void SeekToPosition(int target_index)
    // 1. 進捗0%へのシーク（RESET）時の特別処理
    if(target_index == 0)
    {
-      CustomTicksDelete(m_replay_symbol, 0, LONG_MAX);
-      CustomRatesDelete(m_replay_symbol, 0, LONG_MAX);
+      // 過去プリロードデータを破壊せず、0%地点（最初のティック）以降の未来ティック・バーのみを削除
+      long del_msc = (long)m_all_ticks[0].time_msc + 1;
+      int deleted = CustomTicksDelete(m_replay_symbol, del_msc, LONG_MAX);
+      if(deleted < 0) Print("[Error] CustomTicksDelete 失敗 (RESET)。Code: ", GetLastError());
       
-      int max_period_sec = GetMaxPeriodSeconds(m_profile_name);
-      PreloadHistoricalRates(m_source_symbol, m_replay_symbol, (datetime)(m_all_ticks[0].time_msc/1000), max_period_sec);
+      datetime del_time = (datetime)(m_all_ticks[0].time_msc / 1000) + 1;
+      int deleted_rates = CustomRatesDelete(m_replay_symbol, del_time, D'3000.01.01 00:00:00');
+      if(deleted_rates < 0) Print("[Error] CustomRatesDelete 失敗 (RESET)。Code: ", GetLastError());
       
-      MqlTick init_ticks[];
-      if(ArrayResize(init_ticks, 1) >= 0)
-      {
-         init_ticks[0] = m_all_ticks[0];
-         CustomTicksAdd(m_replay_symbol, init_ticks);
-      }
       m_current_idx = 1;
       m_virtual_current_msc = (long)m_all_ticks[0].time_msc;
       m_virtual_current_msc_acc = (double)m_virtual_current_msc;
@@ -3075,17 +3139,12 @@ void SeekToPosition(int target_index)
       // Sub シンボルのリセット
       if(m_enable_dual_feed && m_replay_symbol_sub != "")
       {
-         CustomTicksDelete(m_replay_symbol_sub, 0, LONG_MAX);
-         CustomRatesDelete(m_replay_symbol_sub, 0, LONG_MAX);
-         PreloadHistoricalRates(m_source_symbol_sub, m_replay_symbol_sub, (datetime)(m_all_ticks[0].time_msc/1000), max_period_sec);
          if(m_total_ticks_sub > 0)
          {
-            MqlTick init_ticks_sub[];
-            if(ArrayResize(init_ticks_sub, 1) >= 0)
-            {
-               init_ticks_sub[0] = m_all_ticks_sub[0];
-               CustomTicksAdd(m_replay_symbol_sub, init_ticks_sub);
-            }
+            long del_sub_msc = (long)m_all_ticks_sub[0].time_msc + 1;
+            CustomTicksDelete(m_replay_symbol_sub, del_sub_msc, LONG_MAX);
+            datetime del_sub_time = (datetime)(m_all_ticks_sub[0].time_msc / 1000) + 1;
+            CustomRatesDelete(m_replay_symbol_sub, del_sub_time, D'3000.01.01 00:00:00');
             m_current_idx_sub = 1;
          }
       }
@@ -3125,161 +3184,62 @@ void SeekToPosition(int target_index)
       
       if(target_index != m_current_idx - 1)
       {
-         if(m_limit_tick_history)
+         int current_last_idx = m_current_idx - 1;
+         
+         // A) 巻き戻し (Rewind): 未来のティックおよびレートのみを差分削除（過去データは100%維持）
+         if(target_index < current_last_idx)
          {
-            datetime target_time = (datetime)(m_all_ticks[target_index].time_msc / 1000);
-            int period_sec = PeriodSeconds(m_tick_history_timeframe);
-            if(period_sec <= 0) period_sec = 300;
+            long delete_start_msc = (long)m_all_ticks[target_index].time_msc + 1;
+            int deleted = CustomTicksDelete(m_replay_symbol, delete_start_msc, LONG_MAX);
+            if(deleted < 0) Print("[Error] CustomTicksDelete 失敗。Code: ", GetLastError());
             
-            // メモリ内ティックデータ内で実取引バー境界を逆算
-            int bars_found = 0;
-            datetime last_bar_time = 0;
-            int cutoff_idx = 0;
-            bool reached_limit = false;
-            
-            for(int i = target_index; i >= 0; i--)
-            {
-               datetime t = (datetime)(m_all_ticks[i].time_msc / 1000);
-               datetime b_time = t - (t % period_sec);
-               if(bars_found == 0 || b_time != last_bar_time)
-               {
-                  bars_found++;
-                  last_bar_time = b_time;
-                  if(bars_found >= m_max_history_bars)
-                  {
-                     cutoff_idx = i;
-                     reached_limit = true;
-                     break;
-                  }
-               }
-            }
-            
-            datetime cutoff_time = 0;
-            if(reached_limit)
-            {
-               cutoff_time = (datetime)(m_all_ticks[cutoff_idx].time_msc / 1000);
-            }
-            else
-            {
-               // リプレイ期間内のバー数が必要本数未満の場合はリプレイ開始時点をカットオフとし、
-               // 不足分はリプレイ開始前の過去バー・過去ティックからプリロードする
-               cutoff_time = (datetime)(m_all_ticks[0].time_msc / 1000);
-            }
-            
-            // 1. シンボルデータの完全削除 (Main)
-            CustomTicksDelete(m_replay_symbol, 0, LONG_MAX);
-            CustomRatesDelete(m_replay_symbol, 0, LONG_MAX);
-            
-            // 2. 過去バーデータのプリロード (Main)
-            int max_period_sec = GetMaxPeriodSeconds(m_profile_name);
-            PreloadHistoricalRates(m_source_symbol, m_replay_symbol, cutoff_time, max_period_sec);
-            
-            // 3. cutoff_time 以降のティックを抽出して書き込み (Main)
-            int start_idx = 0;
-            long cutoff_msc = (long)cutoff_time * 1000;
-            while(start_idx < target_index && m_all_ticks[start_idx].time_msc < cutoff_msc)
-            {
-               start_idx++;
-            }
-            
-            int count_to_add = target_index - start_idx + 1;
+            datetime delete_start_time = (datetime)(m_all_ticks[target_index].time_msc / 1000) + 1;
+            int deleted_rates = CustomRatesDelete(m_replay_symbol, delete_start_time, D'3000.01.01 00:00:00');
+            if(deleted_rates < 0) Print("[Error] CustomRatesDelete 失敗。Code: ", GetLastError());
+         }
+         // B) 早送り (Fast Forward): 差分ティックのみを一括追加
+         else if(target_index > current_last_idx)
+         {
+            int start_add_idx = m_current_idx;
+            int count_to_add = target_index - start_add_idx + 1;
             if(count_to_add > 0)
             {
                static MqlTick s_seek_add_buffer[];
                if(ArrayResize(s_seek_add_buffer, count_to_add, 50000) >= 0)
                {
-                  ArrayCopy(s_seek_add_buffer, m_all_ticks, 0, start_idx, count_to_add);
+                  ArrayCopy(s_seek_add_buffer, m_all_ticks, 0, start_add_idx, count_to_add);
                   int added = CustomTicksAdd(m_replay_symbol, s_seek_add_buffer);
-                  if(added < 0)
-                  {
-                     Print("[Error] CustomTicksAdd 失敗 (Main)。Code: ", GetLastError());
-                  }
+                  if(added < 0) Print("[Error] CustomTicksAdd 失敗。Code: ", GetLastError());
                }
             }
-            
-            // Sub シンボルのヒストリー制限付きシーク
-            if(m_enable_dual_feed && m_total_ticks_sub > 0 && m_replay_symbol_sub != "")
+         }
+         
+         // Sub シンボルの差分シーク同期
+         if(m_enable_dual_feed && m_total_ticks_sub > 0 && m_replay_symbol_sub != "")
+         {
+            int current_last_sub = m_current_idx_sub - 1;
+            if(target_idx_sub < current_last_sub)
             {
-               CustomTicksDelete(m_replay_symbol_sub, 0, LONG_MAX);
-               CustomRatesDelete(m_replay_symbol_sub, 0, LONG_MAX);
-               PreloadHistoricalRates(m_source_symbol_sub, m_replay_symbol_sub, cutoff_time, max_period_sec);
-               
-               int start_idx_sub = 0;
-               while(start_idx_sub < target_idx_sub && m_all_ticks_sub[start_idx_sub].time_msc < cutoff_msc)
-               {
-                  start_idx_sub++;
-               }
-               int count_sub = target_idx_sub - start_idx_sub + 1;
+               long del_msc = (long)m_all_ticks_sub[target_idx_sub].time_msc + 1;
+               CustomTicksDelete(m_replay_symbol_sub, del_msc, LONG_MAX);
+               datetime del_time = (datetime)(m_all_ticks_sub[target_idx_sub].time_msc / 1000) + 1;
+               CustomRatesDelete(m_replay_symbol_sub, del_time, D'3000.01.01 00:00:00');
+            }
+            else if(target_idx_sub > current_last_sub)
+            {
+               int start_add_sub = m_current_idx_sub;
+               int count_sub = target_idx_sub - start_add_sub + 1;
                if(count_sub > 0)
                {
                   static MqlTick s_seek_add_sub[];
                   if(ArrayResize(s_seek_add_sub, count_sub, 50000) >= 0)
                   {
-                     ArrayCopy(s_seek_add_sub, m_all_ticks_sub, 0, start_idx_sub, count_sub);
+                     ArrayCopy(s_seek_add_sub, m_all_ticks_sub, 0, start_add_sub, count_sub);
                      CustomTicksAdd(m_replay_symbol_sub, s_seek_add_sub);
                   }
                }
-               m_current_idx_sub = target_idx_sub + 1;
             }
-         }
-         else
-         {
-            int current_last_idx = m_current_idx - 1;
-            // A) 巻き戻し (Rewind): 未来のティックおよびレートのみを削除（過去データ100%維持）
-            if(target_index < current_last_idx)
-            {
-               long delete_start_msc = (long)m_all_ticks[target_index].time_msc + 1;
-               int deleted = CustomTicksDelete(m_replay_symbol, delete_start_msc, LONG_MAX);
-               if(deleted < 0) Print("[Error] CustomTicksDelete 失敗。Code: ", GetLastError());
-               
-               datetime delete_start_time = (datetime)(m_all_ticks[target_index].time_msc / 1000) + 1;
-               int deleted_rates = CustomRatesDelete(m_replay_symbol, delete_start_time, D'3000.01.01 00:00:00');
-               if(deleted_rates < 0) Print("[Error] CustomRatesDelete 失敗。Code: ", GetLastError());
-            }
-            // B) 早送り (Fast Forward): 差分ティックのみを追加
-            else if(target_index > current_last_idx)
-            {
-               int start_add_idx = m_current_idx;
-               int count_to_add = target_index - start_add_idx + 1;
-               if(count_to_add > 0)
-               {
-                  static MqlTick s_seek_add_buffer[];
-                  if(ArrayResize(s_seek_add_buffer, count_to_add, 50000) >= 0)
-                  {
-                     ArrayCopy(s_seek_add_buffer, m_all_ticks, 0, start_add_idx, count_to_add);
-                     int added = CustomTicksAdd(m_replay_symbol, s_seek_add_buffer);
-                     if(added < 0) Print("[Error] CustomTicksAdd 失敗。Code: ", GetLastError());
-                  }
-               }
-            }
-            
-            // Sub シンボルの通常シーク同期
-            if(m_enable_dual_feed && m_total_ticks_sub > 0 && m_replay_symbol_sub != "")
-            {
-               int current_last_sub = m_current_idx_sub - 1;
-               if(target_idx_sub < current_last_sub)
-               {
-                  long del_msc = (long)m_all_ticks_sub[target_idx_sub].time_msc + 1;
-                  CustomTicksDelete(m_replay_symbol_sub, del_msc, LONG_MAX);
-                  datetime del_time = (datetime)(m_all_ticks_sub[target_idx_sub].time_msc / 1000) + 1;
-                  CustomRatesDelete(m_replay_symbol_sub, del_time, D'3000.01.01 00:00:00');
-               }
-               else if(target_idx_sub > current_last_sub)
-               {
-                  int start_add_sub = m_current_idx_sub;
-                  int count_sub = target_idx_sub - start_add_sub + 1;
-                  if(count_sub > 0)
-                  {
-                     static MqlTick s_seek_add_sub[];
-                     if(ArrayResize(s_seek_add_sub, count_sub, 50000) >= 0)
-                     {
-                        ArrayCopy(s_seek_add_sub, m_all_ticks_sub, 0, start_add_sub, count_sub);
-                        CustomTicksAdd(m_replay_symbol_sub, s_seek_add_sub);
-                     }
-                  }
-               }
-               m_current_idx_sub = target_idx_sub + 1;
-            }
+            m_current_idx_sub = target_idx_sub + 1;
          }
          
          m_current_idx = target_index + 1;

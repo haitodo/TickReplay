@@ -31,7 +31,7 @@ export interface ControlDashboardProps {
   totalTicks: number;
   currentIdx: number;
   setCurrentIdx: (val: number) => void;
-  sendSeekCommand: (val: number) => void;
+  sendSeekCommand: (val: number, immediate?: boolean) => void;
   isDraggingRef: React.MutableRefObject<boolean>;
   progressPercent: number;
   timeSteps: TimeStepItem[];
@@ -251,11 +251,19 @@ export const ControlDashboard: React.FC<ControlDashboardProps> = ({
               onTouchStart={() => {
                 isDraggingRef.current = true;
               }}
-              onMouseUp={() => {
+              onMouseUp={(e) => {
                 isDraggingRef.current = false;
+                const val = parseInt((e.target as HTMLInputElement).value);
+                if (!isNaN(val)) {
+                  sendSeekCommand(val, true);
+                }
               }}
-              onTouchEnd={() => {
+              onTouchEnd={(e) => {
                 isDraggingRef.current = false;
+                const val = parseInt((e.target as HTMLInputElement).value);
+                if (!isNaN(val)) {
+                  sendSeekCommand(val, true);
+                }
               }}
               onChange={(e) => {
                 const val = parseInt(e.target.value);

@@ -2702,13 +2702,48 @@ function App() {
     return `(${days[dayIndex]})`;
   };
 
-  // ドラッグ/クリックシーク
-  const sendSeekCommand = (targetIdx: number) => {
-    sendCommand({
-      command: "SEEK",
-      target_index: targetIdx,
-    });
-  };
+  // ドラッグ/クリックシーク (requestAnimationFrame によるスロットリングと即時確定)
+  const pendingSeekTargetRef = useRef<number | null>(null);
+  const seekRafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (seekRafRef.current !== null) {
+        cancelAnimationFrame(seekRafRef.current);
+      }
+    };
+  }, []);
+
+  const sendSeekCommand = useCallback((targetIdx: number, immediate: boolean = false) => {
+    pendingSeekTargetRef.current = targetIdx;
+    if (immediate) {
+      if (seekRafRef.current !== null) {
+        cancelAnimationFrame(seekRafRef.current);
+        seekRafRef.current = null;
+      }
+      const idx = pendingSeekTargetRef.current;
+      pendingSeekTargetRef.current = null;
+      sendCommand({
+        command: "SEEK",
+        target_index: idx,
+      }).catch(console.error);
+      return;
+    }
+
+    if (seekRafRef.current === null) {
+      seekRafRef.current = requestAnimationFrame(() => {
+        seekRafRef.current = null;
+        if (pendingSeekTargetRef.current !== null) {
+          const idx = pendingSeekTargetRef.current;
+          pendingSeekTargetRef.current = null;
+          sendCommand({
+            command: "SEEK",
+            target_index: idx,
+          }).catch(console.error);
+        }
+      });
+    }
+  }, [sendCommand]);
 
   // セッション描画データの整理
   const sessions = organizeSessions(sessionBoundaries);
