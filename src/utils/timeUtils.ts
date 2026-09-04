@@ -115,6 +115,38 @@ export const formatServerTime = (virtualTimeMsc: number): string => {
 };
 
 /**
+ * 日時文字列 ("YYYY-MM-DD HH:mm:ss") を年を省略した形式 ("MM/DD HH:mm:ss") へ変換
+ */
+export const formatShortDateTimeStr = (dateTimeStr: string): string => {
+  if (!dateTimeStr || dateTimeStr === "--:--:--") return "--:--:--";
+  if (dateTimeStr.length >= 19) {
+    return `${dateTimeStr.substring(5, 7)}/${dateTimeStr.substring(8, 10)} ${dateTimeStr.substring(11, 19)}`;
+  }
+  return dateTimeStr;
+};
+
+export interface FormattedShortTime {
+  datePart: string;
+  timePart: string;
+}
+
+/**
+ * 日時文字列 ("YYYY-MM-DD HH:mm:ss") を日付部 ("MM/DD") と時刻部 ("HH:mm:ss") に分割
+ */
+export const splitShortDateTime = (dateTimeStr: string): FormattedShortTime => {
+  if (!dateTimeStr || dateTimeStr === "--:--:--") {
+    return { datePart: "", timePart: "--:--:--" };
+  }
+  if (dateTimeStr.length >= 19) {
+    return {
+      datePart: `${dateTimeStr.substring(5, 7)}/${dateTimeStr.substring(8, 10)}`,
+      timePart: dateTimeStr.substring(11, 19),
+    };
+  }
+  return { datePart: "", timePart: dateTimeStr };
+};
+
+/**
  * サーバー日時文字列 ("YYYY-MM-DD HH:mm:ss") を JST日時文字列へ変換
  */
 export const convertServerStrToJstStr = (serverTimeStr: string): string => {

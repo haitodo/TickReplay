@@ -12,6 +12,8 @@ import {
   convertServerStrToJstStr,
   convertJstStrToServerStr,
   getNewsTimeForDisplay,
+  formatShortDateTimeStr,
+  splitShortDateTime,
 } from "../timeUtils";
 
 describe("timeUtils", () => {
@@ -131,6 +133,31 @@ describe("timeUtils", () => {
 
     it("converts news time to Server time", () => {
       expect(getNewsTimeForDisplay("2025-07-01 16:00:00", "SERVER")).toBe("2025-07-01 10:00:00");
+    });
+  });
+
+  describe("formatShortDateTimeStr", () => {
+    it("formats YYYY-MM-DD HH:mm:ss to MM/DD HH:mm:ss", () => {
+      expect(formatShortDateTimeStr("2025-06-15 14:30:45")).toBe("06/15 14:30:45");
+    });
+
+    it("handles invalid or --:--:-- correctly", () => {
+      expect(formatShortDateTimeStr("--:--:--")).toBe("--:--:--");
+      expect(formatShortDateTimeStr("")).toBe("--:--:--");
+    });
+  });
+
+  describe("splitShortDateTime", () => {
+    it("splits YYYY-MM-DD HH:mm:ss into datePart and timePart", () => {
+      const res = splitShortDateTime("2025-06-15 14:30:45");
+      expect(res.datePart).toBe("06/15");
+      expect(res.timePart).toBe("14:30:45");
+    });
+
+    it("handles invalid or --:--:-- correctly", () => {
+      const res = splitShortDateTime("--:--:--");
+      expect(res.datePart).toBe("");
+      expect(res.timePart).toBe("--:--:--");
     });
   });
 });

@@ -78,7 +78,7 @@
   /* Typography */
   --font-display: 'Outfit', sans-serif;
   --font-ui: 'Inter', sans-serif;
-  --font-data: 'JetBrains Mono', monospace;
+  --font-data: 'JetBrains Mono', 'Segoe UI', 'Inter', -apple-system, BlinkMacSystemFont, 'Roboto Mono', monospace;
 
   /* Shapes & Borders */
   --radius-sm: 4px;
@@ -435,6 +435,12 @@ option {
   overflow: hidden;
   vertical-align: middle;
   flex-shrink: 0;
+}
+
+.font-data {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
 }
 
 body {
@@ -4155,7 +4161,16 @@ body.remote-body #root {
   font-weight: 700;
   font-size: 13px;
   letter-spacing: 0.05em;
-  text-transform: uppercase;
+}
+
+.speed-order-title .icon-accent {
+  color: var(--primary-color);
+  font-size: 17px;
+  flex-shrink: 0;
+}
+
+.speed-order-title .ctrl-time-btn {
+  text-transform: none;
 }
 
 .speed-order-status {
@@ -5934,10 +5949,15 @@ input[type="number"].no-spinner {
 }
 
 .hud-clock-time {
-  font-family: var(--font-data, monospace);
-  font-size: 11px;
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  font-size: 11.5px;
   font-weight: 700;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
+  display: inline-block;
+  min-width: 8ch;
+  text-align: center;
 }
 
 .session-pill-compact {
@@ -7524,6 +7544,12 @@ html[data-theme="sepia"] .mode-badge-btn.tick-mode {
 .current-time-accent {
   color: var(--primary-color);
   font-weight: 700;
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  display: inline-block;
+  min-width: 8ch;
+  text-align: center;
 }
 
 .current-percent {
@@ -8791,6 +8817,7 @@ html[data-theme="sepia"] .mode-badge-btn.tick-mode {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   padding: 0 8px;
   flex-shrink: 0;
 }
@@ -8799,6 +8826,7 @@ html[data-theme="sepia"] .mode-badge-btn.tick-mode {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 0;
 }
 
 .ctrl-status-dot {
@@ -8836,38 +8864,77 @@ html[data-theme="sepia"] .mode-badge-btn.tick-mode {
 .ctrl-time-btn {
   display: flex;
   align-items: center;
-  gap: 5px;
+  justify-content: center;
+  gap: 6px;
   background-color: var(--surface-variant);
   border: 1px solid var(--outline-variant);
-  border-radius: 3px;
+  border-radius: 4px;
   padding: 2px 7px;
   color: var(--on-surface);
-  font-size: 10px;
   cursor: pointer;
-  transition: var(--transition-fast);
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
   white-space: nowrap;
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  flex-shrink: 0;
 }
 
 .ctrl-time-btn:hover {
   background-color: var(--surface-container-high);
 }
 
+.ctrl-time-btn:focus {
+  outline: none;
+}
+
+.ctrl-time-btn:focus-visible {
+  outline: 1px solid var(--primary-color);
+}
+
 .ctrl-time-btn .tz-label {
-  font-size: 8.5px;
+  display: inline-block;
+  font-size: 9px;
   font-weight: 700;
   color: var(--primary-color);
+  min-width: 4.8ch;
+  text-align: center;
+  flex-shrink: 0;
 }
 
 .ctrl-time-btn .time-val {
-  font-size: 10.5px;
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.ctrl-time-btn .time-date-part {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--on-surface-variant);
   letter-spacing: 0.02em;
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+
+.ctrl-time-btn .time-clock-part {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--on-surface);
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
 }
 
 .ctrl-header-right {
   display: flex;
   align-items: center;
   gap: 3px;
+  flex-shrink: 0;
 }
 
 .ctrl-icon-btn {

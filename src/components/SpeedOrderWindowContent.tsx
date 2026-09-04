@@ -12,6 +12,7 @@ import { ReplayProgressPayload } from "../types/replay";
 import { PersistedSettings } from "../types/settings";
 import { ReplayCommand, sendReplayCommand } from "../utils/command";
 import { getCachedEconomicAvailabilityMap, isEconomicSpreadActive } from "../utils/economicDataUtils";
+import { formatJstTime, formatServerTime, splitShortDateTime } from "../utils/timeUtils";
 
 export const SpeedOrderWindowContent: React.FC = () => {
   useTheme();
@@ -89,6 +90,10 @@ export const SpeedOrderWindowContent: React.FC = () => {
   const [sourceSymbol, setSourceSymbol] = useState<string>(() => localStorage.getItem("speed-order-symbol") || "");
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [virtualTimeMsc, setVirtualTimeMsc] = useState<number>(0);
+  const [timezoneMode, setTimezoneMode] = useState<"JST" | "SERVER">(() => {
+    const saved = localStorage.getItem("replay-timezone-mode");
+    return saved === "SERVER" ? "SERVER" : "JST";
+  });
   const [economicMap, setEconomicMap] = useState<Record<string, boolean>>(() => getCachedEconomicAvailabilityMap());
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const prevStatusRef = useRef<string>("DISCONNECTED");
@@ -241,6 +246,10 @@ export const SpeedOrderWindowContent: React.FC = () => {
         } catch (err) {
           console.error("Failed to parse economic availability in speed order", err);
         }
+      } else if (e.key === "replay-timezone-mode" && e.newValue) {
+        if (e.newValue === "JST" || e.newValue === "SERVER") {
+          setTimezoneMode(e.newValue);
+        }
       }
     };
     window.addEventListener("storage", handleStorage);
@@ -257,12 +266,17 @@ export const SpeedOrderWindowContent: React.FC = () => {
   };
 
   useEffect(() => {
-    // ホットキー設定の読み込み
+    // ホットキー・初期設定の読み込み
     invoke<PersistedSettings>("load_settings").then((saved) => {
-      if (saved && saved.hotkeys) {
-        const merged = { ...DEFAULT_HOTKEYS, ...saved.hotkeys };
-        setHotkeys(merged);
-        localStorage.setItem("speed-order-hotkeys", JSON.stringify(merged));
+      if (saved) {
+        if (saved.hotkeys) {
+          const merged = { ...DEFAULT_HOTKEYS, ...saved.hotkeys };
+          setHotkeys(merged);
+          localStorage.setItem("speed-order-hotkeys", JSON.stringify(merged));
+        }
+        if (saved.timezone_mode && !localStorage.getItem("replay-timezone-mode")) {
+          setTimezoneMode(saved.timezone_mode as "JST" | "SERVER");
+        }
       }
     }).catch(console.error);
 
@@ -743,13 +757,38 @@ export const SpeedOrderWindowContent: React.FC = () => {
     return `【${modeTitle} - ${isCurrentlyPlaying ? "再生中" : "一時停止中"}】\n・スプレッド: ${spreadDesc}\n・再生状態: ${playStatusStr}`;
   };
 
+  const rawTimeStr =
+    !isDisconnected && virtualTimeMsc > 0
+      ? timezoneMode === "JST"
+        ? formatJstTime(virtualTimeMsc)
+        : formatServerTime(virtualTimeMsc)
+      : "--:--:--";
+  const { datePart, timePart } = splitShortDateTime(rawTimeStr);
+
+  const handleToggleTimezone = () => {
+    const next = timezoneMode === "JST" ? "SERVER" : "JST";
+    setTimezoneMode(next);
+    localStorage.setItem("replay-timezone-mode", next);
+  };
+
   return (
     <div className="speed-order-window" data-color-style={orderColorStyle} style={{ position: "relative" }}>
       {/* ヘッダー */}
       <div className="speed-order-header" data-tauri-drag-region>
         <div className="speed-order-title" data-tauri-drag-region>
           <span className="material-symbols-outlined icon-accent" data-tauri-drag-region>monetization_on</span>
-          Speed Order
+          <button
+            type="button"
+            className="ctrl-time-btn font-data"
+            onClick={handleToggleTimezone}
+            title={`表示タイムゾーン切替 (現在: ${timezoneMode === "JST" ? "JST 日本時間" : "SERVER MT5サーバー時刻"})\nリプレイ日時: ${rawTimeStr}\nクリックで切替`}
+          >
+            <span className="tz-label">{timezoneMode}</span>
+            <span className="time-val">
+              {datePart ? <span className="time-date-part">{datePart}</span> : null}
+              <span className="time-clock-part">{timePart}</span>
+            </span>
+          </button>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "4px" }} data-tauri-drag-region>
           {/* 口座・ポジション管理（ポジション一覧）ウィンドウ起動ボタン */}

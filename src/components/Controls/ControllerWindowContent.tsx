@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { ControlDashboard } from "./ControlDashboard";
 import { useTheme } from "../../hooks/useTheme";
-import { formatJstTime, formatServerTime } from "../../utils/timeUtils";
+import { formatJstTime, formatServerTime, splitShortDateTime } from "../../utils/timeUtils";
 import { TimeStepItem, DEFAULT_TIME_STEPS, formatSecondsToLabel } from "../../App";
 import { ReplayCommand, sendReplayCommand } from "../../utils/command";
 import { PersistedSettings } from "../../types/settings";
@@ -24,7 +24,23 @@ export const ControllerWindowContent: React.FC = () => {
   const [sourceSymbol, setSourceSymbol] = useState("");
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
-  const [timezoneMode, setTimezoneMode] = useState<"JST" | "SERVER">("JST");
+  const [timezoneMode, setTimezoneMode] = useState<"JST" | "SERVER">(() => {
+    const saved = localStorage.getItem("replay-timezone-mode");
+    return saved === "SERVER" ? "SERVER" : "JST";
+  });
+
+  // ウィンドウ間でのタイムゾーンモード変更の同期
+  useEffect(() => {
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === "replay-timezone-mode" && e.newValue) {
+        if (e.newValue === "JST" || e.newValue === "SERVER") {
+          setTimezoneMode(e.newValue);
+        }
+      }
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
 
   // A-B ループ State
   const [loopActive, setLoopActive] = useState(false);
@@ -89,7 +105,9 @@ export const ControllerWindowContent: React.FC = () => {
           if (settings.start_time) setStartTime(settings.start_time);
           if (settings.end_time) setEndTime(settings.end_time);
           if (settings.source_symbol) setSourceSymbol((prev) => prev || settings.source_symbol || "");
-          if (settings.timezone_mode) setTimezoneMode(settings.timezone_mode as "JST" | "SERVER");
+          if (settings.timezone_mode && !localStorage.getItem("replay-timezone-mode")) {
+            setTimezoneMode(settings.timezone_mode as "JST" | "SERVER");
+          }
           if (settings.time_presets && Array.isArray(settings.time_presets) && settings.time_presets.length > 0) {
             setTimePresets(settings.time_presets);
           }
@@ -415,12 +433,13 @@ export const ControllerWindowContent: React.FC = () => {
   };
 
   const progressPercent = totalTicks > 0 ? (currentIdx / totalTicks) * 100 : 0;
-  const timeDisplayStr =
+  const rawTimeStr =
     virtualTimeMsc > 0
       ? timezoneMode === "JST"
         ? formatJstTime(virtualTimeMsc)
         : formatServerTime(virtualTimeMsc)
       : "--:--:--";
+  const { datePart, timePart } = splitShortDateTime(rawTimeStr);
 
   return (
     <div className="controller-window-root">
@@ -429,16 +448,24 @@ export const ControllerWindowContent: React.FC = () => {
         <div className="ctrl-header-left">
           <span className={`ctrl-status-dot ${status.toLowerCase()}`} title={`Status: ${status}`} />
           <span className="ctrl-symbol-tag">{sourceSymbol || "REPLAY"}</span>
-          <button
-            type="button"
-            className="ctrl-time-btn font-data"
-            onClick={() => setTimezoneMode((prev) => (prev === "JST" ? "SERVER" : "JST"))}
-            title="クリックでJST / SERVER表示を切替"
-          >
-            <span className="tz-label">{timezoneMode}</span>
-            <span className="time-val">{timeDisplayStr}</span>
-          </button>
         </div>
+
+        <button
+          type="button"
+          className="ctrl-time-btn font-data"
+          onClick={() => {
+            const next = timezoneMode === "JST" ? "SERVER" : "JST";
+            setTimezoneMode(next);
+            localStorage.setItem("replay-timezone-mode", next);
+          }}
+          title={`表示タイムゾーン切替 (現在: ${timezoneMode === "JST" ? "JST 日本時間" : "SERVER MT5サーバー時刻"})\nリプレイ日時: ${rawTimeStr}\nクリックで切替`}
+        >
+          <span className="tz-label">{timezoneMode}</span>
+          <span className="time-val">
+            {datePart ? <span className="time-date-part">{datePart}</span> : null}
+            <span className="time-clock-part">{timePart}</span>
+          </span>
+        </button>
 
         <div className="ctrl-header-right" ref={exitMenuRef} style={{ position: "relative" }}>
           <button
