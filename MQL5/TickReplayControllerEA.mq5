@@ -421,12 +421,22 @@ void OnTimer()
       }
       else
       {
-         ulong real_elapsed_us = current_real_us - m_last_real_timer_us;
-         m_last_real_timer_us = current_real_us;
-
-         // 異常な時間跳躍（1秒以上の停止やPCスリープ等）を制限
-         if(real_elapsed_us > 1000000)
-            real_elapsed_us = 1000000;
+         ulong real_elapsed_us = 0;
+         if(current_real_us > m_last_real_timer_us)
+         {
+            real_elapsed_us = current_real_us - m_last_real_timer_us;
+            // 異常な時間跳躍（1秒以上の停止やPCスリープ等）を制限
+            if(real_elapsed_us > 1000000)
+               real_elapsed_us = 1000000;
+            m_last_real_timer_us = current_real_us;
+         }
+         else if(m_last_real_timer_us - current_real_us > 1000000)
+         {
+            // PC時刻変更等による極端な後退時は基準時刻を再同期
+            m_last_real_timer_us = current_real_us;
+         }
+         // current_real_us <= m_last_real_timer_us（微小ジッター）の場合は real_elapsed_us = 0 とし、
+         // m_last_real_timer_us は引き下げずに維持（単調増加フィルタリング）
 
          double real_elapsed_msc = (double)real_elapsed_us / 1000.0;
 
@@ -615,9 +625,9 @@ void OnTimer()
                }
             }
 
-            bool do_redraw_m1  = ((now_us - s_last_redraw_m1_us >= interval_m1_us && ticks_delivered) || (now_us - s_last_redraw_m1_us >= interval_m1_us * 3));
-            bool do_redraw_m5  = ((now_us - s_last_redraw_m5_us >= interval_m5_us && ticks_delivered) || (now_us - s_last_redraw_m5_us >= interval_m5_us * 3));
-            bool do_redraw_htf = ((now_us - s_last_redraw_htf_us >= interval_htf_us && ticks_delivered) || (now_us - s_last_redraw_htf_us >= interval_htf_us * 3));
+            bool do_redraw_m1  = ((now_us > s_last_redraw_m1_us && now_us - s_last_redraw_m1_us >= interval_m1_us && ticks_delivered) || (now_us > s_last_redraw_m1_us && now_us - s_last_redraw_m1_us >= interval_m1_us * 3));
+            bool do_redraw_m5  = ((now_us > s_last_redraw_m5_us && now_us - s_last_redraw_m5_us >= interval_m5_us && ticks_delivered) || (now_us > s_last_redraw_m5_us && now_us - s_last_redraw_m5_us >= interval_m5_us * 3));
+            bool do_redraw_htf = ((now_us > s_last_redraw_htf_us && now_us - s_last_redraw_htf_us >= interval_htf_us && ticks_delivered) || (now_us > s_last_redraw_htf_us && now_us - s_last_redraw_htf_us >= interval_htf_us * 3));
 
             if(do_redraw_m1)  s_last_redraw_m1_us = now_us;
             if(do_redraw_m5)  s_last_redraw_m5_us = now_us;
@@ -664,12 +674,17 @@ void OnTimer()
       m_last_real_timer_us = 0;
    }
    
-   // 4. 定期的なステータス更新の書き込み (再生中・初期化済み: 40ms間隔 = 40,000us)
+   // 4. 定期的なステータス更新の書き込み
+   // ティック更新時: 40ms間隔 (25FPS)
+   // 無風区間（再生中だが新規ティックなし）: 100ms間隔 (10FPS) でUI時計を低負荷かつ滑らかに更新
    if(m_initialized && m_total_ticks > 0)
    {
       static ulong last_status_write_us = 0;
       ulong now_us = GetMicrosecondCount();
-      if(m_status_dirty && now_us - last_status_write_us >= 40000)
+      ulong required_interval_us = m_status_dirty ? 40000 : 100000;
+      bool is_time = (now_us > last_status_write_us) && (now_us - last_status_write_us >= required_interval_us);
+
+      if((m_status_dirty || m_is_playing) && is_time)
       {
          WriteStatusFile();
          last_status_write_us = now_us;
@@ -680,7 +695,7 @@ void OnTimer()
       // 停止中・待機中の定期ハートビート（1秒毎 = 1,000,000us）: フロントエンドとの同期状態を自動維持
       static ulong s_last_heartbeat_us = 0;
       ulong now_us = GetMicrosecondCount();
-      if(now_us - s_last_heartbeat_us >= 1000000)
+      if(now_us > s_last_heartbeat_us && now_us - s_last_heartbeat_us >= 1000000)
       {
          s_last_heartbeat_us = now_us;
          string heartbeat_status = StringFormat(
