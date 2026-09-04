@@ -103,6 +103,9 @@ string                  InpNYCoreWinter     = "22:00";
 long                    hReplayPipe = INVALID_HANDLE_VALUE;     // 単一の全二重名前付きパイプハンドル
 string                  m_accumulated_commands = "";            // 受信バッファ（後方互換用）
 uchar                   m_ipc_raw_buf[];                        // IPC 受信ストリームバッファ（複数コマンド・バイナリ保持用）
+int                     m_ipc_read_offset = 0;                  // IPC 受信ストリーム読み取りオフセット（ゼロコピー用）
+bool                    m_session_boundaries_sent = false;      // セッション境界送信済みフラグ（差分ステータス用）
+int                     m_last_sent_history_rev = -1;           // 前回送信した履歴リビジョン（差分ステータス用）
 datetime                m_last_connect_attempt = 0;             // 前回の接続試行時刻
 uint                    m_last_status_write = 0;                // 前回ステータス書き込み時刻
 bool                    m_sync_enabled = false;                 // 同期処理の有効化フラグ
@@ -226,7 +229,7 @@ void RedrawHistoryObjects();
 void UpdateChartObjects();
 void ClearChartTradeObjects();
 void ResetAccount(double initial_balance, double leverage);
-string SerializePositionsAndHistoryToJson();
+string SerializePositionsAndHistoryToJson(bool include_history = true);
 void SyncVirtualTradesOnSeek(long target_msc);
 
 //--- 前方宣言
@@ -888,18 +891,42 @@ void CheckAndProcessCommand()
 
    // 読み込んだデータを未処理ストリームバッファへ追記
    int old_len = ArraySize(m_ipc_raw_buf);
-   ArrayResize(m_ipc_raw_buf, old_len + (int)bytes_read, 4096);
-   ArrayCopy(m_ipc_raw_buf, buf, old_len, 0, (int)bytes_read);
-
-   // 受信ストリームから順次バイナリパケットまたはテキストJSONを抽出して実行
-   while(ArraySize(m_ipc_raw_buf) > 0)
+   if(m_ipc_read_offset > 0)
    {
-      int current_len = ArraySize(m_ipc_raw_buf);
+      int unconsumed = old_len - m_ipc_read_offset;
+      if(unconsumed > 0)
+      {
+         ArrayCopy(m_ipc_raw_buf, m_ipc_raw_buf, 0, m_ipc_read_offset, unconsumed);
+         ArrayResize(m_ipc_raw_buf, unconsumed + (int)bytes_read, 4096);
+         ArrayCopy(m_ipc_raw_buf, buf, unconsumed, 0, (int)bytes_read);
+      }
+      else
+      {
+         ArrayResize(m_ipc_raw_buf, (int)bytes_read, 4096);
+         ArrayCopy(m_ipc_raw_buf, buf, 0, 0, (int)bytes_read);
+      }
+      m_ipc_read_offset = 0;
+   }
+   else
+   {
+      ArrayResize(m_ipc_raw_buf, old_len + (int)bytes_read, 4096);
+      ArrayCopy(m_ipc_raw_buf, buf, old_len, 0, (int)bytes_read);
+   }
+
+   int total_buf_len = ArraySize(m_ipc_raw_buf);
+
+   // 受信ストリームからオフセットを進めながら順次バイナリパケットまたはテキストJSONを抽出して実行（ゼロコピー）
+   while(m_ipc_read_offset < total_buf_len)
+   {
+      int current_len = total_buf_len - m_ipc_read_offset;
 
       // 1. TRBIマジックヘッダー（バイナリコマンド 40バイト）のチェック
       if(current_len >= 4)
       {
-         uint magic = (uint)m_ipc_raw_buf[0] | ((uint)m_ipc_raw_buf[1] << 8) | ((uint)m_ipc_raw_buf[2] << 16) | ((uint)m_ipc_raw_buf[3] << 24);
+         uint magic = (uint)m_ipc_raw_buf[m_ipc_read_offset] | 
+                      ((uint)m_ipc_raw_buf[m_ipc_read_offset + 1] << 8) | 
+                      ((uint)m_ipc_raw_buf[m_ipc_read_offset + 2] << 16) | 
+                      ((uint)m_ipc_raw_buf[m_ipc_read_offset + 3] << 24);
          if(magic == TRBI_MAGIC)
          {
             if(current_len < 40)
@@ -909,29 +936,19 @@ void CheckAndProcessCommand()
             }
 
             BinaryCommandPacket packet;
-            if(CharArrayToStruct(packet, m_ipc_raw_buf, 0))
+            if(CharArrayToStruct(packet, m_ipc_raw_buf, m_ipc_read_offset))
             {
                ProcessBinaryCommand(packet);
             }
 
-            // 40バイト消費してバッファ先頭を詰める
-            int remain = current_len - 40;
-            if(remain > 0)
-            {
-               ArrayCopy(m_ipc_raw_buf, m_ipc_raw_buf, 0, 40, remain);
-               ArrayResize(m_ipc_raw_buf, remain);
-            }
-            else
-            {
-               ArrayResize(m_ipc_raw_buf, 0);
-            }
+            m_ipc_read_offset += 40;
             continue;
          }
       }
 
       // 2. テキスト/JSONコマンド（改行区切り）の処理
       int newline_pos = -1;
-      for(int i = 0; i < current_len; i++)
+      for(int i = m_ipc_read_offset; i < total_buf_len; i++)
       {
          if(m_ipc_raw_buf[i] == '\n')
          {
@@ -942,9 +959,10 @@ void CheckAndProcessCommand()
 
       if(newline_pos >= 0)
       {
-         if(newline_pos > 0)
+         int msg_len = newline_pos - m_ipc_read_offset;
+         if(msg_len > 0)
          {
-            string msg = CharArrayToString(m_ipc_raw_buf, 0, newline_pos, CP_UTF8);
+            string msg = CharArrayToString(m_ipc_raw_buf, m_ipc_read_offset, msg_len, CP_UTF8);
             StringTrimLeft(msg);
             StringTrimRight(msg);
             if(msg != "")
@@ -953,16 +971,7 @@ void CheckAndProcessCommand()
             }
          }
 
-         int remain = current_len - (newline_pos + 1);
-         if(remain > 0)
-         {
-            ArrayCopy(m_ipc_raw_buf, m_ipc_raw_buf, 0, newline_pos + 1, remain);
-            ArrayResize(m_ipc_raw_buf, remain);
-         }
-         else
-         {
-            ArrayResize(m_ipc_raw_buf, 0);
-         }
+         m_ipc_read_offset = newline_pos + 1;
          continue;
       }
 
@@ -970,9 +979,17 @@ void CheckAndProcessCommand()
       if(current_len > 65536)
       {
          Print("[Warning] IPC 受信ストリームバッファが異常肥大化したためクリアします: ", current_len, " bytes");
+         m_ipc_read_offset = 0;
          ArrayResize(m_ipc_raw_buf, 0);
       }
       break;
+   }
+
+   // 全データ消費完了時はバッファをリセット
+   if(m_ipc_read_offset >= total_buf_len)
+   {
+      m_ipc_read_offset = 0;
+      ArrayResize(m_ipc_raw_buf, 0);
    }
 }
 
@@ -989,6 +1006,9 @@ void ProcessCommand(string line)
    
    if(command == "INIT")
    {
+      m_session_boundaries_sent = false;
+      m_last_sent_history_rev = -1;
+
       string source_symbol      = GetJsonString(line, "source_symbol");
       string sub_source_symbol  = GetJsonString(line, "sub_source_symbol");
       bool   enable_dual        = GetJsonBool(line, "enable_dual_feed");
@@ -1770,6 +1790,7 @@ void ClosePipes()
       hReplayPipe = INVALID_HANDLE_VALUE;
    }
    ArrayResize(m_ipc_raw_buf, 0);
+   m_ipc_read_offset = 0;
    m_accumulated_commands = "";
    if(was_connected)
    {
@@ -1885,7 +1906,12 @@ void WriteStatusFile()
    int loop_b_idx = m_loop_b_idx;
    
    string speed_mode_str = (m_speed_mode == REPLAY_MODE_TEMPORAL) ? "TEMPORAL" : "COUNT";
-   string trade_json = SerializePositionsAndHistoryToJson();
+   
+   // 履歴更新リビジョンが変わった時のみhistory配列を結合
+   bool send_history = (m_history_revision != m_last_sent_history_rev);
+   if(send_history)
+      m_last_sent_history_rev = m_history_revision;
+   string trade_json = SerializePositionsAndHistoryToJson(send_history);
    
    double bid = 0.0;
    double ask = 0.0;
@@ -1927,7 +1953,7 @@ void WriteStatusFile()
       if(m_total_ticks_sub > 0 && m_current_idx_sub > 0 && m_current_idx_sub <= m_total_ticks_sub)
       {
          s_bid = m_all_ticks_sub[m_current_idx_sub - 1].bid;
-         s_ask = m_all_ticks_sub[m_current_idx_sub - 1].ask;
+         s_ask = m_all_ticks_sub[m_current_idx_sub - 1].last;
          if(s_bid <= 0) s_bid = m_all_ticks_sub[m_current_idx_sub - 1].last;
          if(s_ask <= 0) s_ask = m_all_ticks_sub[m_current_idx_sub - 1].last;
          if(s_ask > s_bid)
@@ -1945,14 +1971,22 @@ void WriteStatusFile()
       );
    }
    
+   // 初回送信済みであればセッション境界JSONを省略して送信ペイロードを大幅削減
+   string session_json = "";
+   if(!m_session_boundaries_sent)
+   {
+      session_json = StringFormat(",\"session_boundaries\":{\"TYO\":%s,\"LDN\":%s,\"NY\":%s}", g_tyo_json, g_ldn_json, g_ny_json);
+      m_session_boundaries_sent = true;
+   }
+   
    int max_bars = (int)TerminalInfoInteger(TERMINAL_MAXBARS);
    string msg = StringFormat(
-      "{\"status\":\"ACTIVE\",\"current_idx\":%d,\"total_ticks\":%d,\"virtual_time_msc\":%I64d,\"is_playing\":%s,\"speed_mode\":\"%s\",\"multiplier\":%s,\"tick_step\":%d,\"bid\":%.5f,\"ask\":%.5f,\"spread\":%.2f,\"dmm_bid\":%.5f,\"dmm_ask\":%.5f,\"dmm_spread\":%.2f,\"max_bars\":%d,\"history_revision\":%d,\"session_boundaries\":{\"TYO\":%s,\"LDN\":%s,\"NY\":%s},\"loop\":{\"active\":%s,\"a_msc\":%I64d,\"b_msc\":%I64d,\"a_idx\":%d,\"b_idx\":%d},%s,%s}",
+      "{\"status\":\"ACTIVE\",\"current_idx\":%d,\"total_ticks\":%d,\"virtual_time_msc\":%I64d,\"is_playing\":%s,\"speed_mode\":\"%s\",\"multiplier\":%s,\"tick_step\":%d,\"bid\":%.5f,\"ask\":%.5f,\"spread\":%.2f,\"dmm_bid\":%.5f,\"dmm_ask\":%.5f,\"dmm_spread\":%.2f,\"max_bars\":%d,\"history_revision\":%d%s,\"loop\":{\"active\":%s,\"a_msc\":%I64d,\"b_msc\":%I64d,\"a_idx\":%d,\"b_idx\":%d},%s,%s}",
       m_current_idx, m_total_ticks, m_virtual_current_msc,
       (m_is_playing ? "true" : "false"),
       speed_mode_str, DoubleToString(m_time_multiplier, 1), m_tick_step_count,
       bid, ask, spread, dmm_bid, dmm_ask, dmm_spread, max_bars, m_history_revision,
-      g_tyo_json, g_ldn_json, g_ny_json,
+      session_json,
       loop_active_str, m_loop_a_msc, m_loop_b_msc, loop_a_idx, loop_b_idx,
       sub_feed_json,
       trade_json
@@ -1969,7 +2003,7 @@ void WriteReadyStatus()
    CalculateSessionBoundaries(g_tyo_json, g_ldn_json, g_ny_json);
    
    string speed_mode_str = (m_speed_mode == REPLAY_MODE_TEMPORAL) ? "TEMPORAL" : "COUNT";
-   string trade_json = SerializePositionsAndHistoryToJson();
+   string trade_json = SerializePositionsAndHistoryToJson(true);
    
    double bid = 0.0;
    double ask = 0.0;
@@ -2040,6 +2074,8 @@ void WriteReadyStatus()
       trade_json
    );
    WritePipeStatus(msg);
+   m_session_boundaries_sent = true;
+   m_last_sent_history_rev = m_history_revision;
    m_status_dirty = false;
 }
 
@@ -4841,7 +4877,7 @@ void MarkTradeHistoryDirty()
    m_history_revision++;
 }
 
-string SerializePositionsAndHistoryToJson()
+string SerializePositionsAndHistoryToJson(bool include_history = true)
 {
    int pos_size = ArraySize(m_virtual_positions);
    string json = "";
@@ -4876,43 +4912,46 @@ string SerializePositionsAndHistoryToJson()
    }
    json += "]";
    
-   // 取引履歴配列のシリアライズ（決済・復元等の変更時のみ再構築してキャッシュ）
-   if(m_history_json_dirty || m_cached_history_json == "")
+   // 取引履歴配列のシリアライズ（指定された場合のみ。決済・復元等の変更時のみ再構築してキャッシュ）
+   if(include_history)
    {
-      string hist_str = ",\"history\":[";
-      int hist_size = ArraySize(m_virtual_history);
-      for(int i = 0; i < hist_size; i++)
+      if(m_history_json_dirty || m_cached_history_json == "")
       {
-         if(i > 0) hist_str += ",";
-         string type_str = (m_virtual_history[i].type == POSITION_TYPE_BUY) ? "BUY" : "SELL";
-         hist_str += StringFormat("{\"ticket\":%d,\"type\":\"%s\",\"volume\":%.2f,\"open_price\":%.5f,\"open_time\":\"%s\",\"open_time_msc\":%I64d,\"close_price\":%.5f,\"close_time\":\"%s\",\"close_time_msc\":%I64d,\"sl\":%.5f,\"tp\":%.5f,\"profit\":%.2f,\"close_reason\":\"%s\",\"mfe_pips\":%.2f,\"mae_pips\":%.2f,\"spread_entry\":%.2f,\"volatility\":%.2f,\"volume_60s\":%I64u}",
-            m_virtual_history[i].ticket,
-            type_str,
-            m_virtual_history[i].volume,
-            m_virtual_history[i].open_price,
-            TimeToString(m_virtual_history[i].open_time, TIME_DATE|TIME_SECONDS),
-            m_virtual_history[i].open_time_msc,
-            m_virtual_history[i].close_price,
-            TimeToString(m_virtual_history[i].close_time, TIME_DATE|TIME_SECONDS),
-            m_virtual_history[i].close_time_msc,
-            m_virtual_history[i].sl,
-            m_virtual_history[i].tp,
-            m_virtual_history[i].profit,
-            m_virtual_history[i].close_reason,
-            m_virtual_history[i].mfe_pips,
-            m_virtual_history[i].mae_pips,
-            m_virtual_history[i].spread_entry,
-            m_virtual_history[i].volatility,
-            m_virtual_history[i].volume_60s
-         );
+         string hist_str = ",\"history\":[";
+         int hist_size = ArraySize(m_virtual_history);
+         for(int i = 0; i < hist_size; i++)
+         {
+            if(i > 0) hist_str += ",";
+            string type_str = (m_virtual_history[i].type == POSITION_TYPE_BUY) ? "BUY" : "SELL";
+            hist_str += StringFormat("{\"ticket\":%d,\"type\":\"%s\",\"volume\":%.2f,\"open_price\":%.5f,\"open_time\":\"%s\",\"open_time_msc\":%I64d,\"close_price\":%.5f,\"close_time\":\"%s\",\"close_time_msc\":%I64d,\"sl\":%.5f,\"tp\":%.5f,\"profit\":%.2f,\"close_reason\":\"%s\",\"mfe_pips\":%.2f,\"mae_pips\":%.2f,\"spread_entry\":%.2f,\"volatility\":%.2f,\"volume_60s\":%I64u}",
+               m_virtual_history[i].ticket,
+               type_str,
+               m_virtual_history[i].volume,
+               m_virtual_history[i].open_price,
+               TimeToString(m_virtual_history[i].open_time, TIME_DATE|TIME_SECONDS),
+               m_virtual_history[i].open_time_msc,
+               m_virtual_history[i].close_price,
+               TimeToString(m_virtual_history[i].close_time, TIME_DATE|TIME_SECONDS),
+               m_virtual_history[i].close_time_msc,
+               m_virtual_history[i].sl,
+               m_virtual_history[i].tp,
+               m_virtual_history[i].profit,
+               m_virtual_history[i].close_reason,
+               m_virtual_history[i].mfe_pips,
+               m_virtual_history[i].mae_pips,
+               m_virtual_history[i].spread_entry,
+               m_virtual_history[i].volatility,
+               m_virtual_history[i].volume_60s
+            );
+         }
+         hist_str += "]";
+         m_cached_history_json = hist_str;
       }
-      hist_str += "]";
-      m_cached_history_json = hist_str;
+      json += m_cached_history_json;
+      
+      // 履歴キャッシュは有効のまま維持
+      m_history_json_dirty = false;
    }
-   json += m_cached_history_json;
-   
-   // 履歴キャッシュは有効のまま維持
-   m_history_json_dirty = false;
    
    return json;
 }

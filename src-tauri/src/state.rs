@@ -43,14 +43,14 @@ pub struct ReplayState {
     pub economic_events: Mutex<std::collections::HashMap<String, Vec<crate::pseudo_dmm::EconomicEvent>>>,
     // Named Pipe へコマンドを送るための送信チャネル
     pub command_tx: tokio::sync::mpsc::UnboundedSender<String>,
-    // 外部ツール（Drenhisなど）へステータスを配信するためのブロードキャストチャネル
-    pub sync_tx: tokio::sync::broadcast::Sender<String>,
+    // 外部ツール（Drenhisなど）へステータスを配信するためのwatchチャネル
+    pub sync_tx: tokio::sync::watch::Sender<String>,
 }
 
 impl ReplayState {
     pub fn new(
         command_tx: tokio::sync::mpsc::UnboundedSender<String>,
-        sync_tx: tokio::sync::broadcast::Sender<String>,
+        sync_tx: tokio::sync::watch::Sender<String>,
     ) -> Self {
         let default_hotkeys = std::collections::HashMap::from([
             ("play_pause".to_string(), "Control+Alt+Space".to_string()),

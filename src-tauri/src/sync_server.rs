@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use futures_util::{SinkExt, StreamExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::broadcast;
+use tokio::sync::watch;
 use tokio_tungstenite::tungstenite::Message;
 use crate::state::ReplayState;
 
@@ -10,12 +10,12 @@ pub const DEFAULT_SYNC_PORT: u16 = 49210;
 
 /// 同期サーバーのインスタンス
 pub struct SyncServer {
-    tx: broadcast::Sender<String>,
+    tx: watch::Sender<String>,
 }
 
 impl SyncServer {
-    pub fn new() -> (Self, broadcast::Sender<String>) {
-        let (tx, _) = broadcast::channel(100);
+    pub fn new() -> (Self, watch::Sender<String>) {
+        let (tx, _) = watch::channel(String::new());
         (Self { tx: tx.clone() }, tx)
     }
 
@@ -54,7 +54,7 @@ async fn handle_connection(
     stream: TcpStream,
     peer_addr: SocketAddr,
     state: Arc<ReplayState>,
-    mut rx: broadcast::Receiver<String>,
+    mut rx: watch::Receiver<String>,
 ) {
     println!("[SyncServer] 外部クライアント接続: {}", peer_addr);
 
@@ -70,11 +70,16 @@ async fn handle_connection(
 
     // 接続直後: 現在の最新ステータスを即座に送信して同期を確立
     let initial_status = {
-        let last = state.last_status.lock().unwrap();
-        if !last.is_empty() {
-            Some(last.clone())
+        let current = rx.borrow_and_update().clone();
+        if !current.is_empty() {
+            Some(current)
         } else {
-            None
+            let last = state.last_status.lock().unwrap();
+            if !last.is_empty() {
+                Some(last.clone())
+            } else {
+                None
+            }
         }
     };
     if let Some(status) = initial_status {
@@ -83,19 +88,19 @@ async fn handle_connection(
 
     loop {
         tokio::select! {
-            // ブロードキャストからのステータス通知を受信してクライアントに転送
-            recv_res = rx.recv() => {
-                match recv_res {
-                    Ok(msg) => {
-                        if let Err(e) = write.send(Message::Text(msg.into())).await {
-                            println!("[SyncServer] クライアント {} 送信エラー: {}", peer_addr, e);
-                            break;
+            // watchチャネルの更新を検知して最新メッセージを送信（遅延時は最新フレームのみ自動集約・ゼロラグ配信）
+            changed_res = rx.changed() => {
+                match changed_res {
+                    Ok(()) => {
+                        let msg = rx.borrow_and_update().clone();
+                        if !msg.is_empty() {
+                            if let Err(e) = write.send(Message::Text(msg.into())).await {
+                                println!("[SyncServer] クライアント {} 送信エラー: {}", peer_addr, e);
+                                break;
+                            }
                         }
                     }
-                    Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                        println!("[SyncServer] クライアント {} が遅延 ({} 件スキップ)", peer_addr, skipped);
-                    }
-                    Err(broadcast::error::RecvError::Closed) => {
+                    Err(_) => {
                         break;
                     }
                 }
