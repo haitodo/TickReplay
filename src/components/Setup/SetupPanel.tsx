@@ -797,12 +797,12 @@ const SetupPanelComponent: React.FC<SetupPanelProps> = ({
                 </div>
               </div>
 
-              {/* カード3: 日時・プリロード設定 */}
+              {/* カード3: リプレイ期間 */}
               <div className="setup-card-dashboard">
                 <div className="card-header-dashboard">
                   <div className="header-title-wrapper">
                     <span className="material-symbols-outlined header-icon">calendar_month</span>
-                    <span className="header-title">リプレイ期間 &amp; プリロード</span>
+                    <span className="header-title">リプレイ期間</span>
                   </div>
                 </div>
 
@@ -947,12 +947,28 @@ const SetupPanelComponent: React.FC<SetupPanelProps> = ({
                       </div>
                     </div>
                   </div>
+                </div>
+              </div>
 
+              {/* カード4: プリロード設定 */}
+              <div className="setup-card-dashboard">
+                <div className="card-header-dashboard">
+                  <div className="header-title-wrapper">
+                    <span className="material-symbols-outlined header-icon">history</span>
+                    <span className="header-title">プリロード設定</span>
+                    <HelpTooltip
+                      title="プリロード設定"
+                      content="リプレイ開始直前の過去ローソク足チャートやティック履歴の読み込み設定です。インジケーターの初期計算や環境認識に必要な過去データを事前に展開します。"
+                    />
+                  </div>
+                </div>
+
+                <div className="card-body-dashboard">
                   {/* プリロード方式 */}
                   <div className="preload-grid">
                     <div className="form-group-compact">
                       <label className="form-label-compact">
-                        過去チャート プリロード方式
+                        プリロード方式
                         <HelpTooltip
                           title="プリロード方式"
                           content="リプレイ開始直前の過去ローソク足をどう読み込むかを指定します。"
@@ -1050,7 +1066,7 @@ const SetupPanelComponent: React.FC<SetupPanelProps> = ({
 
             {/* ---------------- 右カラム (仮想口座・スプレッド・オプション) ---------------- */}
             <div className="setup-column">
-              {/* カード4: 仮想口座 & 証拠金パラメータ */}
+              {/* カード5: 仮想口座 & 証拠金パラメータ */}
               <div className="setup-card-dashboard">
                 <div className="card-header-dashboard">
                   <div className="header-title-wrapper">
@@ -1130,7 +1146,7 @@ const SetupPanelComponent: React.FC<SetupPanelProps> = ({
                 </div>
               </div>
 
-              {/* カード5: スプレッド方式 & コスト */}
+              {/* カード6: スプレッド方式 & コスト */}
               <div className="setup-card-dashboard">
                 <div className="card-header-dashboard">
                   <div className="header-title-wrapper">
@@ -1401,7 +1417,7 @@ const SetupPanelComponent: React.FC<SetupPanelProps> = ({
                 </div>
               </div>
 
-              {/* カード6: 表示 & 同期オプション */}
+              {/* カード7: 表示 & 同期オプション */}
               <div className="setup-card-dashboard">
                 <div className="card-header-dashboard">
                   <div className="header-title-wrapper">
@@ -1438,7 +1454,7 @@ const SetupPanelComponent: React.FC<SetupPanelProps> = ({
                 </div>
               </div>
 
-              {/* カード7: 執行ルール情報 */}
+              {/* カード8: 執行ルール情報 */}
               <div className="setup-card-dashboard">
                 <div className="card-header-dashboard">
                   <div className="header-title-wrapper">
