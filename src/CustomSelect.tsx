@@ -112,6 +112,9 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
     }
   };
 
+  const currentDisplay = selectedOption ? (selectedOption.triggerLabel ?? selectedOption.label) : placeholder;
+  const triggerTitle = typeof currentDisplay === "string" ? currentDisplay : undefined;
+
   return (
     <div
       className={`custom-select-container ${className} ${disabled ? "disabled" : ""} ${isOpen ? "open" : ""}`}
@@ -123,9 +126,10 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
       <div
         className="custom-select-trigger"
         onClick={() => !disabled && setIsOpen(!isOpen)}
+        title={triggerTitle}
       >
         <span className="custom-select-value">
-          {selectedOption ? (selectedOption.triggerLabel ?? selectedOption.label) : placeholder}
+          {currentDisplay}
         </span>
         <span className="custom-select-arrow material-symbols-outlined">
           keyboard_arrow_down
@@ -138,6 +142,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
             {options.map((option, idx) => {
               const isSelected = option.value === value;
               const isHighlighted = idx === highlightedIndex;
+              const optTitle = typeof option.label === "string" ? option.label : undefined;
               return (
                 <li
                   key={idx}
@@ -147,6 +152,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
                     setIsOpen(false);
                   }}
                   onMouseEnter={() => setHighlightedIndex(idx)}
+                  title={optTitle}
                 >
                   <span className="option-label">{option.label}</span>
                   {isSelected && (

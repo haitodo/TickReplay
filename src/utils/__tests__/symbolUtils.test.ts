@@ -17,7 +17,8 @@ import {
   sortBrokersForDualFeed,
   findDefaultDualFeedPair,
   findMatchingSymbolForYear,
-  checkSymbolYearMismatch
+  checkSymbolYearMismatch,
+  formatCompactDualSymbolName
 } from "../symbolUtils";
 
 describe("symbolUtils", () => {
@@ -387,6 +388,28 @@ describe("symbolUtils", () => {
       expect(res.hasMismatch).toBe(false);
       expect(res.symbolYear).toBeUndefined();
       expect(res.dateYear).toBe(2026);
+    });
+  });
+
+  describe("formatCompactDualSymbolName", () => {
+    it("末尾に年度サフィックスがある場合は年度を除去してコンパクト化すること", () => {
+      expect(formatCompactDualSymbolName("USDJPY_DUCASCOPY_2024")).toBe("USDJPY_DUCASCOPY");
+      expect(formatCompactDualSymbolName("USDJPY_OANDA_2024")).toBe("USDJPY_OANDA");
+      expect(formatCompactDualSymbolName("EURUSD_DUCASCOPY_2016")).toBe("EURUSD_DUCASCOPY");
+    });
+
+    it("年度のみのサフィックスの場合はベースペア名を維持すること", () => {
+      expect(formatCompactDualSymbolName("USDJPY_2024")).toBe("USDJPY");
+    });
+
+    it("年度が含まれないシンボル名はそのままであること", () => {
+      expect(formatCompactDualSymbolName("USDJPY")).toBe("USDJPY");
+      expect(formatCompactDualSymbolName("USDJPY_RAW")).toBe("USDJPY_RAW");
+    });
+
+    it("空文字またはnullライクの場合は(未選択)を返すこと", () => {
+      expect(formatCompactDualSymbolName("")).toBe("(未選択)");
+      expect(formatCompactDualSymbolName("   ")).toBe("(未選択)");
     });
   });
 });

@@ -626,3 +626,27 @@ export function checkSymbolYearMismatch(
   };
 }
 
+/**
+ * デュアルフィード比較表示用: 年度バッジが別枠で表示される場合に、
+ * シンボル名末尾の冗長な年度（例: "_2024"）を取り除いてコンパクトな名称にする。
+ * 例: "USDJPY_DUCASCOPY_2024" -> "USDJPY_DUCASCOPY"
+ *     "USDJPY_OANDA_2024" -> "USDJPY_OANDA"
+ *     "USDJPY_2024" -> "USDJPY"
+ *     "USDJPY" -> "USDJPY"
+ */
+export function formatCompactDualSymbolName(symbolName: string, parsed?: ParsedSymbol): string {
+  const clean = (symbolName || "").trim();
+  if (!clean) return "(未選択)";
+  const p = parsed || parseSymbolName(clean);
+  if (p.year) {
+    const yearPattern = new RegExp(`[_.-]${p.year}$`, "i");
+    if (yearPattern.test(clean)) {
+      const stripped = clean.replace(yearPattern, "");
+      if (stripped.length > 0) {
+        return stripped;
+      }
+    }
+  }
+  return clean;
+}
+

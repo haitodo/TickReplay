@@ -17,7 +17,9 @@ export const SymbolTagInput: React.FC<SymbolTagInputProps> = ({
 }) => {
   const [inputText, setInputText] = useState("");
   const [isOpen, setIsOpen] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // 文字列を分解してタグ配列に
   const tags = value
@@ -77,15 +79,19 @@ export const SymbolTagInput: React.FC<SymbolTagInputProps> = ({
     <div className="symbol-tag-input-container" ref={containerRef} style={{ position: "relative", width: "100%" }}>
       <div
         className="pro-input"
-        onClick={() => setIsOpen(true)}
+        onClick={() => {
+          setIsOpen(true);
+          inputRef.current?.focus();
+        }}
         style={{
           display: "flex",
           flexWrap: "wrap",
           alignItems: "center",
-          gap: "4px",
-          minHeight: "36px",
-          padding: "4px 8px",
-          cursor: "text"
+          gap: "3px",
+          minHeight: "26px",
+          padding: "2px 6px",
+          cursor: "text",
+          boxSizing: "border-box"
         }}
       >
         {tags.map((tag, idx) => (
@@ -95,14 +101,17 @@ export const SymbolTagInput: React.FC<SymbolTagInputProps> = ({
             style={{
               display: "inline-flex",
               alignItems: "center",
-              gap: "4px",
-              padding: "2px 8px",
-              fontSize: "11px",
+              gap: "3px",
+              padding: "1px 6px",
+              fontSize: "10.5px",
               fontWeight: 600,
               backgroundColor: "var(--surface-container-high, rgba(255,255,255,0.1))",
               color: "var(--on-surface)",
               border: "1px solid var(--outline-variant)",
-              borderRadius: "4px"
+              borderRadius: "3px",
+              lineHeight: "16px",
+              height: "18px",
+              boxSizing: "border-box"
             }}
           >
             {tag}
@@ -120,22 +129,28 @@ export const SymbolTagInput: React.FC<SymbolTagInputProps> = ({
                 padding: 0,
                 display: "flex",
                 alignItems: "center",
-                fontSize: "14px"
+                fontSize: "12px",
+                lineHeight: 1
               }}
             >
-              <span className="material-symbols-outlined" style={{ fontSize: "12px" }}>close</span>
+              <span className="material-symbols-outlined" style={{ fontSize: "11px" }}>close</span>
             </button>
           </span>
         ))}
 
         <input
+          ref={inputRef}
           type="text"
           value={inputText}
           onChange={(e) => {
             setInputText(e.target.value);
             setIsOpen(true);
           }}
-          onFocus={() => setIsOpen(true)}
+          onFocus={() => {
+            setIsFocused(true);
+            setIsOpen(true);
+          }}
+          onBlur={() => setIsFocused(false)}
           onKeyDown={handleKeyDown}
           placeholder={tags.length === 0 ? placeholder : ""}
           style={{
@@ -143,9 +158,12 @@ export const SymbolTagInput: React.FC<SymbolTagInputProps> = ({
             outline: "none",
             background: "transparent",
             color: "inherit",
-            fontSize: "12px",
+            fontSize: "11px",
             flex: 1,
-            minWidth: "80px"
+            minWidth: tags.length === 0 ? "100%" : isFocused || inputText ? "50px" : "10px",
+            height: "18px",
+            lineHeight: "18px",
+            padding: 0
           }}
         />
       </div>

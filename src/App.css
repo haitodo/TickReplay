@@ -5157,13 +5157,14 @@ html[data-theme="warm-sepia"][data-pl-style="green-red"] {
   position: relative;
   display: block;
   width: 100%;
+  height: 28px;
   box-sizing: border-box;
   background-color: var(--surface-variant);
   border: 1px solid var(--outline-variant);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm, 4px);
   color: var(--on-surface);
   font-family: var(--font-ui);
-  font-size: 13px;
+  font-size: 11px;
   outline: none;
   transition: var(--transition-fast);
   cursor: pointer;
@@ -5180,8 +5181,8 @@ html[data-theme="warm-sepia"][data-pl-style="green-red"] {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 10px;
-  height: 32px;
+  padding: 0 8px;
+  height: 100%;
   box-sizing: border-box;
 }
 
@@ -5190,13 +5191,16 @@ html[data-theme="warm-sepia"][data-pl-style="green-red"] {
   overflow: hidden;
   text-overflow: ellipsis;
   flex: 1;
+  min-width: 0;
+  line-height: normal;
 }
 
 .custom-select-arrow {
-  font-size: 16px;
+  font-size: 15px;
   color: var(--on-surface-variant);
-  margin-left: 8px;
+  margin-left: 4px;
   transition: transform 0.2s ease;
+  flex-shrink: 0;
 }
 
 .custom-select-container.open .custom-select-arrow {
@@ -5210,7 +5214,7 @@ html[data-theme="warm-sepia"][data-pl-style="green-red"] {
   width: 100%;
   background-color: var(--surface-charcoal);
   border: 1px solid var(--outline);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm, 4px);
   box-shadow: var(--shadow-popup);
   z-index: 10000;
   max-height: 220px;
@@ -5221,7 +5225,7 @@ html[data-theme="warm-sepia"][data-pl-style="green-red"] {
 
 .custom-select-options {
   list-style: none;
-  padding: 4px;
+  padding: 3px;
   margin: 0;
 }
 
@@ -5229,12 +5233,14 @@ html[data-theme="warm-sepia"][data-pl-style="green-red"] {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 10px;
+  padding: 4px 8px;
+  min-height: 24px;
+  box-sizing: border-box;
   color: var(--on-surface);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-sm, 3px);
   transition: var(--transition-fast);
   cursor: pointer;
-  font-size: 13px;
+  font-size: 11px;
   min-width: 0;
 }
 
@@ -5264,17 +5270,18 @@ html[data-theme="warm-sepia"][data-pl-style="green-red"] {
 }
 
 .selected-check {
-  font-size: 16px;
+  font-size: 14px;
   color: var(--primary-color);
-  margin-left: 8px;
+  margin-left: 6px;
+  flex-shrink: 0;
 }
 
 .custom-select-option-empty {
-  padding: 8px 10px;
+  padding: 6px 8px;
   color: var(--on-surface-variant);
   font-style: italic;
   text-align: center;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .custom-select-container.disabled {
@@ -6276,7 +6283,7 @@ input[type="number"].no-spinner {
 /* 2-Column Dashboard Layout */
 .setup-2col-layout {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 10px;
   align-items: start;
 }
@@ -6285,6 +6292,7 @@ input[type="number"].no-spinner {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-width: 0;
 }
 
 .setup-card-dashboard,
@@ -6296,6 +6304,7 @@ input[type="number"].no-spinner {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
 }
 
 .card-header-dashboard,
@@ -6345,16 +6354,27 @@ input[type="number"].no-spinner {
   gap: 6px;
 }
 
+.form-grid-2col {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  min-width: 0;
+}
+
 .form-group-compact {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
 }
 
 .label-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-height: 18px;
+  gap: 4px;
 }
 
 .form-label-compact {
@@ -6364,6 +6384,7 @@ input[type="number"].no-spinner {
   display: flex;
   align-items: center;
   gap: 3px;
+  white-space: nowrap;
 }
 
 .btn-text-accent {
@@ -6377,6 +6398,8 @@ input[type="number"].no-spinner {
   gap: 2px;
   padding: 1px 4px;
   border-radius: 3px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .btn-text-accent:hover {
@@ -6468,9 +6491,11 @@ input[type="number"].no-spinner {
   font-size: 9.5px;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 3px;
   cursor: pointer;
   transition: var(--transition-fast);
+  flex-shrink: 0;
 }
 
 .btn-swap:hover {

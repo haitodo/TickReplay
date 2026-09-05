@@ -8,7 +8,8 @@ import {
   parseSymbolName,
   findDefaultDualFeedPair,
   findMatchingSymbolForYear,
-  checkSymbolYearMismatch
+  checkSymbolYearMismatch,
+  formatCompactDualSymbolName
 } from "../../utils/symbolUtils";
 import { TerminalInfo } from "../../types/terminal";
 import { MaxBarsInfo } from "../../utils/hotkeyUtils";
@@ -313,6 +314,7 @@ const SetupPanelComponent: React.FC<SetupPanelProps> = ({
 
   // 現在のシンボル情報と年度不一致チェック
   const parsedSource = parseSymbolName(sourceSymbol);
+  const parsedSubSource = parseSymbolName(subSourceSymbol);
   const mismatch = checkSymbolYearMismatch(sourceSymbol, startTime);
 
   // 年度切り替えハンドラー（期間の年度変更 ＋ 対応シンボルの自動切り替え）
@@ -397,75 +399,79 @@ const SetupPanelComponent: React.FC<SetupPanelProps> = ({
                 </div>
 
                 <div className="card-body-dashboard">
-                  <div className="form-group-compact">
-                    <div className="label-row">
-                      <label className="form-label-compact">
-                        MT5ターミナル
-                        <HelpTooltip
-                          title="MT5ターミナル"
-                          content="リプレイ連携を行うMetaTrader 5の実行環境を選択します。EAが配置されているターミナルを指定してください。"
-                        />
-                      </label>
-                      {selectedTerminal && (
-                        <button
-                          type="button"
-                          className="btn-text-accent"
-                          onClick={handleOpenTerminalNameModal}
-                          title="選択中のMT5ターミナルに別名を設定"
-                        >
-                          <span className="material-symbols-outlined icon">edit_note</span>
-                          名前を変更
-                        </button>
-                      )}
-                    </div>
-                    <CustomSelect
-                      value={selectedTerminal}
-                      onChange={setSelectedTerminal}
-                      options={
-                        terminals.length > 0
-                          ? terminals.map((t) => {
-                              const displayTitle = t.custom_name || t.name;
-                              const subText = t.origin_path || (t.id ? `ID: ${t.id}` : "");
-                              return {
-                                value: t.path,
-                                triggerLabel: displayTitle,
-                                label: (
-                                  <div style={{ display: "flex", flexDirection: "column", gap: "1px", width: "100%", overflow: "hidden" }}>
-                                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                      <span style={{ fontWeight: 600 }}>{displayTitle}</span>
-                                      {t.custom_name && t.default_name && (
-                                        <span style={{ fontSize: "10px", color: "var(--on-surface-variant)", opacity: 0.8 }}>
-                                          ({t.default_name})
+                  <div className="form-grid-2col">
+                    <div className="form-group-compact">
+                      <div className="label-row">
+                        <label className="form-label-compact">
+                          MT5ターミナル
+                          <HelpTooltip
+                            title="MT5ターミナル"
+                            content="リプレイ連携を行うMetaTrader 5の実行環境を選択します。EAが配置されているターミナルを指定してください。"
+                          />
+                        </label>
+                        {selectedTerminal && (
+                          <button
+                            type="button"
+                            className="btn-text-accent"
+                            onClick={handleOpenTerminalNameModal}
+                            title="選択中のMT5ターミナルに別名を設定"
+                          >
+                            <span className="material-symbols-outlined icon">edit_note</span>
+                            名前を変更
+                          </button>
+                        )}
+                      </div>
+                      <CustomSelect
+                        value={selectedTerminal}
+                        onChange={setSelectedTerminal}
+                        options={
+                          terminals.length > 0
+                            ? terminals.map((t) => {
+                                const displayTitle = t.custom_name || t.name;
+                                const subText = t.origin_path || (t.id ? `ID: ${t.id}` : "");
+                                return {
+                                  value: t.path,
+                                  triggerLabel: displayTitle,
+                                  label: (
+                                    <div style={{ display: "flex", flexDirection: "column", gap: "1px", width: "100%", overflow: "hidden" }}>
+                                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                        <span style={{ fontWeight: 600 }}>{displayTitle}</span>
+                                        {t.custom_name && t.default_name && (
+                                          <span style={{ fontSize: "10px", color: "var(--on-surface-variant)", opacity: 0.8 }}>
+                                            ({t.default_name})
+                                          </span>
+                                        )}
+                                      </div>
+                                      {subText && (
+                                        <span style={{ fontSize: "9px", color: "var(--on-surface-variant)", opacity: 0.65, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                          {subText}
                                         </span>
                                       )}
                                     </div>
-                                    {subText && (
-                                      <span style={{ fontSize: "9px", color: "var(--on-surface-variant)", opacity: 0.65, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                        {subText}
-                                      </span>
-                                    )}
-                                  </div>
-                                ),
-                              };
-                            })
-                          : [{ value: "", label: "No Terminals Found" }]
-                      }
-                    />
-                  </div>
-
-                  <div className="form-group-compact">
-                    <label className="form-label-compact">
-                      チャートプロファイル (.chr)
-                      <HelpTooltip
-                        title="チャートプロファイル"
-                        content="リプレイ開始時にMT5側で自動的に読み込まれるチャートの組表示テンプレートを選択します。"
+                                  ),
+                                };
+                              })
+                            : [{ value: "", label: "No Terminals Found" }]
+                        }
                       />
-                    </label>
-                    <CustomSelect
-                      value={selectedProfile}
-                      onChange={setSelectedProfile}
-                      options={profiles.map((p) => ({ value: p, label: p }))}
-                    />
+                    </div>
+
+                    <div className="form-group-compact">
+                      <div className="label-row">
+                        <label className="form-label-compact">
+                          チャートプロファイル (.chr)
+                          <HelpTooltip
+                            title="チャートプロファイル"
+                            content="リプレイ開始時にMT5側で自動的に読み込まれるチャートの組表示テンプレートを選択します。"
+                          />
+                        </label>
+                      </div>
+                      <CustomSelect
+                        value={selectedProfile}
+                        onChange={setSelectedProfile}
+                        options={profiles.map((p) => ({ value: p, label: p }))}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -536,18 +542,61 @@ const SetupPanelComponent: React.FC<SetupPanelProps> = ({
                     }}
                   >
                     {enableDualFeed ? (
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: "6px", alignItems: "center" }}>
-                        <div style={{ padding: "5px 8px", backgroundColor: "var(--surface-variant)", borderRadius: "4px", border: "1px solid var(--primary-color)" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <span style={{ fontSize: "9px", color: "var(--primary-color)", fontWeight: 700 }}>MAIN</span>
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "minmax(0, 1fr) auto minmax(0, 1fr)",
+                          gap: "4px",
+                          alignItems: "center"
+                        }}
+                      >
+                        {/* MAIN BOX */}
+                        <div
+                          style={{
+                            minWidth: 0,
+                            padding: "4px 7px",
+                            backgroundColor: "var(--surface-variant)",
+                            borderRadius: "4px",
+                            border: "1px solid var(--primary-color)"
+                          }}
+                          title={sourceSymbol ? `Main: ${sourceSymbol}` : "Mainシンボル未選択"}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "2px" }}>
+                            <span style={{ fontSize: "9px", color: "var(--primary-color)", fontWeight: 800, letterSpacing: "0.02em" }}>
+                              MAIN
+                            </span>
                             {parsedSource.year && (
-                              <span style={{ fontSize: "9px", padding: "0 4px", borderRadius: "3px", backgroundColor: "rgba(var(--primary-rgb), 0.15)", color: "var(--primary-color)", fontWeight: 700 }}>
+                              <span
+                                style={{
+                                  fontSize: "8.5px",
+                                  padding: "0 3px",
+                                  borderRadius: "2px",
+                                  backgroundColor: "rgba(var(--primary-rgb), 0.15)",
+                                  color: "var(--primary-color)",
+                                  fontWeight: 700,
+                                  lineHeight: 1.3
+                                }}
+                              >
                                 {parsedSource.year}年
                               </span>
                             )}
                           </div>
-                          <span style={{ fontSize: "12px", fontWeight: 700, fontFamily: "var(--font-data)" }}>{sourceSymbol || "(未選択)"}</span>
+                          <span
+                            style={{
+                              fontSize: "11px",
+                              fontWeight: 700,
+                              fontFamily: "var(--font-data)",
+                              display: "block",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap"
+                            }}
+                          >
+                            {formatCompactDualSymbolName(sourceSymbol, parsedSource)}
+                          </span>
                         </div>
+
+                        {/* SWAP BUTTON */}
                         <button
                           type="button"
                           className="btn-swap"
@@ -557,20 +606,65 @@ const SetupPanelComponent: React.FC<SetupPanelProps> = ({
                             setSubSourceSymbol(temp);
                           }}
                           title="MainとSubの銘柄を入れ替え"
-                          style={{ padding: "2px 6px", height: "24px" }}
+                          style={{
+                            padding: "0",
+                            width: "22px",
+                            height: "22px",
+                            minWidth: "22px",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            borderRadius: "50%",
+                            flexShrink: 0
+                          }}
                         >
-                          <span className="material-symbols-outlined icon">swap_horiz</span>
+                          <span className="material-symbols-outlined icon" style={{ fontSize: "14px" }}>swap_horiz</span>
                         </button>
-                        <div style={{ padding: "5px 8px", backgroundColor: "var(--surface-variant)", borderRadius: "4px", border: "1px solid var(--secondary-color)" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <span style={{ fontSize: "9px", color: "var(--secondary-color)", fontWeight: 700 }}>SUB</span>
-                            {parseSymbolName(subSourceSymbol).year && (
-                              <span style={{ fontSize: "9px", padding: "0 4px", borderRadius: "3px", backgroundColor: "rgba(var(--secondary-rgb, var(--primary-rgb)), 0.15)", color: "var(--secondary-color)", fontWeight: 700 }}>
-                                {parseSymbolName(subSourceSymbol).year}年
+
+                        {/* SUB BOX */}
+                        <div
+                          style={{
+                            minWidth: 0,
+                            padding: "4px 7px",
+                            backgroundColor: "var(--surface-variant)",
+                            borderRadius: "4px",
+                            border: "1px solid var(--secondary-color)"
+                          }}
+                          title={subSourceSymbol ? `Sub: ${subSourceSymbol}` : "Subシンボル未選択"}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "2px" }}>
+                            <span style={{ fontSize: "9px", color: "var(--secondary-color)", fontWeight: 800, letterSpacing: "0.02em" }}>
+                              SUB
+                            </span>
+                            {parsedSubSource.year && (
+                              <span
+                                style={{
+                                  fontSize: "8.5px",
+                                  padding: "0 3px",
+                                  borderRadius: "2px",
+                                  backgroundColor: "rgba(var(--secondary-rgb, var(--primary-rgb)), 0.15)",
+                                  color: "var(--secondary-color)",
+                                  fontWeight: 700,
+                                  lineHeight: 1.3
+                                }}
+                              >
+                                {parsedSubSource.year}年
                               </span>
                             )}
                           </div>
-                          <span style={{ fontSize: "12px", fontWeight: 700, fontFamily: "var(--font-data)" }}>{subSourceSymbol || "(未選択)"}</span>
+                          <span
+                            style={{
+                              fontSize: "11px",
+                              fontWeight: 700,
+                              fontFamily: "var(--font-data)",
+                              display: "block",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap"
+                            }}
+                          >
+                            {formatCompactDualSymbolName(subSourceSymbol, parsedSubSource)}
+                          </span>
                         </div>
                       </div>
                     ) : (
@@ -647,34 +741,10 @@ const SetupPanelComponent: React.FC<SetupPanelProps> = ({
                       </div>
                     )}
 
-                    {/* セレクター起動ボタン */}
-                    <button
-                      type="button"
-                      className="pro-btn primary"
-                      onClick={handleOpenSelector}
-                      style={{
-                        width: "100%",
-                        padding: "6px 10px",
-                        fontSize: "11.5px",
-                        fontWeight: 700,
-                        backgroundColor: "var(--primary-color)",
-                        color: "var(--on-primary, #fff)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: "6px",
-                        borderRadius: "4px"
-                      }}
-                    >
-                      <span className="material-symbols-outlined" style={{ fontSize: "15px" }}>tune</span>
-                      <span>シンボル・比較ペアを選択 (セレクター)</span>
-                    </button>
                   </div>
 
-
-
                   {/* 同期他通貨 (マルチ通貨リプレイ) */}
-                  <div className="form-group-compact" style={{ marginTop: "4px" }}>
+                  <div className="form-group-compact">
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <label className="form-label-compact" style={{ margin: 0 }}>
                         同期他通貨 (マルチ通貨リプレイ)
