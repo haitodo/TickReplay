@@ -485,6 +485,8 @@ function App() {
           enableDualFeed,
           additionalSymbols,
           availableSymbols,
+          startTime,
+          endTime,
         })
       );
       await emit("symbol-selector-init", {
@@ -493,6 +495,8 @@ function App() {
         enableDualFeed,
         additionalSymbols,
         availableSymbols,
+        startTime,
+        endTime,
       });
       await invoke("open_symbol_selector_window");
     } catch (err) {
@@ -1352,9 +1356,14 @@ function App() {
             setHoldingTimeMode(saved.holding_time_mode as "pc" | "server");
             localStorage.setItem("speed-order-holding-time-mode", saved.holding_time_mode);
           }
-          const savedContract = localStorage.getItem("speed-order-contract-size");
-          if (savedContract) {
-            setContractSize(parseInt(savedContract, 10));
+          if (saved.contract_size !== undefined && saved.contract_size !== null) {
+            setContractSize(saved.contract_size);
+            localStorage.setItem("speed-order-contract-size", String(saved.contract_size));
+          } else {
+            const savedContract = localStorage.getItem("speed-order-contract-size");
+            if (savedContract) {
+              setContractSize(parseInt(savedContract, 10));
+            }
           }
         }
       } catch (e) {
@@ -1502,10 +1511,14 @@ function App() {
     selectedTerminal,
     selectedProfile,
     sourceSymbol,
+    enableDualFeed,
+    subSourceSymbol,
+    additionalSymbols,
     startTime,
     endTime,
     preloadedBars,
     autoScrollSync,
+    autoSkipWeekend,
     preloadMode,
     preloadDate,
     preloadTimeframe,
@@ -1521,10 +1534,19 @@ function App() {
     timezoneMode,
     plColorStyle,
     orderColorStyle,
+    hedging,
+    enableVirtualTrading,
+    initialBalance,
+    leverage,
+    contractSize,
     enablePseudoRate,
     pseudoBaseSpread,
     pseudoThreshold,
     pseudoSensitivity,
+    pseudoMode,
+    pseudoRolloverEnabled,
+    pseudoRolloverSpread,
+    pseudoRolloverRecoveryMin,
     showHoldingTime,
     holdingTimeMode
   ]);
@@ -1569,7 +1591,8 @@ function App() {
     customPreloadTimeframe = preloadTimeframe,
     customShowHoldingTime = showHoldingTime,
     customHoldingTimeMode = holdingTimeMode,
-    customAdditionalSymbols = additionalSymbols
+    customAdditionalSymbols = additionalSymbols,
+    customContractSize = contractSize
   ) => {
     const settingsObj = {
       selected_terminal: selectedTerminal,
@@ -1601,6 +1624,7 @@ function App() {
       enable_virtual_trading: customEnableVirtualTrading,
       initial_balance: customInitialBalance,
       leverage: customLeverage,
+      contract_size: customContractSize,
       enable_pseudo_rate: customEnablePseudoRate,
       pseudo_base_spread: customPseudoBaseSpread,
       pseudo_threshold: customPseudoThreshold,
@@ -1625,6 +1649,7 @@ function App() {
     };
     try {
       localStorage.setItem("speed-order-hotkeys", JSON.stringify(customHotkeys));
+      localStorage.setItem("speed-order-contract-size", customContractSize.toString());
       await invoke("save_settings", { settings: settingsObj });
       await invoke("sync_presets", { timePresets: customTimePresets, tickPresets: customTickPresets });
     } catch (e) {
@@ -1948,6 +1973,19 @@ function App() {
     setSelectedTerminal(session.settings.selected_terminal);
     setSelectedProfile(session.settings.selected_profile);
     setSourceSymbol(session.settings.source_symbol);
+    if (session.settings.enable_dual_feed !== undefined) {
+      setEnableDualFeed(session.settings.enable_dual_feed);
+    }
+    if (session.settings.sub_source_symbol) {
+      setSubSourceSymbol(session.settings.sub_source_symbol);
+    }
+    if (session.settings.additional_symbols !== undefined) {
+      setAdditionalSymbols(session.settings.additional_symbols);
+    }
+    if (session.settings.contract_size !== undefined) {
+      setContractSize(session.settings.contract_size);
+      localStorage.setItem("speed-order-contract-size", String(session.settings.contract_size));
+    }
     setStartTime(session.settings.start_time);
     setEndTime(session.settings.end_time);
     setPreloadedBars(session.settings.preloaded_bars);
@@ -2023,9 +2061,16 @@ function App() {
       });
 
       const sym = session.settings.source_symbol || sourceSymbol;
+      const isDual = session.settings.enable_dual_feed !== undefined ? session.settings.enable_dual_feed : enableDualFeed;
+      const subSym = isDual ? (session.settings.sub_source_symbol || subSourceSymbol) : "";
+      const syncSyms = session.settings.additional_symbols !== undefined ? session.settings.additional_symbols : additionalSymbols;
+
       const initCmd = {
         command: "INIT",
         source_symbol: session.settings.source_symbol,
+        enable_dual_feed: isDual,
+        sub_source_symbol: subSym,
+        additional_symbols: syncSyms,
         start_time: session.settings.start_time,
         end_time: session.settings.end_time,
         profile_name: session.settings.selected_profile,
@@ -2090,6 +2135,10 @@ function App() {
         selected_terminal: selectedTerminal,
         selected_profile: selectedProfile,
         source_symbol: sourceSymbol,
+        enable_dual_feed: enableDualFeed,
+        sub_source_symbol: subSourceSymbol,
+        additional_symbols: additionalSymbols,
+        contract_size: contractSize,
         start_time: startTime,
         end_time: endTime,
         preloaded_bars: preloadedBars,
@@ -3152,6 +3201,8 @@ function App() {
         currentSubSourceSymbol={subSourceSymbol}
         currentEnableDualFeed={enableDualFeed}
         currentAdditionalSymbols={additionalSymbols}
+        currentStartTime={startTime}
+        currentEndTime={endTime}
         onApply={(src, sub, isDual, syncs, range) => {
           setSourceSymbol(src);
           setSubSourceSymbol(sub);

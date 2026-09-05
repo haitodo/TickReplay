@@ -14,7 +14,7 @@ import {
   isOandaBroker,
   isDucascopyBroker
 } from "../utils/symbolUtils";
-import { getMonthRange, getYearRange } from "../utils/dateUtils";
+import { getMonthRange, getYearRange, parseDateTimeStr } from "../utils/dateUtils";
 
 export interface SymbolBatchSelectorModalProps {
   isOpen: boolean;
@@ -24,6 +24,8 @@ export interface SymbolBatchSelectorModalProps {
   currentSubSourceSymbol?: string;
   currentEnableDualFeed?: boolean;
   currentAdditionalSymbols: string;
+  currentStartTime?: string;
+  currentEndTime?: string;
   onApply: (
     sourceSymbol: string,
     subSourceSymbol: string,
@@ -41,6 +43,8 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
   currentSubSourceSymbol = "",
   currentEnableDualFeed = false,
   currentAdditionalSymbols,
+  currentStartTime,
+  currentEndTime,
   onApply
 }) => {
   // モード: "single" (通常リプレイ) | "dual" (デュアルフィード比較リプレイ)
@@ -81,8 +85,23 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
       setReplayMode(currentEnableDualFeed ? "dual" : "single");
       setSelectedSource(currentSourceSymbol);
 
+      if (currentStartTime) {
+        const parsed = parseDateTimeStr(currentStartTime);
+        if (parsed.month) {
+          setTargetMonth(parsed.month);
+        }
+        if (currentEndTime) {
+          const parsedEnd = parseDateTimeStr(currentEndTime);
+          if (parsed.month === 1 && parsedEnd.month === 12) {
+            setAutoDateRangeMode("year");
+          } else {
+            setAutoDateRangeMode("month");
+          }
+        }
+      }
+
       if (currentEnableDualFeed) {
-        if (!currentSubSourceSymbol || currentSubSourceSymbol === currentSourceSymbol || (!isOandaBroker(currentSourceSymbol) && !isDucascopyBroker(currentSubSourceSymbol))) {
+        if (!currentSubSourceSymbol || currentSubSourceSymbol === currentSourceSymbol) {
           const defaultPair = findDefaultDualFeedPair(availableSymbols, currentSourceSymbol);
           if (defaultPair) {
             setDualMainSymbol(defaultPair.mainSymbol);

@@ -112,6 +112,10 @@ pub struct ReplaySettings {
     #[serde(default)]
     pub source_symbol: String,
     #[serde(default)]
+    pub enable_dual_feed: Option<bool>,
+    #[serde(default)]
+    pub sub_source_symbol: Option<String>,
+    #[serde(default)]
     pub start_time: String,
     #[serde(default)]
     pub end_time: String,
@@ -165,6 +169,8 @@ pub struct ReplaySettings {
     pub initial_balance: Option<f64>,
     #[serde(default)]
     pub leverage: Option<f64>,
+    #[serde(default)]
+    pub contract_size: Option<i32>,
     #[serde(default)]
     pub enable_pseudo_rate: Option<bool>,
     #[serde(default)]

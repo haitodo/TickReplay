@@ -483,11 +483,14 @@ const SetupPanelComponent: React.FC<SetupPanelProps> = ({
                           const nextVal = e.target.checked;
                           setEnableDualFeed(nextVal);
                           if (nextVal) {
-                            // デュアルフィード有効化時: Main=OANDA, Sub=DUCASCOPY を自動初期選択
-                            const defaultPair = findDefaultDualFeedPair(availableSymbols, sourceSymbol);
-                            if (defaultPair) {
-                              setSourceSymbol(defaultPair.mainSymbol);
-                              setSubSourceSymbol(defaultPair.subSymbol);
+                            // デュアルフィード有効化時: 既存のサブ銘柄があれば維持し、未設定時のみ自動選択
+                            const hasValidSub = subSourceSymbol && subSourceSymbol !== sourceSymbol && availableSymbols.some(s => (typeof s === "string" ? s : s.name) === subSourceSymbol);
+                            if (!hasValidSub) {
+                              const defaultPair = findDefaultDualFeedPair(availableSymbols, sourceSymbol);
+                              if (defaultPair) {
+                                setSourceSymbol(defaultPair.mainSymbol);
+                                setSubSourceSymbol(defaultPair.subSymbol);
+                              }
                             }
                           }
                         }}

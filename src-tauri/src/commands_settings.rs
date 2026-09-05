@@ -120,6 +120,12 @@ pub async fn save_settings(
         if settings.source_symbol.is_empty() {
             settings.source_symbol = existing_settings.source_symbol.clone();
         }
+        if settings.enable_dual_feed.is_none() {
+            settings.enable_dual_feed = existing_settings.enable_dual_feed;
+        }
+        if settings.sub_source_symbol.is_none() {
+            settings.sub_source_symbol = existing_settings.sub_source_symbol.clone();
+        }
         if settings.start_time.is_empty() {
             settings.start_time = existing_settings.start_time.clone();
         }
@@ -197,6 +203,9 @@ pub async fn save_settings(
         }
         if settings.leverage.is_none() {
             settings.leverage = existing_settings.leverage;
+        }
+        if settings.contract_size.is_none() {
+            settings.contract_size = existing_settings.contract_size;
         }
         if settings.enable_pseudo_rate.is_none() {
             settings.enable_pseudo_rate = existing_settings.enable_pseudo_rate;

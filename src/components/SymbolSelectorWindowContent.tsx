@@ -17,7 +17,7 @@ import {
   isOandaBroker,
   isDucascopyBroker
 } from "../utils/symbolUtils";
-import { getMonthRange, getYearRange } from "../utils/dateUtils";
+import { getMonthRange, getYearRange, parseDateTimeStr } from "../utils/dateUtils";
 import { useTheme } from "../hooks/useTheme";
 
 interface SymbolSelectorInitPayload {
@@ -26,6 +26,8 @@ interface SymbolSelectorInitPayload {
   enableDualFeed?: boolean;
   additionalSymbols?: string;
   availableSymbols?: SymbolItem[];
+  startTime?: string;
+  endTime?: string;
 }
 
 export const SymbolSelectorWindowContent: React.FC = () => {
@@ -69,14 +71,22 @@ export const SymbolSelectorWindowContent: React.FC = () => {
           if (parsed.sourceSymbol) setSelectedSource(parsed.sourceSymbol);
           if (parsed.sourceSymbol) setDualMainSymbol(parsed.sourceSymbol);
           if (parsed.subSourceSymbol) setDualSubSymbol(parsed.subSourceSymbol);
+          if (parsed.startTime) {
+            const dateP = parseDateTimeStr(parsed.startTime);
+            if (dateP.month) {
+              setTargetMonth(dateP.month);
+            }
+          }
           if (forceResetMode && parsed.enableDualFeed !== undefined) {
             const isDual = !!parsed.enableDualFeed;
             setReplayMode(isDual ? "dual" : "single");
             if (isDual) {
-              const defaultPair = findDefaultDualFeedPair(parsed.availableSymbols || [], parsed.sourceSymbol);
-              if (defaultPair) {
-                setDualMainSymbol(defaultPair.mainSymbol);
-                setDualSubSymbol(defaultPair.subSymbol);
+              if (!parsed.subSourceSymbol || parsed.subSourceSymbol === parsed.sourceSymbol) {
+                const defaultPair = findDefaultDualFeedPair(parsed.availableSymbols || [], parsed.sourceSymbol);
+                if (defaultPair) {
+                  setDualMainSymbol(defaultPair.mainSymbol);
+                  setDualSubSymbol(defaultPair.subSymbol);
+                }
               }
             }
           }
@@ -116,15 +126,24 @@ export const SymbolSelectorWindowContent: React.FC = () => {
         setSelectedSource(data.sourceSymbol);
         setDualMainSymbol(data.sourceSymbol);
       }
+      if (data.startTime) {
+        const dateP = parseDateTimeStr(data.startTime);
+        if (dateP.month) {
+          setTargetMonth(dateP.month);
+        }
+      }
       if (data.subSourceSymbol !== undefined) setDualSubSymbol(data.subSourceSymbol);
       if (data.enableDualFeed !== undefined) {
         const isDual = !!data.enableDualFeed;
         setReplayMode(isDual ? "dual" : "single");
         if (isDual) {
-          const defaultPair = findDefaultDualFeedPair(data.availableSymbols || [], data.sourceSymbol);
-          if (defaultPair) {
-            setDualMainSymbol(defaultPair.mainSymbol);
-            setDualSubSymbol(defaultPair.subSymbol);
+          const currentSub = data.subSourceSymbol;
+          if (!currentSub || currentSub === data.sourceSymbol) {
+            const defaultPair = findDefaultDualFeedPair(data.availableSymbols || [], data.sourceSymbol);
+            if (defaultPair) {
+              setDualMainSymbol(defaultPair.mainSymbol);
+              setDualSubSymbol(defaultPair.subSymbol);
+            }
           }
         }
       }
