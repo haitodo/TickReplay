@@ -6276,8 +6276,166 @@ input[type="number"].no-spinner {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 10px 12px;
+  padding: 6px 8px;
   min-height: 0;
+}
+
+/* Setup Workspace Layout (Primary Workspace + Collapsible Advanced Settings) */
+.setup-workspace-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+}
+
+.primary-verification-deck {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 6px;
+  align-items: stretch;
+}
+
+.primary-verification-deck .setup-card-dashboard {
+  background: var(--surface-charcoal);
+  border: 1px solid rgba(var(--primary-rgb), 0.35);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  padding: 5px 8px;
+  gap: 4px;
+}
+
+.primary-verification-deck .card-header-dashboard {
+  padding-bottom: 4px;
+}
+
+.primary-verification-deck .card-body-dashboard {
+  gap: 4px;
+}
+
+.btn-text-standard-jpy {
+  background: linear-gradient(135deg, rgba(var(--primary-rgb), 0.15), rgba(var(--primary-rgb), 0.05));
+  border: 1px solid var(--primary-color);
+  color: var(--primary-color);
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  transition: var(--transition-fast);
+}
+
+.btn-text-standard-jpy:hover {
+  background: linear-gradient(135deg, rgba(var(--primary-rgb), 0.3), rgba(var(--primary-rgb), 0.15));
+  box-shadow: 0 2px 8px rgba(var(--primary-rgb), 0.3);
+}
+
+.btn-text-standard-jpy .icon {
+  font-size: 13px;
+  color: #f59e0b;
+}
+
+/* Advanced Settings Accordion */
+.advanced-settings-accordion {
+  background-color: var(--surface-charcoal);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-md, 6px);
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.advanced-settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px;
+  background-color: var(--surface-container);
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.15s ease;
+  border-bottom: 1px solid transparent;
+}
+
+.advanced-settings-accordion.open .advanced-settings-header {
+  border-bottom-color: var(--outline-variant);
+}
+
+.advanced-settings-header:hover {
+  background-color: var(--surface-container-high);
+}
+
+.accordion-title-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.accordion-toggle-icon {
+  font-size: 18px;
+  color: var(--on-surface-variant);
+  transition: transform 0.2s ease;
+}
+
+.accordion-header-icon {
+  font-size: 16px;
+  color: var(--primary-color);
+}
+
+.accordion-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--on-surface);
+}
+
+.advanced-summary-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.summary-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background-color: var(--surface-variant);
+  border: 1px solid var(--outline-variant);
+  font-size: 10px;
+  color: var(--on-surface-variant);
+  white-space: nowrap;
+}
+
+.summary-chip .chip-icon {
+  font-size: 12px;
+  color: var(--primary-color);
+}
+
+.summary-chip .chip-text {
+  font-weight: 600;
+  font-family: var(--font-data);
+}
+
+.summary-chip-subtle {
+  font-size: 9.5px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background-color: rgba(var(--primary-rgb), 0.1);
+  color: var(--primary-color);
+  font-weight: 600;
+  border: 1px solid rgba(var(--primary-rgb), 0.25);
+}
+
+.advanced-settings-body {
+  padding: 12px;
+  background-color: var(--surface-container-lowest, rgba(0, 0, 0, 0.2));
+  border-top: 1px solid var(--outline-variant);
 }
 
 /* 2-Column Dashboard Layout */
@@ -6541,37 +6699,37 @@ input[type="number"].no-spinner {
 .quick-month-selector-box {
   background-color: var(--surface-container-low);
   border: 1px solid var(--outline-variant);
-  border-radius: var(--radius-sm, 6px);
-  padding: 8px 10px;
-  margin-bottom: 6px;
+  border-radius: var(--radius-sm, 4px);
+  padding: 4px 6px;
+  margin-bottom: 3px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 3px;
 }
 
 .quick-month-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
+  gap: 4px;
+  flex-wrap: nowrap;
 }
 
 .year-stepper {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 1px;
   background-color: var(--surface-variant);
   border: 1px solid var(--outline-variant);
-  border-radius: 4px;
-  padding: 1px 3px;
+  border-radius: 3px;
+  padding: 0 2px;
 }
 
 .year-stepper .year-label {
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--primary-color);
-  padding: 0 4px;
+  padding: 0 3px;
 }
 
 .month-step-btn {
@@ -6591,25 +6749,26 @@ input[type="number"].no-spinner {
 }
 
 .month-step-btn .icon {
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .month-nav-group {
   display: flex;
-  gap: 3px;
+  gap: 2px;
 }
 
 .month-nav-btn {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  padding: 2px 7px;
-  font-size: 10.5px;
+  gap: 1px;
+  padding: 1px 5px;
+  font-size: 9.5px;
   font-weight: 600;
+  height: 20px;
   background-color: var(--surface-variant);
   color: var(--on-surface);
   border: 1px solid var(--outline-variant);
-  border-radius: 4px;
+  border-radius: 3px;
   cursor: pointer;
   transition: var(--transition-fast);
 }
@@ -6621,18 +6780,19 @@ input[type="number"].no-spinner {
 }
 
 .month-nav-btn .icon {
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .month-presets-group {
   display: flex;
-  gap: 3px;
+  gap: 2px;
 }
 
 .month-preset-btn {
-  padding: 2px 6px;
-  font-size: 10px;
+  padding: 1px 5px;
+  font-size: 9.5px;
   font-weight: 500;
+  height: 20px;
   background-color: var(--surface-variant);
   color: var(--on-surface-variant);
   border: 1px solid var(--outline-variant);
@@ -6650,18 +6810,20 @@ input[type="number"].no-spinner {
 .month-pills-grid {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
-  gap: 4px;
+  gap: 2px;
 }
 
 .month-pill-btn {
-  padding: 4px 2px;
-  font-size: 10.5px;
+  padding: 2px 0;
+  font-size: 9.5px;
   font-weight: 600;
+  height: 20px;
+  line-height: 18px;
   text-align: center;
   background-color: var(--surface-variant);
   color: var(--on-surface-variant);
   border: 1px solid var(--outline-variant);
-  border-radius: 4px;
+  border-radius: 3px;
   cursor: pointer;
   transition: all 0.12s ease;
 }
@@ -6677,13 +6839,13 @@ input[type="number"].no-spinner {
   border-color: var(--primary-color);
   color: var(--on-primary, #fff);
   font-weight: 700;
-  box-shadow: 0 1px 4px rgba(var(--primary-rgb), 0.3);
+  box-shadow: 0 1px 3px rgba(var(--primary-rgb), 0.3);
 }
 
 .date-range-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 6px;
+  gap: 4px;
 }
 
 .input-with-icon-compact {
