@@ -7,18 +7,54 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
+# Node / Dependencies / Build
+node_modules/
+dist/
+dist-ssr/
 *.local
 
-# Editor directories and files
+# Rust / Cargo / Tauri
+target/
+src-tauri/target/
+src-tauri/gen/schemas/
+**/*.rs.bk
+
+# MetaTrader 5 / MQL5 compiled binaries
+*.ex5
+*.ex4
+
+# Tick data & Large dataset files
+*.parquet
+*.bin
+analysis/tickdata/
+data/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# Editor & OS files
 .vscode/*
 !.vscode/extensions.json
-.idea
+.idea/
 .DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+
