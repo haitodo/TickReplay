@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 /**
  * TickReplay Version Bump Script
  * 
@@ -418,7 +416,7 @@ async function main() {
 
     console.log("\n次のステップ例:");
     console.log("  1. git add -A && git commit -m \"chore: bump version to v" + result.nextVersion + "\"");
-    console.log("  2. npm run tauri build");
+    console.log("  2. pnpm tauri build");
     console.log("==========================================\n");
   } catch (err) {
     console.error(`\n❌ エラー: ${err.message}\n`);
