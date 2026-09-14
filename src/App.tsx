@@ -326,11 +326,11 @@ function App() {
 
   const [enablePseudoRate, setEnablePseudoRate] = useState(true);
   const [pseudoBaseSpread, setPseudoBaseSpread] = useState(0.2);  // 0.2 pips
-  const [pseudoThreshold, setPseudoThreshold] = useState(1.8);    // 1.8 pips（USDJPY実測最適）
-  const [pseudoSensitivity, setPseudoSensitivity] = useState(0.30); // USDJPY実測最適
+  const [pseudoThreshold, setPseudoThreshold] = useState(1.5);    // 1.5 pips（242万ティック実測最適）
+  const [pseudoSensitivity, setPseudoSensitivity] = useState(0.25); // 0.25（USDJPY実測最適）
   const [pseudoMode, setPseudoMode] = useState<"dmm" | "fixed" | "aggressive" | "custom">("dmm");
   const [pseudoRolloverEnabled, setPseudoRolloverEnabled] = useState(true);
-  const [pseudoRolloverSpread, setPseudoRolloverSpread] = useState(3.5); // 3.5 pips
+  const [pseudoRolloverSpread, setPseudoRolloverSpread] = useState(3.8); // 3.8 pips（実測早朝ワイド帯）
   const [pseudoRolloverRecoveryMin, setPseudoRolloverRecoveryMin] = useState(15); // 15分
   const isInitialLoadRef = useRef(true);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -1773,6 +1773,22 @@ function App() {
       // 現在の設定を保存
       await saveAllSettings();
 
+      // 経済指標スケジュールCSVの事前取得（有効時）
+      let economicEventsCsv = "";
+      if (enablePseudoRate) {
+        try {
+          economicEventsCsv = await invoke<string>("get_economic_schedule_csv", {
+            symbol: sourceSymbol,
+            startTime: startTime,
+            endTime: endTime,
+            preloadMode: preloadMode,
+            preloadDate: preloadDate,
+          });
+        } catch (e) {
+          console.warn("経済指標スケジュール取得スキップ:", e);
+        }
+      }
+
       const initCmd = {
         command: "INIT",
         source_symbol: sourceSymbol,
@@ -1802,6 +1818,7 @@ function App() {
         pseudo_rollover_enabled: pseudoRolloverEnabled,
         pseudo_rollover_spread: pipsToPriceDiff(sourceSymbol, pseudoRolloverSpread),
         pseudo_rollover_recovery_min: pseudoRolloverRecoveryMin,
+        economic_events_csv: economicEventsCsv,
         additional_symbols: additionalSymbols,
       };
 
@@ -1855,7 +1872,9 @@ function App() {
 
     setPseudoBaseSpread(0.2);
     setPseudoThreshold(1.5);
-    setPseudoSensitivity(1.025);
+    setPseudoSensitivity(0.25);
+    setPseudoRolloverSpread(3.8);
+    setPseudoRolloverRecoveryMin(15);
   };
 
   // 再生/一時停止

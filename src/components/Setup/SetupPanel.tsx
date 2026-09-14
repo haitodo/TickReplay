@@ -215,7 +215,7 @@ const SetupPanelComponent: React.FC<SetupPanelProps> = ({
   setPseudoMode,
   pseudoRolloverEnabled = true,
   setPseudoRolloverEnabled,
-  pseudoRolloverSpread = 3.5,
+  pseudoRolloverSpread = 3.8,
   setPseudoRolloverSpread,
   pseudoRolloverRecoveryMin = 15,
   setPseudoRolloverRecoveryMin,
@@ -238,15 +238,15 @@ const SetupPanelComponent: React.FC<SetupPanelProps> = ({
     const sym = (sourceSymbol || "USDJPY").toUpperCase();
 
     if (mode === "dmm") {
-      // DMMリアル再現モード（41.8万ティック検証による実測最適値）
+      // DMMリアル再現モード（242万ティック検証による実測最適値）
       if (sym.includes("USDJPY")) {
         setPseudoBaseSpread(0.2);
-        setPseudoThreshold(1.8);  // 実測最適: 1.8 pips（旧 1.0 から更新）
-        if (setPseudoRolloverSpread) setPseudoRolloverSpread(3.5);
+        setPseudoThreshold(1.5);  // 実測最適: 1.5 pips
+        if (setPseudoRolloverSpread) setPseudoRolloverSpread(3.8);
       } else if (sym.includes("EURUSD")) {
         setPseudoBaseSpread(0.4);
         setPseudoThreshold(1.0);
-        if (setPseudoRolloverSpread) setPseudoRolloverSpread(3.5);
+        if (setPseudoRolloverSpread) setPseudoRolloverSpread(3.8);
       } else if (sym.includes("GBPJPY")) {
         setPseudoBaseSpread(0.9);
         setPseudoThreshold(2.0);
@@ -254,9 +254,9 @@ const SetupPanelComponent: React.FC<SetupPanelProps> = ({
       } else {
         setPseudoBaseSpread(sym.includes("JPY") ? 0.3 : 0.5);
         setPseudoThreshold(1.2);
-        if (setPseudoRolloverSpread) setPseudoRolloverSpread(3.5);
+        if (setPseudoRolloverSpread) setPseudoRolloverSpread(3.8);
       }
-      setPseudoSensitivity(sym.includes("USDJPY") ? 0.30 : 0.35);  // USDJPYのみ実測最適 0.30
+      setPseudoSensitivity(sym.includes("USDJPY") ? 0.25 : 0.35);  // USDJPY実測最適 0.25
       if (setPseudoRolloverEnabled) setPseudoRolloverEnabled(true);
       if (setPseudoRolloverRecoveryMin) setPseudoRolloverRecoveryMin(15);
     } else if (mode === "fixed") {

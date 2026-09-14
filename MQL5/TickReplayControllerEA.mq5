@@ -121,10 +121,10 @@ bool                    m_initialized = false;                  // リプレイ�
 bool                    m_hedging = false;                      // 両建て許可フラグ（デフォルトOFF）
 bool                    m_pseudo_rate_enabled = true;          // 疑似レート生成機能の有効化フラグ
 double                  m_domestic_base_spread = 0.002;         // 国内基準スプレッド（USDJPY: 0.2銭）
-double                  m_mt5_threshold = 0.018;                // MT5側判定閾値（USDJPY実測最適: 1.8 pips）
-double                  m_sensitivity_coeff = 0.30;             // 拡大感度（USDJPY実測最適: 0.30）
+double                  m_mt5_threshold = 0.015;                // MT5側判定閾値（USDJPY実測最適: 1.5 pips）
+double                  m_sensitivity_coeff = 0.25;             // 拡大感度（USDJPY実測最適: 0.25）
 bool                    m_pseudo_rollover_enabled = true;      // 早朝ロールオーバー適応フラグ
-double                  m_pseudo_rollover_spread = 0.035;       // 早朝ロールオーバー基準スプレッド
+double                  m_pseudo_rollover_spread = 0.038;       // 早朝ロールオーバー基準スプレッド（3.8銭）
 int                     m_pseudo_rollover_recovery_min = 15;    // 早朝復帰時間（分）
 
 //--- 疑似DMMレート構造体
@@ -137,11 +137,28 @@ struct PseudoRate
 
 PseudoRate m_pseudo_rates[]; // 全ティック分の疑似DMMレートキャッシュ
 
+//--- 経済指標スケジュールイベント構造体
+struct EconomicScheduleEvent
+{
+   long   server_time_msc;  // 指標発表時刻 (MT5 サーバー時間 ミリ秒)
+   int    tier;             // 格付け (1: 超大型, 2: 大型, 3: 中型)
+   int    advance_sec;      // 事前拡大秒数
+   double base_pre_spread;  // 事前基準スプレッド
+   double base_peak_spread; // ピーク基準スプレッド
+   int    recovery_sec;     // 収束秒数
+};
+
+EconomicScheduleEvent m_economic_schedule[]; // リプレイ期間の経済指標スケジュール
+int                   m_economic_schedule_count = 0;
+
 //--- 疑似DMM状態列挙型
 enum ENUM_PSEUDO_STATE
 {
    PSEUDO_STATE_NORMAL,
    PSEUDO_STATE_STRESS,
+   PSEUDO_STATE_INDICATOR_PRE,
+   PSEUDO_STATE_INDICATOR_PEAK,
+   PSEUDO_STATE_INDICATOR_DECAY,
    PSEUDO_STATE_ROLLOVER_EXTREME,
    PSEUDO_STATE_ROLLOVER_MID,
    PSEUDO_STATE_ROLLOVER_WIDE,
@@ -243,6 +260,7 @@ void SyncVirtualTradesOnSeek(long target_msc);
 double RoundHalfUp(double value, int digits); // 厳密な四捨五入（ハーフアップ）
 int ToUnit(double price, double unit);
 double ToPrice(int units, double unit, int digits);
+void ParseEconomicSchedule(string events_csv);
 void PrecalculatePseudoRates();
 bool GetPseudoRateAtIndex(int index, double &bid, double &ask, double &spread);
 void GetPseudoRates(MqlTick &src_tick, double &out_bid, double &out_ask, double &out_spread); // 疑似レート・スプレッド計算
@@ -1199,9 +1217,13 @@ void ProcessCommand(string line)
       else
          m_pseudo_rollover_recovery_min = 15;
 
-      Print(StringFormat("[Info] INIT Pseudo rate: Enabled=%s, BaseSpread=%.6f, Threshold=%.6f, Sensitivity=%.3f, RollEnabled=%s, RollSpread=%.6f, RollRecMin=%d",
+      string eco_csv = GetJsonString(line, "economic_events_csv");
+      if(eco_csv != "")
+         ParseEconomicSchedule(eco_csv);
+
+      Print(StringFormat("[Info] INIT Pseudo rate: Enabled=%s, BaseSpread=%.6f, Threshold=%.6f, Sensitivity=%.3f, RollEnabled=%s, RollSpread=%.6f, RollRecMin=%d, EcoEvents=%d",
          (m_pseudo_rate_enabled?"ON":"OFF"), m_domestic_base_spread, m_mt5_threshold, m_sensitivity_coeff,
-         (m_pseudo_rollover_enabled?"ON":"OFF"), m_pseudo_rollover_spread, m_pseudo_rollover_recovery_min));
+         (m_pseudo_rollover_enabled?"ON":"OFF"), m_pseudo_rollover_spread, m_pseudo_rollover_recovery_min, m_economic_schedule_count));
       
       m_source_symbol = (source_symbol != "") ? source_symbol : _Symbol;
       m_replay_symbol = m_source_symbol + "_Replay";
@@ -1676,9 +1698,13 @@ void ProcessCommand(string line)
          if(rollover_rec_val != "")
             m_pseudo_rollover_recovery_min = (int)GetJsonDouble(line, "pseudo_rollover_recovery_min");
 
-         Print(StringFormat("[Info] Pseudo rate updated: Enabled=%s, BaseSpread=%.6f, Threshold=%.6f, Sensitivity=%.3f, RollEnabled=%s, RollSpread=%.6f, RollRecMin=%d",
+         string eco_csv = GetJsonString(line, "economic_events_csv");
+         if(eco_csv != "")
+            ParseEconomicSchedule(eco_csv);
+
+         Print(StringFormat("[Info] Pseudo rate updated: Enabled=%s, BaseSpread=%.6f, Threshold=%.6f, Sensitivity=%.3f, RollEnabled=%s, RollSpread=%.6f, RollRecMin=%d, EcoEvents=%d",
             (m_pseudo_rate_enabled?"ON":"OFF"), m_domestic_base_spread, m_mt5_threshold, m_sensitivity_coeff,
-            (m_pseudo_rollover_enabled?"ON":"OFF"), m_pseudo_rollover_spread, m_pseudo_rollover_recovery_min));
+            (m_pseudo_rollover_enabled?"ON":"OFF"), m_pseudo_rollover_spread, m_pseudo_rollover_recovery_min, m_economic_schedule_count));
 
          PrecalculatePseudoRates();
 
@@ -1687,6 +1713,20 @@ void ProcessCommand(string line)
             EvaluatePositionsByTick(m_all_ticks[m_current_idx - 1], m_current_idx - 1);
          }
          WriteStatusFile();
+      }
+      else if(command == "SET_ECONOMIC_SCHEDULE")
+      {
+         string eco_csv = GetJsonString(line, "economic_events_csv");
+         ParseEconomicSchedule(eco_csv);
+         if(m_pseudo_rate_enabled)
+         {
+            PrecalculatePseudoRates();
+            if(m_total_ticks > 0 && m_current_idx > 0 && m_current_idx <= m_total_ticks)
+            {
+               EvaluatePositionsByTick(m_all_ticks[m_current_idx - 1], m_current_idx - 1);
+            }
+            WriteStatusFile();
+         }
       }
    else if(command == "ACCOUNT_RESET")
    {
@@ -3908,6 +3948,48 @@ bool GetJsonBool(string json, string key)
 }
 
 //+------------------------------------------------------------------+
+//| 経済指標スケジュールCSVの一括パース (ゼロ・オーバーヘッドパース)   |
+//| フォーマット: "time_msc,tier,adv_s,pre_spr,peak_spr,rec_s;..."     |
+//+------------------------------------------------------------------+
+void ParseEconomicSchedule(string events_csv)
+{
+   ArrayFree(m_economic_schedule);
+   m_economic_schedule_count = 0;
+   if(events_csv == "") return;
+   
+   string records[];
+   int num_records = StringSplit(events_csv, ';', records);
+   if(num_records <= 0) return;
+   
+   ArrayResize(m_economic_schedule, num_records);
+   int valid_count = 0;
+   
+   for(int i = 0; i < num_records; i++)
+   {
+      string fields[];
+      int num_fields = StringSplit(records[i], ',', fields);
+      if(num_fields >= 6)
+      {
+         long time_msc = StringToInteger(fields[0]);
+         if(time_msc > 0)
+         {
+            m_economic_schedule[valid_count].server_time_msc = time_msc;
+            m_economic_schedule[valid_count].tier            = (int)StringToInteger(fields[1]);
+            m_economic_schedule[valid_count].advance_sec     = (int)StringToInteger(fields[2]);
+            m_economic_schedule[valid_count].base_pre_spread = StringToDouble(fields[3]);
+            m_economic_schedule[valid_count].base_peak_spread= StringToDouble(fields[4]);
+            m_economic_schedule[valid_count].recovery_sec    = (int)StringToInteger(fields[5]);
+            valid_count++;
+         }
+      }
+   }
+   
+   ArrayResize(m_economic_schedule, valid_count);
+   m_economic_schedule_count = valid_count;
+   Print(StringFormat("[Info] Loaded %d economic schedule events for replay.", m_economic_schedule_count));
+}
+
+//+------------------------------------------------------------------+
 //| 複数ビューアーチャートの起動と表示プロパティ設定 (MTF・デュアル対応)|
 //+------------------------------------------------------------------+
 void CreateMTFCharts(string main_symbol, string sub_symbol = "", bool enable_dual = false)
@@ -5478,6 +5560,8 @@ void PrecalculatePseudoRates()
    int prev_spread_unit = 0;
    ENUM_PSEUDO_STATE prev_state = PSEUDO_STATE_NORMAL;
    
+   int eco_idx = 0;
+
    for(int i = 0; i < m_total_ticks; i++)
    {
       if(!m_pseudo_rate_enabled)
@@ -5525,25 +5609,43 @@ void PrecalculatePseudoRates()
       int day  = dt.day;
       int dow  = dt.day_of_week;
       
+      long tick_msc = (long)m_all_ticks[i].time_msc;
+      if(tick_msc <= 0) tick_msc = (long)m_all_ticks[i].time * 1000;
+      
       ENUM_PSEUDO_STATE current_state = PSEUDO_STATE_NORMAL;
       int spread_unit = base_spread_unit;
       
-      // 仲値制御 (平日 9:53〜09:55:30 JST / 実測データ準拠)
+      // --- Layer 1: 仲値制御 (平日 9:50〜09:55:30 JST / 2026年最新実測データ準拠) ---
       if(dow >= 1 && dow <= 5 && hour == 9)
       {
          bool is_gotobi = IsEffectiveGotobi(jst_time);
          double fix_spread = 0.0;
          if(min == 54)
          {
-            fix_spread = is_gotobi ? 0.010 : 0.008; // 09:54 ピーク: 0.8銭 / 実質ゴトー日 1.0銭
+            // 09:54:00〜09:54:59 (仲値直前ピーク): 通常 1.0銭 / 実質ゴトー日 1.2銭
+            fix_spread = is_gotobi ? 0.012 : 0.010;
          }
-         else if(min == 55 && dt.sec < 30)
+         else if(min == 55)
          {
-            fix_spread = is_gotobi ? 0.007 : 0.005; // 09:55:00〜29 収束帯: 0.5銭 / 実質ゴトー日 0.7銭
+            if(dt.sec < 30)
+            {
+               // 09:55:00〜09:55:29 (仲値通過): 通常 0.8銭 / 実質ゴトー日 1.0銭
+               fix_spread = is_gotobi ? 0.010 : 0.008;
+            }
+            else
+            {
+               // 09:55:30〜09:55:59 (急減衰帯): 0.3銭
+               fix_spread = 0.003;
+            }
          }
-         else if(min == 53 && dt.sec < 30)
+         else if(min == 53)
          {
-            fix_spread = 0.004; // 09:53 事前動意: 0.4銭
+            // 09:53:00〜09:53:59 (事前動意帯 / 実測平均0.0085): 0.8銭
+            fix_spread = 0.008;
+         }
+         else if(min >= 50)
+         {
+            fix_spread = 0.004;
          }
          
          if(fix_spread > 0.0)
@@ -5552,29 +5654,36 @@ void PrecalculatePseudoRates()
             spread_unit = MathMax(spread_unit, ToUnit(fix_spread, price_unit));
          }
       }
-      // 早朝ロールオーバー時間帯判定（実測データ準拠: 夏 05:50〜07:14 / 冬 06:50〜08:14 JST）
+      // --- Layer 2: 早朝ロールオーバー時間帯判定 (2026年最新実測データ準拠) ---
       else if(m_pseudo_rollover_enabled)
       {
          int roll_hour = IsSummerTimeUS(m_all_ticks[i].time) ? 6 : 7;
          int pre_hour = roll_hour - 1;
          
-         if(hour == pre_hour && min >= 50)
+         if(hour == pre_hour && min >= 55)
          {
+            // ロールオーバー5分前先行拡大 (05:55〜05:59): 0.5〜2.0銭
             current_state = PSEUDO_STATE_STRESS;
-            double prog = (double)(min - 50) / 10.0;
-            spread_unit = ToUnit(0.005 + 0.010 * prog, price_unit); // 05:50〜: 0.5〜1.5銭
+            double prog = (double)(min - 55) / 5.0;
+            spread_unit = ToUnit(0.005 + 0.015 * prog, price_unit);
          }
          else if(hour == roll_hour)
          {
             if(min <= 5)
             {
                current_state = PSEUDO_STATE_ROLLOVER_EXTREME;
-               spread_unit = ToUnit(0.065, price_unit); // ロールオーバー直後スパイク (平均6.5銭)
+               spread_unit = ToUnit(0.088, price_unit); // ロールオーバー直後スパイク (実測平均8.8銭)
+            }
+            else if(min <= 15)
+            {
+               current_state = PSEUDO_STATE_ROLLOVER_WIDE;
+               double prog = (double)(min - 5) / 10.0;
+               spread_unit = ToUnit(0.060 - 0.015 * prog, price_unit); // 6.0銭から4.5銭へ
             }
             else
             {
                current_state = PSEUDO_STATE_ROLLOVER_WIDE;
-               spread_unit = ToUnit(0.035, price_unit); // 早朝ワイド帯 (3.5銭)
+               spread_unit = ToUnit(0.038, price_unit); // 早朝ワイド帯安定 (3.8銭)
             }
          }
          else if(hour == roll_hour + 1 && min < 10)
@@ -5586,16 +5695,99 @@ void PrecalculatePseudoRates()
          {
             current_state = PSEUDO_STATE_RECOVERY;
             double prog = (double)(min - 10) / 5.0;
-            spread_unit = ToUnit(0.035 - (0.035 - 0.002) * prog, price_unit); // 07:10〜07:14: 3.5銭から急減衰
-         }
-         else
-         {
-            current_state = PSEUDO_STATE_NORMAL;
+            spread_unit = ToUnit(0.008 - (0.008 - 0.002) * prog, price_unit); // 07:10〜07:14: 0.8銭から急減衰
          }
       }
 
+      // --- Layer 3: 経済指標スケジュール動的評価 (2ポインタ高速走査 O(N+M)) ---
+      if(m_economic_schedule_count > 0)
+      {
+         // 不要になった過去の指標をスキップ
+         while(eco_idx < m_economic_schedule_count && 
+               tick_msc > m_economic_schedule[eco_idx].server_time_msc + (long)m_economic_schedule[eco_idx].recovery_sec * 1000)
+         {
+            eco_idx++;
+         }
+
+         // 同一時間帯に複数指標が存在する場合も考慮し走査
+         for(int e = eco_idx; e < m_economic_schedule_count; e++)
+         {
+            long ev_msc = m_economic_schedule[e].server_time_msc;
+            long adv_ms = (long)m_economic_schedule[e].advance_sec * 1000;
+            long rec_ms = (long)m_economic_schedule[e].recovery_sec * 1000;
+            long t_start = ev_msc - adv_ms;
+            long t_end   = ev_msc + rec_ms;
+            
+            if(tick_msc < t_start)
+            {
+               break; // 時系列ソートされているためこれ以降は未来の指標
+            }
+            
+            if(tick_msc >= t_start && tick_msc <= t_end)
+            {
+               double ev_spread = 0.002;
+               int tier = m_economic_schedule[e].tier;
+               double base_pre = m_economic_schedule[e].base_pre_spread;
+               double base_peak = m_economic_schedule[e].base_peak_spread;
+               
+               if(tick_msc < ev_msc)
+               {
+                  // 事前拡大フェーズ (T - advance 〜 T)
+                  current_state = PSEUDO_STATE_INDICATOR_PRE;
+                  double rel_sec = (double)(tick_msc - ev_msc) / 1000.0;
+                  if(tier == 1)
+                  {
+                     // Tier 1 (NFP, CPI): -35s〜-15s (0.002->0.039), -15s〜-5s (0.039->0.069), -5s〜0s (0.069->0.096)
+                     if(rel_sec < -15.0)
+                        ev_spread = 0.002 + (0.039 - 0.002) * MathMax(0.0, (rel_sec + 35.0) / 20.0);
+                     else if(rel_sec < -5.0)
+                        ev_spread = 0.039 + (0.069 - 0.039) * ((rel_sec + 15.0) / 10.0);
+                     else
+                        ev_spread = 0.069 + (0.096 - 0.069) * ((rel_sec + 5.0) / 5.0);
+                  }
+                  else if(tier == 2)
+                  {
+                     // Tier 2 (ISM, Retail, PPI): -25s〜-5s (0.002->0.035), -5s〜0s (0.035->0.050)
+                     if(rel_sec < -5.0)
+                        ev_spread = 0.002 + (0.035 - 0.002) * MathMax(0.0, (rel_sec + 25.0) / 20.0);
+                     else
+                        ev_spread = 0.035 + (0.050 - 0.035) * ((rel_sec + 5.0) / 5.0);
+                  }
+                  else
+                  {
+                     double prog = (double)(tick_msc - t_start) / (double)MathMax(1, adv_ms);
+                     ev_spread = 0.002 + (base_pre - 0.002) * prog;
+                  }
+               }
+               else if(tick_msc <= ev_msc + 10000)
+               {
+                  // 瞬間ピークフェーズ (T 〜 T + 10s)
+                  current_state = PSEUDO_STATE_INDICATOR_PEAK;
+                  double max_cap = (tier == 1) ? 0.156 : ((tier == 2) ? 0.080 : 0.035);
+                  double o_excess = MathMax(0.0, (double)oanda_spread_unit * price_unit - 0.004);
+                  ev_spread = MathMin(max_cap, base_peak + 0.35 * o_excess);
+               }
+               else
+               {
+                  // 収束フェーズ (T + 10s 〜 T + recovery)
+                  current_state = PSEUDO_STATE_INDICATOR_DECAY;
+                  double max_peak = (tier == 1) ? 0.156 : 0.080;
+                  double peak_base = MathMin(max_peak, base_peak);
+                  double rem_prog = (double)(tick_msc - (ev_msc + 10000)) / (double)MathMax(1, rec_ms - 10000);
+                  double decay = MathPow(MathMax(0.0, 1.0 - rem_prog), 2.0);
+                  ev_spread = 0.002 + (peak_base - 0.002) * decay;
+               }
+               
+               int ev_spread_unit = ToUnit(ev_spread, price_unit);
+               if(ev_spread_unit > spread_unit)
+               {
+                  spread_unit = ev_spread_unit;
+               }
+            }
+         }
+      }
       
-      // 通常時間帯 または ロールオーバー時のOANDAスプレッド急拡大（STRESS）判定
+      // --- Layer 4: 突発ボラティリティ STRESS 追従 (指標外急変連動) ---
       if(current_state == PSEUDO_STATE_NORMAL)
       {
          if(oanda_spread_unit > threshold_unit)
@@ -5603,21 +5795,17 @@ void PrecalculatePseudoRates()
             current_state = PSEUDO_STATE_STRESS;
             spread_unit = base_spread_unit + (int)MathRound(m_sensitivity_coeff * (double)(oanda_spread_unit - threshold_unit));
          }
-         else
-         {
-            spread_unit = base_spread_unit;
-         }
       }
       else if(current_state == PSEUDO_STATE_ROLLOVER_WIDE)
       {
-         int roll_thresh_unit = (int)MathRound(threshold_unit * 3.0);
+         int roll_thresh_unit = (int)MathRound(threshold_unit * 2.5);
          if(oanda_spread_unit > roll_thresh_unit)
          {
-            spread_unit = rollover_base_unit + (int)MathRound(m_sensitivity_coeff * (double)(oanda_spread_unit - roll_thresh_unit));
+            spread_unit = MathMax(spread_unit, rollover_base_unit + (int)MathRound(m_sensitivity_coeff * (double)(oanda_spread_unit - roll_thresh_unit)));
          }
       }
       
-      // 上限・下限ガード
+      // 上限・下限ガード (USDJPY: 0.2銭〜16.0銭)
       int max_limit_unit = base_spread_unit * 80;
       if(spread_unit > max_limit_unit) spread_unit = max_limit_unit;
       if(spread_unit < base_spread_unit) spread_unit = base_spread_unit;
@@ -5653,8 +5841,8 @@ void PrecalculatePseudoRates()
       }
    }
    
-   Print(StringFormat("[Info] Precalculated pseudo rates for %d ticks. Unit=%.5f, BaseUnit=%d, Digits=%d", 
-      m_total_ticks, price_unit, base_spread_unit, digits));
+   Print(StringFormat("[Info] Precalculated pseudo rates for %d ticks. Unit=%.5f, BaseUnit=%d, Digits=%d, EcoEvents=%d", 
+      m_total_ticks, price_unit, base_spread_unit, digits, m_economic_schedule_count));
 }
 
 //+------------------------------------------------------------------+
@@ -5690,7 +5878,7 @@ void GetPseudoRates(MqlTick &src_tick, double &out_bid, double &out_ask, double 
 
    int base_spread_unit = MathMax(1, ToUnit(m_domestic_base_spread, price_unit));
    int threshold_unit = MathMax(1, ToUnit(m_mt5_threshold, price_unit));
-   int rollover_base_unit = (m_pseudo_rollover_spread > 0) ? ToUnit(m_pseudo_rollover_spread, price_unit) : (int)MathRound(base_spread_unit * 17.5);
+   int rollover_base_unit = (m_pseudo_rollover_spread > 0) ? ToUnit(m_pseudo_rollover_spread, price_unit) : (int)MathRound(base_spread_unit * 19.0);
 
    int oanda_bid_unit = ToUnit(bid, price_unit);
    int oanda_ask_unit = ToUnit(ask, price_unit);
@@ -5706,25 +5894,43 @@ void GetPseudoRates(MqlTick &src_tick, double &out_bid, double &out_ask, double 
    int day  = dt.day;
    int dow  = dt.day_of_week;
 
+   long tick_msc = (long)src_tick.time_msc;
+   if(tick_msc <= 0) tick_msc = (long)src_tick.time * 1000;
+
    ENUM_PSEUDO_STATE current_state = PSEUDO_STATE_NORMAL;
    int spread_unit = base_spread_unit;
 
-   // 仲値制御 (平日 9:53〜09:55:30 JST / 実測データ準拠)
+   // --- Layer 1: 仲値制御 (平日 9:50〜09:55:30 JST / 2026年最新実測データ準拠) ---
    if(dow >= 1 && dow <= 5 && hour == 9)
    {
       bool is_gotobi = IsEffectiveGotobi(jst_time);
       double fix_spread = 0.0;
       if(min == 54)
       {
-         fix_spread = is_gotobi ? 0.010 : 0.008; // 09:54 ピーク: 0.8銭 / 実質ゴトー日 1.0銭
+         // 09:54:00〜09:54:59 (仲値直前ピーク): 通常 1.0銭 / 実質ゴトー日 1.2銭
+         fix_spread = is_gotobi ? 0.012 : 0.010;
       }
-      else if(min == 55 && dt.sec < 30)
+      else if(min == 55)
       {
-         fix_spread = is_gotobi ? 0.007 : 0.005; // 09:55:00〜29 収束帯: 0.5銭 / 実質ゴトー日 0.7銭
+         if(dt.sec < 30)
+         {
+            // 09:55:00〜09:55:29 (仲値通過): 通常 0.8銭 / 実質ゴトー日 1.0銭
+            fix_spread = is_gotobi ? 0.010 : 0.008;
+         }
+         else
+         {
+            // 09:55:30〜09:55:59 (急減衰帯): 0.3銭
+            fix_spread = 0.003;
+         }
       }
-      else if(min == 53 && dt.sec < 30)
+      else if(min == 53)
       {
-         fix_spread = 0.004; // 09:53 事前動意: 0.4銭
+         // 09:53:00〜09:53:59 (事前動意帯 / 実測平均0.0085): 0.8銭
+         fix_spread = 0.008;
+      }
+      else if(min >= 50)
+      {
+         fix_spread = 0.004;
       }
       
       if(fix_spread > 0.0)
@@ -5733,29 +5939,35 @@ void GetPseudoRates(MqlTick &src_tick, double &out_bid, double &out_ask, double 
          spread_unit = MathMax(spread_unit, ToUnit(fix_spread, price_unit));
       }
    }
-   // 早朝ロールオーバー時間帯判定（実測データ準拠: 夏 05:50〜07:14 / 冬 06:50〜08:14 JST）
+   // --- Layer 2: 早朝ロールオーバー時間帯判定 (2026年最新実測データ準拠) ---
    else if(m_pseudo_rollover_enabled)
    {
       int roll_hour = IsSummerTimeUS(src_tick.time) ? 6 : 7;
       int pre_hour = roll_hour - 1;
       
-      if(hour == pre_hour && min >= 50)
+      if(hour == pre_hour && min >= 55)
       {
          current_state = PSEUDO_STATE_STRESS;
-         double prog = (double)(min - 50) / 10.0;
-         spread_unit = ToUnit(0.005 + 0.010 * prog, price_unit); // 05:50〜: 0.5〜1.5銭
+         double prog = (double)(min - 55) / 5.0;
+         spread_unit = ToUnit(0.005 + 0.015 * prog, price_unit);
       }
       else if(hour == roll_hour)
       {
          if(min <= 5)
          {
             current_state = PSEUDO_STATE_ROLLOVER_EXTREME;
-            spread_unit = ToUnit(0.065, price_unit); // ロールオーバー直後スパイク (平均6.5銭)
+            spread_unit = ToUnit(0.088, price_unit); // ロールオーバー直後スパイク (実測平均8.8銭)
+         }
+         else if(min <= 15)
+         {
+            current_state = PSEUDO_STATE_ROLLOVER_WIDE;
+            double prog = (double)(min - 5) / 10.0;
+            spread_unit = ToUnit(0.060 - 0.015 * prog, price_unit); // 6.0銭から4.5銭へ
          }
          else
          {
             current_state = PSEUDO_STATE_ROLLOVER_WIDE;
-            spread_unit = ToUnit(0.035, price_unit); // 早朝ワイド帯 (3.5銭)
+            spread_unit = ToUnit(0.038, price_unit); // 早朝ワイド帯安定 (3.8銭)
          }
       }
       else if(hour == roll_hour + 1 && min < 10)
@@ -5767,27 +5979,95 @@ void GetPseudoRates(MqlTick &src_tick, double &out_bid, double &out_ask, double 
       {
          current_state = PSEUDO_STATE_RECOVERY;
          double prog = (double)(min - 10) / 5.0;
-         spread_unit = ToUnit(0.035 - (0.035 - 0.002) * prog, price_unit); // 07:10〜07:14: 3.5銭から急減衰
-      }
-      else
-      {
-         current_state = PSEUDO_STATE_NORMAL;
+         spread_unit = ToUnit(0.008 - (0.008 - 0.002) * prog, price_unit); // 07:10〜07:14: 0.8銭から急減衰
       }
    }
 
+   // --- Layer 3: 経済指標スケジュール評価 ---
+   if(m_economic_schedule_count > 0)
+   {
+      for(int e = 0; e < m_economic_schedule_count; e++)
+      {
+         long ev_msc = m_economic_schedule[e].server_time_msc;
+         long adv_ms = (long)m_economic_schedule[e].advance_sec * 1000;
+         long rec_ms = (long)m_economic_schedule[e].recovery_sec * 1000;
+         long t_start = ev_msc - adv_ms;
+         long t_end   = ev_msc + rec_ms;
+         
+         if(tick_msc >= t_start && tick_msc <= t_end)
+         {
+            double ev_spread = 0.002;
+            int tier = m_economic_schedule[e].tier;
+            double base_pre = m_economic_schedule[e].base_pre_spread;
+            double base_peak = m_economic_schedule[e].base_peak_spread;
+            
+            if(tick_msc < ev_msc)
+            {
+               current_state = PSEUDO_STATE_INDICATOR_PRE;
+               double rel_sec = (double)(tick_msc - ev_msc) / 1000.0;
+               if(tier == 1)
+               {
+                  if(rel_sec < -15.0)
+                     ev_spread = 0.002 + (0.039 - 0.002) * MathMax(0.0, (rel_sec + 35.0) / 20.0);
+                  else if(rel_sec < -5.0)
+                     ev_spread = 0.039 + (0.069 - 0.039) * ((rel_sec + 15.0) / 10.0);
+                  else
+                     ev_spread = 0.069 + (0.096 - 0.069) * ((rel_sec + 5.0) / 5.0);
+               }
+               else if(tier == 2)
+               {
+                  if(rel_sec < -5.0)
+                     ev_spread = 0.002 + (0.035 - 0.002) * MathMax(0.0, (rel_sec + 25.0) / 20.0);
+                  else
+                     ev_spread = 0.035 + (0.050 - 0.035) * ((rel_sec + 5.0) / 5.0);
+               }
+               else
+               {
+                  double prog = (double)(tick_msc - t_start) / (double)MathMax(1, adv_ms);
+                  ev_spread = 0.002 + (base_pre - 0.002) * prog;
+               }
+            }
+            else if(tick_msc <= ev_msc + 10000)
+            {
+               current_state = PSEUDO_STATE_INDICATOR_PEAK;
+               double max_cap = (tier == 1) ? 0.156 : ((tier == 2) ? 0.080 : 0.035);
+               double o_excess = MathMax(0.0, (double)oanda_spread_unit * price_unit - 0.004);
+               ev_spread = MathMin(max_cap, base_peak + 0.35 * o_excess);
+            }
+            else
+            {
+               current_state = PSEUDO_STATE_INDICATOR_DECAY;
+               double max_peak = (tier == 1) ? 0.156 : 0.080;
+               double peak_base = MathMin(max_peak, base_peak);
+               double rem_prog = (double)(tick_msc - (ev_msc + 10000)) / (double)MathMax(1, rec_ms - 10000);
+               double decay = MathPow(MathMax(0.0, 1.0 - rem_prog), 2.0);
+               ev_spread = 0.002 + (peak_base - 0.002) * decay;
+            }
+            
+            int ev_spread_unit = ToUnit(ev_spread, price_unit);
+            if(ev_spread_unit > spread_unit)
+            {
+               spread_unit = ev_spread_unit;
+            }
+         }
+      }
+   }
+
+   // --- Layer 4: 突発ボラティリティ STRESS 追従 ---
    if(current_state == PSEUDO_STATE_NORMAL)
    {
       if(oanda_spread_unit > threshold_unit)
       {
+         current_state = PSEUDO_STATE_STRESS;
          spread_unit = base_spread_unit + (int)MathRound(m_sensitivity_coeff * (double)(oanda_spread_unit - threshold_unit));
       }
    }
    else if(current_state == PSEUDO_STATE_ROLLOVER_WIDE)
    {
-      int roll_thresh_unit = (int)MathRound(threshold_unit * 3.0);
+      int roll_thresh_unit = (int)MathRound(threshold_unit * 2.5);
       if(oanda_spread_unit > roll_thresh_unit)
       {
-         spread_unit = rollover_base_unit + (int)MathRound(m_sensitivity_coeff * (double)(oanda_spread_unit - roll_thresh_unit));
+         spread_unit = MathMax(spread_unit, rollover_base_unit + (int)MathRound(m_sensitivity_coeff * (double)(oanda_spread_unit - roll_thresh_unit)));
       }
    }
 

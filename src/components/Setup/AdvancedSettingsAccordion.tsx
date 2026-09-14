@@ -102,7 +102,7 @@ export const AdvancedSettingsAccordion: React.FC<AdvancedSettingsAccordionProps>
   setPseudoSensitivity,
   pseudoRolloverEnabled = true,
   setPseudoRolloverEnabled,
-  pseudoRolloverSpread = 3.5,
+  pseudoRolloverSpread = 3.8,
   setPseudoRolloverSpread,
   pseudoRolloverRecoveryMin = 15,
   setPseudoRolloverRecoveryMin,
@@ -646,7 +646,7 @@ export const AdvancedSettingsAccordion: React.FC<AdvancedSettingsAccordionProps>
                                   </p>
                                   <p style={{ margin: "0 0 4px", fontWeight: 600 }}>推奨値の目安：</p>
                                   <ul style={{ margin: "0", paddingLeft: 16 }}>
-                                    <li>USDJPY：1.8 pips（41.8万ティック実測最適値）</li>
+                                    <li>USDJPY：1.5 pips（242万ティック実測最適値）</li>
                                     <li>EURUSD：1.0 pips</li>
                                     <li>GBPJPY：2.0 pips</li>
                                     <li>XAUUSD（Gold）：4.0 pips</li>
@@ -683,13 +683,13 @@ export const AdvancedSettingsAccordion: React.FC<AdvancedSettingsAccordionProps>
                                     MT5スプレッドが「拡大しきい値」を超えたとき、その超過分に掛ける倍率です。
                                   </p>
                                   <p style={{ margin: "0 0 4px" }}>
-                                    <strong>例（USDJPY、しきい値=1.8pips、感度=0.30、MT5スプレッド=3.0pips）：</strong><br />
+                                    <strong>例（USDJPY、しきい値=1.5pips、感度=0.25、MT5スプレッド=3.0pips）：</strong><br />
                                     <code style={{ background: "rgba(255,255,255,0.1)", padding: "1px 4px", borderRadius: 3 }}>
-                                      0.2 + 0.30 × (3.0 − 1.8) = 0.56 ➔ 0.6 pips
+                                      0.2 + 0.25 × (3.0 − 1.5) = 0.575 ➔ 0.6 pips
                                     </code>
                                   </p>
                                   <ul style={{ margin: "6px 0 0", paddingLeft: 16 }}>
-                                    <li><strong>0.30</strong>：USDJPY実測最適推奨値。急拡大時も国内業者風に穏やかに反映</li>
+                                    <li><strong>0.25</strong>：USDJPY最新実測最適推奨値。急拡大時も国内業者風に穏やかに反映</li>
                                     <li><strong>1.0</strong>：MT5スプレッド急拡大超過分をそのまま反映</li>
                                     <li><strong>0.0</strong>：急拡大時も平常時スプレッドのまま固定</li>
                                   </ul>

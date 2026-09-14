@@ -80,3 +80,70 @@ pub async fn check_month_economic_availability(
 
     Ok(exists)
 }
+
+#[tauri::command]
+pub async fn get_economic_schedule_csv(
+    symbol: String,
+    start_time: String,
+    end_time: String,
+    preload_mode: Option<String>,
+    preload_date: Option<String>,
+    state: State<'_, Arc<ReplayState>>,
+) -> Result<String, AppError> {
+    let sym = symbol.clone();
+    let st = start_time.clone();
+    let et = end_time.clone();
+    let pm = preload_mode.clone();
+    let pd = preload_date.clone();
+
+    // 1. 必要年月を計算
+    let ym_list = crate::pseudo_dmm::get_year_months_between(
+        if pm.as_deref() == Some("DATE") && pd.as_ref().map_or(false, |s| !s.is_empty()) {
+            pd.as_deref().unwrap()
+        } else {
+            &st
+        },
+        &et,
+    );
+
+    // 2. キャッシュ確認
+    let mut all_events = Vec::new();
+    let mut missing_ym = Vec::new();
+    {
+        let cache = state.economic_events.lock().unwrap();
+        for (y, m) in &ym_list {
+            let ym_str = format!("{:04}-{:02}", y, m);
+            if let Some(events) = cache.get(&ym_str) {
+                all_events.extend(events.clone());
+            } else {
+                missing_ym.push((*y, *m));
+            }
+        }
+    }
+
+    // 3. 未キャッシュ月があればロード
+    if !missing_ym.is_empty() {
+        let (_, loaded_events) = tokio::task::spawn_blocking(move || {
+            crate::pseudo_dmm::load_and_check_economic_data_range(
+                &sym,
+                &st,
+                &et,
+                pm.as_deref(),
+                pd.as_deref(),
+                None,
+            )
+        })
+        .await
+        .map_err(|e| AppError::Config(format!("経済指標CSV取得タスクエラー: {}", e)))?;
+
+        let mut cache = state.economic_events.lock().unwrap();
+        for (ym, events) in loaded_events {
+            all_events.extend(events.clone());
+            cache.insert(ym, events);
+        }
+    }
+
+    // 4. CSVフォーマットへ変換
+    let csv = crate::pseudo_dmm::format_economic_schedule_csv(&all_events);
+    Ok(csv)
+}

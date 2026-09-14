@@ -288,6 +288,7 @@ pub fn run() {
             commands::select_folder,
             commands::check_economic_data_availability,
             commands::check_month_economic_availability,
+            commands::get_economic_schedule_csv,
             commands::exit_app
         ])
         .run(tauri::generate_context!())
