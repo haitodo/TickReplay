@@ -497,13 +497,44 @@ pub async fn hide_window(app_handle: AppHandle, label: String) -> Result<(), App
 
 #[tauri::command]
 pub async fn open_tracely_app() -> Result<(), AppError> {
-    // 1. 開発環境の実行バイナリ探索
-    let candidates = [
-        std::path::PathBuf::from("../Tracely/src-tauri/target/release/tracely.exe"),
-        std::path::PathBuf::from("D:/dev/Tracely/src-tauri/target/release/tracely.exe"),
-        std::path::PathBuf::from("../Tracely/src-tauri/target/debug/tracely.exe"),
-        std::path::PathBuf::from("D:/dev/Tracely/src-tauri/target/debug/tracely.exe"),
-    ];
+    let mut candidates = Vec::new();
+
+    // 1. インストール先パス探索 (Tauri NSIS per-user / per-machine)
+    if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+        let base = std::path::PathBuf::from(&local_app_data);
+        // Tauri NSIS のデフォルトインストール先 (%LOCALAPPDATA%\Tracely\tracely.exe)
+        candidates.push(base.join("Tracely").join("tracely.exe"));
+        candidates.push(base.join("Tracely").join("Tracely.exe"));
+        candidates.push(base.join("Programs").join("Tracely").join("tracely.exe"));
+        candidates.push(base.join("Programs").join("Tracely").join("Tracely.exe"));
+    }
+    if let Ok(program_files) = std::env::var("ProgramFiles") {
+        let base = std::path::PathBuf::from(&program_files);
+        candidates.push(base.join("Tracely").join("tracely.exe"));
+        candidates.push(base.join("Tracely").join("Tracely.exe"));
+    }
+    if let Ok(program_files_x86) = std::env::var("ProgramFiles(x86)") {
+        let base = std::path::PathBuf::from(&program_files_x86);
+        candidates.push(base.join("Tracely").join("tracely.exe"));
+        candidates.push(base.join("Tracely").join("Tracely.exe"));
+    }
+
+    // 2. ビルド済み release / debug バイナリ探索 (CARGO_TARGET_DIR またはローカル target)
+    if let Ok(cargo_target_dir) = std::env::var("CARGO_TARGET_DIR") {
+        let target_base = std::path::PathBuf::from(&cargo_target_dir);
+        candidates.push(target_base.join("release").join("tracely.exe"));
+        candidates.push(target_base.join("release").join("Tracely.exe"));
+        candidates.push(target_base.join("debug").join("tracely.exe"));
+        candidates.push(target_base.join("debug").join("Tracely.exe"));
+    }
+    candidates.push(std::path::PathBuf::from("D:/dev/Tracely/src-tauri/target/release/tracely.exe"));
+    candidates.push(std::path::PathBuf::from("../Tracely/src-tauri/target/release/tracely.exe"));
+    candidates.push(std::path::PathBuf::from("D:/dev/Tracely/src-tauri/target/release/Tracely.exe"));
+    candidates.push(std::path::PathBuf::from("../Tracely/src-tauri/target/release/Tracely.exe"));
+    candidates.push(std::path::PathBuf::from("D:/dev/Tracely/src-tauri/target/debug/tracely.exe"));
+    candidates.push(std::path::PathBuf::from("../Tracely/src-tauri/target/debug/tracely.exe"));
+    candidates.push(std::path::PathBuf::from("D:/dev/Tracely/src-tauri/target/debug/Tracely.exe"));
+    candidates.push(std::path::PathBuf::from("../Tracely/src-tauri/target/debug/Tracely.exe"));
 
     for candidate in &candidates {
         if candidate.is_file() {
@@ -512,23 +543,11 @@ pub async fn open_tracely_app() -> Result<(), AppError> {
         }
     }
 
-    // 2. インストール先パス探索
-    if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
-        let installed = std::path::PathBuf::from(local_app_data)
-            .join("Programs")
-            .join("Tracely")
-            .join("Tracely.exe");
-        if installed.is_file() {
-            let _ = std::process::Command::new(installed).spawn();
-            return Ok(());
-        }
-    }
-
-    // 3. 開発フォールバック: Tracelyプロジェクトディレクトリが存在すれば起動
+    // 3. 開発フォールバック: バイナリが存在しない場合のみ開発サーバーを起動
     let dev_dir = std::path::PathBuf::from("D:/dev/Tracely");
     if dev_dir.is_dir() {
         let _ = std::process::Command::new("cmd")
-            .args(["/c", "start", "powershell", "-NoExit", "-Command", "cd D:\\dev\\Tracely; npm run tauri dev"])
+            .args(["/c", "start", "powershell", "-NoExit", "-Command", "cd D:\\dev\\Tracely; pnpm run tauri dev"])
             .spawn();
         return Ok(());
     }
