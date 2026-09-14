@@ -68,23 +68,48 @@ async fn handle_connection(
 
     let (mut write, mut read) = ws_stream.split();
 
-    // 接続直後: 現在の最新ステータスを即座に送信して同期を確立
+    // 接続直後: 現在の最新ステータス（取引履歴キャッシュを含む）を即座に送信して同期を確立
     let initial_status = {
         let current = rx.borrow_and_update().clone();
-        if !current.is_empty() {
-            Some(current)
+        let base_status = if !current.is_empty() {
+            current
         } else {
-            let last = state.last_status.lock().unwrap();
-            if !last.is_empty() {
-                Some(last.clone())
+            state.last_status.lock().unwrap().clone()
+        };
+
+        let history_cache = state.last_history.lock().unwrap().clone();
+
+        if !base_status.is_empty() {
+            if let Some(hist) = history_cache {
+                if !base_status.contains("\"history\":") {
+                    if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&base_status) {
+                        val["history"] = hist;
+                        Some(val.to_string())
+                    } else {
+                        Some(base_status)
+                    }
+                } else {
+                    Some(base_status)
+                }
             } else {
-                None
+                Some(base_status)
             }
+        } else if let Some(hist) = history_cache {
+            let val = serde_json::json!({
+                "status": "READY",
+                "history": hist
+            });
+            Some(val.to_string())
+        } else {
+            None
         }
     };
     if let Some(status) = initial_status {
         let _ = write.send(Message::Text(status.into())).await;
     }
+
+    // EAに対しても取引履歴の即時出力要求を発行（最新ステータスの完全同期保証）
+    let _ = state.command_tx.send(r#"{"command":"REQUEST_HISTORY"}"#.to_string());
 
     loop {
         tokio::select! {
@@ -110,7 +135,21 @@ async fn handle_connection(
                 match msg_opt {
                     Some(Ok(Message::Text(text))) => {
                         let text_str = text.to_string();
-                        // Drenhis 等からのコマンド（SEEK, SEEK_TIME, CONTROL, etc.）を command_tx に中継
+                        // 取引履歴の明示的リクエストを受信した場合、キャッシュがあれば即座に直接返信
+                        if text_str.contains("REQUEST_HISTORY") || text_str.contains("GET_HISTORY") {
+                            let hist_cache = state.last_history.lock().unwrap().clone();
+                            if let Some(hist) = hist_cache {
+                                let last = state.last_status.lock().unwrap().clone();
+                                let mut resp = if !last.is_empty() {
+                                    serde_json::from_str::<serde_json::Value>(&last).unwrap_or_else(|_| serde_json::json!({"status":"READY"}))
+                                } else {
+                                    serde_json::json!({"status":"READY"})
+                                };
+                                resp["history"] = hist;
+                                let _ = write.send(Message::Text(resp.to_string().into())).await;
+                            }
+                        }
+                        // Drenhis 等からのコマンド（SEEK, SEEK_TIME, CONTROL, etc.）およびEAへのREQUEST_HISTORYを command_tx に中継
                         let _ = state.command_tx.send(text_str);
                     }
                     Some(Ok(Message::Ping(p))) => {

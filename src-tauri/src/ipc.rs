@@ -487,6 +487,16 @@ async fn process_status_message(
     // 外部ツール（Drenhisなど）へWebSocketブロードキャスト送信
     let _ = state.sync_tx.send(trimmed.to_string());
 
+    // 取引履歴キャッシュの更新（ゼロ負荷ガード：平常のティック更新時は高速バイトスキャンで即座にバイパス）
+    if trimmed.contains("\"history\":") {
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) {
+            if let Some(history) = val.get("history") {
+                let mut h_guard = state.last_history.lock().unwrap();
+                *h_guard = Some(history.clone());
+            }
+        }
+    }
+
     // キャッシュされている再生状態などを更新
     if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) {
         if let Some(status) = val.get("status").and_then(|s| s.as_str()) {

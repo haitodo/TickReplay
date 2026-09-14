@@ -1648,6 +1648,13 @@ void ProcessCommand(string line)
        int ticket = (int)GetJsonDouble(line, "ticket");
        ExportTradeTicksJson(ticket);
     }
+    else if(command == "REQUEST_HISTORY" || command == "GET_HISTORY")
+    {
+       m_last_sent_history_rev = -1;
+       m_status_dirty = true;
+       WriteStatusFile();
+       Print("[Info] REQUEST_HISTORY 受信: 取引履歴を含む最新ステータスを即時出力しました");
+    }
       else if(command == "SET_PSEUDO_RATE")
       {
          m_pseudo_rate_enabled = GetJsonBool(line, "enable_pseudo_rate");
