@@ -1,4 +1,5 @@
 import React from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { formatYearMonthJapanese } from "../../utils/economicDataUtils";
 
 export interface EconomicDataMissingModalProps {
@@ -10,6 +11,8 @@ export interface EconomicDataMissingModalProps {
   availableMonths: string[];
   startTime: string;
   endTime: string;
+  currentEconomicDir?: string;
+  onFolderSelected?: (newDir: string) => void;
 }
 
 export const EconomicDataMissingModal: React.FC<EconomicDataMissingModalProps> = ({
@@ -21,8 +24,21 @@ export const EconomicDataMissingModal: React.FC<EconomicDataMissingModalProps> =
   availableMonths,
   startTime,
   endTime,
+  currentEconomicDir,
+  onFolderSelected,
 }) => {
   if (!isOpen) return null;
+
+  const handleSelectFolder = async () => {
+    try {
+      const selected = await invoke<string | null>("select_folder");
+      if (selected && onFolderSelected) {
+        onFolderSelected(selected);
+      }
+    } catch (e) {
+      console.error("Failed to select economic folder:", e);
+    }
+  };
 
   const startFormatted = startTime ? startTime.substring(0, 16) : "";
   const endFormatted = endTime ? endTime.substring(0, 16) : "";
@@ -61,6 +77,40 @@ export const EconomicDataMissingModal: React.FC<EconomicDataMissingModalProps> =
                 {startFormatted} 〜 {endFormatted}
               </span>
             </div>
+            <div className="summary-row" style={{ alignItems: "center" }}>
+              <span className="summary-label">参照先フォルダ:</span>
+              <span
+                className="summary-val-badge font-data"
+                style={{
+                  maxWidth: "230px",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  fontSize: "11px",
+                }}
+                title={currentEconomicDir || "未指定 (自動検出)"}
+              >
+                {currentEconomicDir || "未指定 (自動検出)"}
+              </span>
+              <button
+                className="btn-secondary-compact"
+                style={{
+                  marginLeft: "auto",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  padding: "3px 8px",
+                  fontSize: "11px",
+                }}
+                onClick={handleSelectFolder}
+                title="経済指標データの参照フォルダを変更して再確認"
+              >
+                <span className="material-symbols-outlined icon" style={{ fontSize: "14px" }}>
+                  folder_open
+                </span>
+                <span>フォルダ変更</span>
+              </button>
+            </div>
           </div>
 
           {/* 未同期・不足月の一覧 */}
@@ -96,7 +146,7 @@ export const EconomicDataMissingModal: React.FC<EconomicDataMissingModalProps> =
                 <strong>通常スプレッドモード</strong>（平時固定スプレッド等）で動作します。
               </p>
               <p className="alert-sub-desc">
-                ※ Drenhisアプリから該当期間のParquetデータを出力すると、指標連動モードが有効になります。
+                ※ Drenhisアプリから出力されたParquetフォルダを指定するか、Drenhisアプリ側で該当期間のデータを出力してください。
               </p>
             </div>
           </div>

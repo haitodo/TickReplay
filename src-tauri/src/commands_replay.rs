@@ -60,6 +60,8 @@ pub async fn send_command(
                                 &et,
                             );
 
+                            let custom_dir = val.get("economic_data_dir").and_then(|s| s.as_str()).map(|s| s.to_string());
+
                             let mut all_events = Vec::new();
                             let mut missing_ym = Vec::new();
                             {
@@ -75,6 +77,7 @@ pub async fn send_command(
                             }
 
                             if !missing_ym.is_empty() {
+                                let cd = custom_dir.clone();
                                 if let Ok((_, loaded_events)) = tokio::task::spawn_blocking(move || {
                                     crate::pseudo_dmm::load_and_check_economic_data_range(
                                         &sym,
@@ -82,7 +85,7 @@ pub async fn send_command(
                                         &et,
                                         pm.as_deref(),
                                         pd.as_deref(),
-                                        None,
+                                        cd.as_deref(),
                                     )
                                 }).await {
                                     let mut cache = state.economic_events.lock().unwrap();

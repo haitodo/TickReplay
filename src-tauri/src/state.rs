@@ -218,5 +218,7 @@ pub struct ReplaySettings {
     pub settings_window_y: Option<i32>,
     #[serde(default)]
     pub terminal_names: Option<std::collections::HashMap<String, String>>,
+    #[serde(default)]
+    pub economic_data_dir: Option<String>,
 }
 

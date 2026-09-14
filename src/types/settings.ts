@@ -47,6 +47,7 @@ export interface AppSettings {
   openrouter_model?: string;
   fred_api_key?: string;
   finnhub_api_key?: string;
+  economic_data_dir?: string;
 }
 
 /** Settings returned by the backend, including replay-specific persisted values. */

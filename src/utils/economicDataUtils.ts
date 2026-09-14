@@ -17,11 +17,26 @@ export interface EconomicDataAvailability {
   available_months: string[];
 }
 
+export const ECONOMIC_DIR_STORAGE_KEY = "replay_economic_data_dir";
 const STORAGE_KEY = "replay-economic-availability";
 const SYMBOL_KEY = "replay-economic-symbol";
 
 // メモリ内キャッシュ
 let inMemoryAvailabilityMap: Record<string, boolean> = {};
+
+/**
+ * localStorageから保存済みの経済指標データディレクトリパスを取得
+ */
+export function getStoredEconomicDataDir(): string {
+  return localStorage.getItem(ECONOMIC_DIR_STORAGE_KEY) || "";
+}
+
+/**
+ * 経済指標データディレクトリパスをlocalStorageに保存
+ */
+export function setStoredEconomicDataDir(dir: string): void {
+  localStorage.setItem(ECONOMIC_DIR_STORAGE_KEY, dir);
+}
 
 /**
  * localStorageからキャッシュ済みの年月別経済指標充足マップを取得
@@ -50,14 +65,17 @@ export async function checkEconomicDataAvailability(
   startTime: string,
   endTime: string,
   preloadMode?: string,
-  preloadDate?: string
+  preloadDate?: string,
+  customDir?: string
 ): Promise<EconomicDataAvailability> {
+  const targetDir = customDir !== undefined ? customDir : getStoredEconomicDataDir();
   const result = await invoke<EconomicDataAvailability>("check_economic_data_availability", {
     symbol,
     startTime,
     endTime,
     preloadMode,
     preloadDate,
+    customDir: targetDir && targetDir.trim() ? targetDir.trim() : null,
   });
 
   const newMap: Record<string, boolean> = {};

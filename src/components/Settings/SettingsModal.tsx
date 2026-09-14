@@ -1,4 +1,5 @@
 import React from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { CustomSelect } from "../../CustomSelect";
 import { DEFAULT_HOTKEYS, HOTKEY_METADATA, formatShortcutForDisplay } from "../../utils/hotkeyUtils";
 import { THEME_LIST, ThemeType } from "../../constants/themePresets";
@@ -28,6 +29,8 @@ export interface SettingsModalProps {
   handleAlwaysOnTopToggle: () => void;
   isShortcutsActive: boolean;
   handleShortcutsToggle: () => void;
+  economicDataDir?: string;
+  setEconomicDataDir?: (val: string) => void;
   theme?: ThemeType;
   setTheme?: (theme: ThemeType) => void;
   themeId?: string;
@@ -87,6 +90,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   handleAlwaysOnTopToggle,
   isShortcutsActive,
   handleShortcutsToggle,
+  economicDataDir,
+  setEconomicDataDir,
   theme,
   setTheme,
   themeId,
@@ -250,6 +255,62 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     />
                   </div>
                 )}
+              </div>
+
+              <div className="settings-group">
+                <h4 className="settings-group-title">
+                  <span className="material-symbols-outlined" style={{ fontSize: "16px", verticalAlign: "middle", marginRight: "4px" }}>folder_open</span>
+                  経済指標データフォルダ設定
+                </h4>
+                <p className="settings-hint" style={{ marginBottom: "8px" }}>
+                  疑似DMMスプレッドモデルで使用する経済指標データ (Parquet) の格納フォルダを指定します。
+                </p>
+                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                  <input
+                    type="text"
+                    className="pro-input font-data"
+                    style={{ flex: 1, fontSize: "12px", padding: "6px 10px" }}
+                    value={economicDataDir || ""}
+                    onChange={(e) => setEconomicDataDir && setEconomicDataDir(e.target.value)}
+                    placeholder="D:\Drehis\economic"
+                  />
+                  <button
+                    className="btn-secondary-compact"
+                    style={{ display: "flex", alignItems: "center", gap: "4px", whiteSpace: "nowrap" }}
+                    onClick={async () => {
+                      try {
+                        const selected = await invoke<string | null>("select_folder");
+                        if (selected && setEconomicDataDir) {
+                          setEconomicDataDir(selected);
+                        }
+                      } catch (err) {
+                        console.error("Failed to select folder", err);
+                      }
+                    }}
+                    title="フォルダを選択"
+                  >
+                    <span className="material-symbols-outlined icon" style={{ fontSize: "16px" }}>folder</span>
+                    <span>参照</span>
+                  </button>
+                  <button
+                    className="btn-secondary-compact"
+                    style={{ display: "flex", alignItems: "center", gap: "4px", whiteSpace: "nowrap" }}
+                    onClick={async () => {
+                      try {
+                        const def = await invoke<string>("get_default_economic_data_dir");
+                        if (def && setEconomicDataDir) {
+                          setEconomicDataDir(def);
+                        }
+                      } catch (err) {
+                        console.error("Failed to reset economic data dir", err);
+                      }
+                    }}
+                    title="デフォルト設定に戻す"
+                  >
+                    <span className="material-symbols-outlined icon" style={{ fontSize: "16px" }}>restart_alt</span>
+                    <span>初期値</span>
+                  </button>
+                </div>
               </div>
             </div>
           )}

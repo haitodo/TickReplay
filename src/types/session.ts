@@ -38,6 +38,7 @@ export interface SessionReplaySettings {
   pseudo_rollover_enabled?: boolean;
   pseudo_rollover_spread?: number;
   pseudo_rollover_recovery_min?: number;
+  economic_data_dir?: string;
 }
 
 export interface SessionProgressState {

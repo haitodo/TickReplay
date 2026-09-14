@@ -491,24 +491,6 @@ pub fn get_default_tick_dir() -> std::path::PathBuf {
                 }
             }
         }
-        let econ_conf_path = std::path::PathBuf::from(&local_app_data)
-            .join("com.drenhis.app")
-            .join("economic_export_config.json");
-        if econ_conf_path.exists() {
-            if let Ok(content) = fs::read_to_string(&econ_conf_path) {
-                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
-                    if let Some(dir) = val.get("export_dir").and_then(|v| v.as_str()) {
-                        let p = std::path::PathBuf::from(dir);
-                        let tick_p = p.join("tick");
-                        if tick_p.exists() {
-                            return tick_p;
-                        } else if p.exists() {
-                            return p;
-                        }
-                    }
-                }
-            }
-        }
     }
     let drehis_tick = std::path::PathBuf::from(r"D:\Drehis\tick");
     if drehis_tick.exists() {
@@ -1051,6 +1033,12 @@ mod tests {
         assert_eq!(bin_bytes.len(), count * std::mem::size_of::<MqlTick>());
 
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_get_default_tick_dir() {
+        let dir = get_default_tick_dir();
+        assert!(!dir.to_string_lossy().is_empty());
     }
 }
 

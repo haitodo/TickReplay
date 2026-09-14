@@ -263,6 +263,9 @@ pub async fn save_settings(
         if settings.terminal_names.is_none() {
             settings.terminal_names = existing_settings.terminal_names.clone();
         }
+        if settings.economic_data_dir.is_none() {
+            settings.economic_data_dir = existing_settings.economic_data_dir.clone();
+        }
     }
 
     let config_dir = app_handle.path().app_config_dir()?;

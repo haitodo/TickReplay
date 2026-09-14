@@ -5,12 +5,19 @@ use crate::state::ReplayState;
 use crate::pseudo_dmm::{EconomicDataAvailability, load_and_check_economic_data_range};
 
 #[tauri::command]
+pub async fn get_default_economic_data_dir() -> Result<String, AppError> {
+    let p = crate::pseudo_dmm::PseudoDmmEngine::get_drenhis_export_dir();
+    Ok(p.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 pub async fn check_economic_data_availability(
     symbol: String,
     start_time: String,
     end_time: String,
     preload_mode: Option<String>,
     preload_date: Option<String>,
+    custom_dir: Option<String>,
     state: State<'_, Arc<ReplayState>>,
 ) -> Result<EconomicDataAvailability, AppError> {
     let sym = symbol.clone();
@@ -18,6 +25,7 @@ pub async fn check_economic_data_availability(
     let et = end_time.clone();
     let pm = preload_mode.clone();
     let pd = preload_date.clone();
+    let cd = custom_dir.clone();
 
     let (availability, loaded_events) = tokio::task::spawn_blocking(move || {
         load_and_check_economic_data_range(
@@ -26,7 +34,7 @@ pub async fn check_economic_data_availability(
             &et,
             pm.as_deref(),
             pd.as_deref(),
-            None,
+            cd.as_deref(),
         )
     })
     .await
@@ -35,6 +43,8 @@ pub async fn check_economic_data_availability(
     // メモリキャッシュを更新 (後続処理での重複IOを防止)
     {
         let mut cache = state.economic_events.lock().unwrap();
+        // フォルダ切り替え時などに以前の別フォルダのデータが混ざらないようクリアして最新化
+        cache.clear();
         for (ym, events) in loaded_events {
             cache.insert(ym, events);
         }
@@ -47,10 +57,13 @@ pub async fn check_economic_data_availability(
 pub async fn check_month_economic_availability(
     symbol: String,
     year_month: String,
+    custom_dir: Option<String>,
     state: State<'_, Arc<ReplayState>>,
 ) -> Result<bool, AppError> {
-    // まずメモリキャッシュを確認
-    {
+    let cd = custom_dir.clone();
+
+    // キャッシュ確認 (custom_dir未指定または同一前提)
+    if cd.is_none() {
         let cache = state.economic_events.lock().unwrap();
         if let Some(events) = cache.get(&year_month) {
             return Ok(!events.is_empty());
@@ -66,7 +79,7 @@ pub async fn check_month_economic_availability(
         let year: i32 = parts.get(0).and_then(|s| s.parse().ok()).unwrap_or(2026);
         let month: u32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(5);
         let profiles = crate::pseudo_dmm::PseudoDmmEngine::load_profile_matrix();
-        let events = crate::pseudo_dmm::PseudoDmmEngine::load_events_for_month(&pair, year, month, &profiles, None);
+        let events = crate::pseudo_dmm::PseudoDmmEngine::load_events_for_month(&pair, year, month, &profiles, cd.as_deref());
         let has = !events.is_empty();
         (has, events)
     })
@@ -88,6 +101,7 @@ pub async fn get_economic_schedule_csv(
     end_time: String,
     preload_mode: Option<String>,
     preload_date: Option<String>,
+    custom_dir: Option<String>,
     state: State<'_, Arc<ReplayState>>,
 ) -> Result<String, AppError> {
     let sym = symbol.clone();
@@ -95,6 +109,7 @@ pub async fn get_economic_schedule_csv(
     let et = end_time.clone();
     let pm = preload_mode.clone();
     let pd = preload_date.clone();
+    let cd = custom_dir.clone();
 
     // 1. 必要年月を計算
     let ym_list = crate::pseudo_dmm::get_year_months_between(
@@ -106,7 +121,7 @@ pub async fn get_economic_schedule_csv(
         &et,
     );
 
-    // 2. キャッシュ確認
+    // 2. キャッシュ確認 (custom_dir指定時は整合性確認のため未キャッシュ月を優先ロード)
     let mut all_events = Vec::new();
     let mut missing_ym = Vec::new();
     {
@@ -123,6 +138,7 @@ pub async fn get_economic_schedule_csv(
 
     // 3. 未キャッシュ月があればロード
     if !missing_ym.is_empty() {
+        let cd_clone = cd.clone();
         let (_, loaded_events) = tokio::task::spawn_blocking(move || {
             crate::pseudo_dmm::load_and_check_economic_data_range(
                 &sym,
@@ -130,7 +146,7 @@ pub async fn get_economic_schedule_csv(
                 &et,
                 pm.as_deref(),
                 pd.as_deref(),
-                None,
+                cd_clone.as_deref(),
             )
         })
         .await

@@ -40,6 +40,7 @@ export const SettingsWindowContent: React.FC = () => {
   const [limitTickHistory, setLimitTickHistory] = useState(true);
   const [tickHistoryTimeframe, setTickHistoryTimeframe] = useState("M5");
   const [maxHistoryBars, setMaxHistoryBars] = useState(300);
+  const [economicDataDir, setEconomicDataDir] = useState<string>(() => localStorage.getItem("replay_economic_data_dir") || "");
 
   // ホットキー
   const [hotkeys, setHotkeys] = useState<Record<string, string>>(DEFAULT_HOTKEYS);
@@ -78,6 +79,18 @@ export const SettingsWindowContent: React.FC = () => {
           if (data.limit_tick_history !== undefined) setLimitTickHistory(data.limit_tick_history);
           if (data.tick_history_timeframe) setTickHistoryTimeframe(data.tick_history_timeframe);
           if (data.max_history_bars !== undefined) setMaxHistoryBars(data.max_history_bars);
+          if (data.economic_data_dir) {
+            setEconomicDataDir(data.economic_data_dir);
+          } else if (!localStorage.getItem("replay_economic_data_dir")) {
+            invoke<string>("get_default_economic_data_dir")
+              .then((def) => {
+                if (def) {
+                  setEconomicDataDir(def);
+                  localStorage.setItem("replay_economic_data_dir", def);
+                }
+              })
+              .catch(() => {});
+          }
         }
       } catch (err) {
         console.error("Failed to load settings in SettingsWindow:", err);
@@ -92,12 +105,14 @@ export const SettingsWindowContent: React.FC = () => {
       overrideHotkeys?: Record<string, string>,
       overrideTimePresets?: number[],
       overrideTickPresets?: number[],
-      overrideTheme?: string
+      overrideTheme?: string,
+      overrideEconomicDataDir?: string
     ) => {
       const activeHotkeys = overrideHotkeys || hotkeys;
       const activeTimePresets = overrideTimePresets || timePresets;
       const activeTickPresets = overrideTickPresets || tickPresets;
       const activeTheme = overrideTheme || theme;
+      const activeEconomicDataDir = overrideEconomicDataDir !== undefined ? overrideEconomicDataDir : economicDataDir;
 
       try {
         await invoke("save_settings", {
@@ -115,6 +130,7 @@ export const SettingsWindowContent: React.FC = () => {
             limit_tick_history: limitTickHistory,
             tick_history_timeframe: tickHistoryTimeframe,
             max_history_bars: maxHistoryBars,
+            economic_data_dir: activeEconomicDataDir,
           },
         });
         localStorage.setItem("tickreplay_theme", activeTheme);
@@ -126,6 +142,7 @@ export const SettingsWindowContent: React.FC = () => {
         localStorage.setItem("openrouter-model", openRouterModel);
         localStorage.setItem("fred-api-key", fredApiKey);
         localStorage.setItem("finnhub-api-key", finnhubApiKey);
+        localStorage.setItem("replay_economic_data_dir", activeEconomicDataDir);
 
         emit("settings-updated", {
           theme: activeTheme,
@@ -150,6 +167,7 @@ export const SettingsWindowContent: React.FC = () => {
       limitTickHistory,
       tickHistoryTimeframe,
       maxHistoryBars,
+      economicDataDir,
       openRouterApiKey,
       openRouterModel,
       fredApiKey,
@@ -435,6 +453,70 @@ export const SettingsWindowContent: React.FC = () => {
                       </div>
                     </div>
                   )}
+                </div>
+              </div>
+
+              <div className="settings-section-card">
+                <h3 className="section-title">
+                  <span className="material-symbols-outlined icon">folder_open</span>
+                  経済指標データフォルダ設定
+                </h3>
+                <div className="settings-options-list">
+                  <p className="option-desc" style={{ marginBottom: "8px" }}>
+                    疑似DMMスプレッドモデルで使用する経済指標データ (Parquet) の格納フォルダを指定します。
+                  </p>
+                  <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                    <input
+                      type="text"
+                      className="input-compact font-data"
+                      style={{ flex: 1, fontSize: "12px", padding: "6px 10px" }}
+                      value={economicDataDir}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setEconomicDataDir(val);
+                        saveAll(undefined, undefined, undefined, undefined, val);
+                      }}
+                      placeholder="D:\Drehis\economic"
+                    />
+                    <button
+                      className="btn-secondary-compact"
+                      style={{ display: "flex", alignItems: "center", gap: "4px", whiteSpace: "nowrap" }}
+                      onClick={async () => {
+                        try {
+                          const selected = await invoke<string | null>("select_folder");
+                          if (selected) {
+                            setEconomicDataDir(selected);
+                            saveAll(undefined, undefined, undefined, undefined, selected);
+                          }
+                        } catch (err) {
+                          console.error("Failed to select folder", err);
+                        }
+                      }}
+                      title="フォルダを選択"
+                    >
+                      <span className="material-symbols-outlined icon" style={{ fontSize: "16px" }}>folder</span>
+                      <span>参照</span>
+                    </button>
+                    <button
+                      className="btn-secondary-compact"
+                      style={{ display: "flex", alignItems: "center", gap: "4px", whiteSpace: "nowrap" }}
+                      onClick={async () => {
+                        try {
+                          const def = await invoke<string>("get_default_economic_data_dir");
+                          if (def) {
+                            setEconomicDataDir(def);
+                            saveAll(undefined, undefined, undefined, undefined, def);
+                          }
+                        } catch (err) {
+                          console.error("Failed to reset economic data dir", err);
+                        }
+                      }}
+                      title="デフォルト設定に戻す"
+                    >
+                      <span className="material-symbols-outlined icon" style={{ fontSize: "16px" }}>restart_alt</span>
+                      <span>初期値</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

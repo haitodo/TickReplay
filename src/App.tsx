@@ -275,6 +275,7 @@ function App() {
   const [economicMissingMonths, setEconomicMissingMonths] = useState<string[]>([]);
   const [economicAvailableMonths, setEconomicAvailableMonths] = useState<string[]>([]);
   const [_economicAvailabilityMap, setEconomicAvailabilityMap] = useState<Record<string, boolean>>({});
+  const [economicDataDir, setEconomicDataDir] = useState<string>(() => localStorage.getItem("replay_economic_data_dir") || "");
 
   // 新規スナップショット保存チェックボックス切り替え時に保存名を動的に更新する
   useEffect(() => {
@@ -1365,6 +1366,19 @@ function App() {
               setContractSize(parseInt(savedContract, 10));
             }
           }
+          if (saved.economic_data_dir) {
+            setEconomicDataDir(saved.economic_data_dir);
+            localStorage.setItem("replay_economic_data_dir", saved.economic_data_dir);
+          } else if (!localStorage.getItem("replay_economic_data_dir")) {
+            invoke<string>("get_default_economic_data_dir")
+              .then((def) => {
+                if (def) {
+                  setEconomicDataDir(def);
+                  localStorage.setItem("replay_economic_data_dir", def);
+                }
+              })
+              .catch(() => {});
+          }
         }
       } catch (e) {
         console.error("Failed to load settings", e);
@@ -1592,7 +1606,8 @@ function App() {
     customShowHoldingTime = showHoldingTime,
     customHoldingTimeMode = holdingTimeMode,
     customAdditionalSymbols = additionalSymbols,
-    customContractSize = contractSize
+    customContractSize = contractSize,
+    customEconomicDataDir = economicDataDir
   ) => {
     const settingsObj = {
       selected_terminal: selectedTerminal,
@@ -1636,6 +1651,7 @@ function App() {
       show_holding_time: customShowHoldingTime,
       holding_time_mode: customHoldingTimeMode,
       additional_symbols: customAdditionalSymbols,
+      economic_data_dir: customEconomicDataDir,
       terminal_names: (() => {
         const map: { [key: string]: string } = {};
         terminals.forEach((t) => {
@@ -1650,6 +1666,7 @@ function App() {
     try {
       localStorage.setItem("speed-order-hotkeys", JSON.stringify(customHotkeys));
       localStorage.setItem("speed-order-contract-size", customContractSize.toString());
+      localStorage.setItem("replay_economic_data_dir", customEconomicDataDir);
       await invoke("save_settings", { settings: settingsObj });
       await invoke("sync_presets", { timePresets: customTimePresets, tickPresets: customTickPresets });
     } catch (e) {
@@ -1722,7 +1739,8 @@ function App() {
         startTime,
         endTime,
         preloadMode,
-        preloadDate
+        preloadDate,
+        economicDataDir
       );
       if (checkResult) {
         const map: Record<string, boolean> = {};
@@ -1749,6 +1767,50 @@ function App() {
     }
 
     await executeInitReplay();
+  };
+
+  const saveEconomicDataDir = async (newDir: string) => {
+    setEconomicDataDir(newDir);
+    localStorage.setItem("replay_economic_data_dir", newDir);
+    try {
+      await invoke("save_settings", {
+        settings: {
+          economic_data_dir: newDir,
+        },
+      });
+    } catch (e) {
+      console.error("Failed to save economic_data_dir setting", e);
+    }
+  };
+
+  // 経済指標データフォルダの変更ハンドラー (不足確認モーダルから呼び出し)
+  const handleEconomicFolderSelected = async (newDir: string) => {
+    await saveEconomicDataDir(newDir);
+
+    try {
+      const checkResult = await checkEconomicDataAvailability(
+        sourceSymbol,
+        startTime,
+        endTime,
+        preloadMode,
+        preloadDate,
+        newDir
+      );
+      if (checkResult) {
+        const map: Record<string, boolean> = {};
+        checkResult.months.forEach((m) => {
+          map[m.year_month] = m.exists;
+        });
+        setEconomicAvailabilityMap(map);
+        setEconomicMissingMonths(checkResult.missing_months);
+        setEconomicAvailableMonths(checkResult.available_months);
+        if (checkResult.is_all_available) {
+          setIsEconomicWarningOpen(false);
+        }
+      }
+    } catch (e) {
+      console.warn("Re-check economic data availability error:", e);
+    }
   };
 
   // 経済指標データ不足確認モーダルで「このまま開始する」が押された場合の処理
@@ -1783,6 +1845,7 @@ function App() {
             endTime: endTime,
             preloadMode: preloadMode,
             preloadDate: preloadDate,
+            customDir: economicDataDir && economicDataDir.trim() ? economicDataDir.trim() : null,
           });
         } catch (e) {
           console.warn("経済指標スケジュール取得スキップ:", e);
@@ -1819,6 +1882,7 @@ function App() {
         pseudo_rollover_spread: pipsToPriceDiff(sourceSymbol, pseudoRolloverSpread),
         pseudo_rollover_recovery_min: pseudoRolloverRecoveryMin,
         economic_events_csv: economicEventsCsv,
+        economic_data_dir: economicDataDir,
         additional_symbols: additionalSymbols,
       };
 
@@ -3174,6 +3238,8 @@ function App() {
         saveAllSettings={saveAllSettings}
         timePresets={timePresets}
         tickPresets={tickPresets}
+        economicDataDir={economicDataDir}
+        setEconomicDataDir={saveEconomicDataDir}
       />
 
       {/* AI Analysis Panel */}
@@ -3298,6 +3364,8 @@ function App() {
         availableMonths={economicAvailableMonths}
         startTime={startTime}
         endTime={endTime}
+        currentEconomicDir={economicDataDir}
+        onFolderSelected={handleEconomicFolderSelected}
       />
 
       {/* Clear All Sessions Modal */}

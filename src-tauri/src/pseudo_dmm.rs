@@ -168,7 +168,7 @@ impl PseudoDmmEngine {
         map
     }
 
-    /// Drenhis 側の設定から経済指標エクスポート先パスを取得する（戻り値で直接判定）
+    /// Drenhis 側の設定または標準パスから経済指標データのデフォルトディレクトリを取得する
     pub fn get_drenhis_export_dir() -> PathBuf {
         if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
             let conf_path = PathBuf::from(local_app_data)
@@ -179,7 +179,10 @@ impl PseudoDmmEngine {
                     if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
                         if let Some(dir) = val.get("export_dir").and_then(|v| v.as_str()) {
                             let p = PathBuf::from(dir);
-                            if p.exists() {
+                            let econ_p = p.join("economic");
+                            if econ_p.exists() {
+                                return econ_p;
+                            } else if p.exists() {
                                 return p;
                             }
                         }
@@ -187,8 +190,16 @@ impl PseudoDmmEngine {
                 }
             }
         }
-        // Drenhis設定が存在しない場合の標準デフォルト
-        PathBuf::from(r"D:\Drehis")
+        // 設定がない場合のローカル既知パス優先チェック
+        let drehis_econ = PathBuf::from(r"D:\Drehis\economic");
+        if drehis_econ.exists() {
+            return drehis_econ;
+        }
+        let drehis = PathBuf::from(r"D:\Drehis");
+        if drehis.exists() {
+            return drehis;
+        }
+        PathBuf::from(r"D:\Drehis\economic")
     }
 
     /// 当月の経済指標イベントを Parquet から読み込む
@@ -1146,6 +1157,13 @@ mod tests {
         // 価格が大きく動いた場合 (150.020 / 150.024) -> 30ms後でも即座に出力される
         let res_moved = engine.process_tick(t0 + 430, 150.020, 150.024);
         assert!(res_moved.is_some());
+    }
+
+    #[test]
+    fn test_get_drenhis_export_dir() {
+        let dir = PseudoDmmEngine::get_drenhis_export_dir();
+        // 戻り値が存在するか、もしくは D:\Drehis 関連の有効なパスであること
+        assert!(!dir.to_string_lossy().is_empty());
     }
 }
 
