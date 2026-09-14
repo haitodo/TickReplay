@@ -426,12 +426,20 @@ impl PseudoDmmEngine {
         let raw_mid = (raw_bid + raw_ask) / 2.0;
         let raw_oanda_spread = (raw_ask - raw_bid).abs();
 
-        // 1. EMA平滑化（OANDA高周波ノイズを抑制）
+        // 1. 適応型EMA平滑化（平常時は0.15で高周波ノイズ抑制、急変時は動的に引き上げて即座に追従）
         if self.ema_mid == 0.0 {
             self.ema_mid = raw_mid;
             self.last_quantized_mid = (raw_mid * 1000.0).round() / 1000.0;
         } else {
-            self.ema_mid += dmm_characteristics::EMA_ALPHA * (raw_mid - self.ema_mid);
+            let diff = (raw_mid - self.ema_mid).abs();
+            let dynamic_alpha = if diff > 0.010 {
+                0.80 // 1pip以上の急変時は即座にジャンプ追従
+            } else if diff > 0.003 {
+                0.40 // 0.3pip以上の動意時は追従性をブースト
+            } else {
+                dmm_characteristics::EMA_ALPHA // 平常時は0.15で平滑化
+            };
+            self.ema_mid += dynamic_alpha * (raw_mid - self.ema_mid);
         }
 
         // 2. デッドバンド判定 ＆ 3. 0.001 (0.1pip) ステップ量子化

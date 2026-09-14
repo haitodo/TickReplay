@@ -5812,7 +5812,7 @@ void PrecalculatePseudoRates()
       if(spread_unit > max_limit_unit) spread_unit = max_limit_unit;
       if(spread_unit < base_spread_unit) spread_unit = base_spread_unit;
       
-      // 1. EMA平滑化（OANDA高周波ノイズを抑制）
+      // 1. 適応型EMA平滑化（平常時は0.15で高周波ノイズ抑制、急変時は動的に引き上げて即座に追従）
       double raw_mid_unit = (double)(oanda_bid_unit + oanda_ask_unit) / 2.0;
       if(ema_mid_unit <= 0.0)
       {
@@ -5821,7 +5821,9 @@ void PrecalculatePseudoRates()
       }
       else
       {
-         ema_mid_unit += 0.15 * (raw_mid_unit - ema_mid_unit);
+         double diff_unit = MathAbs(raw_mid_unit - ema_mid_unit);
+         double dynamic_alpha = (diff_unit > 10.0) ? 0.80 : ((diff_unit > 3.0) ? 0.40 : 0.15);
+         ema_mid_unit += dynamic_alpha * (raw_mid_unit - ema_mid_unit);
       }
       
       // 2. デッドバンド判定 ＆ 3. 0.001 (1 unit) ステップ量子化
@@ -6109,7 +6111,9 @@ void GetPseudoRates(MqlTick &src_tick, double &out_bid, double &out_ask, double 
    }
    else
    {
-      s_ema_mid_unit += 0.15 * (raw_mid_unit - s_ema_mid_unit);
+      double diff_unit = MathAbs(raw_mid_unit - s_ema_mid_unit);
+      double dynamic_alpha = (diff_unit > 10.0) ? 0.80 : ((diff_unit > 3.0) ? 0.40 : 0.15);
+      s_ema_mid_unit += dynamic_alpha * (raw_mid_unit - s_ema_mid_unit);
    }
    
    double delta_from_last = MathAbs(s_ema_mid_unit - (double)s_last_quantized_mid_unit);
