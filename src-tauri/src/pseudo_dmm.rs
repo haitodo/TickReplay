@@ -35,6 +35,28 @@ pub struct EconomicEvent {
     pub recovery_ms: i64,
 }
 
+/// DMM クォーティング特性 (実測統計から導出)
+pub mod dmm_characteristics {
+    /// DMMの最小価格変動ステップ (0.1pip = 0.001)
+    pub const PRICE_STEP: f64 = 0.001;
+
+    /// デッドバンド閾値: この範囲内の微小変動は直前のクォート価格を維持
+    pub const DEADBAND_THRESHOLD: f64 = 0.0005;
+
+    /// EMA 平滑化係数 (α): OANDA高周波ノイズを抑制
+    pub const EMA_ALPHA: f64 = 0.15;
+
+    /// 時間帯別の目標ティック/秒 (JST 00〜23時)
+    pub const TPS_BY_JST_HOUR: [f64; 24] = [
+        4.53, 4.51, 4.68, 4.03, // 00-03
+        4.13, 4.43, 5.27, 5.27, // 04-07
+        5.07, 4.54, 4.02, 3.75, // 08-11
+        3.84, 3.70, 2.70, 2.40, // 12-15
+        2.26, 3.32, 3.98, 4.15, // 16-19
+        3.64, 3.26, 3.34, 3.64, // 20-23
+    ];
+}
+
 /// 疑似DMMレート生成エンジン（4層パイプライン）
 pub struct PseudoDmmEngine {
     pub symbol: String,
@@ -47,6 +69,9 @@ pub struct PseudoDmmEngine {
     last_emitted_spread: f64,
     // Layer 3: 直近10秒間のプライスボラティリティ追跡 (mt5_ms, mid)
     recent_ticks: Vec<(i64, f64)>,
+    // DMM クォーティング特性再現用ステート
+    ema_mid: f64,
+    last_quantized_mid: f64,
 }
 
 impl PseudoDmmEngine {
@@ -73,6 +98,8 @@ impl PseudoDmmEngine {
             last_emitted_mid: 0.0,
             last_emitted_spread: 0.002,
             recent_ticks: Vec::with_capacity(500),
+            ema_mid: 0.0,
+            last_quantized_mid: 0.0,
         }
     }
 
@@ -396,8 +423,26 @@ impl PseudoDmmEngine {
         raw_bid: f64,
         raw_ask: f64,
     ) -> Option<(f64, f64, f64)> {
-        let mid = (raw_bid + raw_ask) / 2.0;
+        let raw_mid = (raw_bid + raw_ask) / 2.0;
         let raw_oanda_spread = (raw_ask - raw_bid).abs();
+
+        // 1. EMA平滑化（OANDA高周波ノイズを抑制）
+        if self.ema_mid == 0.0 {
+            self.ema_mid = raw_mid;
+            self.last_quantized_mid = (raw_mid * 1000.0).round() / 1000.0;
+        } else {
+            self.ema_mid += dmm_characteristics::EMA_ALPHA * (raw_mid - self.ema_mid);
+        }
+
+        // 2. デッドバンド判定 ＆ 3. 0.001 (0.1pip) ステップ量子化
+        let delta_from_last = (self.ema_mid - self.last_quantized_mid).abs();
+        let mid = if delta_from_last >= dmm_characteristics::DEADBAND_THRESHOLD {
+            let quantized = (self.ema_mid * 1000.0).round() / 1000.0;
+            self.last_quantized_mid = quantized;
+            quantized
+        } else {
+            self.last_quantized_mid
+        };
 
         // MT5時刻から UTC ms および JST ms を計算
         let naive_mt5_sec = mt5_time_msc / 1000;
@@ -579,9 +624,22 @@ impl PseudoDmmEngine {
         let d_mid = (mid - self.last_emitted_mid).abs();
         let d_spr = (final_spread - self.last_emitted_spread).abs();
 
-        // 40ms未満で価格変動が0.1pip未満かつスプレッド不変の冗長ティックは間引き
-        if dt_msc < 40 && d_mid < 0.001 && d_spr < 0.0002 && self.last_emitted_msc > 0 {
-            return None;
+        // 時間帯別の目標配信間隔 (ms)
+        let target_tps = dmm_characteristics::TPS_BY_JST_HOUR[(jst_hour.min(23)) as usize];
+        let min_interval_ms = (1000.0 / target_tps) as i64;
+
+        // 価格変動(0.1pip以上)やスプレッド変動がある場合は最新レートを即座に伝えるため最小20msで配信
+        // 変動がない同値クォートの場合は時間帯別の配信レート(min_interval_ms)に間引き
+        if self.last_emitted_msc > 0 {
+            if d_mid < 0.0005 && d_spr < 0.0002 {
+                // 変動なし（同値クォート）: 目標TPS間隔を満たしていなければ間引き
+                if dt_msc < min_interval_ms {
+                    return None;
+                }
+            } else if dt_msc < 20 {
+                // 価格またはスプレッドが変動した場合: 極端なバースト(20ms未満)のみ抑制
+                return None;
+            }
         }
 
         // 更新を記録
@@ -1026,6 +1084,60 @@ mod tests {
         assert!(PseudoDmmEngine::is_us_dst(2026, 3, 8, 2));
         assert!(PseudoDmmEngine::is_us_dst(2026, 11, 1, 1));
         assert!(!PseudoDmmEngine::is_us_dst(2026, 11, 1, 2));
+    }
+
+    #[test]
+    fn test_dmm_quantization_and_deadband() {
+        let mut engine = PseudoDmmEngine::new("USDJPY", "2026-08");
+        // 平日 14:00 JST (MT5夏時間 08:00)
+        let t0 = 1785571200000i64;
+        
+        // 1. 初回ティック (raw_mid = 150.002)
+        let res0 = engine.process_tick(t0, 150.000, 150.004);
+        assert!(res0.is_some());
+        let (bid0, ask0, _) = res0.unwrap();
+        assert_eq!(bid0, 150.001);
+        assert_eq!(ask0, 150.003);
+
+        // 2. 1秒後、微小な変動 (raw_bid=150.0002, raw_ask=150.0042 -> raw_mid=150.0022)
+        // deltaは0.0005未満なのでデッドバンドにより前回の150.002が維持される
+        let res1 = engine.process_tick(t0 + 1000, 150.0002, 150.0042);
+        assert!(res1.is_some());
+        let (bid1, ask1, _) = res1.unwrap();
+        assert_eq!(bid1, 150.001);
+        assert_eq!(ask1, 150.003);
+
+        // 3. 2秒後、大きな変動 (raw_bid=150.010, raw_ask=150.014 -> raw_mid=150.012)
+        // EMA平滑化・デッドバンドを超え、0.001単位に量子化された新しいレートが出力される
+        let res2 = engine.process_tick(t0 + 2000, 150.010, 150.014);
+        assert!(res2.is_some());
+        let (bid2, ask2, _) = res2.unwrap();
+        assert!(bid2 > bid0, "Bid should update upward: {}", bid2);
+        // 0.001単位で厳密にステップ量子化されていること
+        assert_eq!(((bid2 * 1000.0).round() - (bid2 * 1000.0)).abs(), 0.0);
+        assert_eq!(((ask2 * 1000.0).round() - (ask2 * 1000.0)).abs(), 0.0);
+    }
+
+    #[test]
+    fn test_dynamic_tps_pruning() {
+        let mut engine = PseudoDmmEngine::new("USDJPY", "2026-08");
+        // 平日 14:00 JST (目標TPS約2.7 -> min_interval_msは約370ms)
+        let t0 = 1785571200000i64;
+
+        let res0 = engine.process_tick(t0, 150.000, 150.004);
+        assert!(res0.is_some());
+
+        // 50ms後、同値クォート -> 目標間隔(370ms)未満のため間引かれてNone
+        let res_pruned = engine.process_tick(t0 + 50, 150.000, 150.004);
+        assert!(res_pruned.is_none());
+
+        // 400ms後、同値クォート -> 目標間隔(370ms)以上経過したため出力される
+        let res_emitted = engine.process_tick(t0 + 400, 150.000, 150.004);
+        assert!(res_emitted.is_some());
+
+        // 価格が大きく動いた場合 (150.020 / 150.024) -> 30ms後でも即座に出力される
+        let res_moved = engine.process_tick(t0 + 430, 150.020, 150.024);
+        assert!(res_moved.is_some());
     }
 }
 

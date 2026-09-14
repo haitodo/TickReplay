@@ -5559,6 +5559,8 @@ void PrecalculatePseudoRates()
    int prev_ask_unit = 0;
    int prev_spread_unit = 0;
    ENUM_PSEUDO_STATE prev_state = PSEUDO_STATE_NORMAL;
+   double ema_mid_unit = 0.0;
+   int last_quantized_mid_unit = 0;
    
    int eco_idx = 0;
 
@@ -5810,7 +5812,28 @@ void PrecalculatePseudoRates()
       if(spread_unit > max_limit_unit) spread_unit = max_limit_unit;
       if(spread_unit < base_spread_unit) spread_unit = base_spread_unit;
       
-      int target_mid_unit = oanda_mid_unit;
+      // 1. EMA平滑化（OANDA高周波ノイズを抑制）
+      double raw_mid_unit = (double)(oanda_bid_unit + oanda_ask_unit) / 2.0;
+      if(ema_mid_unit <= 0.0)
+      {
+         ema_mid_unit = raw_mid_unit;
+         last_quantized_mid_unit = (int)MathRound(raw_mid_unit);
+      }
+      else
+      {
+         ema_mid_unit += 0.15 * (raw_mid_unit - ema_mid_unit);
+      }
+      
+      // 2. デッドバンド判定 ＆ 3. 0.001 (1 unit) ステップ量子化
+      // デッドバンド閾値: 0.5 unit (0.0005)
+      double delta_from_last = MathAbs(ema_mid_unit - (double)last_quantized_mid_unit);
+      int target_mid_unit = last_quantized_mid_unit;
+      if(delta_from_last >= 0.5)
+      {
+         target_mid_unit = (int)MathRound(ema_mid_unit);
+         last_quantized_mid_unit = target_mid_unit;
+      }
+      
       int candidate_bid_unit = (int)MathRound((double)target_mid_unit - (double)spread_unit / 2.0);
       int candidate_ask_unit = candidate_bid_unit + spread_unit;
       
@@ -6075,7 +6098,29 @@ void GetPseudoRates(MqlTick &src_tick, double &out_bid, double &out_ask, double 
    if(spread_unit > max_limit_unit) spread_unit = max_limit_unit;
    if(spread_unit < base_spread_unit) spread_unit = base_spread_unit;
 
-   int candidate_bid_unit = (int)MathRound((double)oanda_mid_unit - (double)spread_unit / 2.0);
+   static double s_ema_mid_unit = 0.0;
+   static int s_last_quantized_mid_unit = 0;
+   
+   double raw_mid_unit = (double)(oanda_bid_unit + oanda_ask_unit) / 2.0;
+   if(s_ema_mid_unit <= 0.0)
+   {
+      s_ema_mid_unit = raw_mid_unit;
+      s_last_quantized_mid_unit = (int)MathRound(raw_mid_unit);
+   }
+   else
+   {
+      s_ema_mid_unit += 0.15 * (raw_mid_unit - s_ema_mid_unit);
+   }
+   
+   double delta_from_last = MathAbs(s_ema_mid_unit - (double)s_last_quantized_mid_unit);
+   int target_mid_unit = s_last_quantized_mid_unit;
+   if(delta_from_last >= 0.5)
+   {
+      target_mid_unit = (int)MathRound(s_ema_mid_unit);
+      s_last_quantized_mid_unit = target_mid_unit;
+   }
+
+   int candidate_bid_unit = (int)MathRound((double)target_mid_unit - (double)spread_unit / 2.0);
    int candidate_ask_unit = candidate_bid_unit + spread_unit;
 
    out_bid = ToPrice(candidate_bid_unit, price_unit, digits);
