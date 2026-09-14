@@ -46,14 +46,14 @@ pub mod dmm_characteristics {
     /// EMA 平滑化係数 (α): OANDA高周波ノイズを抑制
     pub const EMA_ALPHA: f64 = 0.15;
 
-    /// 時間帯別の目標ティック/秒 (JST 00〜23時 / 真のJST実測値準拠)
+    /// 時間帯別の目標ティック/秒 (JST 00〜23時 / 2026年9月最新DMM実測統計準拠)
     pub const TPS_BY_JST_HOUR: [f64; 24] = [
-        4.98, 4.45, 4.15, 4.30, // 00-03 (オセアニア・深夜)
-        4.16, 3.04, 2.71, 2.66, // 04-07 (早朝閑散・ロールオーバー帯)
-        3.84, 4.70, 4.73, 4.13, // 08-11 (東京セッション・仲値)
-        3.72, 3.86, 4.21, 5.32, // 12-15 (東京午後〜欧州プレ)
-        5.18, 5.46, 4.61, 4.70, // 16-19 (ロンドン市場コア)
-        5.11, 6.07, 6.09, 5.75, // 20-23 (NYオープン・米指標・最大ピーク)
+        5.10, 4.83, 4.55, 4.81, // 00-03 (オセアニア・深夜)
+        4.63, 3.40, 2.93, 2.79, // 04-07 (早朝閑散・ロールオーバー帯)
+        4.05, 4.63, 4.54, 3.92, // 08-11 (東京セッション・仲値)
+        3.53, 3.64, 3.96, 5.01, // 12-15 (東京午後〜欧州プレ)
+        4.91, 5.17, 4.40, 4.46, // 16-19 (ロンドン市場コア)
+        4.82, 5.80, 5.78, 5.51, // 20-23 (NYオープン・米指標・最大ピーク)
     ];
 }
 
@@ -133,7 +133,7 @@ impl PseudoDmmEngine {
             return map;
         }
 
-        // デフォルトフォールバック
+        // デフォルトフォールバック (2026年9月実測データ: 雇用統計/CPI収束時間約120秒準拠)
         let mut map = HashMap::new();
         map.insert("USD:非農業部門雇用者数".to_string(), IndicatorProfile {
             currency: "USD".to_string(),
@@ -143,7 +143,7 @@ impl PseudoDmmEngine {
             dmm_advance_seconds: 35,
             dmm_base_pre_spread: 0.039,
             dmm_base_peak_spread: 0.156,
-            dmm_recovery_seconds: 45,
+            dmm_recovery_seconds: 120,
         });
         map.insert("USD:CPI".to_string(), IndicatorProfile {
             currency: "USD".to_string(),
@@ -153,7 +153,7 @@ impl PseudoDmmEngine {
             dmm_advance_seconds: 35,
             dmm_base_pre_spread: 0.039,
             dmm_base_peak_spread: 0.156,
-            dmm_recovery_seconds: 45,
+            dmm_recovery_seconds: 120,
         });
         map.insert("USD:Fed金利決定".to_string(), IndicatorProfile {
             currency: "USD".to_string(),
@@ -163,7 +163,7 @@ impl PseudoDmmEngine {
             dmm_advance_seconds: 35,
             dmm_base_pre_spread: 0.039,
             dmm_base_peak_spread: 0.156,
-            dmm_recovery_seconds: 45,
+            dmm_recovery_seconds: 120,
         });
         map
     }
@@ -292,7 +292,7 @@ impl PseudoDmmEngine {
                                             let imp = imp_col.map(|arr| arr.value(row).to_string()).unwrap_or_else(|| "none".to_string());
 
                                             let profile_key = format!("{}:{}", ccy, name);
-                                            let (tier, adv_s, pre_s, peak_s, rec_s) = if let Some(p) = profiles.get(&profile_key) {
+                                            let (tier, adv_s, pre_s, peak_s, mut rec_s) = if let Some(p) = profiles.get(&profile_key) {
                                                 (p.tier, p.dmm_advance_seconds, p.dmm_base_pre_spread, p.dmm_base_peak_spread, p.dmm_recovery_seconds)
                                             } else {
                                                 let name_l = name.to_lowercase();
@@ -301,15 +301,22 @@ impl PseudoDmmEngine {
                                                     || name_l.contains("nfp") || name_l.contains("fomc")
                                                     || name_l.contains("fed");
                                                 if is_tier1 {
-                                                    (1, 35, 0.039, 0.156, 45)
+                                                    (1, 35, 0.039, 0.156, 120)
                                                 } else {
                                                     match imp.as_str() {
-                                                        "high" => (2, 25, 0.025, 0.060, 35),
-                                                        "medium" => (3, 15, 0.012, 0.025, 25),
+                                                        "high" => (2, 25, 0.025, 0.060, 80),
+                                                        "medium" => (3, 15, 0.012, 0.025, 35),
                                                         _ => (4, 0, 0.002, 0.002, 0),
                                                     }
                                                 }
                                             };
+
+                                            // 2026年9月実測検証準拠: 重要指標の収束時間最適化クランプ
+                                            if tier == 1 {
+                                                rec_s = rec_s.max(120);
+                                            } else if tier == 2 {
+                                                rec_s = rec_s.max(80);
+                                            }
 
                                             events.push(EconomicEvent {
                                                 event_id,
@@ -525,37 +532,47 @@ impl PseudoDmmEngine {
             }
         }
 
-        // --- Layer 2: 早朝ロールオーバー制御 (2026年最新実測データ準拠) ---
+        // --- Layer 2: 早朝ロールオーバー制御 (2026年9月最新実測分単位統計準拠) ---
         // 夏時間: 05:50〜07:15 JST (06:00ロールオーバー) / 冬時間: 06:50〜08:15 JST (07:00ロールオーバー)
         let rollover_hour = if is_dst { 6 } else { 7 };
         let pre_hour = rollover_hour - 1;
 
-        if jst_hour == pre_hour && jst_min >= 55 {
-            // ロールオーバー5分前先行拡大 (05:55〜05:59): 0.5銭〜2.0銭
-            let progress = (jst_min - 55) as f64 / 5.0;
-            let early_spread = 0.005 + 0.015 * progress;
-            if early_spread > target_spread {
-                target_spread = early_spread;
+        if jst_hour == pre_hour {
+            if jst_min == 59 {
+                // ロールオーバー1分前直前拡大 (05:59 / 06:59): 実測平均3.81銭・中央値3.90銭
+                let early_spread = 0.039;
+                if early_spread > target_spread {
+                    target_spread = early_spread;
+                }
+            } else if jst_min >= 55 {
+                // ロールオーバー5〜2分前先行微増 (05:55〜05:58): 実測0.20銭〜0.50銭
+                let progress = (jst_min - 55) as f64 / 4.0;
+                let early_spread = 0.002 + 0.003 * progress;
+                if early_spread > target_spread {
+                    target_spread = early_spread;
+                }
             }
         } else if jst_hour == rollover_hour {
             let early_spread = if jst_min <= 5 {
-                0.088 // ロールオーバー直後スパイク (実測平均8.8銭 / 最大15.9銭)
+                0.120 // ロールオーバー直後スパイク (06:00〜06:05: 実測平均10.0〜12.3銭 / 最大12.9銭)
+            } else if jst_min <= 9 {
+                0.090 // スパイク後段 (06:06〜06:09: 実測平均8.7〜11.5銭)
             } else if jst_min <= 15 {
-                0.060 - 0.015 * ((jst_min - 5) as f64 / 10.0) // 6.0銭から4.5銭へ
+                0.050 // スパイク減衰帯 (06:10〜06:15: 実測平均4.3〜6.1銭 / 中央値3.9銭)
             } else {
-                0.038 // 早朝ワイドスプレッド安定帯 (3.8銭)
+                0.039 // 早朝ワイドスプレッド安定帯 (06:16〜06:59: 実測中央値・P90ともに厳密に3.9銭)
             };
             if early_spread > target_spread {
                 target_spread = early_spread;
             }
         } else if jst_hour == rollover_hour + 1 && jst_min < 10 {
-            // 早朝残存帯 (07:00〜07:09 / 08:00〜08:09): 3.5銭
+            // 早朝残存固定帯 (07:00〜07:09 / 08:00〜08:09): 実測最頻値・中央値・P90すべて3.5銭厳密固定
             let early_spread = 0.035;
             if early_spread > target_spread {
                 target_spread = early_spread;
             }
         } else if jst_hour == rollover_hour + 1 && jst_min < 15 {
-            // 復帰急減衰帯 (07:10〜07:14 / 08:10〜08:14): 3.5銭から0.2銭へ急減衰 (実測07:10平均0.8銭)
+            // 復帰急減衰帯 (07:10〜07:14 / 08:10〜08:14): 3.5銭から0.2銭へ急減衰 (実測07:10中央値0.2銭/平均0.48銭)
             let progress = (jst_min - 10) as f64 / 5.0;
             let early_spread = 0.008 - (0.008 - 0.002) * progress;
             if early_spread > target_spread {
@@ -614,11 +631,12 @@ impl PseudoDmmEngine {
                     let dyn_spread = ev.base_peak_spread + 0.35 * oanda_excess + 0.05 * price_volatility_10s_pips;
                     dyn_spread.min(max_cap)
                 } else {
-                    // 収束フェーズ (T+10s 〜 T+recovery): 2次指数減衰
-                    let peak_base = ev.base_peak_spread.min(if ev.tier == 1 { 0.156 } else { 0.080 });
-                    let rem_progress = (mt5_time_msc - (ev.mt5_ms + 10000)) as f64 / ((ev.recovery_ms - 10000) as f64).max(1.0);
-                    let decay = (1.0 - rem_progress).max(0.0).powi(2);
-                    0.002 + (peak_base - 0.002) * decay
+                    // 収束フェーズ (T+10s 〜 T+recovery): 2026年9月実測検証準拠の2次減衰
+                    // T+10s初動通過後の実測ベース水準 (Tier 1: 5.2銭, Tier 2: 3.5銭)
+                    let decay_start_spread = if ev.tier == 1 { 0.052 } else if ev.tier == 2 { 0.035 } else { ev.base_peak_spread };
+                    let rem_progress = ((mt5_time_msc - (ev.mt5_ms + 10000)) as f64 / ((ev.recovery_ms - 10000) as f64).max(1.0)).clamp(0.0, 1.0);
+                    let decay = (1.0 - rem_progress).powi(2);
+                    0.002 + (decay_start_spread - 0.002) * decay
                 };
 
                 if indicator_spread > target_spread {
@@ -925,21 +943,29 @@ mod tests {
         let (_, _, spr_pre) = res_pre.unwrap();
         assert!((spr_pre - 0.002).abs() < 0.0001, "Pre-rollover 05:30 spread should be 0.2銭, got {}", spr_pre);
 
-        // 2026-08-03 (月) 06:00:00 JST (夏時間: 21:00:00 UTC, 00:00:00 MT5) -> スパイク 8.8銭
+        // 2026-08-03 (月) 06:00:00 JST (夏時間: 21:00:00 UTC, 00:00:00 MT5) -> スパイク 12.0銭 (実測最大12.9銭)
         let mt5_dt_peak = NaiveDateTime::parse_from_str("2026-08-03 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
         let mt5_msc_peak = mt5_dt_peak.and_utc().timestamp() * 1000;
         let res_peak = engine.process_tick(mt5_msc_peak, 150.000, 150.004);
         assert!(res_peak.is_some());
         let (_, _, spr_peak) = res_peak.unwrap();
-        assert_eq!(spr_peak, 0.088, "Rollover 06:00 peak should be 8.8銭, got {}", spr_peak);
+        assert_eq!(spr_peak, 0.120, "Rollover 06:00 peak should be 12.0銭, got {}", spr_peak);
 
-        // 2026-08-03 (月) 06:30:00 JST (夏時間: 21:30:00 UTC, 00:30:00 MT5) -> 3.8銭
+        // 2026-08-03 (月) 06:30:00 JST (夏時間: 21:30:00 UTC, 00:30:00 MT5) -> 3.9銭 (実測中央値準拠)
         let mt5_dt_mid = NaiveDateTime::parse_from_str("2026-08-03 00:30:00", "%Y-%m-%d %H:%M:%S").unwrap();
         let mt5_msc_mid = mt5_dt_mid.and_utc().timestamp() * 1000;
         let res_mid = engine.process_tick(mt5_msc_mid, 150.000, 150.004);
         assert!(res_mid.is_some());
         let (_, _, spr_mid) = res_mid.unwrap();
-        assert!((spr_mid - 0.038).abs() < 0.0001, "Early morning 06:30 spread should be 3.8銭, got {}", spr_mid);
+        assert!((spr_mid - 0.039).abs() < 0.0001, "Early morning 06:30 spread should be 3.9銭, got {}", spr_mid);
+
+        // 2026-08-03 (月) 07:05:00 JST (夏時間: 22:05:00 UTC, 01:05:00 MT5) -> 3.5銭厳密固定帯
+        let mt5_dt_7h = NaiveDateTime::parse_from_str("2026-08-03 01:05:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        let mt5_msc_7h = mt5_dt_7h.and_utc().timestamp() * 1000;
+        let res_7h = engine.process_tick(mt5_msc_7h, 150.000, 150.004);
+        assert!(res_7h.is_some());
+        let (_, _, spr_7h) = res_7h.unwrap();
+        assert_eq!(spr_7h, 0.035, "Early morning 07:00-07:09 spread should be strictly 3.5銭, got {}", spr_7h);
 
         // 2026-08-03 (月) 07:15:00 JST (夏時間: 22:15:00 UTC, 01:15:00 MT5) -> 復帰 0.2銭
         let mt5_dt_rec = NaiveDateTime::parse_from_str("2026-08-03 01:15:00", "%Y-%m-%d %H:%M:%S").unwrap();
@@ -969,7 +995,7 @@ mod tests {
             advance_ms: 35000,
             base_pre_spread: 0.039,
             base_peak_spread: 0.156,
-            recovery_ms: 45000,
+            recovery_ms: 120000,
         });
 
         // 1. 発表 20秒前 (T - 20s): 事前拡大
@@ -985,6 +1011,20 @@ mod tests {
         assert!(res_peak.is_some());
         let (_, _, spr_peak) = res_peak.unwrap();
         assert_eq!(spr_peak, 0.156, "Peak spread should reach 0.156 on Tier 1 event");
+
+        // 3. 発表後 30秒 (T + 30s): 減衰フェーズ (約3.0〜3.8銭)
+        let mt5_mid_msc = (mt5_event_dt.and_utc().timestamp() + 30) * 1000;
+        let res_mid = engine.process_tick(mt5_mid_msc, 150.000, 150.004);
+        assert!(res_mid.is_some());
+        let (_, _, spr_mid) = res_mid.unwrap();
+        assert!(spr_mid >= 0.030 && spr_mid <= 0.040, "Spread at T+30s should be ~3.5銭, got {}", spr_mid);
+
+        // 4. 発表後 130秒 (T + 130s): 完全平時復帰 (0.2銭)
+        let mt5_post_msc = (mt5_event_dt.and_utc().timestamp() + 130) * 1000;
+        let res_post = engine.process_tick(mt5_post_msc, 150.000, 150.004);
+        assert!(res_post.is_some());
+        let (_, _, spr_post) = res_post.unwrap();
+        assert!((spr_post - 0.002).abs() < 0.0001, "Spread at T+130s should recover to 0.2銭, got {}", spr_post);
     }
 
     #[test]
