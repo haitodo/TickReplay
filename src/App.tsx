@@ -1884,6 +1884,10 @@ function App() {
         economic_events_csv: economicEventsCsv,
         economic_data_dir: economicDataDir,
         additional_symbols: additionalSymbols,
+        initial_balance: initialBalance,
+        contract_size: contractSize,
+        leverage: leverage,
+        hedging: hedging,
       };
 
       await sendCommand(initCmd);

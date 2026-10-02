@@ -466,11 +466,71 @@ async fn process_status_message(
     state: &Arc<ReplayState>,
     connected_notified: &mut bool,
 ) {
+    let mut val: serde_json::Value = match serde_json::from_str(trimmed) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+
+    // 1. virtual_time_msc の抽出と JFX 実行フィード & 仮想取引エンジンの同期更新
+    let v_msc_opt = val.get("virtual_time_msc").and_then(|v| v.as_i64());
+    if let Some(v_msc) = v_msc_opt {
+        *state.current_virtual_time_msc.lock().unwrap() = v_msc;
+
+        let mut feed_guard = state.execution_feed.lock().unwrap();
+        if let Some(ref mut feed) = *feed_guard {
+            let mut last_eval_guard = state.last_eval_msc.lock().unwrap();
+            let last_eval = *last_eval_guard;
+            let quote = feed.get_quote_at(v_msc);
+
+            let mut engine = state.trading_engine.lock().unwrap();
+            let sym = val.get("symbol")
+                .or_else(|| val.get("source_symbol"))
+                .and_then(|s| s.as_str())
+                .unwrap_or("USDJPY");
+
+            if last_eval > 0 && v_msc > last_eval && (v_msc - last_eval) < 300_000 {
+                let ticks_range = feed.get_ticks_range(last_eval, v_msc);
+                if !ticks_range.is_empty() {
+                    engine.evaluate_ticks(ticks_range, v_msc, sym);
+                } else if let Some(ref q) = quote {
+                    engine.update_positions_mtm(q);
+                    engine.recalculate_account(q);
+                }
+            } else if let Some(ref q) = quote {
+                engine.update_positions_mtm(q);
+                engine.recalculate_account(q);
+            }
+            *last_eval_guard = v_msc;
+
+            if let Some(ref q) = quote {
+                val["jfx_bid"] = serde_json::json!(q.bid);
+                val["jfx_ask"] = serde_json::json!(q.ask);
+                val["jfx_spread"] = serde_json::json!(q.spread);
+                val["jfx_real"] = serde_json::json!(q.is_real);
+
+                // DMM互換フィールドもJFXのレートで更新
+                val["dmm_bid"] = serde_json::json!(q.bid);
+                val["dmm_ask"] = serde_json::json!(q.ask);
+                val["dmm_spread"] = serde_json::json!(q.spread);
+            }
+
+            // Rust 仮想取引エンジンの残高・ポジション・履歴で上書き
+            val["account"] = serde_json::to_value(&engine.account).unwrap_or_default();
+            val["positions"] = serde_json::to_value(&engine.positions).unwrap_or_default();
+            val["history"] = serde_json::to_value(&engine.history).unwrap_or_default();
+        }
+    }
+
+    let final_status_str = match serde_json::to_string(&val) {
+        Ok(s) => s,
+        Err(_) => trimmed.to_string(),
+    };
+
     // 高速パス: 前回と完全一致かつ接続通知済みであれば、JSONパース・Tauri emit を即座にスキップしてCPU負荷ゼロ化
     let is_changed = {
         let mut last = state.last_status.lock().unwrap();
-        if *last != trimmed {
-            *last = trimmed.to_string();
+        if *last != final_status_str {
+            *last = final_status_str.clone();
             true
         } else {
             false
@@ -482,64 +542,58 @@ async fn process_status_message(
     }
 
     // フロントエンドへリアルタイム通知
-    let _ = app_handle.emit("mt5-status", trimmed);
+    let _ = app_handle.emit("mt5-status", &final_status_str);
 
     // 外部ツール（Drenhisなど）へWebSocketブロードキャスト送信
-    let _ = state.sync_tx.send(trimmed.to_string());
+    let _ = state.sync_tx.send(final_status_str);
 
-    // 取引履歴キャッシュの更新（ゼロ負荷ガード：平常のティック更新時は高速バイトスキャンで即座にバイパス）
-    if trimmed.contains("\"history\":") {
-        if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) {
-            if let Some(history) = val.get("history") {
-                let mut h_guard = state.last_history.lock().unwrap();
-                *h_guard = Some(history.clone());
-            }
-        }
+    // 取引履歴キャッシュの更新
+    if let Some(history) = val.get("history") {
+        let mut h_guard = state.last_history.lock().unwrap();
+        *h_guard = Some(history.clone());
     }
 
     // キャッシュされている再生状態などを更新
-    if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) {
-        if let Some(status) = val.get("status").and_then(|s| s.as_str()) {
-            if status == "CONNECTED" {
-                if !*connected_notified {
-                    let _ = app_handle.emit("mt5-connected", ());
-                    *connected_notified = true;
+    if let Some(status) = val.get("status").and_then(|s| s.as_str()) {
+        if status == "CONNECTED" {
+            if !*connected_notified {
+                let _ = app_handle.emit("mt5-connected", ());
+                *connected_notified = true;
+            }
+        } else if status == "DISCONNECTED" {
+            let _ = app_handle.emit("mt5-disconnected", ());
+            *connected_notified = false;
+            if let Some(speed_order) = app_handle.get_webview_window("speed_order") {
+                let _ = speed_order.close();
+            }
+        } else if status == "ACTIVE" || status == "READY" {
+            if !*connected_notified {
+                let _ = app_handle.emit("mt5-connected", ());
+                *connected_notified = true;
+            }
+            
+            // playback Mutexを1度だけロックして一貫性を保ちつつ更新
+            let mut p_guard = state.playback.lock().unwrap();
+            
+            if let Some(playing) = val.get("is_playing").and_then(|p| p.as_bool()) {
+                p_guard.is_playing = playing;
+            }
+            if let Some(mode_val) = val.get("speed_mode") {
+                if let Ok(mode) = serde_json::from_value::<crate::state::SpeedMode>(mode_val.clone()) {
+                    p_guard.speed_mode = mode;
                 }
-            } else if status == "DISCONNECTED" {
-                let _ = app_handle.emit("mt5-disconnected", ());
-                *connected_notified = false;
-                if let Some(speed_order) = app_handle.get_webview_window("speed_order") {
-                    let _ = speed_order.close();
-                }
-            } else if status == "ACTIVE" || status == "READY" {
-                if !*connected_notified {
-                    let _ = app_handle.emit("mt5-connected", ());
-                    *connected_notified = true;
-                }
-                
-                // playback Mutexを1度だけロックして一貫性を保ちつつ更新
-                let mut p_guard = state.playback.lock().unwrap();
-                
-                if let Some(playing) = val.get("is_playing").and_then(|p| p.as_bool()) {
-                    p_guard.is_playing = playing;
-                }
-                if let Some(mode_val) = val.get("speed_mode") {
-                    if let Ok(mode) = serde_json::from_value::<crate::state::SpeedMode>(mode_val.clone()) {
-                        p_guard.speed_mode = mode;
-                    }
-                }
-                if let Some(mult_val) = val.get("multiplier") {
-                    if let Some(mult) = mult_val.as_f64() {
+            }
+            if let Some(mult_val) = val.get("multiplier") {
+                if let Some(mult) = mult_val.as_f64() {
+                    p_guard.multiplier = mult;
+                } else if let Some(mult_str) = mult_val.as_str() {
+                    if let Ok(mult) = mult_str.parse::<f64>() {
                         p_guard.multiplier = mult;
-                    } else if let Some(mult_str) = mult_val.as_str() {
-                        if let Ok(mult) = mult_str.parse::<f64>() {
-                            p_guard.multiplier = mult;
-                        }
                     }
                 }
-                if let Some(step) = val.get("tick_step").and_then(|t| t.as_i64()) {
-                    p_guard.tick_step = step as i32;
-                }
+            }
+            if let Some(step) = val.get("tick_step").and_then(|t| t.as_i64()) {
+                p_guard.tick_step = step as i32;
             }
         }
     }

@@ -1,7 +1,46 @@
 use std::sync::Arc;
-use tauri::{AppHandle, State, Manager};
+use tauri::{AppHandle, State, Manager, Emitter};
 use crate::error::AppError;
 use crate::state::{ReplayState, SpeedMode};
+
+pub fn emit_trading_status_update(
+    app_handle: &AppHandle,
+    state: &Arc<ReplayState>,
+) {
+    let mut last = state.last_status.lock().unwrap();
+    let mut val: serde_json::Value = if !last.is_empty() {
+        serde_json::from_str(&last).unwrap_or_else(|_| serde_json::json!({}))
+    } else {
+        serde_json::json!({ "status": "ACTIVE" })
+    };
+
+    let v_time = *state.current_virtual_time_msc.lock().unwrap();
+    let mut feed_guard = state.execution_feed.lock().unwrap();
+    let current_quote = feed_guard.as_mut().and_then(|f| f.get_quote_at(v_time));
+
+    let engine = state.trading_engine.lock().unwrap();
+
+    if let Some(obj) = val.as_object_mut() {
+        if let Some(ref quote) = current_quote {
+            obj.insert("dmm_bid".to_string(), serde_json::json!(quote.bid));
+            obj.insert("dmm_ask".to_string(), serde_json::json!(quote.ask));
+            obj.insert("dmm_spread".to_string(), serde_json::json!(quote.spread));
+            obj.insert("jfx_bid".to_string(), serde_json::json!(quote.bid));
+            obj.insert("jfx_ask".to_string(), serde_json::json!(quote.ask));
+            obj.insert("jfx_spread".to_string(), serde_json::json!(quote.spread));
+            obj.insert("jfx_real".to_string(), serde_json::json!(quote.is_real));
+        }
+        obj.insert("account".to_string(), serde_json::to_value(&engine.account).unwrap_or_default());
+        obj.insert("positions".to_string(), serde_json::to_value(&engine.positions).unwrap_or_default());
+        obj.insert("history".to_string(), serde_json::to_value(&engine.history).unwrap_or_default());
+    }
+
+    if let Ok(json_str) = serde_json::to_string(&val) {
+        *last = json_str.clone();
+        let _ = app_handle.emit("mt5-status", &json_str);
+        let _ = state.sync_tx.send(json_str);
+    }
+}
 
 #[tauri::command]
 pub async fn send_command(
@@ -12,6 +51,130 @@ pub async fn send_command(
     let mut final_cmd_json = command_json;
     if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&final_cmd_json) {
         if let Some(command) = val.get("command").and_then(|c| c.as_str()) {
+            // --- 仮想取引エンジンのコマンド直接処理 (MT5 Named Pipe への転送不要) ---
+            match command {
+                "ORDER_OPEN" => {
+                    let type_str = val.get("type").and_then(|t| t.as_str()).unwrap_or("BUY");
+                    let volume = val.get("volume").and_then(|v| v.as_f64()).unwrap_or(1.0);
+                    let sl_points = val.get("sl_points").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let tp_points = val.get("tp_points").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let v_time = *state.current_virtual_time_msc.lock().unwrap();
+
+                    let mut feed_guard = state.execution_feed.lock().unwrap();
+                    if let Some(ref mut feed) = *feed_guard {
+                        if let Some(quote) = feed.get_quote_at(v_time) {
+                            let mut engine = state.trading_engine.lock().unwrap();
+                            let sym = feed.symbol.clone();
+                            engine.open_order(&sym, type_str, volume, sl_points, tp_points, &quote, v_time);
+                            drop(engine);
+                            drop(feed_guard);
+                            emit_trading_status_update(&app_handle, &state);
+                        }
+                    }
+                    return Ok(());
+                }
+                "ORDER_CLOSE" => {
+                    let ticket = val.get("ticket").and_then(|t| t.as_i64()).unwrap_or(0) as i32;
+                    let volume = val.get("volume").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let v_time = *state.current_virtual_time_msc.lock().unwrap();
+
+                    let mut feed_guard = state.execution_feed.lock().unwrap();
+                    if let Some(ref mut feed) = *feed_guard {
+                        if let Some(quote) = feed.get_quote_at(v_time) {
+                            let mut engine = state.trading_engine.lock().unwrap();
+                            let is_buy = engine.positions.iter().find(|p| p.ticket == ticket).map(|p| p.r#type == "BUY").unwrap_or(true);
+                            let close_price = if is_buy { quote.bid } else { quote.ask };
+                            engine.close_position_by_ticket(ticket, volume, "MANUAL", close_price, v_time);
+                            engine.recalculate_account(&quote);
+                            drop(engine);
+                            drop(feed_guard);
+                            emit_trading_status_update(&app_handle, &state);
+                        }
+                    }
+                    return Ok(());
+                }
+                "ORDER_CLOSE_ALL" => {
+                    let v_time = *state.current_virtual_time_msc.lock().unwrap();
+                    let mut feed_guard = state.execution_feed.lock().unwrap();
+                    if let Some(ref mut feed) = *feed_guard {
+                        if let Some(quote) = feed.get_quote_at(v_time) {
+                            let mut engine = state.trading_engine.lock().unwrap();
+                            engine.close_all("MANUAL", &quote, v_time);
+                            drop(engine);
+                            drop(feed_guard);
+                            emit_trading_status_update(&app_handle, &state);
+                        }
+                    }
+                    return Ok(());
+                }
+                "ORDER_CLOSE_BUY" => {
+                    let v_time = *state.current_virtual_time_msc.lock().unwrap();
+                    let mut feed_guard = state.execution_feed.lock().unwrap();
+                    if let Some(ref mut feed) = *feed_guard {
+                        if let Some(quote) = feed.get_quote_at(v_time) {
+                            let mut engine = state.trading_engine.lock().unwrap();
+                            engine.close_buy("MANUAL", &quote, v_time);
+                            drop(engine);
+                            drop(feed_guard);
+                            emit_trading_status_update(&app_handle, &state);
+                        }
+                    }
+                    return Ok(());
+                }
+                "ORDER_CLOSE_SELL" => {
+                    let v_time = *state.current_virtual_time_msc.lock().unwrap();
+                    let mut feed_guard = state.execution_feed.lock().unwrap();
+                    if let Some(ref mut feed) = *feed_guard {
+                        if let Some(quote) = feed.get_quote_at(v_time) {
+                            let mut engine = state.trading_engine.lock().unwrap();
+                            engine.close_sell("MANUAL", &quote, v_time);
+                            drop(engine);
+                            drop(feed_guard);
+                            emit_trading_status_update(&app_handle, &state);
+                        }
+                    }
+                    return Ok(());
+                }
+                "ORDER_MODIFY" => {
+                    let ticket = val.get("ticket").and_then(|t| t.as_i64()).unwrap_or(0) as i32;
+                    let sl = val.get("sl").and_then(|s| s.as_f64());
+                    let tp = val.get("tp").and_then(|t| t.as_f64());
+                    let mut engine = state.trading_engine.lock().unwrap();
+                    engine.modify_order(ticket, sl, tp);
+                    drop(engine);
+                    emit_trading_status_update(&app_handle, &state);
+                    return Ok(());
+                }
+                "SET_CONTRACT_SIZE" => {
+                    if let Some(size) = val.get("size").and_then(|s| s.as_f64()) {
+                        state.trading_engine.lock().unwrap().contract_size = size;
+                    }
+                    return Ok(());
+                }
+                "SET_HEDGING" => {
+                    if let Some(allowed) = val.get("allowed").and_then(|a| a.as_bool()) {
+                        state.trading_engine.lock().unwrap().hedging = allowed;
+                    }
+                    return Ok(());
+                }
+                "SET_LATENCY" => {
+                    if let Some(latency) = val.get("latency_ms").and_then(|l| l.as_i64()) {
+                        state.trading_engine.lock().unwrap().latency_ms = latency;
+                    }
+                    return Ok(());
+                }
+                _ => {}
+            }
+
+            if command == "RESET" {
+                *state.last_eval_msc.lock().unwrap() = 0;
+                let balance = state.trading_engine.lock().unwrap().account.balance;
+                state.trading_engine.lock().unwrap().reset(balance);
+                emit_trading_status_update(&app_handle, &state);
+            } else if command == "SEEK" || command == "SEEK_TIME" || command == "SEEK_RELATIVE" || command == "TIME_JUMP" {
+                *state.last_eval_msc.lock().unwrap() = 0;
+            }
+
             if command == "CONTROL" {
                 let mut p = state.playback.lock().unwrap();
                 if let Some(playing) = val.get("is_playing").and_then(|p| p.as_bool()) {
@@ -33,6 +196,36 @@ pub async fn send_command(
                     let _ = speed_order.close();
                 }
             } else if command == "INIT" {
+                // JFX 実行フィードのロード & 仮想取引エンジンのリセット
+                let source_sym = val.get("source_symbol").and_then(|s| s.as_str()).unwrap_or("USDJPY");
+                let st = val.get("start_time").and_then(|s| s.as_str()).unwrap_or("");
+                let et = val.get("end_time").and_then(|s| s.as_str()).unwrap_or("");
+                let balance = val.get("initial_balance").and_then(|b| b.as_f64()).unwrap_or(1_000_000.0);
+                let contract_size = val.get("contract_size").and_then(|c| c.as_f64()).unwrap_or(10_000.0);
+                let leverage = val.get("leverage").and_then(|l| l.as_f64()).unwrap_or(25.0);
+                let hedging = val.get("hedging").and_then(|h| h.as_bool()).unwrap_or(false);
+                let latency_ms = val.get("latency_ms").and_then(|l| l.as_i64()).unwrap_or(0);
+
+                let feed_res = crate::jfx_feed::JfxExecutionFeed::load(source_sym, st, et, None);
+                match feed_res {
+                    Ok(feed) => {
+                        let is_real = feed.is_real_jfx;
+                        let count = feed.ticks.len();
+                        *state.execution_feed.lock().unwrap() = Some(feed);
+                        let mut engine = state.trading_engine.lock().unwrap();
+                        engine.reset(balance);
+                        engine.contract_size = contract_size;
+                        engine.leverage = leverage;
+                        engine.hedging = hedging;
+                        engine.latency_ms = latency_ms;
+                        *state.last_eval_msc.lock().unwrap() = 0;
+                        println!("[commands_replay] JFX実行フィード初期化完了: real={}, ticks={}", is_real, count);
+                    }
+                    Err(e) => {
+                        eprintln!("[commands_replay] JFX実行フィード初期化失敗: {}", e);
+                    }
+                }
+
                 // economic_events_csv が未設定または空の場合、キャッシュまたはロードから自動補完
                 let needs_eco_csv = match val.get("economic_events_csv") {
                     Some(serde_json::Value::String(s)) => s.is_empty(),
@@ -118,13 +311,25 @@ pub async fn send_command(
 #[tauri::command]
 pub async fn read_trade_ticks(app_handle: AppHandle, ticket: i32) -> Result<String, AppError> {
     let state = app_handle.state::<Arc<ReplayState>>();
+    
+    // 1. Rust 仮想取引エンジンにキャッシュがあればそこから返す
+    {
+        let engine = state.trading_engine.lock().unwrap();
+        if let Some(ticks) = engine.closed_tickets_ticks.get(&ticket) {
+            if let Ok(json) = serde_json::to_string(ticks) {
+                return Ok(json);
+            }
+        }
+    }
+
+    // 2. MT5 Files パスからのフォールバック読込
     let files_path = {
         let path_guard = state.files_path.lock().unwrap();
         path_guard.clone()
     };
 
     let Some(files_path) = files_path else {
-        return Err(AppError::Config("MT5 Files path not configured".to_string()));
+        return Ok("[]".to_string());
     };
     
     let ticks_file = files_path.join(format!("trade_ticks_{}.json", ticket));
@@ -133,7 +338,6 @@ pub async fn read_trade_ticks(app_handle: AppHandle, ticket: i32) -> Result<Stri
     }
     
     let content = tokio::fs::read_to_string(&ticks_file).await?;
-    
     let _ = tokio::fs::remove_file(ticks_file).await;
     
     Ok(content)

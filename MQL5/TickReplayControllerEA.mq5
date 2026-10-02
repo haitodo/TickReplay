@@ -126,6 +126,7 @@ double                  m_sensitivity_coeff = 0.25;             // 拡大感度�
 bool                    m_pseudo_rollover_enabled = true;      // 早朝ロールオーバー適応フラグ
 double                  m_pseudo_rollover_spread = 0.038;       // 早朝ロールオーバー基準スプレッド（3.8銭）
 int                     m_pseudo_rollover_recovery_min = 15;    // 早朝復帰時間（分）
+bool                    m_show_chart_trades = false;            // チャート上にエントリー・決済矢印やポジション線を描画しない (100%クリーンチャート維持)
 
 //--- 疑似DMMレート構造体
 struct PseudoRate
@@ -4458,18 +4459,21 @@ void VirtualOrderOpen(string type_str, double volume, double sl_points, double t
       m_virtual_positions[size].ticket, type_str, volume, open_price));
       
    // チャート上にエントリーを示す矢印をスタンプ
-   int total_charts = ArraySize(m_viewer_chart_ids);
-   string arrow_name = StringFormat("TradeEntry_%d", m_virtual_positions[size].ticket);
-   for(int c = 0; c < total_charts; c++)
+   if(m_show_chart_trades)
    {
-      long cid = m_viewer_chart_ids[c];
-      if(cid > 0)
+      int total_charts = ArraySize(m_viewer_chart_ids);
+      string arrow_name = StringFormat("TradeEntry_%d", m_virtual_positions[size].ticket);
+      for(int c = 0; c < total_charts; c++)
       {
-         if(ObjectCreate(cid, arrow_name, OBJ_ARROW, 0, m_virtual_positions[size].open_time, open_price))
+         long cid = m_viewer_chart_ids[c];
+         if(cid > 0)
          {
-            ObjectSetInteger(cid, arrow_name, OBJPROP_ARROWCODE, (type == POSITION_TYPE_BUY ? 241 : 242)); // 矢印上向き/下向き
-            ObjectSetInteger(cid, arrow_name, OBJPROP_COLOR, (type == POSITION_TYPE_BUY ? clrDodgerBlue : clrTomato));
-            ObjectSetInteger(cid, arrow_name, OBJPROP_WIDTH, 2);
+            if(ObjectCreate(cid, arrow_name, OBJ_ARROW, 0, m_virtual_positions[size].open_time, open_price))
+            {
+               ObjectSetInteger(cid, arrow_name, OBJPROP_ARROWCODE, (type == POSITION_TYPE_BUY ? 241 : 242)); // 矢印上向き/下向き
+               ObjectSetInteger(cid, arrow_name, OBJPROP_COLOR, (type == POSITION_TYPE_BUY ? clrDodgerBlue : clrTomato));
+               ObjectSetInteger(cid, arrow_name, OBJPROP_WIDTH, 2);
+            }
          }
       }
    }
@@ -4933,6 +4937,7 @@ double GetProfitConversionRate(string symbol)
 
 void UpdateChartObjects()
 {
+   if(!m_show_chart_trades) return;
    int pos_size = ArraySize(m_virtual_positions);
    int total_charts = ArraySize(m_viewer_chart_ids);
    

@@ -98,6 +98,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
   });
   const [economicMap, setEconomicMap] = useState<Record<string, boolean>>(() => getCachedEconomicAvailabilityMap());
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [jfxReal, setJfxReal] = useState<boolean | null>(null);
   const prevStatusRef = useRef<string>("DISCONNECTED");
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [errorDisplayDuration, setErrorDisplayDuration] = useState<number>(() => {
@@ -295,8 +296,11 @@ export const SpeedOrderWindowContent: React.FC = () => {
           sendCommand({ command: "SET_HISTORY_VISIBILITY", show: currentShow });
           sendCommand({ command: "SET_CONTRACT_SIZE", size: currentContractSize });
           sendCommand({ command: "SET_HEDGING", allowed: currentHedging });
-          const initBid = data.dmm_bid !== undefined ? data.dmm_bid : data.bid;
-          const initAsk = data.dmm_ask !== undefined ? data.dmm_ask : data.ask;
+          if (data.jfx_real !== undefined) {
+            setJfxReal(data.jfx_real);
+          }
+          const initBid = data.jfx_bid !== undefined ? data.jfx_bid : (data.dmm_bid !== undefined ? data.dmm_bid : data.bid);
+          const initAsk = data.jfx_ask !== undefined ? data.jfx_ask : (data.dmm_ask !== undefined ? data.dmm_ask : data.ask);
           if (initBid) setBid(initBid);
           if (initAsk) setAsk(initAsk);
           if (data.account) setAccount(data.account);
@@ -327,7 +331,10 @@ export const SpeedOrderWindowContent: React.FC = () => {
           }
           prevStatusRef.current = data.status;
           setStatus(data.status);
-          const nextBid = data.dmm_bid !== undefined ? data.dmm_bid : data.bid;
+          if (data.jfx_real !== undefined) {
+            setJfxReal(data.jfx_real);
+          }
+          const nextBid = data.jfx_bid !== undefined ? data.jfx_bid : (data.dmm_bid !== undefined ? data.dmm_bid : data.bid);
           if (nextBid !== undefined) {
             setBid((prev) => {
               if (prev > 0) {
@@ -344,7 +351,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
               return nextBid;
             });
           }
-          const nextAsk = data.dmm_ask !== undefined ? data.dmm_ask : data.ask;
+          const nextAsk = data.jfx_ask !== undefined ? data.jfx_ask : (data.dmm_ask !== undefined ? data.dmm_ask : data.ask);
           if (nextAsk !== undefined) {
             setAsk((prev) => {
               if (prev > 0) {
@@ -839,7 +846,26 @@ export const SpeedOrderWindowContent: React.FC = () => {
             </span>
           </button>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }} data-tauri-drag-region>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }} data-tauri-drag-region>
+          {jfxReal !== null && (
+            <span
+              className="jfx-badge"
+              style={{
+                fontSize: "11px",
+                fontWeight: 700,
+                padding: "2px 6px",
+                borderRadius: "4px",
+                letterSpacing: "0.5px",
+                backgroundColor: jfxReal ? "rgba(34, 197, 94, 0.15)" : "rgba(234, 179, 8, 0.15)",
+                color: jfxReal ? "#4ade80" : "#facc15",
+                border: jfxReal ? "1px solid rgba(74, 222, 128, 0.4)" : "1px solid rgba(250, 204, 21, 0.4)",
+                userSelect: "none",
+              }}
+              title={jfxReal ? "JFX実ティックデータ執行中 (スプレッド原則固定0.2銭)" : "JFX疑似固定スプレッド(0.2銭)フォールバック執行中"}
+            >
+              {jfxReal ? "JFX リアル" : "JFX 疑似 0.2銭"}
+            </span>
+          )}
           {/* 口座・ポジション管理（ポジション一覧）ウィンドウ起動ボタン */}
           <button
             className="speed-header-icon-btn"

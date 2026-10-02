@@ -16,6 +16,8 @@ pub mod commands_settings;
 pub mod commands_window;
 pub mod commands;
 pub mod sync_server;
+pub mod jfx_feed;
+pub mod virtual_trading;
 
 use std::sync::Arc;
 use tauri::{Manager, Emitter};
