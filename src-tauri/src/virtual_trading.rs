@@ -48,13 +48,21 @@ pub struct VirtualAccount {
     pub total_profit: f64,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PendingOrder {
     pub execute_after_msc: i64,
     pub r#type: String,
     pub volume: f64,
     pub sl_points: f64,
     pub tp_points: f64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PendingClose {
+    pub execute_after_msc: i64,
+    pub ticket: i32,
+    pub volume: f64,
+    pub reason: String,
 }
 
 #[derive(Clone, Debug)]
@@ -68,6 +76,7 @@ pub struct VirtualTradingEngine {
     pub next_ticket: i32,
     pub latency_ms: i64,
     pub pending_orders: Vec<PendingOrder>,
+    pub pending_closes: Vec<PendingClose>,
     pub closed_tickets_ticks: std::collections::HashMap<i32, Vec<serde_json::Value>>,
 }
 
@@ -105,6 +114,7 @@ impl VirtualTradingEngine {
             next_ticket: 1,
             latency_ms,
             pending_orders: Vec::new(),
+            pending_closes: Vec::new(),
             closed_tickets_ticks: std::collections::HashMap::new(),
         }
     }
@@ -120,8 +130,69 @@ impl VirtualTradingEngine {
         self.positions.clear();
         self.history.clear();
         self.pending_orders.clear();
+        self.pending_closes.clear();
         self.closed_tickets_ticks.clear();
         self.next_ticket = 1;
+    }
+
+    /// タイムトラベル連動 (SEEK / A-Bループ時の建玉巻き戻し)
+    /// タイムラインの巻き戻しで過去時刻に戻った際、その仮想時刻以降に発注された建玉を自動消去し、
+    /// その時点でオープン中だったポジションを復元し、口座残高・有効証拠金に整合的に復元。
+    pub fn rewind_to(&mut self, target_time_msc: i64, current_tick: &ExecutionTick) {
+        // 1. target_time_msc より未来にオープンされたポジションを削除
+        self.positions.retain(|p| p.open_time_msc <= target_time_msc);
+
+        // 2. 履歴 (history) の整合的巻き戻し
+        let mut restored_positions = Vec::new();
+        let mut kept_history = Vec::new();
+
+        for mut pos in self.history.drain(..) {
+            if pos.open_time_msc > target_time_msc {
+                // target_time_msc より未来に発注された建玉 -> 残高から確定損益を差し引いて完全消去
+                self.account.balance -= pos.profit;
+                self.account.total_profit -= pos.profit;
+            } else if pos.close_time_msc.map_or(false, |ct| ct > target_time_msc) {
+                // target_time_msc 以前にオープンされたが決済は未来 -> 未決済建玉としてポジションに復元
+                self.account.balance -= pos.profit;
+                self.account.total_profit -= pos.profit;
+                pos.close_price = None;
+                pos.close_time = None;
+                pos.close_time_msc = None;
+                pos.close_reason = None;
+                restored_positions.push(pos);
+            } else {
+                // target_time_msc 以前に決済完了している正常な過去履歴
+                kept_history.push(pos);
+            }
+        }
+
+        self.history = kept_history;
+
+        // 部分決済されていた場合は既存ポジションにロットを合算、新規復元なら追加
+        for restored in restored_positions {
+            if let Some(existing) = self.positions.iter_mut().find(|p| p.ticket == restored.ticket) {
+                existing.volume += restored.volume;
+            } else {
+                self.positions.push(restored);
+            }
+        }
+        self.positions.sort_by_key(|p| p.ticket);
+
+        // 3. 巻き戻しに伴い、再生待ちの遅延注文・遅延決済を破棄
+        self.pending_orders.clear();
+        self.pending_closes.clear();
+
+        // 4. キャッシュされた約定ティック履歴の再整合
+        self.closed_tickets_ticks.retain(|ticket, _| self.history.iter().any(|h| h.ticket == *ticket));
+
+        // 5. 次回チケット番号の再整合
+        let max_pos = self.positions.iter().map(|p| p.ticket).max().unwrap_or(0);
+        let max_hist = self.history.iter().map(|p| p.ticket).max().unwrap_or(0);
+        self.next_ticket = max_pos.max(max_hist) + 1;
+
+        // 6. 巻き戻し時点のレートで評価・残高・有効証拠金復元
+        self.update_positions_mtm(current_tick);
+        self.recalculate_account(current_tick);
     }
 
     /// 成行注文の発注 (BUY / SELL)
@@ -134,20 +205,27 @@ impl VirtualTradingEngine {
         tp_points: f64,
         current_tick: &ExecutionTick,
         virtual_time_msc: i64,
+        is_playing: bool,
     ) -> Option<i32> {
         let is_buy = type_str.eq_ignore_ascii_case("BUY");
         let order_type = if is_buy { "BUY".to_string() } else { "SELL".to_string() };
 
-        // 実戦遅延シミュレーションが有効な場合はキューイング
+        // 実戦遅延シミュレーションが有効な場合
         if self.latency_ms > 0 {
-            self.pending_orders.push(PendingOrder {
-                execute_after_msc: virtual_time_msc + self.latency_ms,
-                r#type: order_type,
-                volume,
-                sl_points,
-                tp_points,
-            });
-            return None;
+            if is_playing {
+                // 再生中: T_match = T_click + Δt 時点までキューイングし、到達時点の実レートで約定
+                self.pending_orders.push(PendingOrder {
+                    execute_after_msc: virtual_time_msc + self.latency_ms,
+                    r#type: order_type,
+                    volume,
+                    sl_points,
+                    tp_points,
+                });
+                return None;
+            } else {
+                // 一時停止中: 即座に T_match = T_click + Δt 時点の実レートで約定
+                return self.execute_open(symbol, &order_type, volume, sl_points, tp_points, current_tick, virtual_time_msc + self.latency_ms);
+            }
         }
 
         self.execute_open(symbol, &order_type, volume, sl_points, tp_points, current_tick, virtual_time_msc)
@@ -381,7 +459,23 @@ impl VirtualTradingEngine {
                 self.pending_orders = remaining_pending;
             }
 
-            // 2. SL / TP 判定
+            // 2. 保留中の遅延決済の執行判定
+            if !self.pending_closes.is_empty() {
+                let pending_closes = std::mem::take(&mut self.pending_closes);
+                let mut remaining_closes = Vec::new();
+                for pending in pending_closes {
+                    if tick.time_msc >= pending.execute_after_msc {
+                        let is_buy = self.positions.iter().find(|p| p.ticket == pending.ticket).map(|p| p.r#type == "BUY").unwrap_or(true);
+                        let close_price = if is_buy { tick.bid } else { tick.ask };
+                        self.close_position_by_ticket(pending.ticket, pending.volume, &pending.reason, close_price, tick.time_msc);
+                    } else {
+                        remaining_closes.push(pending);
+                    }
+                }
+                self.pending_closes = remaining_closes;
+            }
+
+            // 3. SL / TP 判定
             let mut closed_tickets = Vec::new();
             for pos in &self.positions {
                 let is_buy = pos.r#type == "BUY";
@@ -468,7 +562,7 @@ mod tests {
             is_real: true,
         };
 
-        let ticket = engine.open_order("USDJPY", "BUY", 1.0, 0.0, 0.0, &tick, 1000).unwrap();
+        let ticket = engine.open_order("USDJPY", "BUY", 1.0, 0.0, 0.0, &tick, 1000, false).unwrap();
         assert_eq!(ticket, 1);
         assert_eq!(engine.positions.len(), 1);
         assert_eq!(engine.positions[0].open_price, 150.002);
@@ -494,7 +588,7 @@ mod tests {
         let mut engine = VirtualTradingEngine::new(1_000_000.0, 25.0, 10_000.0, false, 0);
         let tick1 = ExecutionTick { time_msc: 1000, bid: 150.000, ask: 150.002, spread: 0.002, is_real: true };
         // SL: 50 points (0.050), TP: 100 points (0.100)
-        let _ = engine.open_order("USDJPY", "BUY", 1.0, 50.0, 100.0, &tick1, 1000);
+        let _ = engine.open_order("USDJPY", "BUY", 1.0, 50.0, 100.0, &tick1, 1000, false);
         assert_eq!(engine.positions[0].sl, Some(149.952));
         assert_eq!(engine.positions[0].tp, Some(150.102));
 
@@ -504,5 +598,99 @@ mod tests {
         assert_eq!(engine.positions.len(), 0);
         assert_eq!(engine.history.len(), 1);
         assert_eq!(engine.history[0].close_reason, Some("SL".to_string()));
+    }
+
+    #[test]
+    fn test_rewind_to_time_travel() {
+        let mut engine = VirtualTradingEngine::new(1_000_000.0, 25.0, 10_000.0, true, 0);
+        let t1 = ExecutionTick { time_msc: 10_000, bid: 150.000, ask: 150.002, spread: 0.002, is_real: true };
+        let t2 = ExecutionTick { time_msc: 20_000, bid: 150.020, ask: 150.022, spread: 0.002, is_real: true };
+        let t3 = ExecutionTick { time_msc: 30_000, bid: 150.050, ask: 150.052, spread: 0.002, is_real: true };
+
+        // 1. Time 10_000: BUY order (Ticket 1)
+        let t1_id = engine.open_order("USDJPY", "BUY", 1.0, 0.0, 0.0, &t1, 10_000, false).unwrap();
+        assert_eq!(t1_id, 1);
+
+        // 2. Time 20_000: Close Ticket 1 (+180 JPY profit)
+        engine.close_position_by_ticket(t1_id, 1.0, "MANUAL", t2.bid, 20_000);
+        assert_eq!(engine.account.balance, 1_000_180.0);
+
+        // 3. Time 30_000: BUY order (Ticket 2)
+        let t2_id = engine.open_order("USDJPY", "BUY", 1.0, 0.0, 0.0, &t3, 30_000, false).unwrap();
+        assert_eq!(t2_id, 2);
+        assert_eq!(engine.positions.len(), 1);
+        assert_eq!(engine.history.len(), 1);
+
+        // 4. Time travel rewind to 15_000 (after Ticket 1 opened, but BEFORE Ticket 1 closed and BEFORE Ticket 2 opened):
+        let t_rewind = ExecutionTick { time_msc: 15_000, bid: 150.010, ask: 150.012, spread: 0.002, is_real: true };
+        engine.rewind_to(15_000, &t_rewind);
+
+        // Ticket 2 (opened at 30_000) was in the future -> DISCARDED!
+        // Ticket 1 (opened at 10_000, closed at 20_000) was open at 15_000 -> RESTORED TO OPEN POSITIONS!
+        assert_eq!(engine.positions.len(), 1);
+        assert_eq!(engine.positions[0].ticket, 1);
+        assert_eq!(engine.positions[0].open_price, 150.002);
+        assert_eq!(engine.history.len(), 0);
+
+        // Balance restored to 1_000_000 (realized profit reversed)
+        assert_eq!(engine.account.balance, 1_000_000.0);
+        // Floating profit at 15_000: (150.010 - 150.002) * 10,000 = +80 JPY
+        assert!((engine.positions[0].profit - 80.0).abs() < 1e-4);
+        assert!((engine.account.equity - 1_000_080.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_latency_matching_playback_queue() {
+        let mut engine = VirtualTradingEngine::new(1_000_000.0, 25.0, 10_000.0, false, 30);
+        let tick1 = ExecutionTick { time_msc: 1000, bid: 150.000, ask: 150.002, spread: 0.002, is_real: true };
+
+        // While playing, order is queued until T_click + 30ms = 1030ms
+        let res = engine.open_order("USDJPY", "BUY", 1.0, 0.0, 0.0, &tick1, 1000, true);
+        assert_eq!(res, None);
+        assert_eq!(engine.pending_orders.len(), 1);
+        assert_eq!(engine.positions.len(), 0);
+
+        // Tick before 1030ms (e.g. 1020ms) does NOT execute
+        let tick2 = ExecutionTick { time_msc: 1020, bid: 150.005, ask: 150.007, spread: 0.002, is_real: true };
+        engine.evaluate_ticks(&[tick2], 1020, "USDJPY");
+        assert_eq!(engine.pending_orders.len(), 1);
+        assert_eq!(engine.positions.len(), 0);
+
+        // Tick at or after 1030ms (1030ms, price has spiked to 150.020 / 150.022) executes at this exact rate!
+        let tick3 = ExecutionTick { time_msc: 1030, bid: 150.020, ask: 150.022, spread: 0.002, is_real: true };
+        engine.evaluate_ticks(&[tick3], 1030, "USDJPY");
+        assert_eq!(engine.pending_orders.len(), 0);
+        assert_eq!(engine.positions.len(), 1);
+        // Filled at spiked rate (150.022) reproducing real latency slippage!
+        assert_eq!(engine.positions[0].open_price, 150.022);
+    }
+
+    #[test]
+    fn test_rewind_partial_close_merging() {
+        let mut engine = VirtualTradingEngine::new(1_000_000.0, 25.0, 10_000.0, true, 0);
+        let t1 = ExecutionTick { time_msc: 10_000, bid: 150.000, ask: 150.002, spread: 0.002, is_real: true };
+        let t2 = ExecutionTick { time_msc: 20_000, bid: 150.020, ask: 150.022, spread: 0.002, is_real: true };
+
+        // 1. Open BUY 2.0 lots at 10_000
+        let t1_id = engine.open_order("USDJPY", "BUY", 2.0, 0.0, 0.0, &t1, 10_000, false).unwrap();
+        assert_eq!(engine.positions[0].volume, 2.0);
+
+        // 2. Partially close 0.5 lots at 20_000 (remaining: 1.5 lots, closed: 0.5 lots)
+        engine.close_position_by_ticket(t1_id, 0.5, "MANUAL", t2.bid, 20_000);
+        assert_eq!(engine.positions.len(), 1);
+        assert_eq!(engine.positions[0].volume, 1.5);
+        assert_eq!(engine.history.len(), 1);
+        assert_eq!(engine.history[0].volume, 0.5);
+
+        // 3. Rewind to 15_000 (before partial close)
+        let t_rewind = ExecutionTick { time_msc: 15_000, bid: 150.010, ask: 150.012, spread: 0.002, is_real: true };
+        engine.rewind_to(15_000, &t_rewind);
+
+        // Ticket 1 should have its 0.5 lots merged back, resulting in a single position of 2.0 lots!
+        assert_eq!(engine.positions.len(), 1);
+        assert_eq!(engine.positions[0].ticket, t1_id);
+        assert!((engine.positions[0].volume - 2.0).abs() < 1e-6);
+        assert_eq!(engine.history.len(), 0);
+        assert_eq!(engine.account.balance, 1_000_000.0);
     }
 }

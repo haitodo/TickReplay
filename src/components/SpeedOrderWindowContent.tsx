@@ -110,6 +110,15 @@ export const SpeedOrderWindowContent: React.FC = () => {
     return 3.0;
   });
 
+  const [orderLatencyMs, setOrderLatencyMs] = useState<number>(() => {
+    const saved = localStorage.getItem("speed-order-latency-ms");
+    if (saved !== null) {
+      const parsed = parseInt(saved, 10);
+      if (!isNaN(parsed) && parsed >= 0) return Math.min(200, parsed);
+    }
+    return 30;
+  });
+
   const [quickLots, setQuickLots] = useState<number[]>(() => {
     const saved = localStorage.getItem("speed-order-quick-lots");
     if (saved) {
@@ -185,6 +194,11 @@ export const SpeedOrderWindowContent: React.FC = () => {
   }, [errorDisplayDuration]);
 
   useEffect(() => {
+    localStorage.setItem("speed-order-latency-ms", String(orderLatencyMs));
+    sendCommand({ command: "SET_LATENCY", latency_ms: orderLatencyMs });
+  }, [orderLatencyMs]);
+
+  useEffect(() => {
     localStorage.setItem("speed-order-quick-lots", JSON.stringify(quickLots));
   }, [quickLots]);
 
@@ -222,6 +236,11 @@ export const SpeedOrderWindowContent: React.FC = () => {
         const parsed = parseFloat(e.newValue);
         if (!isNaN(parsed) && parsed >= 0) {
           setErrorDisplayDuration(Math.round(parsed * 10) / 10);
+        }
+      } else if (e.key === "speed-order-latency-ms" && e.newValue) {
+        const parsed = parseInt(e.newValue, 10);
+        if (!isNaN(parsed) && parsed >= 0) {
+          setOrderLatencyMs(Math.min(200, parsed));
         }
       } else if (e.key === "speed-order-hotkeys" && e.newValue) {
         try {
@@ -293,9 +312,11 @@ export const SpeedOrderWindowContent: React.FC = () => {
           const currentShow = localStorage.getItem("speed-order-show-history") === "true";
           const currentContractSize = parseInt(localStorage.getItem("speed-order-contract-size") || "10000", 10);
           const currentHedging = localStorage.getItem("speed-order-hedging") === "true";
+          const currentLatency = parseInt(localStorage.getItem("speed-order-latency-ms") || "30", 10);
           sendCommand({ command: "SET_HISTORY_VISIBILITY", show: currentShow });
           sendCommand({ command: "SET_CONTRACT_SIZE", size: currentContractSize });
           sendCommand({ command: "SET_HEDGING", allowed: currentHedging });
+          sendCommand({ command: "SET_LATENCY", latency_ms: isNaN(currentLatency) ? 30 : Math.min(200, Math.max(0, currentLatency)) });
           if (data.jfx_real !== undefined) {
             setJfxReal(data.jfx_real);
           }
@@ -325,9 +346,11 @@ export const SpeedOrderWindowContent: React.FC = () => {
             const currentShow = localStorage.getItem("speed-order-show-history") === "true";
             const currentContractSize = parseInt(localStorage.getItem("speed-order-contract-size") || "10000", 10);
             const currentHedging = localStorage.getItem("speed-order-hedging") === "true";
+            const currentLatency = parseInt(localStorage.getItem("speed-order-latency-ms") || "30", 10);
             sendCommand({ command: "SET_HISTORY_VISIBILITY", show: currentShow });
             sendCommand({ command: "SET_CONTRACT_SIZE", size: currentContractSize });
             sendCommand({ command: "SET_HEDGING", allowed: currentHedging });
+            sendCommand({ command: "SET_LATENCY", latency_ms: isNaN(currentLatency) ? 30 : Math.min(200, Math.max(0, currentLatency)) });
           }
           prevStatusRef.current = data.status;
           setStatus(data.status);
@@ -1421,6 +1444,41 @@ export const SpeedOrderWindowContent: React.FC = () => {
                     />
                     <span className="speed-switch-slider"></span>
                   </label>
+                </div>
+              </div>
+
+              <div className="speed-settings-row">
+                <div className="speed-settings-label">
+                  <span className="label-text">注文遅延ミリ秒</span>
+                  <span className="label-desc">実戦の物理通信・約定到達遅延 (0〜200ms、初期値30ms)</span>
+                </div>
+                <div className="speed-settings-control">
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", width: "100%" }}>
+                    <input
+                      type="number"
+                      step="1"
+                      min="0"
+                      max="200"
+                      className="speed-input font-data"
+                      style={{
+                        flex: 1,
+                        textAlign: "right",
+                        padding: "4px 8px",
+                        fontSize: "11px",
+                        height: "26px",
+                        boxSizing: "border-box"
+                      }}
+                      value={orderLatencyMs}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10);
+                        const safeVal = isNaN(val) ? 0 : Math.max(0, Math.min(200, val));
+                        setOrderLatencyMs(safeVal);
+                      }}
+                    />
+                    <span style={{ fontSize: "11px", color: "var(--on-surface-variant)", whiteSpace: "nowrap" }}>
+                      ms
+                    </span>
+                  </div>
                 </div>
               </div>
 

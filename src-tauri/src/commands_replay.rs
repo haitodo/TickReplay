@@ -59,13 +59,20 @@ pub async fn send_command(
                     let sl_points = val.get("sl_points").and_then(|v| v.as_f64()).unwrap_or(0.0);
                     let tp_points = val.get("tp_points").and_then(|v| v.as_f64()).unwrap_or(0.0);
                     let v_time = *state.current_virtual_time_msc.lock().unwrap();
+                    let is_playing = state.playback.lock().unwrap().is_playing;
 
                     let mut feed_guard = state.execution_feed.lock().unwrap();
                     if let Some(ref mut feed) = *feed_guard {
-                        if let Some(quote) = feed.get_quote_at(v_time) {
-                            let mut engine = state.trading_engine.lock().unwrap();
+                        let mut engine = state.trading_engine.lock().unwrap();
+                        let latency = engine.latency_ms;
+                        let match_time = if !is_playing && latency > 0 {
+                            v_time + latency
+                        } else {
+                            v_time
+                        };
+                        if let Some(quote) = feed.get_quote_at(match_time) {
                             let sym = feed.symbol.clone();
-                            engine.open_order(&sym, type_str, volume, sl_points, tp_points, &quote, v_time);
+                            engine.open_order(&sym, type_str, volume, sl_points, tp_points, &quote, v_time, is_playing);
                             drop(engine);
                             drop(feed_guard);
                             emit_trading_status_update(&app_handle, &state);
@@ -77,60 +84,129 @@ pub async fn send_command(
                     let ticket = val.get("ticket").and_then(|t| t.as_i64()).unwrap_or(0) as i32;
                     let volume = val.get("volume").and_then(|v| v.as_f64()).unwrap_or(0.0);
                     let v_time = *state.current_virtual_time_msc.lock().unwrap();
+                    let is_playing = state.playback.lock().unwrap().is_playing;
 
                     let mut feed_guard = state.execution_feed.lock().unwrap();
                     if let Some(ref mut feed) = *feed_guard {
-                        if let Some(quote) = feed.get_quote_at(v_time) {
-                            let mut engine = state.trading_engine.lock().unwrap();
-                            let is_buy = engine.positions.iter().find(|p| p.ticket == ticket).map(|p| p.r#type == "BUY").unwrap_or(true);
-                            let close_price = if is_buy { quote.bid } else { quote.ask };
-                            engine.close_position_by_ticket(ticket, volume, "MANUAL", close_price, v_time);
-                            engine.recalculate_account(&quote);
+                        let mut engine = state.trading_engine.lock().unwrap();
+                        let latency = engine.latency_ms;
+                        if is_playing && latency > 0 {
+                            engine.pending_closes.push(crate::virtual_trading::PendingClose {
+                                execute_after_msc: v_time + latency,
+                                ticket,
+                                volume,
+                                reason: "MANUAL".to_string(),
+                            });
                             drop(engine);
                             drop(feed_guard);
                             emit_trading_status_update(&app_handle, &state);
+                        } else {
+                            let match_time = if !is_playing && latency > 0 { v_time + latency } else { v_time };
+                            if let Some(quote) = feed.get_quote_at(match_time) {
+                                let is_buy = engine.positions.iter().find(|p| p.ticket == ticket).map(|p| p.r#type == "BUY").unwrap_or(true);
+                                let close_price = if is_buy { quote.bid } else { quote.ask };
+                                engine.close_position_by_ticket(ticket, volume, "MANUAL", close_price, match_time);
+                                engine.recalculate_account(&quote);
+                                drop(engine);
+                                drop(feed_guard);
+                                emit_trading_status_update(&app_handle, &state);
+                            }
                         }
                     }
                     return Ok(());
                 }
                 "ORDER_CLOSE_ALL" => {
                     let v_time = *state.current_virtual_time_msc.lock().unwrap();
+                    let is_playing = state.playback.lock().unwrap().is_playing;
                     let mut feed_guard = state.execution_feed.lock().unwrap();
                     if let Some(ref mut feed) = *feed_guard {
-                        if let Some(quote) = feed.get_quote_at(v_time) {
-                            let mut engine = state.trading_engine.lock().unwrap();
-                            engine.close_all("MANUAL", &quote, v_time);
+                        let mut engine = state.trading_engine.lock().unwrap();
+                        let latency = engine.latency_ms;
+                        if is_playing && latency > 0 {
+                            let to_close: Vec<(i32, f64)> = engine.positions.iter().map(|p| (p.ticket, p.volume)).collect();
+                            for (t, v) in to_close {
+                                engine.pending_closes.push(crate::virtual_trading::PendingClose {
+                                    execute_after_msc: v_time + latency,
+                                    ticket: t,
+                                    volume: v,
+                                    reason: "MANUAL".to_string(),
+                                });
+                            }
                             drop(engine);
                             drop(feed_guard);
                             emit_trading_status_update(&app_handle, &state);
+                        } else {
+                            let match_time = if !is_playing && latency > 0 { v_time + latency } else { v_time };
+                            if let Some(quote) = feed.get_quote_at(match_time) {
+                                engine.close_all("MANUAL", &quote, match_time);
+                                drop(engine);
+                                drop(feed_guard);
+                                emit_trading_status_update(&app_handle, &state);
+                            }
                         }
                     }
                     return Ok(());
                 }
                 "ORDER_CLOSE_BUY" => {
                     let v_time = *state.current_virtual_time_msc.lock().unwrap();
+                    let is_playing = state.playback.lock().unwrap().is_playing;
                     let mut feed_guard = state.execution_feed.lock().unwrap();
                     if let Some(ref mut feed) = *feed_guard {
-                        if let Some(quote) = feed.get_quote_at(v_time) {
-                            let mut engine = state.trading_engine.lock().unwrap();
-                            engine.close_buy("MANUAL", &quote, v_time);
+                        let mut engine = state.trading_engine.lock().unwrap();
+                        let latency = engine.latency_ms;
+                        if is_playing && latency > 0 {
+                            let to_close: Vec<(i32, f64)> = engine.positions.iter().filter(|p| p.r#type == "BUY").map(|p| (p.ticket, p.volume)).collect();
+                            for (t, v) in to_close {
+                                engine.pending_closes.push(crate::virtual_trading::PendingClose {
+                                    execute_after_msc: v_time + latency,
+                                    ticket: t,
+                                    volume: v,
+                                    reason: "MANUAL".to_string(),
+                                });
+                            }
                             drop(engine);
                             drop(feed_guard);
                             emit_trading_status_update(&app_handle, &state);
+                        } else {
+                            let match_time = if !is_playing && latency > 0 { v_time + latency } else { v_time };
+                            if let Some(quote) = feed.get_quote_at(match_time) {
+                                engine.close_buy("MANUAL", &quote, match_time);
+                                drop(engine);
+                                drop(feed_guard);
+                                emit_trading_status_update(&app_handle, &state);
+                            }
                         }
                     }
                     return Ok(());
                 }
                 "ORDER_CLOSE_SELL" => {
                     let v_time = *state.current_virtual_time_msc.lock().unwrap();
+                    let is_playing = state.playback.lock().unwrap().is_playing;
                     let mut feed_guard = state.execution_feed.lock().unwrap();
                     if let Some(ref mut feed) = *feed_guard {
-                        if let Some(quote) = feed.get_quote_at(v_time) {
-                            let mut engine = state.trading_engine.lock().unwrap();
-                            engine.close_sell("MANUAL", &quote, v_time);
+                        let mut engine = state.trading_engine.lock().unwrap();
+                        let latency = engine.latency_ms;
+                        if is_playing && latency > 0 {
+                            let to_close: Vec<(i32, f64)> = engine.positions.iter().filter(|p| p.r#type == "SELL").map(|p| (p.ticket, p.volume)).collect();
+                            for (t, v) in to_close {
+                                engine.pending_closes.push(crate::virtual_trading::PendingClose {
+                                    execute_after_msc: v_time + latency,
+                                    ticket: t,
+                                    volume: v,
+                                    reason: "MANUAL".to_string(),
+                                });
+                            }
                             drop(engine);
                             drop(feed_guard);
                             emit_trading_status_update(&app_handle, &state);
+                        } else {
+                            let match_time = if !is_playing && latency > 0 { v_time + latency } else { v_time };
+                            if let Some(quote) = feed.get_quote_at(match_time) {
+                                engine.close_sell("MANUAL", &quote, match_time);
+                                drop(engine);
+                                drop(feed_guard);
+                                emit_trading_status_update(&app_handle, &state);
+                            }
                         }
                     }
                     return Ok(());
@@ -172,7 +248,29 @@ pub async fn send_command(
                 state.trading_engine.lock().unwrap().reset(balance);
                 emit_trading_status_update(&app_handle, &state);
             } else if command == "SEEK" || command == "SEEK_TIME" || command == "SEEK_RELATIVE" || command == "TIME_JUMP" {
-                *state.last_eval_msc.lock().unwrap() = 0;
+                let target_time_opt = val.get("target_time_msc")
+                    .or_else(|| val.get("virtual_time_msc"))
+                    .or_else(|| val.get("target_time"))
+                    .and_then(|v| v.as_i64());
+                if let Some(target_time) = target_time_opt {
+                    let cur_v = *state.current_virtual_time_msc.lock().unwrap();
+                    if target_time < cur_v {
+                        let mut feed_guard = state.execution_feed.lock().unwrap();
+                        let quote = feed_guard.as_mut().and_then(|f| f.get_quote_at(target_time));
+                        if let Some(ref q) = quote {
+                            let mut engine = state.trading_engine.lock().unwrap();
+                            engine.rewind_to(target_time, q);
+                            drop(engine);
+                            drop(feed_guard);
+                            emit_trading_status_update(&app_handle, &state);
+                        }
+                    }
+                    *state.current_virtual_time_msc.lock().unwrap() = target_time;
+                    *state.last_eval_msc.lock().unwrap() = target_time;
+                }
+                // NOTE: When target_time is None (e.g. SEEK by target_index or SEEK_RELATIVE),
+                // we preserve state.last_eval_msc so that ipc.rs can compare the newly arriving
+                // virtual_time_msc against last_eval_msc and cleanly trigger engine.rewind_to!
             }
 
             if command == "CONTROL" {
@@ -192,9 +290,24 @@ pub async fn send_command(
                     p.tick_step = step as i32;
                 }
             } else if command == "TERMINATE" {
+                // 1. スピード発注画面とポジション一覧をクローズ
                 if let Some(speed_order) = app_handle.get_webview_window("speed_order") {
                     let _ = speed_order.close();
                 }
+                if let Some(positions) = app_handle.get_webview_window("positions") {
+                    let _ = positions.close();
+                }
+                // 2. 自動連動起動された TickScope Replay プロセスを終了
+                {
+                    let mut child_guard = state.tick_scope_child.lock().unwrap();
+                    if let Some(mut child) = child_guard.take() {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        println!("[commands_replay] TickScope Replay プロセス終了完了");
+                    }
+                }
+                // 3. WebSocket経由でもTERMINATEをブロードキャスト
+                let _ = state.sync_tx.send(r#"{"status":"TERMINATE","command":"TERMINATE"}"#.to_string());
             } else if command == "INIT" {
                 // JFX 実行フィードのロード & 仮想取引エンジンのリセット
                 let source_sym = val.get("source_symbol").and_then(|s| s.as_str()).unwrap_or("USDJPY");
@@ -224,6 +337,56 @@ pub async fn send_command(
                     Err(e) => {
                         eprintln!("[commands_replay] JFX実行フィード初期化失敗: {}", e);
                     }
+                }
+
+                // 4. ワークスペースのワンクリック完全自動連動:
+                // スピード発注画面の自動表示 (前回の位置/サイズ/最前面)
+                let _ = crate::commands_window::open_speed_order_window(app_handle.clone()).await;
+
+                // tick-scope-replay.exe の自動起動 (前回の位置/サイズ、同一銘柄・データパス・WSポート)
+                let tick_dir = crate::custom_symbol::get_default_tick_dir();
+                let candidates = [
+                    std::path::PathBuf::from(r"D:\DevCache\cargo-target\release\tick-scope-replay.exe"),
+                    std::path::PathBuf::from(r"D:\DevCache\cargo-target\debug\tick-scope-replay.exe"),
+                    std::path::PathBuf::from(r"d:\dev\TickScope\target\release\tick-scope-replay.exe"),
+                    std::path::PathBuf::from(r"d:\dev\TickScope\target\debug\tick-scope-replay.exe"),
+                ];
+
+                let mut existing_candidates: Vec<std::path::PathBuf> = candidates
+                    .into_iter()
+                    .filter(|p| p.exists())
+                    .collect();
+                // Pick the candidate with the newest modification timestamp
+                existing_candidates.sort_by_key(|p| {
+                    std::fs::metadata(p)
+                        .and_then(|m| m.modified())
+                        .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+                });
+                let replay_bin = existing_candidates.last();
+                if let Some(bin_path) = replay_bin {
+                    let mut child_guard = state.tick_scope_child.lock().unwrap();
+                    if let Some(mut existing) = child_guard.take() {
+                        let _ = existing.kill();
+                        let _ = existing.wait();
+                    }
+
+                    let clean_sym = source_sym.split(['.', '_', '/']).next().unwrap_or(source_sym);
+                    let mut cmd = std::process::Command::new(bin_path);
+                    cmd.arg("--ws").arg("ws://127.0.0.1:49210")
+                       .arg("--tick-dir").arg(&tick_dir)
+                       .arg("--symbol").arg(clean_sym);
+
+                    match cmd.spawn() {
+                        Ok(child) => {
+                            println!("[commands_replay] TickScope Replay 自動起動成功: {} (銘柄: {}, tick_dir: {})", bin_path.display(), clean_sym, tick_dir.display());
+                            *child_guard = Some(child);
+                        }
+                        Err(e) => {
+                            eprintln!("[commands_replay] TickScope Replay 起動エラー: {}", e);
+                        }
+                    }
+                } else {
+                    println!("[commands_replay] tick-scope-replay.exe が見つかりませんでした。手動起動またはビルドを確認してください。");
                 }
 
                 // economic_events_csv が未設定または空の場合、キャッシュまたはロードから自動補完

@@ -55,6 +55,8 @@ pub struct ReplayState {
     pub last_eval_msc: Mutex<i64>,
     // 最新の仮想現在時刻 (ミリ秒)
     pub current_virtual_time_msc: Mutex<i64>,
+    // 自動連動起動された TickScope Replay プロセス
+    pub tick_scope_child: Mutex<Option<std::process::Child>>,
 }
 
 impl ReplayState {
@@ -114,6 +116,7 @@ impl ReplayState {
             trading_engine: Mutex::new(crate::virtual_trading::VirtualTradingEngine::default()),
             last_eval_msc: Mutex::new(0),
             current_virtual_time_msc: Mutex::new(0),
+            tick_scope_child: Mutex::new(None),
         }
     }
 }

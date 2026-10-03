@@ -488,7 +488,12 @@ async fn process_status_message(
                 .and_then(|s| s.as_str())
                 .unwrap_or("USDJPY");
 
-            if last_eval > 0 && v_msc > last_eval && (v_msc - last_eval) < 300_000 {
+            if last_eval > 0 && v_msc < last_eval {
+                // タイムトラベル検知: 巻き戻し (SEEK) または A-B ループによる過去時刻への遷移
+                if let Some(ref q) = quote {
+                    engine.rewind_to(v_msc, q);
+                }
+            } else if last_eval > 0 && v_msc > last_eval && (v_msc - last_eval) < 300_000 {
                 let ticks_range = feed.get_ticks_range(last_eval, v_msc);
                 if !ticks_range.is_empty() {
                     engine.evaluate_ticks(ticks_range, v_msc, sym);
