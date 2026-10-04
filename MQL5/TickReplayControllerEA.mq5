@@ -1300,7 +1300,7 @@ void ProcessCommand(string line)
       // ティックデータのロード (Main)
       if(!LoadHistoricalTicksEx(m_source_symbol, m_server_start_time, m_server_end_time, m_all_ticks, m_total_ticks))
       {
-         WriteErrorStatus("ティックデータのロードに失敗: " + m_source_symbol);
+         WriteErrorStatus(StringFormat("ティックデータのロードに失敗: %s (指定期間 %s - %s のデータが0件です)", m_source_symbol, start_time_str, end_time_str));
          return;
       }
       m_current_idx = 0;
@@ -2717,7 +2717,7 @@ bool ProcessProfile(string profile_name, string main_symbol, string sub_symbol, 
    
    if(search_handle == INVALID_HANDLE)
    {
-      Print("[Error] プロファイルフォルダが見つからないか、.chr が存在しません: ", profile_name);
+      Print(StringFormat("[Error] プロファイルフォルダが見つからないか、.chr が存在しません: '%s' (検索マスク: '%s', Code: %d)", profile_name, search_mask, GetLastError()));
       return false;
    }
    
@@ -4076,6 +4076,7 @@ void CreateMTFCharts(string main_symbol, string sub_symbol = "", bool enable_dua
          
          if(profile_mode)
          {
+            Sleep(50); // チャートウィンドウ初期化の待機
             if(!ChartApplyTemplate(cid, layouts[i].tpl_path))
             {
                Print("[Error] テンプレートの適用に失敗しました: ", layouts[i].tpl_path, " Code: ", GetLastError());
@@ -4084,9 +4085,7 @@ void CreateMTFCharts(string main_symbol, string sub_symbol = "", bool enable_dua
             {
                Print("[Info] テンプレートを適用しました: ", layouts[i].tpl_path, " (銘柄: ", sym_to_open, ")");
             }
-            
-            // テンプレート適用による意図しない銘柄リセットを防ぐため、確定銘柄と時間足を明示的に強制再設定
-            ChartSetSymbolPeriod(cid, sym_to_open, layouts[i].period);
+            Sleep(50); // テンプレート非同期適用のキュー処理待機
             
             // 明示的にグリッド表示設定を適用 (テンプレート適用時の非同期適用での上書き対策)
             ChartSetInteger(cid, CHART_SHOW_GRID, layouts[i].show_grid);

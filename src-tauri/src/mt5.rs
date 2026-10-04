@@ -302,9 +302,25 @@ pub async fn select_profile(terminal_path: String, profile_name: String) -> Resu
             return Err(AppError::InvalidProfile(format!("プロファイルフォルダが存在しません: {:?}", src_dir)));
         }
 
+        // コピー先ディレクトリを作成
         fs::create_dir_all(&dest_dir)?;
 
-        let entries = fs::read_dir(src_dir)?;
+        // コピー先の古い .chr ファイルを全削除して同期ズレ（ゴーストチャート）を防ぐ
+        if let Ok(entries) = fs::read_dir(&dest_dir) {
+            for entry in entries.flatten() {
+                let file_path = entry.path();
+                if file_path.is_file() {
+                    if let Some(ext) = file_path.extension().and_then(|e| e.to_str()) {
+                        if ext.eq_ignore_ascii_case("chr") {
+                            let _ = fs::remove_file(file_path);
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut copied_count = 0;
+        let entries = fs::read_dir(&src_dir)?;
         for entry in entries.flatten() {
             let file_path = entry.path();
             if file_path.is_file() {
@@ -313,11 +329,13 @@ pub async fn select_profile(terminal_path: String, profile_name: String) -> Resu
                         if let Some(name) = file_path.file_name() {
                             let dest_file = dest_dir.join(name);
                             fs::copy(&file_path, &dest_file)?;
+                            copied_count += 1;
                         }
                     }
                 }
             }
         }
+        println!("[Info] プロファイル '{}' の .chr ファイル {} 件をコピーしました: {:?}", profile_name_clean, copied_count, dest_dir);
         Ok(())
     })
     .await
