@@ -42,6 +42,71 @@ pub fn emit_trading_status_update(
     }
 }
 
+pub fn calculate_session_jump_target(cur_msc: i64, session: &str, is_next: bool) -> i64 {
+    use chrono::{Datelike, Timelike, DateTime};
+
+    let cur_sec = (cur_msc / 1000).max(0);
+    let naive_dt = DateTime::from_timestamp(cur_sec, 0).map(|dt| dt.naive_utc()).unwrap_or_default();
+    let y = naive_dt.year();
+    let m = naive_dt.month();
+    let d = naive_dt.day();
+    let h = naive_dt.hour();
+    let is_dst = crate::pseudo_dmm::PseudoDmmEngine::is_us_dst(y, m, d, h);
+
+    // サーバー時間 (GMT+2冬 / GMT+3夏) でのセッション開始時刻 (HH, MM)
+    // TYO: JST 08:45 -> 冬 01:45 / 夏 02:45
+    // LDN: 冬 10:00 / 夏 09:00 (または 10:00)
+    // NY:  冬 16:00 / 夏 15:00
+    let session_times: Vec<(&str, u32, u32)> = match session {
+        "TYO" => vec![("TYO", if is_dst { 2 } else { 1 }, 45)],
+        "LDN" => vec![("LDN", if is_dst { 9 } else { 10 }, 0)],
+        "NY" => vec![("NY", if is_dst { 15 } else { 16 }, 0)],
+        _ => vec![
+            ("TYO", if is_dst { 2 } else { 1 }, 45),
+            ("LDN", if is_dst { 9 } else { 10 }, 0),
+            ("NY", if is_dst { 15 } else { 16 }, 0),
+        ],
+    };
+
+    if is_next {
+        for day_offset in 0..14 {
+            let cur_date = naive_dt.date() + chrono::Duration::days(day_offset);
+            let weekday = cur_date.weekday();
+            if weekday == chrono::Weekday::Sat || weekday == chrono::Weekday::Sun {
+                continue;
+            }
+            for &(_, hour, min) in &session_times {
+                if let Some(target_time) = cur_date.and_hms_opt(hour, min, 0) {
+                    let target_sec = target_time.and_utc().timestamp();
+                    if target_sec > cur_sec {
+                        return target_sec * 1000;
+                    }
+                }
+            }
+        }
+    } else {
+        for day_offset in 0..14 {
+            let cur_date = naive_dt.date() - chrono::Duration::days(day_offset);
+            let weekday = cur_date.weekday();
+            if weekday == chrono::Weekday::Sat || weekday == chrono::Weekday::Sun {
+                continue;
+            }
+            let mut rev_times = session_times.clone();
+            rev_times.reverse();
+            for &(_, hour, min) in &rev_times {
+                if let Some(target_time) = cur_date.and_hms_opt(hour, min, 0) {
+                    let target_sec = target_time.and_utc().timestamp();
+                    if target_sec < cur_sec {
+                        return target_sec * 1000;
+                    }
+                }
+            }
+        }
+    }
+
+    cur_msc
+}
+
 #[tauri::command]
 pub async fn send_command(
     command_json: String,
@@ -248,12 +313,20 @@ pub async fn send_command(
                 let balance = state.trading_engine.lock().unwrap().account.balance;
                 state.trading_engine.lock().unwrap().reset(balance);
                 emit_trading_status_update(&app_handle, &state);
-            } else if command == "SEEK" || command == "SEEK_TIME" || command == "SEEK_RELATIVE" || command == "TIME_JUMP" {
+            } else if command == "SEEK" || command == "SEEK_TIME" || command == "SEEK_RELATIVE" || command == "TIME_JUMP" || command == "SESSION_JUMP" {
                 state.seek_epoch.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                let target_time_opt = val.get("target_time_msc")
-                    .or_else(|| val.get("virtual_time_msc"))
-                    .or_else(|| val.get("target_time"))
-                    .and_then(|v| v.as_i64());
+                let target_time_opt = if command == "SESSION_JUMP" {
+                    let session = val.get("session").and_then(|s| s.as_str()).unwrap_or("ANY");
+                    let direction = val.get("direction").and_then(|d| d.as_str()).unwrap_or("NEXT");
+                    let is_next = direction.eq_ignore_ascii_case("NEXT");
+                    let cur_v = *state.current_virtual_time_msc.lock().unwrap();
+                    Some(calculate_session_jump_target(cur_v, session, is_next))
+                } else {
+                    val.get("target_time_msc")
+                        .or_else(|| val.get("virtual_time_msc"))
+                        .or_else(|| val.get("target_time"))
+                        .and_then(|v| v.as_i64())
+                };
                 if let Some(target_time) = target_time_opt {
                     let cur_v = *state.current_virtual_time_msc.lock().unwrap();
                     if target_time < cur_v {
@@ -380,9 +453,15 @@ pub async fn send_command(
                     *state.core_handle.lock().unwrap() = Some(core_handle.clone());
                     *state.core_join_handle.lock().unwrap() = Some(core_join);
 
-                    // 4. MT5 Renderer EA へ RESET パケットを送信
+                    // 4. MT5 Renderer EA へ RESET & プロファイル適用パケットを送信
+                    let profile_name = val.get("profile_name").and_then(|s| s.as_str()).unwrap_or("");
+                    let sub_sym = val.get("sub_source_symbol").and_then(|s| s.as_str()).unwrap_or("");
                     if let Some(ref pipe) = render_pipe_opt {
                         pipe.send_reset(1, 0, 0, 0, 0);
+                        if !profile_name.is_empty() {
+                            pipe.send_apply_profile(1, profile_name, source_sym, sub_sym);
+                            println!("[commands_replay] MT5 Renderer EA へプロファイル適用要求送信: {}", profile_name);
+                        }
                     }
 
                     // 5. Core ステータスを フロントエンド & WebSocket へ継続ストリーミングする UI Streamer タスクを起動
@@ -395,7 +474,22 @@ pub async fn send_command(
                             let cur_msc = snap.virtual_time_msc;
                             *state_c.current_virtual_time_msc.lock().unwrap() = cur_msc;
 
-                            let status_val = serde_json::json!({
+                            // 仮想取引エンジンの MTM 損益更新 & 口座再計算
+                            let mut feed_guard = state_c.execution_feed.lock().unwrap();
+                            let quote_opt = feed_guard.as_mut().and_then(|f| f.get_quote_at(cur_msc));
+                            let mut engine = state_c.trading_engine.lock().unwrap();
+                            if let Some(ref quote) = quote_opt {
+                                engine.update_positions_mtm(quote);
+                                engine.recalculate_account(quote);
+                            }
+                            let account_val = serde_json::to_value(&engine.account).unwrap_or_default();
+                            let positions_val = serde_json::to_value(&engine.positions).unwrap_or_default();
+                            let history_val = serde_json::to_value(&engine.history).unwrap_or_default();
+                            let trade_rev = engine.revision;
+                            drop(engine);
+                            drop(feed_guard);
+
+                            let mut status_val = serde_json::json!({
                                 "status": if snap.is_playing { "ACTIVE" } else { "READY" },
                                 "is_playing": snap.is_playing,
                                 "current_idx": snap.current_index,
@@ -407,13 +501,29 @@ pub async fn send_command(
                                 },
                                 "multiplier": snap.multiplier,
                                 "tick_step": 1,
-                                "trade_revision": snap.trade_revision,
+                                "trade_revision": trade_rev,
+                                "history_revision": trade_rev,
                                 "seek_epoch": snap.seek_epoch,
                                 "bid": snap.current_tick.map(|t| t.bid),
                                 "ask": snap.current_tick.map(|t| t.ask),
                                 "spread": snap.current_tick.map(|t| ((t.ask - t.bid) * 100.0).round() / 100.0),
+                                "account": account_val,
+                                "positions": positions_val,
+                                "history": history_val,
                             });
+                            if let Some(ref quote) = quote_opt {
+                                if let Some(obj) = status_val.as_object_mut() {
+                                    obj.insert("dmm_bid".to_string(), serde_json::json!(quote.bid));
+                                    obj.insert("dmm_ask".to_string(), serde_json::json!(quote.ask));
+                                    obj.insert("dmm_spread".to_string(), serde_json::json!(quote.spread));
+                                    obj.insert("jfx_bid".to_string(), serde_json::json!(quote.bid));
+                                    obj.insert("jfx_ask".to_string(), serde_json::json!(quote.ask));
+                                    obj.insert("jfx_spread".to_string(), serde_json::json!(quote.spread));
+                                    obj.insert("jfx_real".to_string(), serde_json::json!(quote.is_real));
+                                }
+                            }
                             let json_str = status_val.to_string();
+                            *state_c.last_status.lock().unwrap() = json_str.clone();
                             let _ = app_h.emit("mt5-status", &json_str);
                             let _ = state_c.sync_tx.send(json_str);
                         }
@@ -604,6 +714,14 @@ pub async fn send_command(
                     "TIME_JUMP" => {
                         let delta_sec = val.get("delta_seconds").and_then(|d| d.as_i64()).unwrap_or(0);
                         core.step_time(delta_sec * 1000);
+                    }
+                    "SESSION_JUMP" => {
+                        let session = val.get("session").and_then(|s| s.as_str()).unwrap_or("ANY");
+                        let direction = val.get("direction").and_then(|d| d.as_str()).unwrap_or("NEXT");
+                        let is_next = direction.eq_ignore_ascii_case("NEXT");
+                        let cur_msc = *state.current_virtual_time_msc.lock().unwrap();
+                        let target_msc = calculate_session_jump_target(cur_msc, session, is_next);
+                        core.seek_time(target_msc);
                     }
                     "LOOP_SET_A" => {
                         let cur_msc = *state.current_virtual_time_msc.lock().unwrap();

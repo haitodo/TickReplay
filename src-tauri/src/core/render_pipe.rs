@@ -8,6 +8,7 @@ pub const MSG_ADVANCE: u16 = 0x0002;
 pub const MSG_RESET: u16 = 0x0003;
 pub const MSG_ACK: u16 = 0x0004;
 pub const MSG_READY: u16 = 0x0005;
+pub const MSG_APPLY_PROFILE: u16 = 0x0006;
 
 /// 固定長 16 バイトヘッダー (自然アライメント)
 #[repr(C)]
@@ -80,8 +81,18 @@ pub struct AckPayload {
     pub reserved: u32,
 }
 
+/// 0x0006 APPLY_PROFILE ペイロード (Core -> EA, 128 bytes)
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ApplyProfilePayload {
+    pub profile_name: [u8; 64],
+    pub main_symbol: [u8; 32],
+    pub sub_symbol: [u8; 32],
+}
+
 /// プロトコル送受信ヘルパー
 pub struct RenderPacketCodec;
+
 
 impl RenderPacketCodec {
     pub fn encode_advance(epoch: u32, main_idx: u64, sub_idx: u64, virtual_time_msc: i64) -> Vec<u8> {
@@ -129,6 +140,42 @@ impl RenderPacketCodec {
         buf
     }
 
+    pub fn encode_apply_profile(
+        epoch: u32,
+        profile_name: &str,
+        main_symbol: &str,
+        sub_symbol: &str,
+    ) -> Vec<u8> {
+        let mut payload = ApplyProfilePayload {
+            profile_name: [0u8; 64],
+            main_symbol: [0u8; 32],
+            sub_symbol: [0u8; 32],
+        };
+        let p_bytes = profile_name.as_bytes();
+        let p_len = p_bytes.len().min(63);
+        payload.profile_name[..p_len].copy_from_slice(&p_bytes[..p_len]);
+
+        let m_bytes = main_symbol.as_bytes();
+        let m_len = m_bytes.len().min(31);
+        payload.main_symbol[..m_len].copy_from_slice(&m_bytes[..m_len]);
+
+        let s_bytes = sub_symbol.as_bytes();
+        let s_len = s_bytes.len().min(31);
+        payload.sub_symbol[..s_len].copy_from_slice(&s_bytes[..s_len]);
+
+        let header = RenderHeader::new(
+            MSG_APPLY_PROFILE,
+            0,
+            epoch,
+            std::mem::size_of::<ApplyProfilePayload>() as u32,
+        );
+
+        let mut buf = Vec::with_capacity(RenderHeader::SIZE + std::mem::size_of::<ApplyProfilePayload>());
+        buf.extend_from_slice(bytemuck::bytes_of(&header));
+        buf.extend_from_slice(bytemuck::bytes_of(&payload));
+        buf
+    }
+
     pub fn read_packet<R: Read>(reader: &mut R) -> io::Result<(RenderHeader, Vec<u8>)> {
         let mut header_buf = [0u8; RenderHeader::SIZE];
         reader.read_exact(&mut header_buf)?;
@@ -166,6 +213,12 @@ pub enum RenderPipeCommand {
         sub_target_idx: u64,
         sub_preload_from: u64,
     },
+    ApplyProfile {
+        epoch: u32,
+        profile_name: String,
+        main_symbol: String,
+        sub_symbol: String,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -202,6 +255,23 @@ impl RenderPipeHandle {
                 main_preload_from,
                 sub_target_idx,
                 sub_preload_from,
+            });
+        }
+    }
+
+    pub fn send_apply_profile(
+        &self,
+        epoch: u32,
+        profile_name: &str,
+        main_symbol: &str,
+        sub_symbol: &str,
+    ) {
+        if self.connected.load(std::sync::atomic::Ordering::Relaxed) {
+            let _ = self.cmd_tx.send(RenderPipeCommand::ApplyProfile {
+                epoch,
+                profile_name: profile_name.to_string(),
+                main_symbol: main_symbol.to_string(),
+                sub_symbol: sub_symbol.to_string(),
             });
         }
     }
@@ -325,6 +395,13 @@ impl RenderPipeServer {
                                         break;
                                     }
                                 }
+                                RenderPipeCommand::ApplyProfile { epoch, profile_name, main_symbol, sub_symbol } => {
+                                    let packet = RenderPacketCodec::encode_apply_profile(epoch, &profile_name, &main_symbol, &sub_symbol);
+                                    if let Err(e) = writer.write_all(&packet).await {
+                                        eprintln!("[RenderPipe] APPLY_PROFILE 送信エラー: {}", e);
+                                        break;
+                                    }
+                                }
                             }
                         }
                     });
@@ -437,6 +514,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<AdvancePayload>(), 24);
         assert_eq!(std::mem::size_of::<ResetPayload>(), 32);
         assert_eq!(std::mem::size_of::<AckPayload>(), 24);
+        assert_eq!(std::mem::size_of::<ApplyProfilePayload>(), 128);
     }
 
     #[test]
@@ -454,5 +532,22 @@ mod tests {
         assert_eq!(adv.main_idx, 1000);
         assert_eq!(adv.sub_idx, 500);
         assert_eq!(adv.virtual_time_msc, 1720000000);
+    }
+
+    #[test]
+    fn test_encode_and_read_apply_profile() {
+        let bytes = RenderPacketCodec::encode_apply_profile(1, "Default", "USDJPY", "EURJPY");
+        let mut cursor = std::io::Cursor::new(bytes);
+        let (header, payload) = RenderPacketCodec::read_packet(&mut cursor).unwrap();
+
+        assert_eq!(header.magic, RENDER_MAGIC);
+        assert_eq!(header.msg_type, MSG_APPLY_PROFILE);
+        assert_eq!(header.epoch, 1);
+        assert_eq!(payload.len(), 128);
+
+        let prof: &ApplyProfilePayload = bytemuck::from_bytes(&payload);
+        assert_eq!(String::from_utf8_lossy(&prof.profile_name).trim_matches('\0'), "Default");
+        assert_eq!(String::from_utf8_lossy(&prof.main_symbol).trim_matches('\0'), "USDJPY");
+        assert_eq!(String::from_utf8_lossy(&prof.sub_symbol).trim_matches('\0'), "EURJPY");
     }
 }
