@@ -217,7 +217,21 @@ impl RenderPipeHandle {
 pub struct RenderPipeServer;
 
 impl RenderPipeServer {
-    pub fn start() -> (RenderPipeHandle, tokio::task::JoinHandle<()>) {
+    pub fn start_standalone() -> (RenderPipeHandle, tokio::task::JoinHandle<()>) {
+        Self::start_internal(None, None)
+    }
+
+    pub fn start(
+        app_handle: tauri::AppHandle,
+        state: std::sync::Arc<crate::state::ReplayState>,
+    ) -> (RenderPipeHandle, tokio::task::JoinHandle<()>) {
+        Self::start_internal(Some(app_handle), Some(state))
+    }
+
+    fn start_internal(
+        app_handle: Option<tauri::AppHandle>,
+        state: Option<std::sync::Arc<crate::state::ReplayState>>,
+    ) -> (RenderPipeHandle, tokio::task::JoinHandle<()>) {
         let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::unbounded_channel::<RenderPipeCommand>();
         let connected = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let last_applied_idx = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
@@ -230,6 +244,7 @@ impl RenderPipeServer {
             {
                 use tokio::io::{AsyncReadExt, AsyncWriteExt};
                 use tokio::net::windows::named_pipe::ServerOptions;
+                use tauri::Emitter;
 
                 loop {
                     let server = match ServerOptions::new().create(RENDER_PIPE_NAME) {
@@ -256,10 +271,31 @@ impl RenderPipeServer {
                     let mut header_buf = [0u8; RenderHeader::SIZE];
                     if let Ok(_) = reader.read_exact(&mut header_buf).await {
                         let header: RenderHeader = *bytemuck::from_bytes(&header_buf);
-                        if header.is_valid() && header.msg_type == MSG_HELLO && header.payload_len > 0 {
+                        if header.is_valid() && header.msg_type == MSG_HELLO && header.payload_len >= std::mem::size_of::<HelloPayload>() as u32 {
                             let mut hello_buf = vec![0u8; header.payload_len as usize];
                             let _ = reader.read_exact(&mut hello_buf).await;
-                            println!("[RenderPipe] HELLO パケット受信: EA v4.00 認識完了");
+                            let hello: &HelloPayload = bytemuck::from_bytes(&hello_buf[0..std::mem::size_of::<HelloPayload>()]);
+                            println!(
+                                "[RenderPipe] HELLO パケット受信: EA v{:.2}, main_ticks={}, sub_ticks={}",
+                                hello.ea_version as f64 / 100.0,
+                                hello.main_ticks,
+                                hello.sub_ticks
+                            );
+                        }
+                    }
+
+                    // フロントエンドへ CONNECTED を通知
+                    if let Some(ref app) = app_handle {
+                        let status_val = serde_json::json!({
+                            "status": "CONNECTED",
+                            "message": "MT5 Renderer EA connected",
+                            "protocol": "TRR2"
+                        });
+                        let status_str = status_val.to_string();
+                        let _ = app.emit("mt5-status", &status_str);
+                        let _ = app.emit("mt5-connected", ());
+                        if let Some(ref st) = state {
+                            let _ = st.sync_tx.send(status_str);
                         }
                     }
 
@@ -302,6 +338,18 @@ impl RenderPipeServer {
                                             let hdr: RenderHeader = *bytemuck::from_bytes(&ready_buf);
                                             if hdr.is_valid() && hdr.msg_type == MSG_READY {
                                                 last_applied_clone.store(main_target_idx, std::sync::atomic::Ordering::Relaxed);
+                                                if let Some(ref app) = app_handle {
+                                                    let status_val = serde_json::json!({
+                                                        "status": "READY",
+                                                        "message": "MT5 Renderer EA ready",
+                                                        "current_idx": main_target_idx,
+                                                    });
+                                                    let status_str = status_val.to_string();
+                                                    let _ = app.emit("mt5-status", &status_str);
+                                                    if let Some(ref st) = state {
+                                                        let _ = st.sync_tx.send(status_str);
+                                                    }
+                                                }
                                             }
                                         } else {
                                             break;
@@ -318,12 +366,25 @@ impl RenderPipeServer {
 
                     connected_clone.store(false, std::sync::atomic::Ordering::SeqCst);
                     println!("[RenderPipe] MT5 Renderer EA が切断されました。再接続待機中...");
+
+                    if let Some(ref app) = app_handle {
+                        let status_val = serde_json::json!({
+                            "status": "DISCONNECTED",
+                            "message": "MT5 Renderer EA disconnected",
+                        });
+                        let status_str = status_val.to_string();
+                        let _ = app.emit("mt5-status", &status_str);
+                        let _ = app.emit("mt5-disconnected", ());
+                        if let Some(ref st) = state {
+                            let _ = st.sync_tx.send(status_str);
+                        }
+                    }
                 }
             }
 
             #[cfg(not(windows))]
             {
-                let _ = (connected_clone, last_applied_clone);
+                let _ = (connected_clone, last_applied_clone, app_handle, state);
                 while let Some(_) = cmd_rx.recv().await {}
             }
         });

@@ -142,6 +142,13 @@ pub fn run() {
             // 単一の全二重 Named Pipe サーバー（Rust ⇔ EA）を起動
             tauri::async_runtime::spawn(ipc::run_ipc_pipe_server(rx, app_handle.clone(), state_inner.clone()));
             
+            // Replay Core v2 向け高スループット描画パイプサーバー（Rust ⇔ TickReplayRendererEA）を起動
+            let (render_pipe_handle, _render_pipe_task) = crate::core::render_pipe::RenderPipeServer::start(
+                app_handle.clone(),
+                state_inner.clone(),
+            );
+            *state_inner.render_pipe_handle.lock().unwrap() = Some(render_pipe_handle);
+
             // Drenhis/Tracely等の外部ツール連携用 WebSocket 同期サーバーを起動
             tauri::async_runtime::spawn(sync_srv.run(state_inner, sync_server::DEFAULT_SYNC_PORT));
             

@@ -341,6 +341,101 @@ pub async fn send_command(
                     }
                 }
 
+                // --- Core v2 自律駆動エンジンの初期化 ---
+                let render_pipe_opt = state.render_pipe_handle.lock().unwrap().clone();
+                let is_renderer_connected = render_pipe_opt.as_ref().map(|p| p.is_connected()).unwrap_or(false);
+                let use_v2 = state.use_core_v2.load(std::sync::atomic::Ordering::Relaxed) || is_renderer_connected;
+
+                if use_v2 {
+                    println!("[commands_replay] Replay Core v2 自律駆動モードで初期化を開始します (RendererEA接続={})", is_renderer_connected);
+
+                    // 1. TickStore の構築
+                    let store = {
+                        let feed_guard = state.execution_feed.lock().unwrap();
+                        if let Some(ref feed) = *feed_guard {
+                            crate::core::store::TickStore::from_execution_ticks(&feed.ticks)
+                        } else {
+                            crate::core::store::TickStore::empty()
+                        }
+                    };
+
+                    let total_ticks = store.len() as u64;
+                    let first_msc = store.min_time_msc().unwrap_or(0);
+
+                    // 2. 既存の Core ハンドルがあれば停止
+                    if let Some(old_handle) = state.core_handle.lock().unwrap().take() {
+                        old_handle.shutdown();
+                    }
+                    if let Some(old_join) = state.core_join_handle.lock().unwrap().take() {
+                        old_join.abort();
+                    }
+
+                    // 3. Replay Core の起動
+                    let (core_handle, core_join) = crate::core::ReplayCore::start_with_sinks(
+                        store,
+                        None,
+                        render_pipe_opt.clone(),
+                        None,
+                    );
+                    *state.core_handle.lock().unwrap() = Some(core_handle.clone());
+                    *state.core_join_handle.lock().unwrap() = Some(core_join);
+
+                    // 4. MT5 Renderer EA へ RESET パケットを送信
+                    if let Some(ref pipe) = render_pipe_opt {
+                        pipe.send_reset(1, 0, 0, 0, 0);
+                    }
+
+                    // 5. Core ステータスを フロントエンド & WebSocket へ継続ストリーミングする UI Streamer タスクを起動
+                    let mut rx = core_handle.subscribe();
+                    let app_h = app_handle.clone();
+                    let state_c = state.inner().clone();
+                    tauri::async_runtime::spawn(async move {
+                        while rx.changed().await.is_ok() {
+                            let snap = rx.borrow().clone();
+                            let cur_msc = snap.virtual_time_msc;
+                            *state_c.current_virtual_time_msc.lock().unwrap() = cur_msc;
+
+                            let status_val = serde_json::json!({
+                                "status": if snap.is_playing { "ACTIVE" } else { "READY" },
+                                "is_playing": snap.is_playing,
+                                "current_idx": snap.current_index,
+                                "total_ticks": snap.total_ticks,
+                                "virtual_time_msc": cur_msc,
+                                "speed_mode": match snap.speed_mode {
+                                    crate::core::types::PlaybackMode::Temporal => "TEMPORAL",
+                                    crate::core::types::PlaybackMode::Count => "COUNT",
+                                },
+                                "multiplier": snap.multiplier,
+                                "tick_step": 1,
+                                "trade_revision": snap.trade_revision,
+                                "seek_epoch": snap.seek_epoch,
+                                "bid": snap.current_tick.map(|t| t.bid),
+                                "ask": snap.current_tick.map(|t| t.ask),
+                                "spread": snap.current_tick.map(|t| ((t.ask - t.bid) * 100.0).round() / 100.0),
+                            });
+                            let json_str = status_val.to_string();
+                            let _ = app_h.emit("mt5-status", &json_str);
+                            let _ = state_c.sync_tx.send(json_str);
+                        }
+                    });
+
+                    // 6. 即座にフロントエンドへ READY ステータスを送信して UI 遷移を完了させる
+                    let initial_status = serde_json::json!({
+                        "status": "READY",
+                        "is_playing": false,
+                        "current_idx": 0,
+                        "total_ticks": total_ticks,
+                        "virtual_time_msc": first_msc,
+                        "speed_mode": "TEMPORAL",
+                        "multiplier": 1.0,
+                        "tick_step": 1,
+                        "message": "Replay Core v2 初期化完了",
+                    });
+                    let init_str = initial_status.to_string();
+                    let _ = app_handle.emit("mt5-status", &init_str);
+                    let _ = state.sync_tx.send(init_str);
+                }
+
                 // 4. ワークスペースのワンクリック完全自動連動:
                 // スピード発注画面の自動表示 (前回の位置/サイズ/最前面)
                 let _ = crate::commands_window::open_speed_order_window(app_handle.clone()).await;
@@ -466,6 +561,82 @@ pub async fn send_command(
                             }
                         }
                     }
+                }
+            }
+        }
+
+        // --- Core v2 へのコマンド転送 ---
+        if let Some(command) = val.get("command").and_then(|c| c.as_str()) {
+            let core_opt = state.core_handle.lock().unwrap().clone();
+            if let Some(core) = core_opt {
+                match command {
+                    "PLAY" => core.play(),
+                    "PAUSE" => core.pause(),
+                    "CONTROL" => {
+                        if let Some(playing) = val.get("is_playing").and_then(|p| p.as_bool()) {
+                            if playing { core.play(); } else { core.pause(); }
+                        }
+                        if let Some(mult) = val.get("multiplier").and_then(|m| m.as_f64()) {
+                            core.set_multiplier(mult);
+                        }
+                        if let Some(mode_val) = val.get("speed_mode").and_then(|s| s.as_str()) {
+                            if mode_val == "COUNT" {
+                                core.set_playback_mode(crate::core::types::PlaybackMode::Count);
+                            } else {
+                                core.set_playback_mode(crate::core::types::PlaybackMode::Temporal);
+                            }
+                        }
+                    }
+                    "SEEK" => {
+                        if let Some(idx) = val.get("target_index").or_else(|| val.get("target_idx")).and_then(|i| i.as_i64()) {
+                            core.seek_index(idx.max(0) as u64);
+                        }
+                    }
+                    "SEEK_TIME" => {
+                        if let Some(time_msc) = val.get("target_time_msc").or_else(|| val.get("virtual_time_msc")).and_then(|t| t.as_i64()) {
+                            core.seek_time(time_msc);
+                        }
+                    }
+                    "STEP" => {
+                        let delta = val.get("delta").and_then(|d| d.as_i64()).unwrap_or(1);
+                        core.step_ticks(delta);
+                    }
+                    "TIME_JUMP" => {
+                        let delta_sec = val.get("delta_seconds").and_then(|d| d.as_i64()).unwrap_or(0);
+                        core.step_time(delta_sec * 1000);
+                    }
+                    "LOOP_SET_A" => {
+                        let cur_msc = *state.current_virtual_time_msc.lock().unwrap();
+                        let b_time = core.status().loop_config.map(|c| c.b_time_msc).unwrap_or(0);
+                        core.set_ab_loop(Some(crate::core::types::AbLoopConfig {
+                            enabled: b_time > cur_msc,
+                            a_time_msc: cur_msc,
+                            b_time_msc: b_time,
+                            a_index: None,
+                            b_index: None,
+                        }));
+                    }
+                    "LOOP_SET_B" => {
+                        let cur_msc = *state.current_virtual_time_msc.lock().unwrap();
+                        let a_time = core.status().loop_config.map(|c| c.a_time_msc).unwrap_or(0);
+                        core.set_ab_loop(Some(crate::core::types::AbLoopConfig {
+                            enabled: cur_msc > a_time,
+                            a_time_msc: a_time,
+                            b_time_msc: cur_msc,
+                            a_index: None,
+                            b_index: None,
+                        }));
+                    }
+                    "LOOP_CLEAR" => {
+                        core.set_ab_loop(None);
+                    }
+                    "RESET" => {
+                        core.seek_index(0);
+                    }
+                    "TERMINATE" => {
+                        core.shutdown();
+                    }
+                    _ => {}
                 }
             }
         }

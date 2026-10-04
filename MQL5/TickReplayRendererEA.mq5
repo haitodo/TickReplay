@@ -112,6 +112,33 @@ ulong    m_last_redraw_us = 0;
 const ulong REDRAW_INTERVAL_US = 16666; // 最大 60FPS にチャート再描画を間引き
 
 //+------------------------------------------------------------------+
+//| チャートシンボルから全ティックをメモリにロード                   |
+//+------------------------------------------------------------------+
+bool LoadChartTicks()
+{
+    m_replay_symbol = Symbol();
+    SymbolSelect(m_replay_symbol, true);
+
+    // 最大 5 回リトライして全ティックをロード
+    int retries = 0;
+    while (retries < 5)
+    {
+        ResetLastError();
+        m_total_ticks = CopyTicksRange(m_replay_symbol, m_all_ticks, COPY_TICKS_ALL, 0, (ulong)LONG_MAX);
+        if (m_total_ticks > 0)
+        {
+            PrintFormat("[RendererEA] ティックロード完了: %s (全 %d ティック)", m_replay_symbol, m_total_ticks);
+            return true;
+        }
+        Sleep(100);
+        retries++;
+    }
+
+    PrintFormat("[RendererEA] ティックロード待機中または0件: %s (コード: %d)", m_replay_symbol, GetLastError());
+    return false;
+}
+
+//+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
 int OnInit()
@@ -119,9 +146,10 @@ int OnInit()
     timeBeginPeriod(1);
     EventSetMillisecondTimer(InpTimerMs);
 
-    // シンボル設定の読込
+    // シンボル設定の読込 & ティックロード
     m_replay_symbol = Symbol();
-    PrintFormat("[RendererEA] 初期化完了: シンボル=%s, パイプ=%s", m_replay_symbol, InpPipeName);
+    LoadChartTicks();
+    PrintFormat("[RendererEA] 初期化完了: シンボル=%s (ticks=%d), パイプ=%s", m_replay_symbol, m_total_ticks, InpPipeName);
 
     // パイプ接続試行
     ConnectPipe();
@@ -378,8 +406,13 @@ void OnTimer()
 //+------------------------------------------------------------------+
 void ProcessAdvance(const AdvancePayload &adv, ulong start_us)
 {
+    if (m_total_ticks <= 0)
+    {
+        LoadChartTicks();
+    }
+
     int target_idx = (int)adv.main_idx;
-    if (target_idx > m_total_ticks - 1)
+    if (m_total_ticks > 0 && target_idx > m_total_ticks - 1)
         target_idx = m_total_ticks - 1;
 
     if (target_idx > m_current_idx && m_total_ticks > 0)
@@ -411,6 +444,11 @@ void ProcessAdvance(const AdvancePayload &adv, ulong start_us)
 //+------------------------------------------------------------------+
 void ProcessReset(const ResetPayload &rst)
 {
+    if (m_total_ticks <= 0)
+    {
+        LoadChartTicks();
+    }
+
     m_current_idx = (int)rst.main_target_idx;
     int preload_from = (int)rst.main_preload_from;
 

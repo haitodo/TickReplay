@@ -69,6 +69,8 @@ pub struct ReplayState {
     pub core_handle: Mutex<Option<crate::core::ReplayCoreHandle>>,
     // Replay Core v2 バックグラウンドタスク JoinHandle
     pub core_join_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    // MT5 Renderer EA 向けバイナリ Named Pipe ハンドル
+    pub render_pipe_handle: Mutex<Option<crate::core::render_pipe::RenderPipeHandle>>,
 }
 
 impl ReplayState {
@@ -137,6 +139,7 @@ impl ReplayState {
             ),
             core_handle: Mutex::new(None),
             core_join_handle: Mutex::new(None),
+            render_pipe_handle: Mutex::new(None),
         }
     }
 }

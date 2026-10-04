@@ -42,6 +42,27 @@ impl TickStore {
         }
     }
 
+    /// ExecutionTick 配列から CoreTick 配列へ一括変換
+    pub fn from_execution_ticks(exec_ticks: &[crate::jfx_feed::ExecutionTick]) -> Self {
+        let mut core_ticks = Vec::with_capacity(exec_ticks.len());
+        for (i, et) in exec_ticks.iter().enumerate() {
+            core_ticks.push(CoreTick {
+                index: i as u64,
+                time_sec: et.time_msc / 1000,
+                time_msc: et.time_msc,
+                bid: et.bid,
+                ask: et.ask,
+                last: 0.0,
+                volume: 1,
+                volume_real: 0.0,
+                flags: 6,
+            });
+        }
+        Self {
+            ticks: Arc::new(core_ticks),
+        }
+    }
+
     /// MQL5 bin ファイルから直接ロード
     pub fn load_from_bin_file(path: &std::path::Path) -> Result<Self, std::io::Error> {
         let bytes = std::fs::read(path)?;
