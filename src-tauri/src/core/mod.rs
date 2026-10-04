@@ -135,7 +135,7 @@ impl ReplayCore {
     pub fn start(
         store: TickStore,
         config: Option<SchedulerConfig>,
-    ) -> (ReplayCoreHandle, tokio::task::JoinHandle<()>) {
+    ) -> (ReplayCoreHandle, tauri::async_runtime::JoinHandle<()>) {
         Self::start_with_sinks(store, config, None, None)
     }
 
@@ -145,7 +145,7 @@ impl ReplayCore {
         config: Option<SchedulerConfig>,
         render_pipe: Option<crate::core::render_pipe::RenderPipeHandle>,
         tickscope_bridge: Option<crate::core::sink_tickscope::TickScopeBridge>,
-    ) -> (ReplayCoreHandle, tokio::task::JoinHandle<()>) {
+    ) -> (ReplayCoreHandle, tauri::async_runtime::JoinHandle<()>) {
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
 
         let initial_snapshot = CoreStatusSnapshot {
@@ -173,7 +173,7 @@ impl ReplayCore {
             scheduler = scheduler.with_tickscope_bridge(bridge);
         }
 
-        let join_handle = tokio::spawn(async move {
+        let join_handle = tauri::async_runtime::spawn(async move {
             scheduler.run().await;
         });
 
@@ -187,7 +187,7 @@ pub(crate) mod mod_test_helper {
     use super::*;
     use crate::core::types::CoreTick;
 
-    pub fn create_test_core() -> (ReplayCoreHandle, tokio::task::JoinHandle<()>) {
+    pub fn create_test_core() -> (ReplayCoreHandle, tauri::async_runtime::JoinHandle<()>) {
         let ticks = vec![
             CoreTick { index: 0, time_sec: 1, time_msc: 1000, bid: 150.0, ask: 150.005, last: 0.0, volume: 1, volume_real: 0.0, flags: 6 },
             CoreTick { index: 1, time_sec: 2, time_msc: 2000, bid: 150.010, ask: 150.015, last: 0.0, volume: 1, volume_real: 0.0, flags: 6 },

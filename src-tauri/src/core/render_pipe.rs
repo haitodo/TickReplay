@@ -217,21 +217,21 @@ impl RenderPipeHandle {
 pub struct RenderPipeServer;
 
 impl RenderPipeServer {
-    pub fn start_standalone() -> (RenderPipeHandle, tokio::task::JoinHandle<()>) {
+    pub fn start_standalone() -> (RenderPipeHandle, tauri::async_runtime::JoinHandle<()>) {
         Self::start_internal(None, None)
     }
 
     pub fn start(
         app_handle: tauri::AppHandle,
         state: std::sync::Arc<crate::state::ReplayState>,
-    ) -> (RenderPipeHandle, tokio::task::JoinHandle<()>) {
+    ) -> (RenderPipeHandle, tauri::async_runtime::JoinHandle<()>) {
         Self::start_internal(Some(app_handle), Some(state))
     }
 
     fn start_internal(
         app_handle: Option<tauri::AppHandle>,
         state: Option<std::sync::Arc<crate::state::ReplayState>>,
-    ) -> (RenderPipeHandle, tokio::task::JoinHandle<()>) {
+    ) -> (RenderPipeHandle, tauri::async_runtime::JoinHandle<()>) {
         let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::unbounded_channel::<RenderPipeCommand>();
         let connected = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let last_applied_idx = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
@@ -239,7 +239,7 @@ impl RenderPipeServer {
         let connected_clone = connected.clone();
         let last_applied_clone = last_applied_idx.clone();
 
-        let join_handle = tokio::spawn(async move {
+        let join_handle = tauri::async_runtime::spawn(async move {
             #[cfg(windows)]
             {
                 use tokio::io::{AsyncReadExt, AsyncWriteExt};
