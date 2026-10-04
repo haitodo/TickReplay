@@ -1116,23 +1116,55 @@ function App() {
   const handleCheckConnection = async () => {
     setErrorMessage("");
     try {
-      // 1. EAへPINGコマンドを送信して即時ステータス返信を促す
+      // 1. 直近のステータスを取得して反映
+      const lastStatus = await invoke<string>("get_last_status");
+      if (lastStatus && lastStatus.trim() !== "") {
+        const parsed = JSON.parse(lastStatus);
+        if (parsed.status === "CONNECTED" || parsed.status === "READY" || parsed.status === "ACTIVE") {
+          handleStatusStringRef.current(lastStatus);
+          return;
+        }
+      }
+
+      // 2. まだ接続が検知されていない場合、PING 送信を試行
       try {
         await sendCommand({ command: "PING" });
       } catch (_) {}
 
-      // 2. 直近のステータスを取得して反映
-      const lastStatus = await invoke<string>("get_last_status");
-      if (lastStatus && lastStatus.trim() !== "") {
-        handleStatusStringRef.current(lastStatus);
-      } else {
-        setErrorMessage("EAが接続されていません。MT5チャート上の「Start Replay Sync」ボタンがON（緑色）になっていることを確認してください。");
+      const recheck = await invoke<string>("get_last_status");
+      if (recheck && recheck.trim() !== "") {
+        const parsed = JSON.parse(recheck);
+        if (parsed.status === "CONNECTED" || parsed.status === "READY" || parsed.status === "ACTIVE") {
+          handleStatusStringRef.current(recheck);
+          return;
+        }
       }
+
+      setErrorMessage("EAが接続されていません。MT5チャート上に「TickReplayRendererEA」が配置されていることを確認してください。");
     } catch (e) {
       console.error(e);
       setErrorMessage("接続確認エラー: " + e);
     }
   };
+
+  // EA未接続時の自動検知ポーリング（MT5チャートへEA配置時に自動で「リプレイ開始」ボタンに切り替わる）
+  useEffect(() => {
+    if (status !== "DISCONNECTED") return;
+
+    const intervalId = setInterval(async () => {
+      try {
+        const lastStatus = await invoke<string>("get_last_status");
+        if (lastStatus && lastStatus.trim() !== "") {
+          const parsed = JSON.parse(lastStatus);
+          if (parsed.status === "CONNECTED" || parsed.status === "READY" || parsed.status === "ACTIVE") {
+            handleStatusStringRef.current(lastStatus);
+          }
+        }
+      } catch (_) {}
+    }, 500);
+
+    return () => clearInterval(intervalId);
+  }, [status]);
 
   
 

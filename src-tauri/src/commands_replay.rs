@@ -682,7 +682,29 @@ pub async fn read_trade_ticks(app_handle: AppHandle, ticket: i32) -> Result<Stri
 
 #[tauri::command]
 pub async fn get_last_status(state: State<'_, Arc<ReplayState>>) -> Result<String, AppError> {
-    let last = state.last_status.lock().unwrap();
+    let mut last = state.last_status.lock().unwrap();
+    let render_pipe_opt = state.render_pipe_handle.lock().unwrap().clone();
+    let is_connected = render_pipe_opt.as_ref().map(|p| p.is_connected()).unwrap_or(false);
+
+    if is_connected {
+        let need_update = if last.is_empty() {
+            true
+        } else if let Ok(val) = serde_json::from_str::<serde_json::Value>(&last) {
+            val.get("status").and_then(|s| s.as_str()) == Some("DISCONNECTED")
+        } else {
+            false
+        };
+
+        if need_update {
+            let status_val = serde_json::json!({
+                "status": "CONNECTED",
+                "message": "MT5 Renderer EA connected",
+                "protocol": "TRR2",
+                "symbol": "USDJPY",
+            });
+            *last = status_val.to_string();
+        }
+    }
     Ok(last.clone())
 }
 
