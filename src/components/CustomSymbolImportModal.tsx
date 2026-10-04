@@ -192,6 +192,14 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
       setSelectedStatusFilter("ALL");
       setSearchQuery("");
 
+      // 業者数を判定
+      const brokerSet = new Set<string>();
+      groups.forEach(g => {
+        const b = getGroupBroker(g);
+        if (b) brokerSet.add(b);
+      });
+      const hasMultipleBrokers = brokerSet.size > 1;
+
       // 初期値設定
       const initialNames: { [key: string]: string } = {};
       const initialGroups: { [key: string]: string } = {};
@@ -203,8 +211,8 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
         initialGroups[key] = g.group_path || (g.category && g.category !== "Custom" ? g.category : "Custom");
 
         g.files.forEach(f => {
-          // すでにインポート済みの場合はデフォルトチェックOFF (スキップ)、未インポートならチェックON
-          initialMonths[f.file_path] = !f.already_imported;
+          // 単一業者の場合は未インポート分を初期チェックON、複数業者の場合は安全のため初期チェックOFF
+          initialMonths[f.file_path] = !hasMultipleBrokers && !f.already_imported;
         });
       });
 
@@ -347,6 +355,51 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
     return visibleFiles.filter(f => selectedMonths[f.file_path]).length;
   }, [visibleFiles, selectedMonths]);
 
+  // 全スキャンファイル中の総選択数 (他フィルタに残存する選択を検知・可視化)
+  const totalSelectedCount = useMemo(() => {
+    return Object.values(selectedMonths).filter(Boolean).length;
+  }, [selectedMonths]);
+
+  // 業者フィルタ切り替え時のハンドラ (他業者の選択残留を防止し、選択の整合性を保つ)
+  const handleBrokerFilterChange = (broker: string) => {
+    setSelectedBrokerFilter(broker);
+    if (broker !== "ALL") {
+      setSelectedMonths(prev => {
+        const next = { ...prev };
+        let anySelectedInThisBroker = false;
+
+        scannedGroups.forEach(g => {
+          const gBroker = getGroupBroker(g);
+          if (gBroker !== broker) {
+            // 選択した業者以外のファイルのチェックを解除し、隠れた選択が残らないようにする
+            g.files.forEach(f => {
+              next[f.file_path] = false;
+            });
+          } else {
+            g.files.forEach(f => {
+              if (next[f.file_path]) anySelectedInThisBroker = true;
+            });
+          }
+        });
+
+        // もしこの業者でまだ1件も選択されていない場合は未インポート分を自動選択
+        if (!anySelectedInThisBroker) {
+          scannedGroups.forEach(g => {
+            if (getGroupBroker(g) === broker) {
+              g.files.forEach(f => {
+                if (!f.already_imported) {
+                  next[f.file_path] = true;
+                }
+              });
+            }
+          });
+        }
+
+        return next;
+      });
+    }
+  };
+
   // 表示中の一括選択・解除
   const handleSelectVisibleFiles = (mode: "all" | "none" | "unimported") => {
     setSelectedMonths(prev => {
@@ -419,7 +472,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
       return;
     }
 
-    // インポート対象のファイルをリストアップ
+    // インポート対象のファイルをリストアップ (現在フィルタ表示されているグループのみを厳格に対象とする)
     const itemsToImport: {
       pairName: string;
       symbolName: string;
@@ -430,7 +483,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
 
     const importedSymbolSet = new Set<string>();
 
-    scannedGroups.forEach(g => {
+    filteredGroups.forEach(g => {
       const key = getGroupKey(g);
       const symName = symbolNames[key] || g.suggested_symbol_name || `${g.pair_name}_Custom`;
       const grpPath = groupPaths[key] || g.group_path || (g.category && g.category !== "Custom" ? g.category : "Custom");
@@ -492,6 +545,16 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
         totalTicksTotal += tickCount;
         successCount++;
         setLogs(prev => [...prev, `✅ [成功] ${label}: ${tickCount.toLocaleString()} ティックをインポートしました`]);
+
+        // インポート成功したファイルを state 上でも即時反映
+        setSelectedMonths(prev => ({ ...prev, [item.filePath]: false }));
+        setScannedGroups(prev => prev.map(grp => {
+          if (grp.suggested_symbol_name !== item.symbolName && grp.pair_name !== item.pairName) return grp;
+          return {
+            ...grp,
+            files: grp.files.map(f => f.file_path === item.filePath ? { ...f, already_imported: true } : f)
+          };
+        }));
       } catch (err: any) {
         setLogs(prev => [...prev, `❌ [失敗] ${label}: ${err?.message || err}`]);
       }
@@ -881,7 +944,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                     <span style={{ fontSize: "11px", color: "var(--on-surface-variant)", fontWeight: 600 }}>業者:</span>
                     <button
                       type="button"
-                      onClick={() => setSelectedBrokerFilter("ALL")}
+                      onClick={() => handleBrokerFilterChange("ALL")}
                       style={{
                         padding: "2px 8px",
                         fontSize: "11px",
@@ -899,7 +962,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                       <button
                         key={b}
                         type="button"
-                        onClick={() => setSelectedBrokerFilter(b)}
+                        onClick={() => handleBrokerFilterChange(b)}
                         style={{
                           padding: "2px 8px",
                           fontSize: "11px",
@@ -1171,6 +1234,11 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                 </span>
                 <span style={{ color: "var(--primary-color)", fontWeight: 600 }}>
                   選択中: <strong>{visibleSelectedCount}</strong> 件
+                  {totalSelectedCount > visibleSelectedCount && (
+                    <span style={{ fontSize: "11px", color: "var(--status-warning, #f59e0b)", fontWeight: 500, marginLeft: "6px" }}>
+                      (他フィルタに {totalSelectedCount - visibleSelectedCount} 件)
+                    </span>
+                  )}
                 </span>
               </div>
               <div style={{ display: "flex", gap: "6px" }}>
@@ -1204,6 +1272,24 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
                 >
                   解除
                 </button>
+                {totalSelectedCount > visibleSelectedCount && (
+                  <button
+                    type="button"
+                    className="pro-btn"
+                    onClick={() => setSelectedMonths({})}
+                    disabled={isImporting}
+                    style={{
+                      padding: "2px 8px",
+                      fontSize: "11px",
+                      height: "24px",
+                      color: "var(--status-warning, #f59e0b)",
+                      borderColor: "var(--status-warning, #f59e0b)"
+                    }}
+                    title="非表示のフィルタを含むすべての選択を完全にクリア"
+                  >
+                    全解除
+                  </button>
+                )}
               </div>
             </div>
           )}
