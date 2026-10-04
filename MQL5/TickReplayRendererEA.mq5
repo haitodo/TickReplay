@@ -39,7 +39,7 @@ uint timeEndPeriod(uint uPeriod);
 #define MSG_READY             0x0005
 
 #define HEADER_SIZE           16
-#define HELLO_PAYLOAD_SIZE    40
+#define HELLO_PAYLOAD_SIZE    72
 #define ADVANCE_PAYLOAD_SIZE  24
 #define RESET_PAYLOAD_SIZE    32
 #define ACK_PAYLOAD_SIZE      24
@@ -62,6 +62,7 @@ struct HelloPayload
     ulong  main_hash;    // 8 bytes
     ulong  sub_ticks;    // 8 bytes
     ulong  sub_hash;     // 8 bytes
+    uchar  symbol[32];   // 32 bytes: シンボル名
 };
 
 struct AdvancePayload
@@ -181,6 +182,8 @@ bool ConnectPipe()
     if (m_hPipe != INVALID_HANDLE_VALUE)
         return true;
 
+    WaitNamedPipeW(InpPipeName, 50);
+
     m_hPipe = CreateFileW(
         InpPipeName,
         GENERIC_READ | GENERIC_WRITE,
@@ -222,6 +225,8 @@ void SendHello()
     payload.main_hash = 0;
     payload.sub_ticks = (ulong)m_total_ticks_sub;
     payload.sub_hash = 0;
+    ArrayInitialize(payload.symbol, 0);
+    StringToCharArray(m_replay_symbol, payload.symbol);
 
     uchar buf[];
     ArrayResize(buf, HEADER_SIZE + HELLO_PAYLOAD_SIZE);

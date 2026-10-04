@@ -38,7 +38,7 @@ impl RenderHeader {
     }
 }
 
-/// 0x0001 HELLO ペイロード (EA -> Core, 40 bytes)
+/// 0x0001 HELLO ペイロード (EA -> Core, 72 bytes)
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct HelloPayload {
@@ -48,6 +48,7 @@ pub struct HelloPayload {
     pub main_hash: u64,
     pub sub_ticks: u64,
     pub sub_hash: u64,
+    pub symbol: [u8; 32],
 }
 
 /// 0x0002 ADVANCE ペイロード (Core -> EA, 24 bytes)
@@ -267,96 +268,120 @@ impl RenderPipeServer {
 
                     let (mut reader, mut writer) = tokio::io::split(server);
 
-                    // 1. 初回 HELLO パケット受信待ち
+                    // 1. 初回 HELLO パケット受信待ち (2秒タイムアウト)
                     let mut header_buf = [0u8; RenderHeader::SIZE];
-                    if let Ok(_) = reader.read_exact(&mut header_buf).await {
+                    let mut symbol_str = "USDJPY".to_string();
+
+                    if let Ok(Ok(_)) = tokio::time::timeout(std::time::Duration::from_secs(2), reader.read_exact(&mut header_buf)).await {
                         let header: RenderHeader = *bytemuck::from_bytes(&header_buf);
-                        if header.is_valid() && header.msg_type == MSG_HELLO && header.payload_len >= std::mem::size_of::<HelloPayload>() as u32 {
+                        if header.is_valid() && header.msg_type == MSG_HELLO && header.payload_len > 0 {
                             let mut hello_buf = vec![0u8; header.payload_len as usize];
-                            let _ = reader.read_exact(&mut hello_buf).await;
-                            let hello: &HelloPayload = bytemuck::from_bytes(&hello_buf[0..std::mem::size_of::<HelloPayload>()]);
-                            println!(
-                                "[RenderPipe] HELLO パケット受信: EA v{:.2}, main_ticks={}, sub_ticks={}",
-                                hello.ea_version as f64 / 100.0,
-                                hello.main_ticks,
-                                hello.sub_ticks
-                            );
+                            if let Ok(_) = reader.read_exact(&mut hello_buf).await {
+                                if hello_buf.len() >= 72 {
+                                    let hello: &HelloPayload = bytemuck::from_bytes(&hello_buf[0..72]);
+                                    let s = String::from_utf8_lossy(&hello.symbol).trim_matches('\0').trim().to_string();
+                                    if !s.is_empty() {
+                                        symbol_str = s;
+                                    }
+                                }
+                                println!("[RenderPipe] HELLO パケット認識完了: シンボル={}", symbol_str);
+                            }
                         }
                     }
 
-                    // フロントエンドへ CONNECTED を通知
+                    // フロントエンドへ CONNECTED を通知 & state.last_status を更新
+                    let status_val = serde_json::json!({
+                        "status": "CONNECTED",
+                        "message": "MT5 Renderer EA connected",
+                        "protocol": "TRR2",
+                        "symbol": symbol_str,
+                    });
+                    let status_str = status_val.to_string();
+                    if let Some(ref st) = state {
+                        *st.last_status.lock().unwrap() = status_str.clone();
+                        let _ = st.sync_tx.send(status_str.clone());
+                    }
                     if let Some(ref app) = app_handle {
-                        let status_val = serde_json::json!({
-                            "status": "CONNECTED",
-                            "message": "MT5 Renderer EA connected",
-                            "protocol": "TRR2"
-                        });
-                        let status_str = status_val.to_string();
                         let _ = app.emit("mt5-status", &status_str);
                         let _ = app.emit("mt5-connected", ());
-                        if let Some(ref st) = state {
-                            let _ = st.sync_tx.send(status_str);
-                        }
                     }
 
-                    // 2. コマンド送受信ループ
+                    // 2. コマンド送信用 Writer タスク
+                    let (tx_writer, mut rx_writer) = tokio::sync::mpsc::unbounded_channel::<RenderPipeCommand>();
+                    let writer_task = tokio::spawn(async move {
+                        while let Some(cmd) = rx_writer.recv().await {
+                            match cmd {
+                                RenderPipeCommand::Advance { epoch, main_idx, sub_idx, virtual_time_msc } => {
+                                    let packet = RenderPacketCodec::encode_advance(epoch, main_idx, sub_idx, virtual_time_msc);
+                                    if let Err(e) = writer.write_all(&packet).await {
+                                        eprintln!("[RenderPipe] ADVANCE 送信エラー: {}", e);
+                                        break;
+                                    }
+                                }
+                                RenderPipeCommand::Reset { epoch, main_target_idx, main_preload_from, sub_target_idx, sub_preload_from } => {
+                                    let packet = RenderPacketCodec::encode_reset(epoch, main_target_idx, main_preload_from, sub_target_idx, sub_preload_from);
+                                    if let Err(e) = writer.write_all(&packet).await {
+                                        eprintln!("[RenderPipe] RESET 送信エラー: {}", e);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    });
+
+                    // 3. Reader & コマンド配送ループ (EOF 切断検知を常時実行)
+                    let mut read_buf = [0u8; 512];
                     loop {
                         tokio::select! {
-                            cmd_opt = cmd_rx.recv() => {
-                                match cmd_opt {
-                                    Some(RenderPipeCommand::Advance { epoch, main_idx, sub_idx, virtual_time_msc }) => {
-                                        let packet = RenderPacketCodec::encode_advance(epoch, main_idx, sub_idx, virtual_time_msc);
-                                        if let Err(e) = writer.write_all(&packet).await {
-                                            eprintln!("[RenderPipe] ADVANCE 送信エラー: {}", e);
-                                            break;
-                                        }
-
-                                        // ACK 受信待ち
-                                        let mut ack_header_buf = [0u8; RenderHeader::SIZE];
-                                        if let Ok(_) = reader.read_exact(&mut ack_header_buf).await {
-                                            let ack_hdr: RenderHeader = *bytemuck::from_bytes(&ack_header_buf);
-                                            if ack_hdr.is_valid() && ack_hdr.msg_type == MSG_ACK && ack_hdr.payload_len >= std::mem::size_of::<AckPayload>() as u32 {
-                                                let mut ack_payload_buf = [0u8; std::mem::size_of::<AckPayload>()];
-                                                if let Ok(_) = reader.read_exact(&mut ack_payload_buf).await {
-                                                    let ack: &AckPayload = bytemuck::from_bytes(&ack_payload_buf);
-                                                    last_applied_clone.store(ack.main_applied_idx, std::sync::atomic::Ordering::Relaxed);
-                                                }
-                                            }
-                                        } else {
-                                            break;
-                                        }
+                            // クライアントからの受信 & 切断検知 (EOF)
+                            read_res = reader.read(&mut read_buf) => {
+                                match read_res {
+                                    Ok(0) => {
+                                        println!("[RenderPipe] クライアント切断を検知 (EOF)");
+                                        break;
                                     }
-                                    Some(RenderPipeCommand::Reset { epoch, main_target_idx, main_preload_from, sub_target_idx, sub_preload_from }) => {
-                                        let packet = RenderPacketCodec::encode_reset(epoch, main_target_idx, main_preload_from, sub_target_idx, sub_preload_from);
-                                        if let Err(e) = writer.write_all(&packet).await {
-                                            eprintln!("[RenderPipe] RESET 送信エラー: {}", e);
-                                            break;
-                                        }
-                                        // READY 受信待ち
-                                        let mut ready_buf = [0u8; RenderHeader::SIZE];
-                                        if let Ok(_) = reader.read_exact(&mut ready_buf).await {
-                                            let hdr: RenderHeader = *bytemuck::from_bytes(&ready_buf);
-                                            if hdr.is_valid() && hdr.msg_type == MSG_READY {
-                                                last_applied_clone.store(main_target_idx, std::sync::atomic::Ordering::Relaxed);
-                                                if let Some(ref app) = app_handle {
-                                                    let status_val = serde_json::json!({
+                                    Ok(n) => {
+                                        // 受信パケットヘッダーの簡易解析
+                                        if n >= RenderHeader::SIZE {
+                                            let hdr: RenderHeader = *bytemuck::from_bytes(&read_buf[0..RenderHeader::SIZE]);
+                                            if hdr.is_valid() {
+                                                if hdr.msg_type == MSG_ACK && n >= RenderHeader::SIZE + std::mem::size_of::<AckPayload>() {
+                                                    let ack: &AckPayload = bytemuck::from_bytes(&read_buf[RenderHeader::SIZE..RenderHeader::SIZE + std::mem::size_of::<AckPayload>()]);
+                                                    last_applied_clone.store(ack.main_applied_idx, std::sync::atomic::Ordering::Relaxed);
+                                                } else if hdr.msg_type == MSG_READY {
+                                                    let ready_val = serde_json::json!({
                                                         "status": "READY",
                                                         "message": "MT5 Renderer EA ready",
-                                                        "current_idx": main_target_idx,
                                                     });
-                                                    let status_str = status_val.to_string();
-                                                    let _ = app.emit("mt5-status", &status_str);
+                                                    let ready_str = ready_val.to_string();
                                                     if let Some(ref st) = state {
-                                                        let _ = st.sync_tx.send(status_str);
+                                                        *st.last_status.lock().unwrap() = ready_str.clone();
+                                                        let _ = st.sync_tx.send(ready_str.clone());
+                                                    }
+                                                    if let Some(ref app) = app_handle {
+                                                        let _ = app.emit("mt5-status", &ready_str);
                                                     }
                                                 }
                                             }
-                                        } else {
+                                        }
+                                    }
+                                    Err(e) => {
+                                        eprintln!("[RenderPipe] パイプ読取エラー: {}", e);
+                                        break;
+                                    }
+                                }
+                            }
+                            // 外部からのコマンド受付 -> Writer タスクへ転送
+                            cmd_opt = cmd_rx.recv() => {
+                                match cmd_opt {
+                                    Some(cmd) => {
+                                        if tx_writer.send(cmd).is_err() {
                                             break;
                                         }
                                     }
                                     None => {
                                         // シャットダウン
+                                        writer_task.abort();
                                         return;
                                     }
                                 }
@@ -364,20 +389,22 @@ impl RenderPipeServer {
                         }
                     }
 
+                    writer_task.abort();
                     connected_clone.store(false, std::sync::atomic::Ordering::SeqCst);
                     println!("[RenderPipe] MT5 Renderer EA が切断されました。再接続待機中...");
 
+                    let status_val = serde_json::json!({
+                        "status": "DISCONNECTED",
+                        "message": "MT5 Renderer EA disconnected",
+                    });
+                    let status_str = status_val.to_string();
+                    if let Some(ref st) = state {
+                        *st.last_status.lock().unwrap() = status_str.clone();
+                        let _ = st.sync_tx.send(status_str.clone());
+                    }
                     if let Some(ref app) = app_handle {
-                        let status_val = serde_json::json!({
-                            "status": "DISCONNECTED",
-                            "message": "MT5 Renderer EA disconnected",
-                        });
-                        let status_str = status_val.to_string();
                         let _ = app.emit("mt5-status", &status_str);
                         let _ = app.emit("mt5-disconnected", ());
-                        if let Some(ref st) = state {
-                            let _ = st.sync_tx.send(status_str);
-                        }
                     }
                 }
             }
@@ -406,7 +433,7 @@ mod tests {
     #[test]
     fn test_render_packet_sizes() {
         assert_eq!(std::mem::size_of::<RenderHeader>(), 16);
-        assert_eq!(std::mem::size_of::<HelloPayload>(), 40);
+        assert_eq!(std::mem::size_of::<HelloPayload>(), 72);
         assert_eq!(std::mem::size_of::<AdvancePayload>(), 24);
         assert_eq!(std::mem::size_of::<ResetPayload>(), 32);
         assert_eq!(std::mem::size_of::<AckPayload>(), 24);
