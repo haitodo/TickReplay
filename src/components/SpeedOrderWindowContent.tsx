@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { translateErrorMessage } from "../utils/i18nUtils";
 import { DEFAULT_HOTKEYS, matchesHotkey } from "../utils/hotkeyUtils";
@@ -10,7 +10,16 @@ import { getContractSizeLabel } from "../domain/contractUtils";
 import { VirtualAccount, VirtualPosition } from "../types/trading";
 import { ReplayProgressPayload } from "../types/replay";
 import { PersistedSettings } from "../types/settings";
-import { ReplayCommand, sendReplayCommand } from "../utils/command";
+import { ExecutionAuditModal } from "./Modals/ExecutionAuditModal";
+import {
+  ReplayCommand,
+  sendReplayCommand,
+  isUseCoreV2,
+  setUseCoreV2,
+  setExecutionModels,
+  getExecutionAuditLog,
+} from "../utils/command";
+import type { LatencyModel, SlippageModel, ExecutionAuditRecord } from "../types/replay";
 import { getCachedEconomicAvailabilityMap, isEconomicSpreadActive } from "../utils/economicDataUtils";
 import { formatJstTime, formatServerTime, splitShortDateTime } from "../utils/timeUtils";
 
@@ -118,6 +127,68 @@ export const SpeedOrderWindowContent: React.FC = () => {
     }
     return 30;
   });
+
+  const [isAuditModalOpen, setIsAuditModalOpen] = useState<boolean>(false);
+  const [useCoreV2State, setUseCoreV2State] = useState<boolean>(false);
+  const [latencyModelType, setLatencyModelType] = useState<"fixed" | "realistic" | "none">(() => {
+    return (localStorage.getItem("speed-order-latency-model") as "fixed" | "realistic" | "none") || "realistic";
+  });
+  const [slippageModelType, setSlippageModelType] = useState<"realistic" | "none">(() => {
+    return (localStorage.getItem("speed-order-slippage-model") as "realistic" | "none") || "realistic";
+  });
+  const [recentAuditNotification, setRecentAuditNotification] = useState<ExecutionAuditRecord | null>(null);
+
+  useEffect(() => {
+    isUseCoreV2()
+      .then((enabled) => setUseCoreV2State(enabled))
+      .catch((e) => console.error("Failed to check use_core_v2", e));
+  }, []);
+
+  const updateExecutionModels = useCallback(
+    async (latType: "fixed" | "realistic" | "none", slipType: "realistic" | "none", fixedMs: number) => {
+      let latModel: LatencyModel;
+      if (latType === "none") {
+        latModel = { type: "Zero" };
+      } else if (latType === "fixed") {
+        latModel = { type: "Fixed", params: { latency_ms: fixedMs } };
+      } else {
+        latModel = { type: "Normal", params: { mean_ms: 35.0, std_dev_ms: 8.0 } };
+      }
+
+      let slipModel: SlippageModel;
+      if (slipType === "none") {
+        slipModel = { type: "None" };
+      } else {
+        slipModel = { type: "Realistic", params: { base_slippage_pips: 0.1, volatility_factor: 1.0 } };
+      }
+
+      try {
+        await setExecutionModels(latModel, slipModel);
+      } catch (e) {
+        console.error("Failed to set execution models", e);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    updateExecutionModels(latencyModelType, slippageModelType, orderLatencyMs);
+  }, [latencyModelType, slippageModelType, orderLatencyMs, updateExecutionModels]);
+
+  const checkLatestAuditLog = useCallback(async () => {
+    try {
+      const records = await getExecutionAuditLog();
+      if (records.length > 0) {
+        const latest = records[records.length - 1];
+        setRecentAuditNotification(latest);
+        setTimeout(() => {
+          setRecentAuditNotification((curr) => (curr?.ticket === latest.ticket ? null : curr));
+        }, 4000);
+      }
+    } catch (e) {
+      console.error("Failed to fetch latest audit log", e);
+    }
+  }, []);
 
   const [quickLots, setQuickLots] = useState<number[]>(() => {
     const saved = localStorage.getItem("speed-order-quick-lots");
@@ -680,6 +751,10 @@ export const SpeedOrderWindowContent: React.FC = () => {
       sl_points: slEnabled ? slPoints : 0,
       tp_points: tpEnabled ? tpPoints : 0
     });
+    // Core v2 約定ログを直後にチェックして通知トーストを表示
+    setTimeout(() => {
+      checkLatestAuditLog();
+    }, 60);
   };
 
   const handleCloseAll = () => sendCommand({ command: "ORDER_CLOSE_ALL" });
@@ -924,6 +999,35 @@ export const SpeedOrderWindowContent: React.FC = () => {
             <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>account_balance_wallet</span>
           </button>
 
+          {/* 約定監査ログボタン */}
+          <button
+            className="speed-audit-btn"
+            onClick={() => setIsAuditModalOpen(true)}
+            title="約定監査ログ (Core v2 決定論的約定 & 遅延・スリップ詳細)"
+            style={{
+              background: "transparent",
+              border: "none",
+              color: useCoreV2State ? "var(--primary, #3b82f6)" : "var(--on-surface-variant)",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "4px",
+              borderRadius: "50%",
+              transition: "var(--transition-fast)",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = "var(--primary, #3b82f6)";
+              e.currentTarget.style.backgroundColor = "rgba(59,130,246,0.1)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = useCoreV2State ? "var(--primary, #3b82f6)" : "var(--on-surface-variant)";
+              e.currentTarget.style.backgroundColor = "transparent";
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>verified_user</span>
+          </button>
+
           {/* 設定ボタン */}
           <button
             className="speed-settings-btn"
@@ -963,6 +1067,60 @@ export const SpeedOrderWindowContent: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* 最新約定トースト通知 (Core v2 約定フィードバック) */}
+      {recentAuditNotification && (
+        <div
+          className="audit-toast-banner"
+          onClick={() => setIsAuditModalOpen(true)}
+          style={{
+            position: "absolute",
+            top: "50px",
+            left: "12px",
+            right: "12px",
+            zIndex: 90,
+            backgroundColor: "rgba(15, 23, 42, 0.95)",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.5)",
+            border: "1px solid var(--outline-variant)",
+            borderLeft: `4px solid ${
+              recentAuditNotification.side === "BUY" ? "var(--order-buy, #3b82f6)" : "var(--order-sell, #ef4444)"
+            }`,
+            padding: "6px 12px",
+            fontSize: "11px",
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            borderRadius: "4px",
+            cursor: "pointer",
+          }}
+          title="クリックして約定監査ログを開く"
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: "16px", color: "var(--primary)" }}>
+            check_circle
+          </span>
+          <span style={{ fontWeight: 600, color: "var(--on-surface)" }}>
+            [約定 #{recentAuditNotification.ticket}] {recentAuditNotification.side} {recentAuditNotification.volume.toFixed(2)}lot @ {recentAuditNotification.fill_price}
+          </span>
+          <span style={{ fontSize: "10px", color: "var(--on-surface-variant)", marginLeft: "auto" }}>
+            遅延 {recentAuditNotification.latency_ms}ms | スリップ {recentAuditNotification.slippage_pips >= 0 ? "+" : ""}{recentAuditNotification.slippage_pips.toFixed(2)}pips
+          </span>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setRecentAuditNotification(null);
+            }}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "var(--on-surface-variant)",
+              cursor: "pointer",
+              padding: "0 2px",
+            }}
+          >
+            &times;
+          </button>
+        </div>
+      )}
 
       {/* エラーバナー (オーバーレイ表示、他パネルの位置がずれないように絶対配置) */}
       {errorMessage && (
@@ -1447,38 +1605,153 @@ export const SpeedOrderWindowContent: React.FC = () => {
                 </div>
               </div>
 
-              <div className="speed-settings-row">
-                <div className="speed-settings-label">
-                  <span className="label-text">注文遅延ミリ秒</span>
-                  <span className="label-desc">実戦の物理通信・約定到達遅延 (0〜200ms、初期値30ms)</span>
-                </div>
-                <div className="speed-settings-control">
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px", width: "100%" }}>
-                    <input
-                      type="number"
-                      step="1"
-                      min="0"
-                      max="200"
-                      className="speed-input font-data"
-                      style={{
-                        flex: 1,
-                        textAlign: "right",
-                        padding: "4px 8px",
-                        fontSize: "11px",
-                        height: "26px",
-                        boxSizing: "border-box"
-                      }}
-                      value={orderLatencyMs}
-                      onChange={(e) => {
-                        const val = parseInt(e.target.value, 10);
-                        const safeVal = isNaN(val) ? 0 : Math.max(0, Math.min(200, val));
-                        setOrderLatencyMs(safeVal);
-                      }}
-                    />
-                    <span style={{ fontSize: "11px", color: "var(--on-surface-variant)", whiteSpace: "nowrap" }}>
-                      ms
+              {/* Core v2 セクション */}
+              <div style={{ margin: "12px 0 6px 0", borderTop: "1px solid var(--outline-variant)", paddingTop: "10px" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: "16px", color: "var(--primary)" }}>
+                      verified_user
+                    </span>
+                    <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--on-surface)" }}>
+                      Replay Core v2 (Rust 自律駆動)
                     </span>
                   </div>
+                  <label className="speed-switch" title="Core v2 有効化">
+                    <input
+                      type="checkbox"
+                      checked={useCoreV2State}
+                      onChange={async (e) => {
+                        const val = e.target.checked;
+                        setUseCoreV2State(val);
+                        await setUseCoreV2(val);
+                      }}
+                    />
+                    <span className="speed-switch-slider"></span>
+                  </label>
+                </div>
+                <div style={{ fontSize: "10px", color: "var(--on-surface-variant)", marginBottom: "8px" }}>
+                  MT5タイマー依存を撤廃し、Rust内部でミリ秒刻みの絶対仮想時計と決定論的約定を実行します。
+                </div>
+              </div>
+
+              {/* 注文遅延モデル */}
+              <div className="speed-settings-row">
+                <div className="speed-settings-label">
+                  <span className="label-text">遅延シミュレーション</span>
+                  <span className="label-desc">クリックから取引所到達までの通信・処理遅延</span>
+                </div>
+                <div className="speed-settings-control">
+                  <CustomSelect
+                    value={latencyModelType}
+                    onChange={(val) => {
+                      const typed = val as "fixed" | "realistic" | "none";
+                      setLatencyModelType(typed);
+                      localStorage.setItem("speed-order-latency-model", typed);
+                    }}
+                    style={{ width: "100%" }}
+                    options={[
+                      { value: "realistic", label: "実戦正規分布 (35ms / σ8ms)" },
+                      { value: "fixed", label: "固定遅延 (指定ms)" },
+                      { value: "none", label: "遅延なし (0ms)" },
+                    ]}
+                  />
+                </div>
+              </div>
+
+              {latencyModelType === "fixed" && (
+                <div className="speed-settings-row">
+                  <div className="speed-settings-label">
+                    <span className="label-text">固定遅延ミリ秒</span>
+                    <span className="label-desc">0〜200ms</span>
+                  </div>
+                  <div className="speed-settings-control">
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px", width: "100%" }}>
+                      <input
+                        type="number"
+                        step="1"
+                        min="0"
+                        max="200"
+                        className="speed-input font-data"
+                        style={{
+                          flex: 1,
+                          textAlign: "right",
+                          padding: "4px 8px",
+                          fontSize: "11px",
+                          height: "26px",
+                          boxSizing: "border-box",
+                        }}
+                        value={orderLatencyMs}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value, 10);
+                          const safeVal = isNaN(val) ? 0 : Math.max(0, Math.min(200, val));
+                          setOrderLatencyMs(safeVal);
+                        }}
+                      />
+                      <span style={{ fontSize: "11px", color: "var(--on-surface-variant)", whiteSpace: "nowrap" }}>
+                        ms
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* スリッページモデル */}
+              <div className="speed-settings-row">
+                <div className="speed-settings-label">
+                  <span className="label-text">スリッページモデル</span>
+                  <span className="label-desc">ボラティリティ・板薄時の約定すべり再現</span>
+                </div>
+                <div className="speed-settings-control">
+                  <CustomSelect
+                    value={slippageModelType}
+                    onChange={(val) => {
+                      const typed = val as "realistic" | "none";
+                      setSlippageModelType(typed);
+                      localStorage.setItem("speed-order-slippage-model", typed);
+                    }}
+                    style={{ width: "100%" }}
+                    options={[
+                      { value: "realistic", label: "実戦ダイナミック (相場連動)" },
+                      { value: "none", label: "スリッページなし (0 pip)" },
+                    ]}
+                  />
+                </div>
+              </div>
+
+              {/* 約定監査ログボタン */}
+              <div className="speed-settings-row">
+                <div className="speed-settings-label">
+                  <span className="label-text">約定監査ログ (Audit Log)</span>
+                  <span className="label-desc">過去の全注文の遅延・約定価格・すべりを検証</span>
+                </div>
+                <div className="speed-settings-control">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsSettingsOpen(false);
+                      setIsAuditModalOpen(true);
+                    }}
+                    style={{
+                      width: "100%",
+                      padding: "6px 10px",
+                      backgroundColor: "var(--surface-container-high)",
+                      border: "1px solid var(--outline-variant)",
+                      borderRadius: "4px",
+                      color: "var(--primary)",
+                      fontSize: "11px",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "4px",
+                    }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>
+                      receipt_long
+                    </span>
+                    監査ログを表示
+                  </button>
                 </div>
               </div>
 
@@ -1693,6 +1966,11 @@ export const SpeedOrderWindowContent: React.FC = () => {
           </div>
         </div>
       )}
+      {/* 約定監査ログモーダル */}
+      <ExecutionAuditModal
+        isOpen={isAuditModalOpen}
+        onClose={() => setIsAuditModalOpen(false)}
+      />
     </div>
   );
 };

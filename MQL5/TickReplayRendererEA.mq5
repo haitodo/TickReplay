@@ -422,7 +422,8 @@ void ProcessReset(const ResetPayload &rst)
             MqlTick preload_slice[];
             ArrayResize(preload_slice, preload_count);
             ArrayCopy(preload_slice, m_all_ticks, 0, preload_from, preload_count);
-            CustomTicksReplace(m_replay_symbol, preload_slice);
+            CustomTicksDelete(m_replay_symbol, 0, LONG_MAX);
+            CustomTicksAdd(m_replay_symbol, preload_slice);
         }
         else
         {

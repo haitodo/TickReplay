@@ -12,6 +12,7 @@ pub struct SymbolItem {
 
 const EA_SOURCE: &str = include_str!("../../MQL5/TickReplayControllerEA.mq5");
 const RENDERER_EA_SOURCE: &str = include_str!("../../MQL5/TickReplayRendererEA.mq5");
+const RENDERER_EA_EX5: &[u8] = include_bytes!("../../MQL5/TickReplayRendererEA.ex5");
 const IMPORTER_SOURCE: &str = include_str!("../../MQL5/TickReplayImporter.mq5");
 const INDICATOR_SOURCE: &str = include_str!("../../MQL5/Indicators/TickReplayRoleMarker.mq5");
 
@@ -123,6 +124,18 @@ fn write_if_different(path: &Path, content: &str) -> std::io::Result<bool> {
     Ok(true) // 書き込み完了
 }
 
+fn write_bytes_if_different(path: &Path, content: &[u8]) -> std::io::Result<bool> {
+    if path.is_file() {
+        if let Ok(existing_bytes) = fs::read(path) {
+            if existing_bytes == content {
+                return Ok(false);
+            }
+        }
+    }
+    fs::write(path, content)?;
+    Ok(true)
+}
+
 // MT5データフォルダをスキャンし、EAおよびスクリプトファイル・Includeファイルを自動配置する (起動時初期化用の同期処理)
 pub fn setup_mt5_environment() {
     let base_path = if let Ok(appdata) = std::env::var("APPDATA") {
@@ -161,6 +174,11 @@ pub fn setup_mt5_environment() {
                     let renderer_ea_file = experts_path.join("TickReplayRendererEA.mq5");
                     if let Err(e) = write_if_different(&renderer_ea_file, RENDERER_EA_SOURCE) {
                         eprintln!("RendererEA配置失敗 {:?}: {}", renderer_ea_file, e);
+                    }
+
+                    let renderer_ex5_file = experts_path.join("TickReplayRendererEA.ex5");
+                    if let Err(e) = write_bytes_if_different(&renderer_ex5_file, RENDERER_EA_EX5) {
+                        eprintln!("RendererEX5配置失敗 {:?}: {}", renderer_ex5_file, e);
                     }
 
                     let importer_file = scripts_path.join("TickReplayImporter.mq5");

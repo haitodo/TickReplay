@@ -21,6 +21,7 @@ src-tauri/gen/schemas/
 
 # MetaTrader 5 / MQL5 compiled binaries
 *.ex5
+!MQL5/TickReplayRendererEA.ex5
 *.ex4
 
 # Tick data & Large dataset files

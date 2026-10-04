@@ -198,3 +198,158 @@ pub(crate) mod mod_test_helper {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::types::CoreTick;
+    use std::time::Duration;
+
+    fn generate_test_ticks(count: usize) -> Vec<CoreTick> {
+        let mut ticks = Vec::with_capacity(count);
+        let mut price = 150.0;
+        for i in 0..count {
+            let msc = 1_000_000 + (i as i64 * 100); // 100ms ごと
+            if i % 2 == 0 {
+                price += 0.005;
+            } else {
+                price -= 0.003;
+            }
+            ticks.push(CoreTick {
+                index: i as u64,
+                time_sec: msc / 1000,
+                time_msc: msc,
+                bid: price,
+                ask: price + 0.004,
+                last: price,
+                volume: 1,
+                volume_real: 1.0,
+                flags: 6,
+            });
+        }
+        ticks
+    }
+
+    #[tokio::test]
+    async fn test_100x_multiplier_stress() {
+        let ticks = generate_test_ticks(1000);
+        let store = TickStore::from_core_ticks(ticks);
+        let (handle, join_handle) = ReplayCore::start(
+            store,
+            Some(SchedulerConfig {
+                timer_interval_ms: 10,
+                ui_emit_interval_ms: 10,
+            }),
+        );
+
+        handle.set_multiplier(100.0);
+        handle.play();
+
+        // 150ms 待機 (仮想時間では 150ms * 100 = 15,000ms = 15秒分 = 150ティック分進む)
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        let status = handle.status();
+        assert!(status.is_playing);
+        assert!(status.current_index > 20, "100x playback must advance significantly (got {})", status.current_index);
+
+        handle.shutdown();
+        let _ = join_handle.await;
+    }
+
+    #[tokio::test]
+    async fn test_rapid_random_seek_and_rewind() {
+        let ticks = generate_test_ticks(1000);
+        let store = TickStore::from_core_ticks(ticks);
+        let (handle, join_handle) = ReplayCore::start(
+            store,
+            Some(SchedulerConfig {
+                timer_interval_ms: 10,
+                ui_emit_interval_ms: 10,
+            }),
+        );
+
+        let seek_targets = [500, 100, 800, 50, 950, 0, 400];
+        let mut prev_epoch = handle.status().seek_epoch;
+
+        for &target in &seek_targets {
+            handle.seek_index(target);
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            let status = handle.status();
+            assert_eq!(status.current_index, target);
+            assert!(status.seek_epoch > prev_epoch);
+            prev_epoch = status.seek_epoch;
+        }
+
+        handle.shutdown();
+        let _ = join_handle.await;
+    }
+
+    #[tokio::test]
+    async fn test_high_frequency_scalping_orders_and_audit() {
+        let ticks = generate_test_ticks(500);
+        let store = TickStore::from_core_ticks(ticks);
+        let (handle, join_handle) = ReplayCore::start(
+            store,
+            Some(SchedulerConfig {
+                timer_interval_ms: 5,
+                ui_emit_interval_ms: 10,
+            }),
+        );
+
+        handle.set_latency_model(LatencyModel::Fixed { latency_ms: 10 });
+        handle.set_slippage_model(SlippageModel::Realistic {
+            base_slippage_pips: 0.1,
+            volatility_factor: 1.0,
+        });
+
+        handle.play();
+
+        // 3件連続で注文
+        handle.submit_order("USDJPY".to_string(), OrderSide::Buy, 1.0, 0.0, 0.0, None);
+        handle.submit_order("USDJPY".to_string(), OrderSide::Sell, 0.5, 0.0, 0.0, None);
+        handle.submit_order("USDJPY".to_string(), OrderSide::Buy, 2.0, 0.0, 0.0, None);
+
+        // タイマーを進めて約定させる
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        let status = handle.status();
+        assert!(!status.latest_audits.is_empty(), "Orders must be filled and audited");
+        assert!(status.latest_audits.iter().any(|a| a.symbol == "USDJPY"));
+
+        handle.shutdown();
+        let _ = join_handle.await;
+    }
+
+    #[tokio::test]
+    async fn test_pause_and_instant_resume() {
+        let ticks = generate_test_ticks(500);
+        let store = TickStore::from_core_ticks(ticks);
+        let (handle, join_handle) = ReplayCore::start(
+            store,
+            Some(SchedulerConfig {
+                timer_interval_ms: 10,
+                ui_emit_interval_ms: 10,
+            }),
+        );
+
+        handle.set_multiplier(5.0);
+        handle.play();
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        handle.pause();
+        tokio::time::sleep(Duration::from_millis(40)).await;
+
+        let paused_idx = handle.status().current_index;
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        let still_paused_idx = handle.status().current_index;
+        assert_eq!(paused_idx, still_paused_idx, "Must stay stationary during pause");
+
+        handle.play();
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        let resumed_idx = handle.status().current_index;
+        assert!(resumed_idx > still_paused_idx, "Must instantly resume playback");
+
+        handle.shutdown();
+        let _ = join_handle.await;
+    }
+}
+
+
