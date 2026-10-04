@@ -243,11 +243,13 @@ pub async fn send_command(
             }
 
             if command == "RESET" {
+                state.seek_epoch.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 *state.last_eval_msc.lock().unwrap() = 0;
                 let balance = state.trading_engine.lock().unwrap().account.balance;
                 state.trading_engine.lock().unwrap().reset(balance);
                 emit_trading_status_update(&app_handle, &state);
             } else if command == "SEEK" || command == "SEEK_TIME" || command == "SEEK_RELATIVE" || command == "TIME_JUMP" {
+                state.seek_epoch.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 let target_time_opt = val.get("target_time_msc")
                     .or_else(|| val.get("virtual_time_msc"))
                     .or_else(|| val.get("target_time"))
@@ -378,6 +380,7 @@ pub async fn send_command(
 
                     match cmd.spawn() {
                         Ok(child) => {
+                            state.job_guard.assign_child(&child);
                             println!("[commands_replay] TickScope Replay 自動起動成功: {} (銘柄: {}, tick_dir: {})", bin_path.display(), clean_sym, tick_dir.display());
                             *child_guard = Some(child);
                         }
@@ -524,6 +527,60 @@ pub async fn sync_presets(
         s.time_presets.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         s.tick_presets = tick_presets;
         s.tick_presets.sort();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_core_v2_status(
+    state: State<'_, Arc<ReplayState>>,
+) -> Result<Option<crate::core::types::CoreStatusSnapshot>, AppError> {
+    let handle_guard = state.core_handle.lock().unwrap();
+    Ok(handle_guard.as_ref().map(|h| h.status()))
+}
+
+#[tauri::command]
+pub async fn set_use_core_v2(
+    enabled: bool,
+    state: State<'_, Arc<ReplayState>>,
+) -> Result<(), AppError> {
+    state.use_core_v2.store(enabled, std::sync::atomic::Ordering::SeqCst);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn is_use_core_v2(
+    state: State<'_, Arc<ReplayState>>,
+) -> Result<bool, AppError> {
+    Ok(state.use_core_v2.load(std::sync::atomic::Ordering::SeqCst))
+}
+
+#[tauri::command]
+pub async fn get_execution_audit_log(
+    state: State<'_, Arc<ReplayState>>,
+) -> Result<Vec<crate::core::journal::ExecutionAuditRecord>, AppError> {
+    let handle_guard = state.core_handle.lock().unwrap();
+    if let Some(ref handle) = *handle_guard {
+        Ok(handle.status().latest_audits)
+    } else {
+        Ok(Vec::new())
+    }
+}
+
+#[tauri::command]
+pub async fn set_execution_models(
+    latency_model: Option<crate::core::types::LatencyModel>,
+    slippage_model: Option<crate::core::types::SlippageModel>,
+    state: State<'_, Arc<ReplayState>>,
+) -> Result<(), AppError> {
+    let handle_guard = state.core_handle.lock().unwrap();
+    if let Some(ref handle) = *handle_guard {
+        if let Some(model) = latency_model {
+            handle.set_latency_model(model);
+        }
+        if let Some(model) = slippage_model {
+            handle.set_slippage_model(model);
+        }
     }
     Ok(())
 }

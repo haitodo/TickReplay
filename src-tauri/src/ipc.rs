@@ -519,10 +519,25 @@ async fn process_status_message(
                 val["dmm_spread"] = serde_json::json!(q.spread);
             }
 
-            // Rust 仮想取引エンジンの残高・ポジション・履歴で上書き
+            // リビジョン・エポック情報の注入
+            val["trade_revision"] = serde_json::json!(engine.revision);
+            val["history_revision"] = serde_json::json!(engine.revision);
+            val["seek_epoch"] = serde_json::json!(state.seek_epoch.load(std::sync::atomic::Ordering::Relaxed));
+
+            // Rust 仮想取引エンジンの残高・ポジションで上書き
             val["account"] = serde_json::to_value(&engine.account).unwrap_or_default();
             val["positions"] = serde_json::to_value(&engine.positions).unwrap_or_default();
-            val["history"] = serde_json::to_value(&engine.history).unwrap_or_default();
+
+            // 履歴差分化: trade_revision が更新された時（または初回）のみ全量 history を含める
+            let current_rev = engine.revision;
+            let last_sent_rev = state.trade_revision.load(std::sync::atomic::Ordering::Relaxed);
+            let needs_history = current_rev != last_sent_rev || state.last_history.lock().unwrap().is_none();
+            if needs_history {
+                let hist_val = serde_json::to_value(&engine.history).unwrap_or_default();
+                val["history"] = hist_val.clone();
+                *state.last_history.lock().unwrap() = Some(hist_val);
+                state.trade_revision.store(current_rev, std::sync::atomic::Ordering::Relaxed);
+            }
         }
     }
 

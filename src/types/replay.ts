@@ -112,3 +112,49 @@ export interface ReplayLoopPayload {
 }
 
 export interface ReplayStatusPayload extends ReplayProgressPayload {}
+
+export interface ExecutionAuditRecord {
+  ticket: number;
+  symbol: string;
+  side: "BUY" | "SELL";
+  volume: number;
+  click_time_msc: number;
+  fill_time_msc: number;
+  latency_ms: number;
+  request_price: number;
+  fill_price: number;
+  slippage_pips: number;
+}
+
+export type LatencyModel =
+  | { type: "Zero" }
+  | { type: "Fixed"; params: { latency_ms: number } }
+  | { type: "Normal"; params: { mean_ms: number; std_dev_ms: number } };
+
+export type SlippageModel =
+  | { type: "None" }
+  | { type: "Realistic"; params: { base_slippage_pips: number; volatility_factor: number } };
+
+export interface CoreStatusSnapshot {
+  virtual_time_msc: number;
+  is_playing: boolean;
+  state: "STOPPED" | "PLAYING" | "PAUSED";
+  multiplier: number;
+  speed_mode: SpeedMode;
+  current_index: number;
+  total_ticks: number;
+  seek_epoch: number;
+  trade_revision: number;
+  current_tick?: {
+    index: number;
+    time_sec: number;
+    time_msc: number;
+    bid: number;
+    ask: number;
+    last: number;
+    volume: number;
+    volume_real: number;
+    flags: number;
+  };
+  latest_audits: ExecutionAuditRecord[];
+}

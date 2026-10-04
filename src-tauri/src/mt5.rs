@@ -11,6 +11,7 @@ pub struct SymbolItem {
 }
 
 const EA_SOURCE: &str = include_str!("../../MQL5/TickReplayControllerEA.mq5");
+const RENDERER_EA_SOURCE: &str = include_str!("../../MQL5/TickReplayRendererEA.mq5");
 const IMPORTER_SOURCE: &str = include_str!("../../MQL5/TickReplayImporter.mq5");
 const INDICATOR_SOURCE: &str = include_str!("../../MQL5/Indicators/TickReplayRoleMarker.mq5");
 
@@ -155,6 +156,11 @@ pub fn setup_mt5_environment() {
                     let ea_file = experts_path.join("TickReplayControllerEA.mq5");
                     if let Err(e) = write_if_different(&ea_file, EA_SOURCE) {
                         eprintln!("EA配置失敗 {:?}: {}", ea_file, e);
+                    }
+
+                    let renderer_ea_file = experts_path.join("TickReplayRendererEA.mq5");
+                    if let Err(e) = write_if_different(&renderer_ea_file, RENDERER_EA_SOURCE) {
+                        eprintln!("RendererEA配置失敗 {:?}: {}", renderer_ea_file, e);
                     }
 
                     let importer_file = scripts_path.join("TickReplayImporter.mq5");

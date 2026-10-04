@@ -78,6 +78,8 @@ pub struct VirtualTradingEngine {
     pub pending_orders: Vec<PendingOrder>,
     pub pending_closes: Vec<PendingClose>,
     pub closed_tickets_ticks: std::collections::HashMap<i32, Vec<serde_json::Value>>,
+    /// 取引状態のリビジョン番号（発注・決済・変更・リセット・巻き戻しでインクリメント）
+    pub revision: u64,
 }
 
 impl Default for VirtualTradingEngine {
@@ -116,6 +118,7 @@ impl VirtualTradingEngine {
             pending_orders: Vec::new(),
             pending_closes: Vec::new(),
             closed_tickets_ticks: std::collections::HashMap::new(),
+            revision: 1,
         }
     }
 
@@ -133,6 +136,7 @@ impl VirtualTradingEngine {
         self.pending_closes.clear();
         self.closed_tickets_ticks.clear();
         self.next_ticket = 1;
+        self.revision = self.revision.wrapping_add(1);
     }
 
     /// タイムトラベル連動 (SEEK / A-Bループ時の建玉巻き戻し)
@@ -193,6 +197,7 @@ impl VirtualTradingEngine {
         // 6. 巻き戻し時点のレートで評価・残高・有効証拠金復元
         self.update_positions_mtm(current_tick);
         self.recalculate_account(current_tick);
+        self.revision = self.revision.wrapping_add(1);
     }
 
     /// 成行注文の発注 (BUY / SELL)
@@ -322,6 +327,7 @@ impl VirtualTradingEngine {
 
         self.positions.push(pos);
         self.recalculate_account(current_tick);
+        self.revision = self.revision.wrapping_add(1);
 
         Some(ticket)
     }
@@ -366,6 +372,7 @@ impl VirtualTradingEngine {
             self.positions.remove(pos_idx);
         }
 
+        self.revision = self.revision.wrapping_add(1);
         true
     }
 
@@ -419,6 +426,7 @@ impl VirtualTradingEngine {
         if let Some(pos) = self.positions.iter_mut().find(|p| p.ticket == ticket) {
             pos.sl = sl;
             pos.tp = tp;
+            self.revision = self.revision.wrapping_add(1);
             true
         } else {
             false

@@ -57,6 +57,18 @@ pub struct ReplayState {
     pub current_virtual_time_msc: Mutex<i64>,
     // 自動連動起動された TickScope Replay プロセス
     pub tick_scope_child: Mutex<Option<std::process::Child>>,
+    // Windows Job Object による子プロセス保護
+    pub job_guard: crate::process_guard::ProcessJobGuard,
+    // 取引状態リビジョン番号（約定・決済・リセット等でインクリメント）
+    pub trade_revision: std::sync::atomic::AtomicU64,
+    // シーク・リセットエポック番号（シーク操作等でインクリメント）
+    pub seek_epoch: std::sync::atomic::AtomicU64,
+    // Feature Flag: Replay Core v2 (Rust 自律駆動モード)
+    pub use_core_v2: std::sync::atomic::AtomicBool,
+    // Replay Core v2 操作ハンドル
+    pub core_handle: Mutex<Option<crate::core::ReplayCoreHandle>>,
+    // Replay Core v2 バックグラウンドタスク JoinHandle
+    pub core_join_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl ReplayState {
@@ -117,6 +129,14 @@ impl ReplayState {
             last_eval_msc: Mutex::new(0),
             current_virtual_time_msc: Mutex::new(0),
             tick_scope_child: Mutex::new(None),
+            job_guard: crate::process_guard::ProcessJobGuard::new(),
+            trade_revision: std::sync::atomic::AtomicU64::new(1),
+            seek_epoch: std::sync::atomic::AtomicU64::new(1),
+            use_core_v2: std::sync::atomic::AtomicBool::new(
+                std::env::var("TICK_REPLAY_CORE_V2").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false)
+            ),
+            core_handle: Mutex::new(None),
+            core_join_handle: Mutex::new(None),
         }
     }
 }

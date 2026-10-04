@@ -18,6 +18,8 @@ pub mod commands;
 pub mod sync_server;
 pub mod jfx_feed;
 pub mod virtual_trading;
+pub mod process_guard;
+pub mod core;
 
 use std::sync::Arc;
 use tauri::{Manager, Emitter};
@@ -292,6 +294,11 @@ pub fn run() {
             commands::check_month_economic_availability,
             commands::get_economic_schedule_csv,
             commands::get_default_economic_data_dir,
+            commands::get_core_v2_status,
+            commands::set_use_core_v2,
+            commands::is_use_core_v2,
+            commands::get_execution_audit_log,
+            commands::set_execution_models,
             commands::exit_app
         ])
         .run(tauri::generate_context!())
