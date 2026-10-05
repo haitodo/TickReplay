@@ -132,13 +132,199 @@ pub fn calculate_session_jump_target(cur_msc: i64, session: &str, is_next: bool)
     cur_msc
 }
 
+/// Replay Core v2 への再生制御コマンド共通ディスパッチャ
+/// UIからのsend_command、外部WSクライアント(Drenhis/TickScope/Tracely)、グローバルショートカットなどから一元的に呼び出される
+pub fn dispatch_replay_command(
+    state: &ReplayState,
+    cmd_json: &str,
+    app_handle: Option<&AppHandle>,
+) -> Result<(), AppError> {
+    let val: serde_json::Value = match serde_json::from_str(cmd_json) {
+        Ok(v) => v,
+        Err(_) => return Ok(()),
+    };
+
+    let Some(command) = val.get("command").and_then(|c| c.as_str()) else {
+        return Ok(());
+    };
+
+    let core_opt = state.core_handle.lock().unwrap().clone();
+
+    match command {
+        "PLAY" => {
+            state.playback.lock().unwrap().is_playing = true;
+            if let Some(core) = core_opt {
+                core.play();
+            }
+        }
+        "PAUSE" => {
+            state.playback.lock().unwrap().is_playing = false;
+            if let Some(core) = core_opt {
+                core.pause();
+            }
+        }
+        "CONTROL" => {
+            let mut p = state.playback.lock().unwrap();
+            let mut playing_opt = None;
+            if let Some(playing) = val.get("is_playing").and_then(|p| p.as_bool()) {
+                p.is_playing = playing;
+                playing_opt = Some(playing);
+            }
+            let mut mult_opt = None;
+            if let Some(mult) = val.get("multiplier").and_then(|m| m.as_f64()) {
+                p.multiplier = mult;
+                mult_opt = Some(mult);
+            }
+            let mut mode_opt = None;
+            if let Some(mode_val) = val.get("speed_mode").and_then(|s| s.as_str()) {
+                if mode_val == "COUNT" || mode_val == "TICK" {
+                    p.speed_mode = SpeedMode::Tick;
+                    mode_opt = Some(crate::core::types::PlaybackMode::Count);
+                } else {
+                    p.speed_mode = SpeedMode::Temporal;
+                    mode_opt = Some(crate::core::types::PlaybackMode::Temporal);
+                }
+            }
+            if let Some(step) = val.get("tick_step").and_then(|t| t.as_i64()) {
+                p.tick_step = step as i32;
+            }
+            drop(p);
+
+            if let Some(core) = core_opt {
+                if let Some(playing) = playing_opt {
+                    if playing { core.play(); } else { core.pause(); }
+                }
+                if let Some(mult) = mult_opt {
+                    core.set_multiplier(mult);
+                }
+                if let Some(mode) = mode_opt {
+                    core.set_playback_mode(mode);
+                }
+            }
+        }
+        "SEEK" => {
+            if let Some(idx) = val.get("target_index").or_else(|| val.get("target_idx")).and_then(|i| i.as_i64()) {
+                if let Some(core) = core_opt {
+                    core.seek_index(idx.max(0) as u64);
+                }
+            }
+        }
+        "SEEK_TIME" => {
+            let target_time = val.get("target_time_msc")
+                .or_else(|| val.get("virtual_time_msc"))
+                .and_then(|t| t.as_i64())
+                .or_else(|| {
+                    val.get("target_time")
+                        .and_then(|t| t.as_str())
+                        .and_then(jst_to_server_time_msc)
+                });
+            if let Some(time_msc) = target_time {
+                if let Some(core) = core_opt {
+                    core.seek_time(time_msc);
+                }
+            }
+        }
+        "STEP" => {
+            let delta = val.get("delta").and_then(|d| d.as_i64()).unwrap_or(1);
+            if let Some(core) = core_opt {
+                core.step_ticks(delta);
+            }
+        }
+        "SEEK_RELATIVE" => {
+            let delta = val.get("delta").and_then(|d| d.as_i64()).unwrap_or(0);
+            if delta != 0 {
+                if let Some(core) = core_opt {
+                    core.step_ticks(delta);
+                }
+            }
+        }
+        "TIME_JUMP" => {
+            let delta_sec = val.get("delta_seconds").and_then(|d| d.as_i64()).unwrap_or(0);
+            if let Some(core) = core_opt {
+                core.step_time(delta_sec * 1000);
+            }
+        }
+        "SESSION_JUMP" => {
+            let session = val.get("session").and_then(|s| s.as_str()).unwrap_or("ANY");
+            let direction = val.get("direction").and_then(|d| d.as_str()).unwrap_or("NEXT");
+            let is_next = direction.eq_ignore_ascii_case("NEXT");
+            let cur_msc = *state.current_virtual_time_msc.lock().unwrap();
+            let target_msc = calculate_session_jump_target(cur_msc, session, is_next);
+            if let Some(core) = core_opt {
+                core.seek_time(target_msc);
+            }
+        }
+        "LOOP_SET_A" => {
+            if let Some(core) = core_opt {
+                let cur_msc = *state.current_virtual_time_msc.lock().unwrap();
+                let b_time = core.status().loop_config.map(|c| c.b_time_msc).unwrap_or(0);
+                core.set_ab_loop(Some(crate::core::types::AbLoopConfig {
+                    enabled: b_time > cur_msc,
+                    a_time_msc: cur_msc,
+                    b_time_msc: b_time,
+                    a_index: None,
+                    b_index: None,
+                }));
+            }
+        }
+        "LOOP_SET_B" => {
+            if let Some(core) = core_opt {
+                let cur_msc = *state.current_virtual_time_msc.lock().unwrap();
+                let a_time = core.status().loop_config.map(|c| c.a_time_msc).unwrap_or(0);
+                core.set_ab_loop(Some(crate::core::types::AbLoopConfig {
+                    enabled: cur_msc > a_time,
+                    a_time_msc: a_time,
+                    b_time_msc: cur_msc,
+                    a_index: None,
+                    b_index: None,
+                }));
+            }
+        }
+        "LOOP_CLEAR" => {
+            if let Some(core) = core_opt {
+                core.set_ab_loop(None);
+            }
+        }
+        "RESET" => {
+            if let Some(core) = core_opt {
+                core.seek_index(0);
+            }
+        }
+        "TERMINATE" => {
+            if let Some(core) = core_opt {
+                core.shutdown();
+            }
+            if let Some(app) = app_handle {
+                if let Some(speed_order) = app.get_webview_window("speed_order") {
+                    let _ = speed_order.close();
+                }
+                if let Some(positions) = app.get_webview_window("positions") {
+                    let _ = positions.close();
+                }
+            }
+            {
+                let mut child_guard = state.tick_scope_child.lock().unwrap();
+                if let Some(mut child) = child_guard.take() {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    println!("[commands_replay] TickScope Replay プロセス終了完了");
+                }
+            }
+            let _ = state.sync_tx.send(r#"{"status":"TERMINATE","command":"TERMINATE"}"#.to_string());
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn send_command(
     command_json: String,
     app_handle: AppHandle,
     state: State<'_, Arc<ReplayState>>,
 ) -> Result<(), AppError> {
-    let mut final_cmd_json = command_json;
+    let final_cmd_json = command_json;
     if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&final_cmd_json) {
         if let Some(command) = val.get("command").and_then(|c| c.as_str()) {
             // --- 仮想取引エンジンのコマンド直接処理 (MT5 Named Pipe への転送不要) ---
@@ -332,86 +518,7 @@ pub async fn send_command(
                 _ => {}
             }
 
-            let is_v2 = state.core_handle.lock().unwrap().is_some();
-            if !is_v2 {
-                if command == "RESET" {
-                    state.seek_epoch.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                    *state.last_eval_msc.lock().unwrap() = 0;
-                    let balance = state.trading_engine.lock().unwrap().account.balance;
-                    state.trading_engine.lock().unwrap().reset(balance);
-                    emit_trading_status_update(&app_handle, &state);
-                } else if command == "SEEK" || command == "SEEK_TIME" || command == "SEEK_RELATIVE" || command == "TIME_JUMP" || command == "SESSION_JUMP" {
-                    state.seek_epoch.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                    let target_time_opt = if command == "SESSION_JUMP" {
-                        let session = val.get("session").and_then(|s| s.as_str()).unwrap_or("ANY");
-                        let direction = val.get("direction").and_then(|d| d.as_str()).unwrap_or("NEXT");
-                        let is_next = direction.eq_ignore_ascii_case("NEXT");
-                        let cur_v = *state.current_virtual_time_msc.lock().unwrap();
-                        Some(calculate_session_jump_target(cur_v, session, is_next))
-                    } else {
-                        val.get("target_time_msc")
-                            .or_else(|| val.get("virtual_time_msc"))
-                            .or_else(|| val.get("target_time"))
-                            .and_then(|v| v.as_i64())
-                    };
-                    if let Some(target_time) = target_time_opt {
-                        let cur_v = *state.current_virtual_time_msc.lock().unwrap();
-                        if target_time < cur_v {
-                            let mut feed_guard = state.execution_feed.lock().unwrap();
-                            let quote = feed_guard.as_mut().and_then(|f| f.get_quote_at(target_time));
-                            if let Some(ref q) = quote {
-                                let mut engine = state.trading_engine.lock().unwrap();
-                                engine.rewind_to(target_time, q);
-                                drop(engine);
-                                drop(feed_guard);
-                                emit_trading_status_update(&app_handle, &state);
-                            }
-                        }
-                        *state.current_virtual_time_msc.lock().unwrap() = target_time;
-                        *state.last_eval_msc.lock().unwrap() = target_time;
-                    }
-                    // NOTE: When target_time is None (e.g. SEEK by target_index or SEEK_RELATIVE),
-                    // we preserve state.last_eval_msc so that ipc.rs can compare the newly arriving
-                    // virtual_time_msc against last_eval_msc and cleanly trigger engine.rewind_to!
-                }
-            }
-
-            if command == "CONTROL" {
-                let mut p = state.playback.lock().unwrap();
-                if let Some(playing) = val.get("is_playing").and_then(|p| p.as_bool()) {
-                    p.is_playing = playing;
-                }
-                if let Some(mode_val) = val.get("speed_mode") {
-                    if let Ok(mode) = serde_json::from_value::<SpeedMode>(mode_val.clone()) {
-                        p.speed_mode = mode;
-                    }
-                }
-                if let Some(mult) = val.get("multiplier").and_then(|m| m.as_f64()) {
-                    p.multiplier = mult;
-                }
-                if let Some(step) = val.get("tick_step").and_then(|t| t.as_i64()) {
-                    p.tick_step = step as i32;
-                }
-            } else if command == "TERMINATE" {
-                // 1. スピード発注画面とポジション一覧をクローズ
-                if let Some(speed_order) = app_handle.get_webview_window("speed_order") {
-                    let _ = speed_order.close();
-                }
-                if let Some(positions) = app_handle.get_webview_window("positions") {
-                    let _ = positions.close();
-                }
-                // 2. 自動連動起動された TickScope Replay プロセスを終了
-                {
-                    let mut child_guard = state.tick_scope_child.lock().unwrap();
-                    if let Some(mut child) = child_guard.take() {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                        println!("[commands_replay] TickScope Replay プロセス終了完了");
-                    }
-                }
-                // 3. WebSocket経由でもTERMINATEをブロードキャスト
-                let _ = state.sync_tx.send(r#"{"status":"TERMINATE","command":"TERMINATE"}"#.to_string());
-            } else if command == "INIT" {
+            if command == "INIT" {
                 // JFX 実行フィードのロード & 仮想取引エンジンのリセット
                 let source_sym = val.get("source_symbol").and_then(|s| s.as_str()).unwrap_or("USDJPY");
                 let st = val.get("start_time").and_then(|s| s.as_str()).unwrap_or("");
@@ -442,13 +549,10 @@ pub async fn send_command(
                     }
                 }
 
-                // --- Core v2 自律駆動エンジンの初期化 ---
+                // --- Replay Core v2 自律駆動エンジンの初期化 ---
                 let render_pipe_opt = state.render_pipe_handle.lock().unwrap().clone();
                 let is_renderer_connected = render_pipe_opt.as_ref().map(|p| p.is_connected()).unwrap_or(false);
-                let use_v2 = state.use_core_v2.load(std::sync::atomic::Ordering::Relaxed) || is_renderer_connected;
-
-                if use_v2 {
-                    println!("[commands_replay] Replay Core v2 自律駆動モードで初期化を開始します (RendererEA接続={})", is_renderer_connected);
+                println!("[commands_replay] Replay Core v2 自律駆動モードで初期化を開始します (RendererEA接続={})", is_renderer_connected);
 
                     // 1. TickStore の構築
                     let store = {
@@ -628,7 +732,6 @@ pub async fn send_command(
                     let init_str = initial_status.to_string();
                     let _ = app_handle.emit("mt5-status", &init_str);
                     let _ = state.sync_tx.send(init_str);
-                }
 
                 // 4. ワークスペースのワンクリック完全自動連動:
                 // スピード発注画面の自動表示 (前回の位置/サイズ/最前面)
@@ -748,138 +851,33 @@ pub async fn send_command(
                             if !csv.is_empty() {
                                 if let Some(obj) = val.as_object_mut() {
                                     obj.insert("economic_events_csv".to_string(), serde_json::Value::String(csv));
-                                    if let Ok(updated_json) = serde_json::to_string(&val) {
-                                        final_cmd_json = updated_json;
-                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
-        }
 
-        // --- Core v2 へのコマンド転送 ---
-        if let Some(command) = val.get("command").and_then(|c| c.as_str()) {
-            let core_opt = state.core_handle.lock().unwrap().clone();
-            if let Some(core) = core_opt {
-                match command {
-                    "PLAY" => core.play(),
-                    "PAUSE" => core.pause(),
-                    "CONTROL" => {
-                        if let Some(playing) = val.get("is_playing").and_then(|p| p.as_bool()) {
-                            if playing { core.play(); } else { core.pause(); }
-                        }
-                        if let Some(mult) = val.get("multiplier").and_then(|m| m.as_f64()) {
-                            core.set_multiplier(mult);
-                        }
-                        if let Some(mode_val) = val.get("speed_mode").and_then(|s| s.as_str()) {
-                            if mode_val == "COUNT" {
-                                core.set_playback_mode(crate::core::types::PlaybackMode::Count);
-                            } else {
-                                core.set_playback_mode(crate::core::types::PlaybackMode::Temporal);
-                            }
-                        }
-                    }
-                    "SEEK" => {
-                        if let Some(idx) = val.get("target_index").or_else(|| val.get("target_idx")).and_then(|i| i.as_i64()) {
-                            core.seek_index(idx.max(0) as u64);
-                        }
-                    }
-                    "SEEK_TIME" => {
-                        if let Some(time_msc) = val.get("target_time_msc").or_else(|| val.get("virtual_time_msc")).and_then(|t| t.as_i64()) {
-                            core.seek_time(time_msc);
-                        }
-                    }
-                    "STEP" => {
-                        let delta = val.get("delta").and_then(|d| d.as_i64()).unwrap_or(1);
-                        core.step_ticks(delta);
-                    }
-                    "TIME_JUMP" => {
-                        let delta_sec = val.get("delta_seconds").and_then(|d| d.as_i64()).unwrap_or(0);
-                        core.step_time(delta_sec * 1000);
-                    }
-                    "SESSION_JUMP" => {
-                        let session = val.get("session").and_then(|s| s.as_str()).unwrap_or("ANY");
-                        let direction = val.get("direction").and_then(|d| d.as_str()).unwrap_or("NEXT");
-                        let is_next = direction.eq_ignore_ascii_case("NEXT");
-                        let cur_msc = *state.current_virtual_time_msc.lock().unwrap();
-                        let target_msc = calculate_session_jump_target(cur_msc, session, is_next);
-                        core.seek_time(target_msc);
-                    }
-                    "LOOP_SET_A" => {
-                        let cur_msc = *state.current_virtual_time_msc.lock().unwrap();
-                        let b_time = core.status().loop_config.map(|c| c.b_time_msc).unwrap_or(0);
-                        core.set_ab_loop(Some(crate::core::types::AbLoopConfig {
-                            enabled: b_time > cur_msc,
-                            a_time_msc: cur_msc,
-                            b_time_msc: b_time,
-                            a_index: None,
-                            b_index: None,
-                        }));
-                    }
-                    "LOOP_SET_B" => {
-                        let cur_msc = *state.current_virtual_time_msc.lock().unwrap();
-                        let a_time = core.status().loop_config.map(|c| c.a_time_msc).unwrap_or(0);
-                        core.set_ab_loop(Some(crate::core::types::AbLoopConfig {
-                            enabled: cur_msc > a_time,
-                            a_time_msc: a_time,
-                            b_time_msc: cur_msc,
-                            a_index: None,
-                            b_index: None,
-                        }));
-                    }
-                    "LOOP_CLEAR" => {
-                        core.set_ab_loop(None);
-                    }
-                    "RESET" => {
-                        core.seek_index(0);
-                    }
-                    "TERMINATE" => {
-                        core.shutdown();
-                    }
-                    _ => {}
-                }
+                return Ok(());
             }
         }
     }
 
-    state.command_tx.send(final_cmd_json).map_err(|e| AppError::Config(e.to_string()))
+    dispatch_replay_command(&state, &final_cmd_json, Some(&app_handle))
 }
 
 #[tauri::command]
 pub async fn read_trade_ticks(app_handle: AppHandle, ticket: i32) -> Result<String, AppError> {
     let state = app_handle.state::<Arc<ReplayState>>();
     
-    // 1. Rust 仮想取引エンジンにキャッシュがあればそこから返す
-    {
-        let engine = state.trading_engine.lock().unwrap();
-        if let Some(ticks) = engine.closed_tickets_ticks.get(&ticket) {
-            if let Ok(json) = serde_json::to_string(ticks) {
-                return Ok(json);
-            }
+    // Rust 仮想取引エンジンのキャッシュから取得
+    let engine = state.trading_engine.lock().unwrap();
+    if let Some(ticks) = engine.closed_tickets_ticks.get(&ticket) {
+        if let Ok(json) = serde_json::to_string(ticks) {
+            return Ok(json);
         }
     }
 
-    // 2. MT5 Files パスからのフォールバック読込
-    let files_path = {
-        let path_guard = state.files_path.lock().unwrap();
-        path_guard.clone()
-    };
-
-    let Some(files_path) = files_path else {
-        return Ok("[]".to_string());
-    };
-    
-    let ticks_file = files_path.join(format!("trade_ticks_{}.json", ticket));
-    if !ticks_file.exists() {
-        return Ok("[]".to_string());
-    }
-    
-    let content = tokio::fs::read_to_string(&ticks_file).await?;
-    let _ = tokio::fs::remove_file(ticks_file).await;
-    
-    Ok(content)
+    Ok("[]".to_string())
 }
 
 #[tauri::command]
@@ -936,18 +934,19 @@ pub async fn get_core_v2_status(
 
 #[tauri::command]
 pub async fn set_use_core_v2(
-    enabled: bool,
-    state: State<'_, Arc<ReplayState>>,
+    _enabled: bool,
+    _state: State<'_, Arc<ReplayState>>,
 ) -> Result<(), AppError> {
-    state.use_core_v2.store(enabled, std::sync::atomic::Ordering::SeqCst);
+    // 新アーキテクチャでは常に Replay Core v2 に一本化
     Ok(())
 }
 
 #[tauri::command]
 pub async fn is_use_core_v2(
-    state: State<'_, Arc<ReplayState>>,
+    _state: State<'_, Arc<ReplayState>>,
 ) -> Result<bool, AppError> {
-    Ok(state.use_core_v2.load(std::sync::atomic::Ordering::SeqCst))
+    // 新アーキテクチャでは常に true
+    Ok(true)
 }
 
 #[tauri::command]

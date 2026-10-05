@@ -563,7 +563,7 @@ pub async fn open_trade_analysis_window() -> Result<(), AppError> {
 #[tauri::command]
 pub fn exit_app(app_handle: AppHandle) {
     if let Some(state) = app_handle.try_state::<std::sync::Arc<crate::state::ReplayState>>() {
-        let _ = state.command_tx.send("{\"command\":\"TERMINATE\"}".to_string());
+        let _ = crate::commands_replay::dispatch_replay_command(&state, "{\"command\":\"TERMINATE\"}", Some(&app_handle));
     }
     app_handle.exit(0);
 }

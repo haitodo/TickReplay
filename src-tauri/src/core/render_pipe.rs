@@ -9,6 +9,7 @@ pub const MSG_ACK: u16 = 0x0004;
 pub const MSG_READY: u16 = 0x0005;
 pub const MSG_APPLY_PROFILE: u16 = 0x0006;
 pub const MSG_INIT: u16 = 0x0007;
+pub const MSG_IMPORT_TICKS: u16 = 0x0008;
 
 /// 固定長 16 バイトヘッダー (自然アライメント)
 #[repr(C)]
@@ -105,6 +106,16 @@ pub struct InitPayload {
     pub sub_symbol: [u8; 32],
     pub profile_name: [u8; 64],
     pub reserved: [u8; 32],
+}
+
+/// 0x0008 IMPORT_TICKS ペイロード (Core -> EA, 224 bytes)
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ImportTicksPayload {
+    pub symbol: [u8; 32],
+    pub group: [u8; 32],
+    pub base_symbol: [u8; 32],
+    pub bin_file: [u8; 128],
 }
 
 /// プロトコル送受信ヘルパー
@@ -242,6 +253,48 @@ impl RenderPacketCodec {
         buf
     }
 
+    pub fn encode_import_ticks(
+        epoch: u32,
+        symbol: &str,
+        group: &str,
+        base_symbol: &str,
+        bin_file: &str,
+    ) -> Vec<u8> {
+        let mut payload = ImportTicksPayload {
+            symbol: [0; 32],
+            group: [0; 32],
+            base_symbol: [0; 32],
+            bin_file: [0; 128],
+        };
+        let s_bytes = symbol.as_bytes();
+        let s_len = s_bytes.len().min(31);
+        payload.symbol[..s_len].copy_from_slice(&s_bytes[..s_len]);
+
+        let g_bytes = group.as_bytes();
+        let g_len = g_bytes.len().min(31);
+        payload.group[..g_len].copy_from_slice(&g_bytes[..g_len]);
+
+        let b_bytes = base_symbol.as_bytes();
+        let b_len = b_bytes.len().min(31);
+        payload.base_symbol[..b_len].copy_from_slice(&b_bytes[..b_len]);
+
+        let bf_bytes = bin_file.as_bytes();
+        let bf_len = bf_bytes.len().min(127);
+        payload.bin_file[..bf_len].copy_from_slice(&bf_bytes[..bf_len]);
+
+        let header = RenderHeader::new(
+            MSG_IMPORT_TICKS,
+            0,
+            epoch,
+            std::mem::size_of::<ImportTicksPayload>() as u32,
+        );
+
+        let mut buf = Vec::with_capacity(RenderHeader::SIZE + std::mem::size_of::<ImportTicksPayload>());
+        buf.extend_from_slice(bytemuck::bytes_of(&header));
+        buf.extend_from_slice(bytemuck::bytes_of(&payload));
+        buf
+    }
+
     pub fn read_packet<R: Read>(reader: &mut R) -> io::Result<(RenderHeader, Vec<u8>)> {
         let mut header_buf = [0u8; RenderHeader::SIZE];
         reader.read_exact(&mut header_buf)?;
@@ -296,6 +349,13 @@ pub enum RenderPipeCommand {
         source_symbol: String,
         sub_symbol: String,
         profile_name: String,
+    },
+    ImportTicks {
+        epoch: u32,
+        symbol: String,
+        group: String,
+        base_symbol: String,
+        bin_file: String,
     },
 }
 
@@ -381,6 +441,23 @@ impl RenderPipeHandle {
         };
         *self.last_init.lock().unwrap() = Some(cmd.clone());
         let _ = self.cmd_tx.send(cmd);
+    }
+
+    pub fn send_import_ticks(
+        &self,
+        epoch: u32,
+        symbol: &str,
+        group: &str,
+        base_symbol: &str,
+        bin_file: &str,
+    ) {
+        let _ = self.cmd_tx.send(RenderPipeCommand::ImportTicks {
+            epoch,
+            symbol: symbol.to_string(),
+            group: group.to_string(),
+            base_symbol: base_symbol.to_string(),
+            bin_file: bin_file.to_string(),
+        });
     }
 
     pub fn is_connected(&self) -> bool {
@@ -517,6 +594,13 @@ impl RenderPipeServer {
                                     let packet = RenderPacketCodec::encode_init(epoch, start_time_msc, end_time_msc, preload_date_msc, preloaded_bars, preload_mode, &source_symbol, &sub_symbol, &profile_name);
                                     if let Err(e) = writer.write_all(&packet).await {
                                         eprintln!("[RenderPipe] INIT 送信エラー: {}", e);
+                                        break;
+                                    }
+                                }
+                                RenderPipeCommand::ImportTicks { epoch, symbol, group, base_symbol, bin_file } => {
+                                    let packet = RenderPacketCodec::encode_import_ticks(epoch, &symbol, &group, &base_symbol, &bin_file);
+                                    if let Err(e) = writer.write_all(&packet).await {
+                                        eprintln!("[RenderPipe] IMPORT_TICKS 送信エラー: {}", e);
                                         break;
                                     }
                                 }

@@ -15,7 +15,6 @@ import {
   ReplayCommand,
   sendReplayCommand,
   isUseCoreV2,
-  setUseCoreV2,
   setExecutionModels,
   getExecutionAuditLog,
 } from "../utils/command";
@@ -1613,24 +1612,15 @@ export const SpeedOrderWindowContent: React.FC = () => {
                       verified_user
                     </span>
                     <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--on-surface)" }}>
-                      Replay Core v2 (Rust 自律駆動)
+                      Replay Core v2 (RenderPipe 一本化)
                     </span>
                   </div>
-                  <label className="speed-switch" title="Core v2 有効化">
-                    <input
-                      type="checkbox"
-                      checked={useCoreV2State}
-                      onChange={async (e) => {
-                        const val = e.target.checked;
-                        setUseCoreV2State(val);
-                        await setUseCoreV2(val);
-                      }}
-                    />
-                    <span className="speed-switch-slider"></span>
-                  </label>
+                  <span style={{ fontSize: "11px", fontWeight: 600, color: "var(--primary)", backgroundColor: "rgba(59,130,246,0.12)", padding: "2px 6px", borderRadius: "4px" }}>
+                    常時稼働
+                  </span>
                 </div>
                 <div style={{ fontSize: "10px", color: "var(--on-surface-variant)", marginBottom: "8px" }}>
-                  MT5タイマー依存を撤廃し、Rust内部でミリ秒刻みの絶対仮想時計と決定論的約定を実行します。
+                  MT5タイマー依存を撤廃し、Rust内部でミリ秒刻みの絶対仮想時計と決定論的約定を実行中。
                 </div>
               </div>
 

@@ -4,7 +4,6 @@
 pub mod error;
 pub mod state;
 pub mod mt5;
-pub mod ipc;
 pub mod shortcut;
 pub mod custom_symbol;
 pub mod pseudo_dmm;
@@ -29,9 +28,8 @@ pub fn run() {
     // 起動時の初期化処理（MT5データフォルダへのEAファイルの自動配置）
     mt5::setup_mt5_environment();
 
-    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     let (sync_srv, sync_tx) = sync_server::SyncServer::new();
-    let state = Arc::new(state::ReplayState::new(tx, sync_tx));
+    let state = Arc::new(state::ReplayState::new(sync_tx));
     let state_clone = state.clone();
 
     tauri::Builder::default()
@@ -118,7 +116,7 @@ pub fn run() {
                     } else if window.label() == "main" {
                         // メインウィンドウが閉じられた場合はアプリ全体をクリーンに終了
                         if let Some(state) = window.app_handle().try_state::<Arc<state::ReplayState>>() {
-                            let _ = state.command_tx.send("{\"command\":\"TERMINATE\"}".to_string());
+                            let _ = crate::commands_replay::dispatch_replay_command(&state, "{\"command\":\"TERMINATE\"}", Some(&window.app_handle()));
                         }
                         window.app_handle().exit(0);
                     }
@@ -126,7 +124,7 @@ pub fn run() {
                 tauri::WindowEvent::Destroyed => {
                     if window.label() == "main" {
                         if let Some(state) = window.app_handle().try_state::<Arc<state::ReplayState>>() {
-                            let _ = state.command_tx.send("{\"command\":\"TERMINATE\"}".to_string());
+                            let _ = crate::commands_replay::dispatch_replay_command(&state, "{\"command\":\"TERMINATE\"}", Some(&window.app_handle()));
                         }
                         window.app_handle().exit(0);
                     }
@@ -138,9 +136,6 @@ pub fn run() {
             let app_handle = app.handle().clone();
             let state = app.state::<Arc<state::ReplayState>>();
             let state_inner = state.inner().clone();
-            
-            // 単一の全二重 Named Pipe サーバー（Rust ⇔ EA）を起動
-            tauri::async_runtime::spawn(ipc::run_ipc_pipe_server(rx, app_handle.clone(), state_inner.clone()));
             
             // Replay Core v2 向け高スループット描画パイプサーバー（Rust ⇔ TickReplayRendererEA）を起動
             let (render_pipe_handle, _render_pipe_task) = crate::core::render_pipe::RenderPipeServer::start(

@@ -10,21 +10,10 @@ pub struct SymbolItem {
     pub group_name: String,  // 例: "Custom", "OANDA-Japan MT5 Live", "Default"
 }
 
-const EA_SOURCE: &str = include_str!("../../MQL5/TickReplayControllerEA.mq5");
 const RENDERER_EA_SOURCE: &str = include_str!("../../MQL5/TickReplayRendererEA.mq5");
 const RENDERER_EA_EX5: &[u8] = include_bytes!("../../MQL5/TickReplayRendererEA.ex5");
 const IMPORTER_SOURCE: &str = include_str!("../../MQL5/TickReplayImporter.mq5");
 const INDICATOR_SOURCE: &str = include_str!("../../MQL5/Indicators/TickReplayRoleMarker.mq5");
-
-const MQH_CONFIG: &str = include_str!("../../MQL5/Include/TickReplay/Config.mqh");
-const MQH_WIN32PIPE: &str = include_str!("../../MQL5/Include/TickReplay/Win32Pipe.mqh");
-const MQH_JSONHELPER: &str = include_str!("../../MQL5/Include/TickReplay/JsonHelper.mqh");
-const MQH_SESSION: &str = include_str!("../../MQL5/Include/TickReplay/SessionManager.mqh");
-const MQH_TICKBUFFER: &str = include_str!("../../MQL5/Include/TickReplay/TickBuffer.mqh");
-const MQH_SYMBOL: &str = include_str!("../../MQL5/Include/TickReplay/SymbolManager.mqh");
-const MQH_CHART: &str = include_str!("../../MQL5/Include/TickReplay/ChartManager.mqh");
-const MQH_VIRTUALTRADER: &str = include_str!("../../MQL5/Include/TickReplay/VirtualTrader.mqh");
-const MQH_REPLAYENGINE: &str = include_str!("../../MQL5/Include/TickReplay/ReplayEngine.mqh");
 
 // 指定されたパスがMT5の端末データディレクトリ配下であるかを検証する
 pub fn validate_terminal_path(terminal_path: &str) -> Result<(), AppError> {
@@ -158,19 +147,27 @@ pub fn setup_mt5_environment() {
                     let scripts_path = mql5_path.join("Scripts");
                     let indicators_path = mql5_path.join("Indicators");
                     let files_path = mql5_path.join("Files");
-                    let include_path = mql5_path.join("Include").join("TickReplay");
+                    let legacy_include_path = mql5_path.join("Include").join("TickReplay");
 
                     let _ = fs::create_dir_all(&experts_path);
                     let _ = fs::create_dir_all(&scripts_path);
                     let _ = fs::create_dir_all(&indicators_path);
                     let _ = fs::create_dir_all(&files_path);
-                    let _ = fs::create_dir_all(&include_path);
 
-                    let ea_file = experts_path.join("TickReplayControllerEA.mq5");
-                    if let Err(e) = write_if_different(&ea_file, EA_SOURCE) {
-                        eprintln!("EA配置失敗 {:?}: {}", ea_file, e);
+                    // レガシー旧EAファイル (TickReplayControllerEA) および旧Includeディレクトリの完全クリーンアップ
+                    let legacy_ea_mq5 = experts_path.join("TickReplayControllerEA.mq5");
+                    if legacy_ea_mq5.exists() {
+                        let _ = fs::remove_file(&legacy_ea_mq5);
+                    }
+                    let legacy_ea_ex5 = experts_path.join("TickReplayControllerEA.ex5");
+                    if legacy_ea_ex5.exists() {
+                        let _ = fs::remove_file(&legacy_ea_ex5);
+                    }
+                    if legacy_include_path.exists() {
+                        let _ = fs::remove_dir_all(&legacy_include_path);
                     }
 
+                    // 新アーキテクチャ (TickReplayRendererEA) の自動配置
                     let renderer_ea_file = experts_path.join("TickReplayRendererEA.mq5");
                     if let Err(e) = write_if_different(&renderer_ea_file, RENDERER_EA_SOURCE) {
                         eprintln!("RendererEA配置失敗 {:?}: {}", renderer_ea_file, e);
@@ -189,25 +186,6 @@ pub fn setup_mt5_environment() {
                     let indicator_file = indicators_path.join("TickReplayRoleMarker.mq5");
                     if let Err(e) = write_if_different(&indicator_file, INDICATOR_SOURCE) {
                         eprintln!("Indicator配置失敗 {:?}: {}", indicator_file, e);
-                    }
-
-                    let mqh_files = [
-                        ("Config.mqh", MQH_CONFIG),
-                        ("Win32Pipe.mqh", MQH_WIN32PIPE),
-                        ("JsonHelper.mqh", MQH_JSONHELPER),
-                        ("SessionManager.mqh", MQH_SESSION),
-                        ("TickBuffer.mqh", MQH_TICKBUFFER),
-                        ("SymbolManager.mqh", MQH_SYMBOL),
-                        ("ChartManager.mqh", MQH_CHART),
-                        ("VirtualTrader.mqh", MQH_VIRTUALTRADER),
-                        ("ReplayEngine.mqh", MQH_REPLAYENGINE),
-                    ];
-
-                    for (fname, content) in mqh_files {
-                        let target_path = include_path.join(fname);
-                        if let Err(e) = write_if_different(&target_path, content) {
-                            eprintln!("Header配置失敗 {:?}: {}", target_path, e);
-                        }
                     }
                 }
             }

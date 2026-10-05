@@ -47,6 +47,7 @@ bool ShowWindow(long hWnd, int nCmdShow);
 #define MSG_READY             0x0005
 #define MSG_APPLY_PROFILE     0x0006
 #define MSG_INIT              0x0007
+#define MSG_IMPORT_TICKS      0x0008
 
 #define HEADER_SIZE                16
 #define HELLO_PAYLOAD_SIZE         72
@@ -55,6 +56,7 @@ bool ShowWindow(long hWnd, int nCmdShow);
 #define ACK_PAYLOAD_SIZE           24
 #define APPLY_PROFILE_PAYLOAD_SIZE 128
 #define INIT_PAYLOAD_SIZE          192
+#define IMPORT_TICKS_PAYLOAD_SIZE  224
 
 //--- 自然アライメント構造体定義 (pack 境界なし)
 struct RenderHeader
@@ -122,6 +124,14 @@ struct InitPayload
     uchar reserved[32];      // 32 bytes: 予約
 };
 
+struct ImportTicksPayload
+{
+    uchar symbol[32];        // 32 bytes: シンボル名
+    uchar group[32];         // 32 bytes: グループ名
+    uchar base_symbol[32];   // 32 bytes: 原銘柄名
+    uchar bin_file[128];     // 128 bytes: .bin ファイル相対パス
+};
+
 struct ChartLayoutInfo
 {
     string             tpl_path;
@@ -175,6 +185,7 @@ void ProcessInit(const InitPayload &p);
 void ProcessAdvance(const AdvancePayload &adv, ulong start_us);
 void ProcessReset(const ResetPayload &rst);
 void ProcessApplyProfile(const ApplyProfilePayload &p);
+void ProcessImportTicks(const ImportTicksPayload &p);
 void RedrawAllViewerCharts(bool force = false);
 void CleanTempTemplates();
 
@@ -1744,6 +1755,78 @@ void ProcessApplyProfile(const ApplyProfilePayload &p)
 }
 
 //+------------------------------------------------------------------+
+//| カスタムシンボル ティックインポートパケット処理                   |
+//+------------------------------------------------------------------+
+void ProcessImportTicks(const ImportTicksPayload &p)
+{
+    string target_symbol = CharArrayToString(p.symbol);
+    string group_path    = CharArrayToString(p.group);
+    string base_symbol   = CharArrayToString(p.base_symbol);
+    string bin_file      = CharArrayToString(p.bin_file);
+
+    StringTrimLeft(target_symbol);
+    StringTrimRight(target_symbol);
+    StringTrimLeft(group_path);
+    StringTrimRight(group_path);
+    StringTrimLeft(base_symbol);
+    StringTrimRight(base_symbol);
+    StringTrimLeft(bin_file);
+    StringTrimRight(bin_file);
+
+    if(target_symbol != "" && bin_file != "")
+    {
+        if(group_path == "") group_path = "Custom";
+        if(base_symbol == "") base_symbol = target_symbol;
+
+        PrintFormat("[RendererEA] MSG_IMPORT_TICKS 受信: target='%s', bin='%s', group='%s', base='%s'",
+            target_symbol, bin_file, group_path, base_symbol);
+
+        int file_handle = FileOpen(bin_file, FILE_READ | FILE_BIN);
+        if(file_handle != INVALID_HANDLE)
+        {
+            ulong file_size = FileSize(file_handle);
+            int tick_count = (int)(file_size / sizeof(MqlTick));
+            if(tick_count > 0)
+            {
+                MqlTick ticks[];
+                ArrayResize(ticks, tick_count);
+                uint read_count = FileReadArray(file_handle, ticks, 0, tick_count);
+                FileClose(file_handle);
+
+                if(read_count > 0)
+                {
+                    bool is_custom = false;
+                    if(!SymbolExist(target_symbol, is_custom))
+                    {
+                        string actual_base = base_symbol;
+                        bool base_exists = false;
+                        if(!SymbolExist(actual_base, base_exists))
+                        {
+                            int under = StringFind(target_symbol, "_");
+                            if(under > 0) actual_base = StringSubstr(target_symbol, 0, under);
+                        }
+                        if(!CustomSymbolCreate(target_symbol, group_path, actual_base))
+                        {
+                            CustomSymbolCreate(target_symbol, group_path, NULL);
+                        }
+                    }
+                    int added = CustomTicksAdd(target_symbol, ticks);
+                    PrintFormat("[RendererEA] CustomTicksAdd 完了: symbol=%s, 追加数=%d/%d", target_symbol, added, read_count);
+                }
+            }
+            else
+            {
+                FileClose(file_handle);
+            }
+        }
+        else
+        {
+            PrintFormat("[RendererEA] [Error] binファイルオープン失敗: %s (Code=%d)", bin_file, GetLastError());
+        }
+    }
+}
+
+//+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
 int OnInit()
@@ -1879,6 +1962,13 @@ void OnTimer()
                 ApplyProfilePayload app;
                 BytesToStruct(payload_buf, 0, app);
                 ProcessApplyProfile(app);
+                break;
+            }
+            case MSG_IMPORT_TICKS:
+            {
+                ImportTicksPayload imp;
+                BytesToStruct(payload_buf, 0, imp);
+                ProcessImportTicks(imp);
                 break;
             }
             default:

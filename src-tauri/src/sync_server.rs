@@ -120,9 +120,6 @@ async fn handle_connection(
         let _ = write.send(Message::Text(status.into())).await;
     }
 
-    // EAに対しても取引履歴の即時出力要求を発行（最新ステータスの完全同期保証）
-    let _ = state.command_tx.send(r#"{"command":"REQUEST_HISTORY"}"#.to_string());
-
     loop {
         tokio::select! {
             // watchチャネルの更新を検知して最新メッセージを送信（遅延時は最新フレームのみ自動集約・ゼロラグ配信）
@@ -174,8 +171,10 @@ async fn handle_connection(
                             resp["history_revision"] = serde_json::json!(rev);
                             let _ = write.send(Message::Text(resp.to_string().into())).await;
                         }
-                        // Drenhis 等からのコマンド（SEEK, SEEK_TIME, CONTROL, etc.）およびEAへのREQUEST_HISTORYを command_tx に中継
-                        let _ = state.command_tx.send(text_str);
+                        // Drenhis 等からのコマンド（SEEK, SEEK_TIME, CONTROL, etc.）を Replay Core v2 に直接ディスパッチ
+                        if let Err(e) = crate::commands_replay::dispatch_replay_command(&state, &text_str, None) {
+                            eprintln!("[SyncServer] コマンドディスパッチエラー: {}", e);
+                        }
                     }
                     Some(Ok(Message::Ping(p))) => {
                         let _ = write.send(Message::Pong(p)).await;

@@ -43,8 +43,6 @@ pub struct ReplayState {
     pub last_history: Mutex<Option<serde_json::Value>>,
     // メモリ上にキャッシュされた経済指標イベント (キー: "YYYY-MM")
     pub economic_events: Mutex<std::collections::HashMap<String, Vec<crate::pseudo_dmm::EconomicEvent>>>,
-    // Named Pipe へコマンドを送るための送信チャネル
-    pub command_tx: tokio::sync::mpsc::UnboundedSender<String>,
     // 外部ツール（Drenhisなど）へステータスを配信するためのwatchチャネル
     pub sync_tx: tokio::sync::watch::Sender<String>,
     // JFX実データまたは疑似JFX実行フィード
@@ -63,7 +61,7 @@ pub struct ReplayState {
     pub trade_revision: std::sync::atomic::AtomicU64,
     // シーク・リセットエポック番号（シーク操作等でインクリメント）
     pub seek_epoch: std::sync::atomic::AtomicU64,
-    // Feature Flag: Replay Core v2 (Rust 自律駆動モード)
+    // Feature Flag: Replay Core v2 (Rust 自律駆動モード、常に有効)
     pub use_core_v2: std::sync::atomic::AtomicBool,
     // Replay Core v2 操作ハンドル
     pub core_handle: Mutex<Option<crate::core::ReplayCoreHandle>>,
@@ -75,7 +73,6 @@ pub struct ReplayState {
 
 impl ReplayState {
     pub fn new(
-        command_tx: tokio::sync::mpsc::UnboundedSender<String>,
         sync_tx: tokio::sync::watch::Sender<String>,
     ) -> Self {
         let default_hotkeys = std::collections::HashMap::from([
@@ -124,7 +121,6 @@ impl ReplayState {
             last_status: Mutex::new(String::new()),
             last_history: Mutex::new(None),
             economic_events: Mutex::new(std::collections::HashMap::new()),
-            command_tx,
             sync_tx,
             execution_feed: Mutex::new(None),
             trading_engine: Mutex::new(crate::virtual_trading::VirtualTradingEngine::default()),
@@ -134,9 +130,7 @@ impl ReplayState {
             job_guard: crate::process_guard::ProcessJobGuard::new(),
             trade_revision: std::sync::atomic::AtomicU64::new(1),
             seek_epoch: std::sync::atomic::AtomicU64::new(1),
-            use_core_v2: std::sync::atomic::AtomicBool::new(
-                std::env::var("TICK_REPLAY_CORE_V2").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false)
-            ),
+            use_core_v2: std::sync::atomic::AtomicBool::new(true),
             core_handle: Mutex::new(None),
             core_join_handle: Mutex::new(None),
             render_pipe_handle: Mutex::new(None),

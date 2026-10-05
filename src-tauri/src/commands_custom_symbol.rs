@@ -90,18 +90,22 @@ pub async fn import_custom_symbol_chunk(
     .await
     .map_err(|e| AppError::Config(format!("データ変換スレッドエラー: {}", e)))??;
 
-    let cmd = serde_json::json!({
-        "command": "IMPORT_TICKS",
-        "symbol": symbol_name,
-        "group": if group_path.is_empty() { "Custom" } else { &group_path },
-        "base_symbol": if base_symbol.is_empty() { &symbol_name } else { &base_symbol },
-        "bin_file": relative_bin,
-        "year_month": year_month,
-    }).to_string();
+    let actual_group = if group_path.is_empty() { "Custom" } else { &group_path };
+    let actual_base = if base_symbol.is_empty() { &symbol_name } else { &base_symbol };
 
-    state.command_tx.send(cmd).map_err(|_| {
-        AppError::Config("EAへのインポートコマンド送信に失敗しました（IPCチャネルが切断されています）".to_string())
-    })?;
+    let render_pipe_opt = state.render_pipe_handle.lock().unwrap().clone();
+    if let Some(ref pipe) = render_pipe_opt {
+        if pipe.is_connected() {
+            pipe.send_import_ticks(
+                1,
+                &symbol_name,
+                actual_group,
+                actual_base,
+                &relative_bin,
+            );
+            println!("[commands_custom_symbol] MT5 RendererEA へ IMPORT_TICKS 要求送信: sym={}, bin={}", symbol_name, relative_bin);
+        }
+    }
 
     let config_dir = app_handle.path().app_config_dir()?;
     let mut manifest = crate::custom_symbol::ImportManifest::load_from_dir(&config_dir);
