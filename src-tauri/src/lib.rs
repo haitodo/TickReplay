@@ -118,6 +118,7 @@ pub fn run() {
                         if let Some(state) = window.app_handle().try_state::<Arc<state::ReplayState>>() {
                             let _ = crate::commands_replay::dispatch_replay_command(&state, "{\"command\":\"TERMINATE\"}", Some(&window.app_handle()));
                         }
+                        std::thread::sleep(std::time::Duration::from_millis(80));
                         window.app_handle().exit(0);
                     }
                 }
@@ -126,6 +127,7 @@ pub fn run() {
                         if let Some(state) = window.app_handle().try_state::<Arc<state::ReplayState>>() {
                             let _ = crate::commands_replay::dispatch_replay_command(&state, "{\"command\":\"TERMINATE\"}", Some(&window.app_handle()));
                         }
+                        std::thread::sleep(std::time::Duration::from_millis(80));
                         window.app_handle().exit(0);
                     }
                 }

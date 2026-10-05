@@ -10,6 +10,7 @@ pub const MSG_READY: u16 = 0x0005;
 pub const MSG_APPLY_PROFILE: u16 = 0x0006;
 pub const MSG_INIT: u16 = 0x0007;
 pub const MSG_IMPORT_TICKS: u16 = 0x0008;
+pub const MSG_TERMINATE: u16 = 0x0009;
 
 /// 固定長 16 バイトヘッダー (自然アライメント)
 #[repr(C)]
@@ -295,6 +296,13 @@ impl RenderPacketCodec {
         buf
     }
 
+    pub fn encode_terminate(epoch: u32) -> Vec<u8> {
+        let header = RenderHeader::new(MSG_TERMINATE, 0, epoch, 0);
+        let mut buf = Vec::with_capacity(RenderHeader::SIZE);
+        buf.extend_from_slice(bytemuck::bytes_of(&header));
+        buf
+    }
+
     pub fn read_packet<R: Read>(reader: &mut R) -> io::Result<(RenderHeader, Vec<u8>)> {
         let mut header_buf = [0u8; RenderHeader::SIZE];
         reader.read_exact(&mut header_buf)?;
@@ -356,6 +364,9 @@ pub enum RenderPipeCommand {
         group: String,
         base_symbol: String,
         bin_file: String,
+    },
+    Terminate {
+        epoch: u32,
     },
 }
 
@@ -458,6 +469,12 @@ impl RenderPipeHandle {
             base_symbol: base_symbol.to_string(),
             bin_file: bin_file.to_string(),
         });
+    }
+
+    pub fn send_terminate(&self, epoch: u32) {
+        *self.last_init.lock().unwrap() = None;
+        *self.last_reset.lock().unwrap() = None;
+        let _ = self.cmd_tx.send(RenderPipeCommand::Terminate { epoch });
     }
 
     pub fn is_connected(&self) -> bool {
@@ -603,6 +620,15 @@ impl RenderPipeServer {
                                         eprintln!("[RenderPipe] IMPORT_TICKS 送信エラー: {}", e);
                                         break;
                                     }
+                                }
+                                RenderPipeCommand::Terminate { epoch } => {
+                                    let packet = RenderPacketCodec::encode_terminate(epoch);
+                                    if let Err(e) = writer.write_all(&packet).await {
+                                        eprintln!("[RenderPipe] TERMINATE 送信エラー: {}", e);
+                                        break;
+                                    }
+                                    let _ = writer.flush().await;
+                                    println!("[RenderPipe] MT5 Renderer EA へ TERMINATE (チャート全クローズ要求) 送信完了");
                                 }
                             }
                         }

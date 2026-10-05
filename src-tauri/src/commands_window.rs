@@ -565,5 +565,7 @@ pub fn exit_app(app_handle: AppHandle) {
     if let Some(state) = app_handle.try_state::<std::sync::Arc<crate::state::ReplayState>>() {
         let _ = crate::commands_replay::dispatch_replay_command(&state, "{\"command\":\"TERMINATE\"}", Some(&app_handle));
     }
+    // MT5 描画パイプへの TERMINATE パケット送信フラッシュを確実に完了させる
+    std::thread::sleep(std::time::Duration::from_millis(80));
     app_handle.exit(0);
 }

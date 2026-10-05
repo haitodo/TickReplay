@@ -294,6 +294,10 @@ pub fn dispatch_replay_command(
             if let Some(core) = core_opt {
                 core.shutdown();
             }
+            if let Some(ref pipe) = *state.render_pipe_handle.lock().unwrap() {
+                pipe.send_terminate(0);
+                println!("[commands_replay] MT5 Renderer EA へ TERMINATE (チャート全クローズ) コマンド送信");
+            }
             if let Some(app) = app_handle {
                 if let Some(speed_order) = app.get_webview_window("speed_order") {
                     let _ = speed_order.close();

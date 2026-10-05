@@ -48,6 +48,7 @@ bool ShowWindow(long hWnd, int nCmdShow);
 #define MSG_APPLY_PROFILE     0x0006
 #define MSG_INIT              0x0007
 #define MSG_IMPORT_TICKS      0x0008
+#define MSG_TERMINATE         0x0009
 
 #define HEADER_SIZE                16
 #define HELLO_PAYLOAD_SIZE         72
@@ -188,6 +189,7 @@ void ProcessApplyProfile(const ApplyProfilePayload &p);
 void ProcessImportTicks(const ImportTicksPayload &p);
 void RedrawAllViewerCharts(bool force = false);
 void CleanTempTemplates();
+void CloseAllReplayCharts();
 
 //+------------------------------------------------------------------+
 //| 厳密な四捨五入（ハーフアップ）を行うヘルパー関数                     |
@@ -331,6 +333,69 @@ void CleanTempTemplates()
         FileFindClose(search_handle);
     }
     FolderDelete("replay-chart-temp");
+}
+
+//+------------------------------------------------------------------+
+//| すべてのリプレイ用ビューアーチャートを安全にクローズする             |
+//+------------------------------------------------------------------+
+void CloseAllReplayCharts()
+{
+    long current_cid = ChartID();
+    int closed_count = 0;
+
+    // 1. m_viewer_chart_ids に登録されているチャートをクローズ
+    int total_viewers = ArraySize(m_viewer_chart_ids);
+    for(int i = 0; i < total_viewers; i++)
+    {
+        long cid = m_viewer_chart_ids[i];
+        if(cid > 0 && cid != current_cid)
+        {
+            if(ChartClose(cid))
+            {
+                closed_count++;
+            }
+            m_viewer_chart_ids[i] = 0;
+        }
+    }
+    ArrayFree(m_viewer_chart_ids);
+
+    // 2. 防御策: MT5 内のすべてのチャートを走査し、_Replay シンボルチャートを確実にクローズ（EAホストチャートは絶対に除外）
+    long chart_id = ChartFirst();
+    while(chart_id >= 0)
+    {
+        long next_chart_id = ChartNext(chart_id);
+        if(chart_id != current_cid)
+        {
+            string csym = ChartSymbol(chart_id);
+            if(StringFind(csym, "_Replay") >= 0)
+            {
+                PrintFormat("[RendererEA] 残存リプレイチャートをクローズ: ID=%I64d (%s)", chart_id, csym);
+                if(ChartClose(chart_id))
+                {
+                    closed_count++;
+                }
+            }
+        }
+        chart_id = next_chart_id;
+    }
+
+    // 3. 一時テンプレートとフォルダの削除
+    CleanTempTemplates();
+
+    // 4. メモリ・再生状態・シンボルのリセット
+    m_current_idx = -1;
+    m_current_idx_sub = -1;
+    m_total_ticks = 0;
+    m_total_ticks_sub = 0;
+    m_replay_symbol = "";
+    m_replay_symbol_sub = "";
+    ArrayFree(m_all_ticks);
+    ArrayFree(m_all_ticks_sub);
+
+    if(closed_count > 0)
+    {
+        PrintFormat("[RendererEA] リプレイチャート全クローズ完了 (計 %d チャート閉鎖)", closed_count);
+    }
 }
 
 //+------------------------------------------------------------------+
@@ -1114,7 +1179,7 @@ void CreateMTFCharts(string profile_name, string main_symbol, string sub_symbol 
         if(chart_id != current_cid)
         {
             string csym = ChartSymbol(chart_id);
-            if(csym == main_symbol || (sub_symbol != "" && csym == sub_symbol))
+            if(csym == main_symbol || (sub_symbol != "" && csym == sub_symbol) || StringFind(csym, "_Replay") >= 0)
             {
                 PrintFormat("[RendererEA] 既存のビューアーチャートをクローズ: ID=%I64d (%s)", chart_id, csym);
                 ChartClose(chart_id);
@@ -1855,20 +1920,8 @@ void OnDeinit(const int reason)
         m_hPipe = INVALID_HANDLE_VALUE;
     }
 
-    // ビューアーチャートのクローズ
-    int total_viewers = ArraySize(m_viewer_chart_ids);
-    long current_cid = ChartID();
-    for(int i = 0; i < total_viewers; i++)
-    {
-        if(m_viewer_chart_ids[i] > 0 && m_viewer_chart_ids[i] != current_cid)
-        {
-            ChartClose(m_viewer_chart_ids[i]);
-            m_viewer_chart_ids[i] = 0;
-        }
-    }
-    ArrayFree(m_viewer_chart_ids);
-
-    CleanTempTemplates();
+    // ビューアーチャートおよび残存リプレイチャートを全クローズ
+    CloseAllReplayCharts();
 
     PrintFormat("[RendererEA] 終了処理完了: 理由=%d", reason);
 }
@@ -1889,6 +1942,8 @@ void OnTimer()
     {
         CloseHandle(m_hPipe);
         m_hPipe = INVALID_HANDLE_VALUE;
+        // パイプ切断時（アプリ終了・異常終了等）にも安全にビューアーチャートをクローズ
+        CloseAllReplayCharts();
         return;
     }
 
@@ -1904,6 +1959,7 @@ void OnTimer()
         {
             CloseHandle(m_hPipe);
             m_hPipe = INVALID_HANDLE_VALUE;
+            CloseAllReplayCharts();
             return;
         }
 
@@ -1915,6 +1971,7 @@ void OnTimer()
             PrintFormat("[RendererEA] 不正なマジックナンバー: 0x%08X", header.magic);
             CloseHandle(m_hPipe);
             m_hPipe = INVALID_HANDLE_VALUE;
+            CloseAllReplayCharts();
             return;
         }
 
@@ -1928,6 +1985,7 @@ void OnTimer()
             {
                 CloseHandle(m_hPipe);
                 m_hPipe = INVALID_HANDLE_VALUE;
+                CloseAllReplayCharts();
                 return;
             }
         }
@@ -1971,11 +2029,22 @@ void OnTimer()
                 ProcessImportTicks(imp);
                 break;
             }
+            case MSG_TERMINATE:
+            {
+                Print("[RendererEA] MSG_TERMINATE 受信: リプレイチャートを全クローズします");
+                CloseAllReplayCharts();
+                break;
+            }
             default:
                 break;
         }
 
         if(!PeekNamedPipe(m_hPipe, 0, 0, 0, bytes_avail, 0))
+        {
+            CloseHandle(m_hPipe);
+            m_hPipe = INVALID_HANDLE_VALUE;
+            CloseAllReplayCharts();
             break;
+        }
     }
 }
