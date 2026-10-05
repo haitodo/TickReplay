@@ -171,6 +171,7 @@ impl CoreScheduler {
                         preload_from,
                         0,
                         0,
+                        to_msc,
                     );
                 }
             }
@@ -229,6 +230,7 @@ impl CoreScheduler {
                         preload_from,
                         0,
                         0,
+                        target_msc,
                     );
                 }
 
@@ -237,9 +239,10 @@ impl CoreScheduler {
             CoreCommand::SeekIndex(target_idx) => {
                 let idx = target_idx as usize;
                 if let Some(tick) = self.store.get(idx) {
+                    let tick_msc = tick.time_msc;
                     self.current_index = idx;
-                    self.clock.seek(tick.time_msc);
-                    self.matching.rewind_to(tick.time_msc, Some(tick));
+                    self.clock.seek(tick_msc);
+                    self.matching.rewind_to(tick_msc, Some(tick));
 
                     if let Some(ref pipe) = self.render_pipe {
                         let preload_from = self.current_index.saturating_sub(300) as u64;
@@ -249,6 +252,7 @@ impl CoreScheduler {
                             preload_from,
                             0,
                             0,
+                            tick_msc,
                         );
                     }
 
@@ -259,12 +263,32 @@ impl CoreScheduler {
                 let new_idx = (self.current_index as i64 + delta_ticks).max(0) as usize;
                 let clamped_idx = new_idx.min(self.store.len().saturating_sub(1));
                 if let Some(tick) = self.store.get(clamped_idx) {
+                    let tick_msc = tick.time_msc;
                     self.current_index = clamped_idx;
-                    self.clock.seek(tick.time_msc);
+                    self.clock.seek(tick_msc);
                     if delta_ticks < 0 {
-                        self.matching.rewind_to(tick.time_msc, Some(tick));
+                        self.matching.rewind_to(tick_msc, Some(tick));
+                        if let Some(ref pipe) = self.render_pipe {
+                            let preload_from = self.current_index.saturating_sub(300) as u64;
+                            pipe.send_reset(
+                                self.clock.seek_epoch() as u32,
+                                self.current_index as u64,
+                                preload_from,
+                                0,
+                                0,
+                                tick_msc,
+                            );
+                        }
                     } else {
-                        self.matching.on_tick_advance(tick, tick.time_msc);
+                        self.matching.on_tick_advance(tick, tick_msc);
+                        if let Some(ref pipe) = self.render_pipe {
+                            pipe.send_advance(
+                                self.clock.seek_epoch() as u32,
+                                self.current_index as u64,
+                                0,
+                                tick_msc,
+                            );
+                        }
                     }
                     self.publish_status();
                 }
@@ -277,8 +301,27 @@ impl CoreScheduler {
                 let cur_tick = self.store.get(self.current_index);
                 if delta_msc < 0 {
                     self.matching.rewind_to(target_msc, cur_tick);
+                    if let Some(ref pipe) = self.render_pipe {
+                        let preload_from = self.current_index.saturating_sub(300) as u64;
+                        pipe.send_reset(
+                            self.clock.seek_epoch() as u32,
+                            self.current_index as u64,
+                            preload_from,
+                            0,
+                            0,
+                            target_msc,
+                        );
+                    }
                 } else if let Some(tick) = cur_tick {
                     self.matching.on_tick_advance(tick, target_msc);
+                    if let Some(ref pipe) = self.render_pipe {
+                        pipe.send_advance(
+                            self.clock.seek_epoch() as u32,
+                            self.current_index as u64,
+                            0,
+                            target_msc,
+                        );
+                    }
                 }
                 self.publish_status();
             }

@@ -109,6 +109,23 @@ impl JfxExecutionFeed {
 
         all_ticks.sort_by_key(|t| t.time_msc);
 
+        // 指定期間 [start_time, end_time] による絞り込み (MT5 の CopyTicksRange と一致させる)
+        let start_msc = crate::commands_replay::jst_to_server_time_msc(start_time_str).unwrap_or(0);
+        let end_msc = crate::commands_replay::jst_to_server_time_msc(end_time_str).unwrap_or(0);
+
+        if start_msc > 0 || end_msc > 0 {
+            all_ticks.retain(|t| {
+                if start_msc > 0 && t.time_msc < start_msc {
+                    return false;
+                }
+                if end_msc > 0 && t.time_msc > end_msc {
+                    return false;
+                }
+                true
+            });
+            println!("[JfxExecutionFeed] 期間絞り込み完了: start_msc={}, end_msc={}, 残ティック数={}", start_msc, end_msc, all_ticks.len());
+        }
+
         Ok(Self {
             ticks: all_ticks,
             is_real_jfx: any_real_jfx,

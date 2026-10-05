@@ -77,32 +77,44 @@ async fn handle_connection(
             state.last_status.lock().unwrap().clone()
         };
 
-        let history_cache = state.last_history.lock().unwrap().clone();
-
-        if !base_status.is_empty() {
-            if let Some(hist) = history_cache {
-                if !base_status.contains("\"history\":") {
-                    if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&base_status) {
-                        val["history"] = hist;
-                        Some(val.to_string())
-                    } else {
-                        Some(base_status)
-                    }
-                } else {
-                    Some(base_status)
-                }
-            } else {
-                Some(base_status)
-            }
-        } else if let Some(hist) = history_cache {
-            let val = serde_json::json!({
-                "status": "READY",
-                "history": hist
-            });
-            Some(val.to_string())
+        let mut val = if !base_status.is_empty() {
+            serde_json::from_str::<serde_json::Value>(&base_status).unwrap_or_else(|_| serde_json::json!({"status": "READY"}))
         } else {
-            None
+            serde_json::json!({"status": "READY"})
+        };
+
+        let (eng_hist, eng_acc, eng_pos, eng_rev) = {
+            let eng = state.trading_engine.lock().unwrap();
+            (
+                serde_json::to_value(&eng.history).unwrap_or_else(|_| serde_json::json!([])),
+                serde_json::to_value(&eng.account).ok(),
+                serde_json::to_value(&eng.positions).ok(),
+                eng.revision,
+            )
+        };
+
+        let history_cache = state.last_history.lock().unwrap().clone();
+        let hist = history_cache.unwrap_or(eng_hist);
+        val["history"] = hist;
+
+        if val.get("account").is_none() || val["account"].is_null() {
+            if let Some(acc) = eng_acc {
+                val["account"] = acc;
+            }
         }
+        if val.get("positions").is_none() || val["positions"].is_null() {
+            if let Some(pos) = eng_pos {
+                val["positions"] = pos;
+            }
+        }
+        if val.get("trade_revision").is_none() || val["trade_revision"].is_null() {
+            val["trade_revision"] = serde_json::json!(eng_rev);
+        }
+        if val.get("history_revision").is_none() || val["history_revision"].is_null() {
+            val["history_revision"] = serde_json::json!(eng_rev);
+        }
+
+        Some(val.to_string())
     };
     if let Some(status) = initial_status {
         let _ = write.send(Message::Text(status.into())).await;
@@ -135,19 +147,32 @@ async fn handle_connection(
                 match msg_opt {
                     Some(Ok(Message::Text(text))) => {
                         let text_str = text.to_string();
-                        // 取引履歴の明示的リクエストを受信した場合、キャッシュがあれば即座に直接返信
+                        // 取引履歴の明示的リクエストを受信した場合、キャッシュまたは取引エンジンから即座に直接返信
                         if text_str.contains("REQUEST_HISTORY") || text_str.contains("GET_HISTORY") {
-                            let hist_cache = state.last_history.lock().unwrap().clone();
-                            if let Some(hist) = hist_cache {
-                                let last = state.last_status.lock().unwrap().clone();
-                                let mut resp = if !last.is_empty() {
-                                    serde_json::from_str::<serde_json::Value>(&last).unwrap_or_else(|_| serde_json::json!({"status":"READY"}))
-                                } else {
-                                    serde_json::json!({"status":"READY"})
-                                };
-                                resp["history"] = hist;
-                                let _ = write.send(Message::Text(resp.to_string().into())).await;
-                            }
+                            let (hist, acc, pos, rev) = {
+                                let eng = state.trading_engine.lock().unwrap();
+                                let h = state.last_history.lock().unwrap().clone().unwrap_or_else(|| {
+                                    serde_json::to_value(&eng.history).unwrap_or_else(|_| serde_json::json!([]))
+                                });
+                                (
+                                    h,
+                                    serde_json::to_value(&eng.account).ok(),
+                                    serde_json::to_value(&eng.positions).ok(),
+                                    eng.revision,
+                                )
+                            };
+                            let last = state.last_status.lock().unwrap().clone();
+                            let mut resp = if !last.is_empty() {
+                                serde_json::from_str::<serde_json::Value>(&last).unwrap_or_else(|_| serde_json::json!({"status":"READY"}))
+                            } else {
+                                serde_json::json!({"status":"READY"})
+                            };
+                            resp["history"] = hist;
+                            if let Some(a) = acc { resp["account"] = a; }
+                            if let Some(p) = pos { resp["positions"] = p; }
+                            resp["trade_revision"] = serde_json::json!(rev);
+                            resp["history_revision"] = serde_json::json!(rev);
+                            let _ = write.send(Message::Text(resp.to_string().into())).await;
                         }
                         // Drenhis 等からのコマンド（SEEK, SEEK_TIME, CONTROL, etc.）およびEAへのREQUEST_HISTORYを command_tx に中継
                         let _ = state.command_tx.send(text_str);

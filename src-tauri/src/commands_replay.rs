@@ -32,7 +32,11 @@ pub fn emit_trading_status_update(
         }
         obj.insert("account".to_string(), serde_json::to_value(&engine.account).unwrap_or_default());
         obj.insert("positions".to_string(), serde_json::to_value(&engine.positions).unwrap_or_default());
-        obj.insert("history".to_string(), serde_json::to_value(&engine.history).unwrap_or_default());
+        let hist_val = serde_json::to_value(&engine.history).unwrap_or_default();
+        obj.insert("history".to_string(), hist_val.clone());
+        obj.insert("trade_revision".to_string(), serde_json::json!(engine.revision));
+        obj.insert("history_revision".to_string(), serde_json::json!(engine.revision));
+        *state.last_history.lock().unwrap() = Some(hist_val);
     }
 
     if let Ok(json_str) = serde_json::to_string(&val) {
@@ -40,6 +44,27 @@ pub fn emit_trading_status_update(
         let _ = app_handle.emit("mt5-status", &json_str);
         let _ = state.sync_tx.send(json_str);
     }
+}
+
+pub fn jst_to_server_time_msc(s: &str) -> Option<i64> {
+    use chrono::{Datelike, Timelike};
+    let s = s.trim().replace('T', " ").replace('.', "-").replace('/', "-");
+    if s.is_empty() {
+        return None;
+    }
+    let naive_dt = chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S")
+        .or_else(|_| chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M"))
+        .or_else(|_| chrono::NaiveDate::parse_from_str(&s, "%Y-%m-%d").map(|d| d.and_hms_opt(0, 0, 0).unwrap()))
+        .ok()?;
+    let is_dst = crate::pseudo_dmm::PseudoDmmEngine::is_us_dst(
+        naive_dt.year(),
+        naive_dt.month(),
+        naive_dt.day(),
+        naive_dt.hour(),
+    );
+    let offset_hours = if is_dst { 6 } else { 7 };
+    let server_dt = naive_dt - chrono::Duration::hours(offset_hours);
+    Some(server_dt.and_utc().timestamp_millis())
 }
 
 pub fn calculate_session_jump_target(cur_msc: i64, session: &str, is_next: bool) -> i64 {
@@ -55,16 +80,16 @@ pub fn calculate_session_jump_target(cur_msc: i64, session: &str, is_next: bool)
 
     // サーバー時間 (GMT+2冬 / GMT+3夏) でのセッション開始時刻 (HH, MM)
     // TYO: JST 08:45 -> 冬 01:45 / 夏 02:45
-    // LDN: 冬 10:00 / 夏 09:00 (または 10:00)
-    // NY:  冬 16:00 / 夏 15:00
+    // LDN: 欧州開始 (現地08:00) -> 冬 10:00 / 夏 10:00 (常にサーバー時間10:00)
+    // NY:  米国コア開始 (現地08:00) -> 冬 15:00 / 夏 15:00 (常にサーバー時間15:00)
     let session_times: Vec<(&str, u32, u32)> = match session {
         "TYO" => vec![("TYO", if is_dst { 2 } else { 1 }, 45)],
-        "LDN" => vec![("LDN", if is_dst { 9 } else { 10 }, 0)],
-        "NY" => vec![("NY", if is_dst { 15 } else { 16 }, 0)],
+        "LDN" => vec![("LDN", 10, 0)],
+        "NY" => vec![("NY", 15, 0)],
         _ => vec![
             ("TYO", if is_dst { 2 } else { 1 }, 45),
-            ("LDN", if is_dst { 9 } else { 10 }, 0),
-            ("NY", if is_dst { 15 } else { 16 }, 0),
+            ("LDN", 10, 0),
+            ("NY", 15, 0),
         ],
     };
 
@@ -307,45 +332,48 @@ pub async fn send_command(
                 _ => {}
             }
 
-            if command == "RESET" {
-                state.seek_epoch.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                *state.last_eval_msc.lock().unwrap() = 0;
-                let balance = state.trading_engine.lock().unwrap().account.balance;
-                state.trading_engine.lock().unwrap().reset(balance);
-                emit_trading_status_update(&app_handle, &state);
-            } else if command == "SEEK" || command == "SEEK_TIME" || command == "SEEK_RELATIVE" || command == "TIME_JUMP" || command == "SESSION_JUMP" {
-                state.seek_epoch.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                let target_time_opt = if command == "SESSION_JUMP" {
-                    let session = val.get("session").and_then(|s| s.as_str()).unwrap_or("ANY");
-                    let direction = val.get("direction").and_then(|d| d.as_str()).unwrap_or("NEXT");
-                    let is_next = direction.eq_ignore_ascii_case("NEXT");
-                    let cur_v = *state.current_virtual_time_msc.lock().unwrap();
-                    Some(calculate_session_jump_target(cur_v, session, is_next))
-                } else {
-                    val.get("target_time_msc")
-                        .or_else(|| val.get("virtual_time_msc"))
-                        .or_else(|| val.get("target_time"))
-                        .and_then(|v| v.as_i64())
-                };
-                if let Some(target_time) = target_time_opt {
-                    let cur_v = *state.current_virtual_time_msc.lock().unwrap();
-                    if target_time < cur_v {
-                        let mut feed_guard = state.execution_feed.lock().unwrap();
-                        let quote = feed_guard.as_mut().and_then(|f| f.get_quote_at(target_time));
-                        if let Some(ref q) = quote {
-                            let mut engine = state.trading_engine.lock().unwrap();
-                            engine.rewind_to(target_time, q);
-                            drop(engine);
-                            drop(feed_guard);
-                            emit_trading_status_update(&app_handle, &state);
+            let is_v2 = state.core_handle.lock().unwrap().is_some();
+            if !is_v2 {
+                if command == "RESET" {
+                    state.seek_epoch.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    *state.last_eval_msc.lock().unwrap() = 0;
+                    let balance = state.trading_engine.lock().unwrap().account.balance;
+                    state.trading_engine.lock().unwrap().reset(balance);
+                    emit_trading_status_update(&app_handle, &state);
+                } else if command == "SEEK" || command == "SEEK_TIME" || command == "SEEK_RELATIVE" || command == "TIME_JUMP" || command == "SESSION_JUMP" {
+                    state.seek_epoch.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    let target_time_opt = if command == "SESSION_JUMP" {
+                        let session = val.get("session").and_then(|s| s.as_str()).unwrap_or("ANY");
+                        let direction = val.get("direction").and_then(|d| d.as_str()).unwrap_or("NEXT");
+                        let is_next = direction.eq_ignore_ascii_case("NEXT");
+                        let cur_v = *state.current_virtual_time_msc.lock().unwrap();
+                        Some(calculate_session_jump_target(cur_v, session, is_next))
+                    } else {
+                        val.get("target_time_msc")
+                            .or_else(|| val.get("virtual_time_msc"))
+                            .or_else(|| val.get("target_time"))
+                            .and_then(|v| v.as_i64())
+                    };
+                    if let Some(target_time) = target_time_opt {
+                        let cur_v = *state.current_virtual_time_msc.lock().unwrap();
+                        if target_time < cur_v {
+                            let mut feed_guard = state.execution_feed.lock().unwrap();
+                            let quote = feed_guard.as_mut().and_then(|f| f.get_quote_at(target_time));
+                            if let Some(ref q) = quote {
+                                let mut engine = state.trading_engine.lock().unwrap();
+                                engine.rewind_to(target_time, q);
+                                drop(engine);
+                                drop(feed_guard);
+                                emit_trading_status_update(&app_handle, &state);
+                            }
                         }
+                        *state.current_virtual_time_msc.lock().unwrap() = target_time;
+                        *state.last_eval_msc.lock().unwrap() = target_time;
                     }
-                    *state.current_virtual_time_msc.lock().unwrap() = target_time;
-                    *state.last_eval_msc.lock().unwrap() = target_time;
+                    // NOTE: When target_time is None (e.g. SEEK by target_index or SEEK_RELATIVE),
+                    // we preserve state.last_eval_msc so that ipc.rs can compare the newly arriving
+                    // virtual_time_msc against last_eval_msc and cleanly trigger engine.rewind_to!
                 }
-                // NOTE: When target_time is None (e.g. SEEK by target_index or SEEK_RELATIVE),
-                // we preserve state.last_eval_msc so that ipc.rs can compare the newly arriving
-                // virtual_time_msc against last_eval_msc and cleanly trigger engine.rewind_to!
             }
 
             if command == "CONTROL" {
@@ -453,16 +481,39 @@ pub async fn send_command(
                     *state.core_handle.lock().unwrap() = Some(core_handle.clone());
                     *state.core_join_handle.lock().unwrap() = Some(core_join);
 
-                    // 4. MT5 Renderer EA へ RESET & プロファイル適用パケットを送信
+                    // 4. MT5 Renderer EA へ INIT パケットを送信 (カスタムシンボル・ティック・過去足事前描画・プロファイルチャートの一括構築)
                     let profile_name = val.get("profile_name").and_then(|s| s.as_str()).unwrap_or("");
                     let sub_sym = val.get("sub_source_symbol").and_then(|s| s.as_str()).unwrap_or("");
+                    let preloaded_bars = val.get("preloaded_bars").and_then(|b| b.as_u64()).unwrap_or(300) as u32;
+                    let preload_mode_str = val.get("preload_mode").and_then(|m| m.as_str()).unwrap_or("BARS");
+                    let preload_mode = if preload_mode_str == "DATE" { 1u32 } else { 0u32 };
+                    let preload_date_str = val.get("preload_date").and_then(|d| d.as_str()).unwrap_or("");
+                    let start_msc = jst_to_server_time_msc(st).unwrap_or(first_msc);
+                    let end_msc = jst_to_server_time_msc(et).unwrap_or(0);
+                    let preload_date_msc = jst_to_server_time_msc(preload_date_str).unwrap_or(0);
+
                     if let Some(ref pipe) = render_pipe_opt {
-                        pipe.send_reset(1, 0, 0, 0, 0);
-                        if !profile_name.is_empty() {
-                            pipe.send_apply_profile(1, profile_name, source_sym, sub_sym);
-                            println!("[commands_replay] MT5 Renderer EA へプロファイル適用要求送信: {}", profile_name);
-                        }
+                        pipe.send_init(
+                            1,
+                            start_msc,
+                            end_msc,
+                            preload_date_msc,
+                            preloaded_bars,
+                            preload_mode,
+                            source_sym,
+                            sub_sym,
+                            profile_name,
+                        );
+                        println!("[commands_replay] MT5 Renderer EA へ INIT 要求送信: sym={}, profile={}, start_msc={}", source_sym, profile_name, start_msc);
                     }
+
+                    // Replay Core の初期時刻を start_msc (または first_msc) にシーク
+                    let initial_v_time = if start_msc > 0 { start_msc } else { first_msc };
+                    if initial_v_time > 0 {
+                        core_handle.seek_time(initial_v_time);
+                    }
+                    *state.current_virtual_time_msc.lock().unwrap() = initial_v_time;
+                    *state.last_eval_msc.lock().unwrap() = initial_v_time;
 
                     // 5. Core ステータスを フロントエンド & WebSocket へ継続ストリーミングする UI Streamer タスクを起動
                     let mut rx = core_handle.subscribe();
@@ -474,14 +525,30 @@ pub async fn send_command(
                             let cur_msc = snap.virtual_time_msc;
                             *state_c.current_virtual_time_msc.lock().unwrap() = cur_msc;
 
-                            // 仮想取引エンジンの MTM 損益更新 & 口座再計算
+                            // 仮想取引エンジンの MTM 損益更新 & 執行・評価
                             let mut feed_guard = state_c.execution_feed.lock().unwrap();
                             let quote_opt = feed_guard.as_mut().and_then(|f| f.get_quote_at(cur_msc));
                             let mut engine = state_c.trading_engine.lock().unwrap();
+                            let mut last_eval_guard = state_c.last_eval_msc.lock().unwrap();
+                            let last_eval = *last_eval_guard;
+
                             if let Some(ref quote) = quote_opt {
+                                let sym = feed_guard.as_ref().map(|f| f.symbol.clone()).unwrap_or_else(|| "USDJPY".to_string());
+                                if last_eval > 0 && cur_msc < last_eval {
+                                    engine.rewind_to(cur_msc, quote);
+                                } else if last_eval > 0 && cur_msc > last_eval && (cur_msc - last_eval) < 300_000 {
+                                    if let Some(ref mut feed) = *feed_guard {
+                                        let ticks_range = feed.get_ticks_range(last_eval, cur_msc);
+                                        if !ticks_range.is_empty() {
+                                            engine.evaluate_ticks(ticks_range, cur_msc, &sym);
+                                        }
+                                    }
+                                }
                                 engine.update_positions_mtm(quote);
                                 engine.recalculate_account(quote);
                             }
+                            *last_eval_guard = cur_msc;
+
                             let account_val = serde_json::to_value(&engine.account).unwrap_or_default();
                             let positions_val = serde_json::to_value(&engine.positions).unwrap_or_default();
                             let history_val = serde_json::to_value(&engine.history).unwrap_or_default();
@@ -509,7 +576,7 @@ pub async fn send_command(
                                 "spread": snap.current_tick.map(|t| ((t.ask - t.bid) * 100.0).round() / 100.0),
                                 "account": account_val,
                                 "positions": positions_val,
-                                "history": history_val,
+                                "history": history_val.clone(),
                             });
                             if let Some(ref quote) = quote_opt {
                                 if let Some(obj) = status_val.as_object_mut() {
@@ -524,21 +591,38 @@ pub async fn send_command(
                             }
                             let json_str = status_val.to_string();
                             *state_c.last_status.lock().unwrap() = json_str.clone();
+                            *state_c.last_history.lock().unwrap() = Some(history_val);
                             let _ = app_h.emit("mt5-status", &json_str);
                             let _ = state_c.sync_tx.send(json_str);
                         }
                     });
 
                     // 6. 即座にフロントエンドへ READY ステータスを送信して UI 遷移を完了させる
+                    let (acc_val, pos_val, hist_val, rev) = {
+                        let eng = state.trading_engine.lock().unwrap();
+                        (
+                            serde_json::to_value(&eng.account).unwrap_or_default(),
+                            serde_json::to_value(&eng.positions).unwrap_or_default(),
+                            serde_json::to_value(&eng.history).unwrap_or_default(),
+                            eng.revision,
+                        )
+                    };
+                    *state.last_history.lock().unwrap() = Some(hist_val.clone());
+
                     let initial_status = serde_json::json!({
                         "status": "READY",
                         "is_playing": false,
                         "current_idx": 0,
                         "total_ticks": total_ticks,
-                        "virtual_time_msc": first_msc,
+                        "virtual_time_msc": initial_v_time,
                         "speed_mode": "TEMPORAL",
                         "multiplier": 1.0,
                         "tick_step": 1,
+                        "trade_revision": rev,
+                        "history_revision": rev,
+                        "account": acc_val,
+                        "positions": pos_val,
+                        "history": hist_val,
                         "message": "Replay Core v2 初期化完了",
                     });
                     let init_str = initial_status.to_string();

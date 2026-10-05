@@ -46,13 +46,15 @@ bool ShowWindow(long hWnd, int nCmdShow);
 #define MSG_ACK               0x0004
 #define MSG_READY             0x0005
 #define MSG_APPLY_PROFILE     0x0006
+#define MSG_INIT              0x0007
 
 #define HEADER_SIZE                16
 #define HELLO_PAYLOAD_SIZE         72
 #define ADVANCE_PAYLOAD_SIZE       24
-#define RESET_PAYLOAD_SIZE         32
+#define RESET_PAYLOAD_SIZE         48
 #define ACK_PAYLOAD_SIZE           24
 #define APPLY_PROFILE_PAYLOAD_SIZE 128
+#define INIT_PAYLOAD_SIZE          192
 
 //--- 自然アライメント構造体定義 (pack 境界なし)
 struct RenderHeader
@@ -79,7 +81,7 @@ struct AdvancePayload
 {
     ulong main_idx;          // 8 bytes: 描画到達インデックス
     ulong sub_idx;           // 8 bytes: サブシンボル描画到達インデックス
-    long  virtual_time_msc;  // 8 bytes: 現在の仮想時刻
+    long  virtual_time_msc;  // 8 bytes: 現在の仮想時刻 (ミリ秒)
 };
 
 struct ResetPayload
@@ -88,6 +90,8 @@ struct ResetPayload
     ulong main_preload_from; // 8 bytes: プリロード開始インデックス
     ulong sub_target_idx;    // 8 bytes
     ulong sub_preload_from;  // 8 bytes
+    long  virtual_time_msc;  // 8 bytes: シーク先仮想時刻 (ミリ秒)
+    long  reserved;          // 8 bytes: 予約
 };
 
 struct AckPayload
@@ -103,6 +107,19 @@ struct ApplyProfilePayload
     uchar profile_name[64];  // 64 bytes
     uchar main_symbol[32];   // 32 bytes
     uchar sub_symbol[32];    // 32 bytes
+};
+
+struct InitPayload
+{
+    long  start_time_msc;    // 8 bytes: リプレイ開始日時 (ミリ秒)
+    long  end_time_msc;      // 8 bytes: リプレイ終了日時 (ミリ秒)
+    long  preload_date_msc;  // 8 bytes: 過去足プリロード基準日 (ミリ秒)
+    uint  preloaded_bars;    // 4 bytes: 過去足プリロード本数
+    uint  preload_mode;      // 4 bytes: 0 = BARS, 1 = DATE
+    uchar source_symbol[32]; // 32 bytes: ソースシンボル名
+    uchar sub_symbol[32];    // 32 bytes: サブシンボル名
+    uchar profile_name[64];  // 64 bytes: 適用プロファイル名
+    uchar reserved[32];      // 32 bytes: 予約
 };
 
 struct ChartLayoutInfo
@@ -132,7 +149,7 @@ string   m_replay_symbol = "";
 string   m_source_symbol = "";
 MqlTick  m_all_ticks[];
 int      m_total_ticks = 0;
-int      m_current_idx = 0;
+int      m_current_idx = -1;
 uint     m_current_epoch = 1;
 
 // サブ比較銘柄
@@ -141,7 +158,7 @@ string   m_replay_symbol_sub = "";
 string   m_source_symbol_sub = "";
 MqlTick  m_all_ticks_sub[];
 int      m_total_ticks_sub = 0;
-int      m_current_idx_sub = 0;
+int      m_current_idx_sub = -1;
 
 ulong    m_last_redraw_us = 0;
 const ulong REDRAW_INTERVAL_US = 16666; // 最大 60FPS にチャート再描画を間引き
@@ -149,391 +166,528 @@ const ulong REDRAW_INTERVAL_US = 16666; // 最大 60FPS にチャート再描画
 // ビューアーチャート管理
 long     m_viewer_chart_ids[];
 
-//+------------------------------------------------------------------+
-//| チャートシンボルから全ティックをメモリにロード                   |
-//+------------------------------------------------------------------+
-bool LoadChartTicks()
-{
-    m_replay_symbol = Symbol();
-    SymbolSelect(m_replay_symbol, true);
+//--- 前方宣言
+bool ConnectPipe();
+void SendHello();
+void SendAck(ulong main_applied, ulong sub_applied, uint duration_us);
+void SendReady();
+void ProcessInit(const InitPayload &p);
+void ProcessAdvance(const AdvancePayload &adv, ulong start_us);
+void ProcessReset(const ResetPayload &rst);
+void ProcessApplyProfile(const ApplyProfilePayload &p);
+void RedrawAllViewerCharts(bool force = false);
+void CleanTempTemplates();
 
-    // 最大 5 回リトライして全ティックをロード
+//+------------------------------------------------------------------+
+//| 厳密な四捨五入（ハーフアップ）を行うヘルパー関数                     |
+//+------------------------------------------------------------------+
+double RoundHalfUp(double value, int digits)
+{
+    double multiplier = MathPow(10.0, digits);
+    return MathRound(value * multiplier + 1e-9) / multiplier;
+}
+
+//+------------------------------------------------------------------+
+//| ソース銘柄からベース通貨ペア名を抽出するヘルパー                |
+//+------------------------------------------------------------------+
+string ExtractBaseSymbol(string source_symbol)
+{
+    string sym = source_symbol;
+    int pos = StringFind(sym, "_");
+    if(pos > 0)
+    {
+        sym = StringSubstr(sym, 0, pos);
+    }
+    pos = StringFind(sym, ".");
+    if(pos > 0)
+    {
+        sym = StringSubstr(sym, 0, pos);
+    }
+    if(StringLen(sym) >= 6)
+    {
+        return sym;
+    }
+    return "USDJPY";
+}
+
+//+------------------------------------------------------------------+
+//| 文字列からENUM_TIMEFRAMESへの変換                               |
+//+------------------------------------------------------------------+
+ENUM_TIMEFRAMES StringToTimeframe(string tf_str)
+{
+    StringToUpper(tf_str);
+    StringTrimLeft(tf_str);
+    StringTrimRight(tf_str);
+
+    if(tf_str == "M1")  return(PERIOD_M1);
+    if(tf_str == "M2")  return(PERIOD_M2);
+    if(tf_str == "M3")  return(PERIOD_M3);
+    if(tf_str == "M4")  return(PERIOD_M4);
+    if(tf_str == "M5")  return(PERIOD_M5);
+    if(tf_str == "M6")  return(PERIOD_M6);
+    if(tf_str == "M10") return(PERIOD_M10);
+    if(tf_str == "M12") return(PERIOD_M12);
+    if(tf_str == "M15") return(PERIOD_M15);
+    if(tf_str == "M20") return(PERIOD_M20);
+    if(tf_str == "M30") return(PERIOD_M30);
+    if(tf_str == "H1")  return(PERIOD_H1);
+    if(tf_str == "H2")  return(PERIOD_H2);
+    if(tf_str == "H3")  return(PERIOD_H3);
+    if(tf_str == "H4")  return(PERIOD_H4);
+    if(tf_str == "H6")  return(PERIOD_H6);
+    if(tf_str == "H8")  return(PERIOD_H8);
+    if(tf_str == "H12") return(PERIOD_H12);
+    if(tf_str == "D1")  return(PERIOD_D1);
+    if(tf_str == "W1")  return(PERIOD_W1);
+    if(tf_str == "MN1") return(PERIOD_MN1);
+
+    return(PERIOD_M1);
+}
+
+//+------------------------------------------------------------------+
+//| 秒数からENUM_TIMEFRAMESへの変換                                  |
+//+------------------------------------------------------------------+
+ENUM_TIMEFRAMES SecondsToTimeframe(int seconds)
+{
+    if(seconds >= 2592000) return(PERIOD_MN1);
+    if(seconds >= 604800)  return(PERIOD_W1);
+    if(seconds >= 86400)   return(PERIOD_D1);
+    if(seconds >= 43200)   return(PERIOD_H12);
+    if(seconds >= 28800)   return(PERIOD_H8);
+    if(seconds >= 21600)   return(PERIOD_H6);
+    if(seconds >= 14400)   return(PERIOD_H4);
+    if(seconds >= 10800)   return(PERIOD_H3);
+    if(seconds >= 7200)    return(PERIOD_H2);
+    if(seconds >= 3600)    return(PERIOD_H1);
+    if(seconds >= 1800)    return(PERIOD_M30);
+    if(seconds >= 1200)    return(PERIOD_M20);
+    if(seconds >= 900)     return(PERIOD_M15);
+    if(seconds >= 720)     return(PERIOD_M12);
+    if(seconds >= 600)     return(PERIOD_M10);
+    if(seconds >= 360)     return(PERIOD_M6);
+    if(seconds >= 300)     return(PERIOD_M5);
+    if(seconds >= 240)     return(PERIOD_M4);
+    if(seconds >= 180)     return(PERIOD_M3);
+    if(seconds >= 120)     return(PERIOD_M2);
+    return(PERIOD_M1);
+}
+
+//+------------------------------------------------------------------+
+//| 指定時間足で指定バー数分過去の実取引バー開始日時を取得            |
+//+------------------------------------------------------------------+
+datetime GetBarHistoryStartTime(string symbol, ENUM_TIMEFRAMES tf, datetime ref_time, int bar_count)
+{
+    if(bar_count <= 0) return ref_time;
+
+    MqlRates rates[];
+    ArrayFree(rates);
+    int copied = CopyRates(symbol, tf, ref_time - 1, bar_count, rates);
+    if(copied > 0)
+    {
+        datetime min_time = rates[0].time;
+        for(int i = 1; i < copied; i++)
+        {
+            if(rates[i].time < min_time)
+            {
+                min_time = rates[i].time;
+            }
+        }
+        return min_time;
+    }
+
+    int sec_per_bar = PeriodSeconds(tf);
+    return ref_time - (datetime)(bar_count * sec_per_bar * 1.5);
+}
+
+//+------------------------------------------------------------------+
+//| テンポラリテンプレートの削除                                     |
+//+------------------------------------------------------------------+
+void CleanTempTemplates()
+{
+    string filename;
+    long search_handle = FileFindFirst("replay-chart-temp\\*", filename);
+    if(search_handle == INVALID_HANDLE) return;
+    FileFindClose(search_handle);
+
+    search_handle = FileFindFirst("replay-chart-temp\\*.tpl", filename);
+    if(search_handle != INVALID_HANDLE)
+    {
+        do
+        {
+            string temp_tpl_path = "replay-chart-temp\\" + filename;
+            FileDelete(temp_tpl_path);
+        } while(FileFindNext(search_handle, filename));
+        FileFindClose(search_handle);
+    }
+    FolderDelete("replay-chart-temp");
+}
+
+//+------------------------------------------------------------------+
+//| 仮想ミリ秒時刻に対応するティック配列内の最大インデックスを二分探索  |
+//+------------------------------------------------------------------+
+int FindTickIndexByMsc(const MqlTick &ticks[], int total, long target_msc)
+{
+    if (total <= 0) return -1;
+    if (target_msc <= ticks[0].time_msc) return 0;
+    if (target_msc >= ticks[total - 1].time_msc) return total - 1;
+
+    int left = 0;
+    int right = total - 1;
+    int ans = 0;
+
+    while (left <= right)
+    {
+        int mid = left + (right - left) / 2;
+        if (ticks[mid].time_msc <= target_msc)
+        {
+            ans = mid;
+            left = mid + 1;
+        }
+        else
+        {
+            right = mid - 1;
+        }
+    }
+    return ans;
+}
+
+//+------------------------------------------------------------------+
+//| M1バーから4つのティック (Open, Low/High, High/Low, Close) を生成 |
+//+------------------------------------------------------------------+
+int GenerateTicksFromRates(string symbol, const MqlRates &rates[], MqlTick &out_ticks[])
+{
+    int rates_count = ArraySize(rates);
+    if(rates_count <= 0) return 0;
+
+    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+    if(digits <= 0) digits = 5;
+
+    ArrayResize(out_ticks, rates_count * 30);
+    int tick_idx = 0;
+
+    double point_val = SymbolInfoDouble(symbol, SYMBOL_POINT);
+    if(point_val <= 0) point_val = 0.001;
+
+    for(int i = 0; i < rates_count; i++)
+    {
+        MqlRates r = rates[i];
+        long base_msc = (long)r.time * 1000;
+        double spread_val = (r.spread > 0) ? (r.spread * point_val) : (20.0 * point_val);
+        int ticks_in_bar = (int)MathMax(12, MathMin((int)r.tick_volume, 30));
+
+        double p0 = r.open;
+        double p1 = (r.close >= r.open) ? r.low  : r.high;
+        double p2 = (r.close >= r.open) ? r.high : r.low;
+        double p3 = r.close;
+
+        for(int k = 0; k < ticks_in_bar; k++)
+        {
+            double ratio = (ticks_in_bar > 1) ? ((double)k / (double)(ticks_in_bar - 1)) : 0.0;
+            long offset_msc = (long)(ratio * 58000.0);
+
+            double current_price = p0;
+            if(ratio < 0.333)
+            {
+                double local_t = ratio / 0.333;
+                current_price = p0 + (p1 - p0) * local_t;
+            }
+            else if(ratio < 0.666)
+            {
+                double local_t = (ratio - 0.333) / 0.333;
+                current_price = p1 + (p2 - p1) * local_t;
+            }
+            else
+            {
+                double local_t = (ratio - 0.666) / 0.334;
+                current_price = p2 + (p3 - p2) * local_t;
+            }
+
+            out_ticks[tick_idx].time = r.time + (datetime)(offset_msc / 1000);
+            out_ticks[tick_idx].time_msc = base_msc + offset_msc;
+            out_ticks[tick_idx].bid = RoundHalfUp(current_price, digits);
+            out_ticks[tick_idx].ask = RoundHalfUp(current_price + spread_val, digits);
+            out_ticks[tick_idx].last = 0;
+            out_ticks[tick_idx].volume = 1;
+            out_ticks[tick_idx].flags = 6;
+            tick_idx++;
+        }
+    }
+
+    ArrayResize(out_ticks, tick_idx);
+    return tick_idx;
+}
+
+//+------------------------------------------------------------------+
+//| 過去ティックデータの汎用読み込み関数                             |
+//+------------------------------------------------------------------+
+bool LoadHistoricalTicksEx(string source_symbol, datetime start, datetime end, MqlTick &out_ticks[], int &out_total)
+{
+    ulong from_msc = (start > 0) ? ((ulong)start * 1000) : 0;
+    ulong to_msc   = (end > start && end > 0) ? ((ulong)end * 1000) : 0;
+
+    SymbolSelect(source_symbol, true);
+    ArrayFree(out_ticks);
+    out_total = 0;
+
     int retries = 0;
-    while (retries < 5)
+    while(retries < 10)
     {
         ResetLastError();
-        m_total_ticks = CopyTicksRange(m_replay_symbol, m_all_ticks, COPY_TICKS_ALL, 0, (ulong)LONG_MAX);
-        if (m_total_ticks > 0)
-        {
-            PrintFormat("[RendererEA] ティックロード完了: %s (全 %d ティック)", m_replay_symbol, m_total_ticks);
-            return true;
-        }
-        Sleep(100);
+        out_total = CopyTicksRange(source_symbol, out_ticks, COPY_TICKS_ALL, from_msc, to_msc);
+        if(out_total > 0) break;
+        Sleep(250);
         retries++;
     }
 
-    PrintFormat("[RendererEA] ティックロード待機中または0件: %s (コード: %d)", m_replay_symbol, GetLastError());
-    return false;
-}
-
-//+------------------------------------------------------------------+
-//| Expert initialization function                                   |
-//+------------------------------------------------------------------+
-int OnInit()
-{
-    timeBeginPeriod(1);
-    EventSetMillisecondTimer(InpTimerMs);
-
-    // シンボル設定の読込 & ティックロード
-    m_replay_symbol = Symbol();
-    LoadChartTicks();
-    PrintFormat("[RendererEA] 初期化完了: シンボル=%s (ticks=%d), パイプ=%s", m_replay_symbol, m_total_ticks, InpPipeName);
-
-    // パイプ接続試行
-    ConnectPipe();
-
-    return(INIT_SUCCEEDED);
-}
-
-//+------------------------------------------------------------------+
-//| Expert deinitialization function                                 |
-//+------------------------------------------------------------------+
-void OnDeinit(const int reason)
-{
-    EventKillTimer();
-    timeEndPeriod(1);
-
-    if (m_hPipe != INVALID_HANDLE_VALUE)
+    // 指定範囲で0件だった場合、全期間コピーをフォールバック試行
+    if(out_total <= 0 && from_msc > 0)
     {
-        CloseHandle(m_hPipe);
-        m_hPipe = INVALID_HANDLE_VALUE;
+        PrintFormat("[RendererEA] [Info] 指定範囲でのティック0件のため、全期間コピーをフォールバック試行: %s", source_symbol);
+        out_total = CopyTicksRange(source_symbol, out_ticks, COPY_TICKS_ALL, 0, 0);
     }
 
-    // ビューアーチャートのクローズ
-    int total_viewers = ArraySize(m_viewer_chart_ids);
-    long current_cid = ChartID();
-    for (int i = 0; i < total_viewers; i++)
+    if(out_total <= 0)
     {
-        if (m_viewer_chart_ids[i] > 0 && m_viewer_chart_ids[i] != current_cid)
+        PrintFormat("[RendererEA] [Info] 生ティック0件のため、M1バーからの疑似ティック生成を試行: %s", source_symbol);
+        MqlRates rates[];
+        ArrayFree(rates);
+        datetime stop_dt = (end > start && end > 0) ? end : D'3000.01.01 00:00:00';
+        int copied_rates = CopyRates(source_symbol, PERIOD_M1, start, stop_dt, rates);
+        if(copied_rates <= 0)
         {
-            ChartClose(m_viewer_chart_ids[i]);
-            m_viewer_chart_ids[i] = 0;
+            copied_rates = CopyRates(source_symbol, PERIOD_M1, 0, 50000, rates);
+        }
+        if(copied_rates > 0)
+        {
+            out_total = GenerateTicksFromRates(source_symbol, rates, out_ticks);
+            PrintFormat("[RendererEA] M1バー %d 件から %d 件の疑似ティックを生成しました", copied_rates, out_total);
+        }
+        else
+        {
+            PrintFormat("[RendererEA] [Warning] M1バーの取得にも失敗しました: Code=%d", GetLastError());
         }
     }
-    ArrayFree(m_viewer_chart_ids);
 
-    PrintFormat("[RendererEA] 終了処理完了: 理由=%d", reason);
-}
-
-//+------------------------------------------------------------------+
-//| パイプ接続処理                                                    |
-//+------------------------------------------------------------------+
-bool ConnectPipe()
-{
-    if (m_hPipe != INVALID_HANDLE_VALUE)
-        return true;
-
-    WaitNamedPipeW(InpPipeName, 50);
-
-    m_hPipe = CreateFileW(
-        InpPipeName,
-        GENERIC_READ | GENERIC_WRITE,
-        0,
-        0,
-        OPEN_EXISTING,
-        0,
-        0
-    );
-
-    if (m_hPipe == INVALID_HANDLE_VALUE)
+    if(out_total <= 0)
+    {
+        PrintFormat("[RendererEA] [Error] ティックデータが0件です: %s (Code: %d)", source_symbol, GetLastError());
         return false;
+    }
 
-    PrintFormat("[RendererEA] Core パイプ接続成功: handle=%I64d", m_hPipe);
-
-    // HELLO パケット送信
-    SendHello();
+    PrintFormat("[RendererEA] %s から %d 件のティックデータをロード完了", source_symbol, out_total);
     return true;
 }
 
 //+------------------------------------------------------------------+
-//| HELLO 送信                                                       |
+//| カスタムシンボルの作成・初期化                                   |
 //+------------------------------------------------------------------+
-void SendHello()
+bool InitializeReplaySymbol(string replay_symbol, string source_symbol)
 {
-    if (m_hPipe == INVALID_HANDLE_VALUE) return;
+    bool is_custom = false;
+    bool exist = SymbolExist(replay_symbol, is_custom);
 
-    RenderHeader header;
-    header.magic = RENDER_MAGIC;
-    header.msg_type = MSG_HELLO;
-    header.flags = 0;
-    header.epoch = m_current_epoch;
-    header.payload_len = HELLO_PAYLOAD_SIZE;
-
-    HelloPayload payload;
-    payload.ea_version = 400;
-    payload.reserved = 0;
-    payload.main_ticks = (ulong)m_total_ticks;
-    payload.main_hash = 0;
-    payload.sub_ticks = (ulong)m_total_ticks_sub;
-    payload.sub_hash = 0;
-    ArrayInitialize(payload.symbol, 0);
-    StringToCharArray(m_replay_symbol, payload.symbol);
-
-    uchar buf[];
-    ArrayResize(buf, HEADER_SIZE + HELLO_PAYLOAD_SIZE);
-    
-    // ヘッダーコピー
-    StructToBytes(header, buf, 0);
-    // ペイロードコピー
-    StructToBytes(payload, buf, HEADER_SIZE);
-
-    uint written = 0;
-    WriteFile(m_hPipe, buf, HEADER_SIZE + HELLO_PAYLOAD_SIZE, written, 0);
-}
-
-//+------------------------------------------------------------------+
-//| ACK 送信                                                         |
-//+------------------------------------------------------------------+
-void SendAck(ulong main_applied, ulong sub_applied, uint duration_us)
-{
-    if (m_hPipe == INVALID_HANDLE_VALUE) return;
-
-    RenderHeader header;
-    header.magic = RENDER_MAGIC;
-    header.msg_type = MSG_ACK;
-    header.flags = 0;
-    header.epoch = m_current_epoch;
-    header.payload_len = ACK_PAYLOAD_SIZE;
-
-    AckPayload payload;
-    payload.main_applied_idx = main_applied;
-    payload.sub_applied_idx = sub_applied;
-    payload.render_duration_us = duration_us;
-    payload.reserved = 0;
-
-    uchar buf[];
-    ArrayResize(buf, HEADER_SIZE + ACK_PAYLOAD_SIZE);
-    StructToBytes(header, buf, 0);
-    StructToBytes(payload, buf, HEADER_SIZE);
-
-    uint written = 0;
-    WriteFile(m_hPipe, buf, HEADER_SIZE + ACK_PAYLOAD_SIZE, written, 0);
-}
-
-//+------------------------------------------------------------------+
-//| READY 送信 (シーク後再初期化完了)                                 |
-//+------------------------------------------------------------------+
-void SendReady()
-{
-    if (m_hPipe == INVALID_HANDLE_VALUE) return;
-
-    RenderHeader header;
-    header.magic = RENDER_MAGIC;
-    header.msg_type = MSG_READY;
-    header.flags = 0;
-    header.epoch = m_current_epoch;
-    header.payload_len = 0;
-
-    uchar buf[];
-    ArrayResize(buf, HEADER_SIZE);
-    StructToBytes(header, buf, 0);
-
-    uint written = 0;
-    WriteFile(m_hPipe, buf, HEADER_SIZE, written, 0);
-}
-
-//+------------------------------------------------------------------+
-//| 構造体バイトコピー補助関数                                       |
-//+------------------------------------------------------------------+
-template<typename T>
-void StructToBytes(const T &s, uchar &buf[], int offset)
-{
-    uchar src[];
-    int size = (int)sizeof(T);
-    ArrayResize(src, size);
-    StringToCharArray("", src); // clear
-    // MQL5 StructToCharArray
-    StructToCharArray(s, src);
-    ArrayCopy(buf, src, offset, 0, size);
-}
-
-template<typename T>
-void BytesToStruct(const uchar &buf[], int offset, T &s)
-{
-    uchar src[];
-    int size = (int)sizeof(T);
-    ArrayResize(src, size);
-    ArrayCopy(src, buf, 0, offset, size);
-    CharArrayToStruct(s, src);
-}
-
-//+------------------------------------------------------------------+
-//| Timer event handler                                              |
-//+------------------------------------------------------------------+
-void OnTimer()
-{
-    if (m_hPipe == INVALID_HANDLE_VALUE)
+    if(!exist)
     {
-        ConnectPipe();
-        return;
-    }
+        ResetLastError();
+        bool created = CustomSymbolCreate(replay_symbol, "Replay", source_symbol);
 
-    // パイプ内の受信可能バイト数を検査
-    uint bytes_avail = 0;
-    if (!PeekNamedPipe(m_hPipe, 0, 0, 0, bytes_avail, 0))
-    {
-        CloseHandle(m_hPipe);
-        m_hPipe = INVALID_HANDLE_VALUE;
-        return;
-    }
-
-    if (bytes_avail < HEADER_SIZE)
-        return;
-
-    // パケット読み込みループ
-    while (bytes_avail >= HEADER_SIZE)
-    {
-        uchar header_buf[];
-        ArrayResize(header_buf, HEADER_SIZE);
-        uint read_bytes = 0;
-        if (!ReadFile(m_hPipe, header_buf, HEADER_SIZE, read_bytes, 0) || read_bytes < HEADER_SIZE)
+        if(!created)
         {
-            CloseHandle(m_hPipe);
-            m_hPipe = INVALID_HANDLE_VALUE;
-            return;
-        }
+            int err = GetLastError();
+            PrintFormat("[RendererEA] [Warning] source_symbol ('%s') での CustomSymbolCreate 失敗 (Code: %d)。ベース銘柄で試行します。", source_symbol, err);
 
-        RenderHeader header;
-        BytesToStruct(header_buf, 0, header);
-
-        if (header.magic != RENDER_MAGIC)
-        {
-            PrintFormat("[RendererEA] 不正なマジックナンバー: 0x%08X", header.magic);
-            CloseHandle(m_hPipe);
-            m_hPipe = INVALID_HANDLE_VALUE;
-            return;
-        }
-
-        m_current_epoch = header.epoch;
-        uchar payload_buf[];
-        ArrayResize(payload_buf, header.payload_len);
-
-        if (header.payload_len > 0)
-        {
-            if (!ReadFile(m_hPipe, payload_buf, header.payload_len, read_bytes, 0) || read_bytes < header.payload_len)
+            string base_symbol = ExtractBaseSymbol(source_symbol);
+            if(SymbolExist(base_symbol, is_custom))
             {
-                CloseHandle(m_hPipe);
-                m_hPipe = INVALID_HANDLE_VALUE;
-                return;
+                created = CustomSymbolCreate(replay_symbol, "Replay", base_symbol);
+            }
+
+            if(!created)
+            {
+                PrintFormat("[RendererEA] [Warning] ベース銘柄 ('%s') での CustomSymbolCreate 失敗。原銘柄なしで試行します。", base_symbol);
+                created = CustomSymbolCreate(replay_symbol, "Replay", "");
+            }
+
+            if(!created)
+            {
+                PrintFormat("[RendererEA] [Error] カスタムシンボルの作成に失敗しました: %s (Code: %d)", replay_symbol, GetLastError());
+                return false;
             }
         }
-
-        // コマンドディスパッチ
-        ulong start_us = GetMicrosecondCount();
-
-        switch (header.msg_type)
-        {
-            case MSG_ADVANCE:
-            {
-                AdvancePayload adv;
-                BytesToStruct(payload_buf, 0, adv);
-                ProcessAdvance(adv, start_us);
-                break;
-            }
-            case MSG_RESET:
-            {
-                ResetPayload rst;
-                BytesToStruct(payload_buf, 0, rst);
-                ProcessReset(rst);
-                break;
-            }
-            case MSG_APPLY_PROFILE:
-            {
-                ApplyProfilePayload app;
-                BytesToStruct(payload_buf, 0, app);
-                ProcessApplyProfile(app);
-                break;
-            }
-            default:
-                break;
-        }
-
-        // 次のパケット検査
-        if (!PeekNamedPipe(m_hPipe, 0, 0, 0, bytes_avail, 0))
-            break;
     }
+
+    string base_sym = ExtractBaseSymbol(source_symbol);
+    bool is_jpy = (StringFind(source_symbol, "JPY") >= 0);
+
+    long digits = SymbolInfoInteger(source_symbol, SYMBOL_DIGITS);
+    if(digits <= 0 || (is_jpy && digits != 2 && digits != 3) || (!is_jpy && digits != 4 && digits != 5))
+    {
+        long base_digits = SymbolInfoInteger(base_sym, SYMBOL_DIGITS);
+        if(base_digits > 0) digits = base_digits;
+        else digits = is_jpy ? 3 : 5;
+    }
+    CustomSymbolSetInteger(replay_symbol, SYMBOL_DIGITS, digits);
+
+    double point = SymbolInfoDouble(source_symbol, SYMBOL_POINT);
+    if(point <= 0.0 || (is_jpy && point > 0.01) || (!is_jpy && point > 0.001))
+    {
+        double base_point = SymbolInfoDouble(base_sym, SYMBOL_POINT);
+        if(base_point > 0.0) point = base_point;
+        else point = (digits == 3 || digits == 2) ? 0.001 : 0.00001;
+    }
+    CustomSymbolSetDouble(replay_symbol, SYMBOL_POINT, point);
+
+    double contract_size = SymbolInfoDouble(source_symbol, SYMBOL_TRADE_CONTRACT_SIZE);
+    if(contract_size <= 0) contract_size = SymbolInfoDouble(base_sym, SYMBOL_TRADE_CONTRACT_SIZE);
+    if(contract_size <= 0) contract_size = 100000.0;
+    CustomSymbolSetDouble(replay_symbol, SYMBOL_TRADE_CONTRACT_SIZE, contract_size);
+
+    string base_curr = SymbolInfoString(source_symbol, SYMBOL_CURRENCY_BASE);
+    if(base_curr == "") base_curr = SymbolInfoString(base_sym, SYMBOL_CURRENCY_BASE);
+    if(base_curr != "") CustomSymbolSetString(replay_symbol, SYMBOL_CURRENCY_BASE, base_curr);
+
+    string profit_curr = SymbolInfoString(source_symbol, SYMBOL_CURRENCY_PROFIT);
+    if(profit_curr == "") profit_curr = SymbolInfoString(base_sym, SYMBOL_CURRENCY_PROFIT);
+    if(profit_curr != "") CustomSymbolSetString(replay_symbol, SYMBOL_CURRENCY_PROFIT, profit_curr);
+
+    if(!SymbolSelect(replay_symbol, true))
+    {
+        PrintFormat("[RendererEA] [Error] カスタムシンボルの気配値登録に失敗: %s (Code: %d)", replay_symbol, GetLastError());
+        return false;
+    }
+
+    ResetLastError();
+    CustomTicksDelete(replay_symbol, 0, LONG_MAX);
+    CustomRatesDelete(replay_symbol, 0, LONG_MAX);
+
+    PrintFormat("[RendererEA] カスタムシンボル初期化完了: %s (原銘柄=%s, digits=%d, point=%g)",
+        replay_symbol, source_symbol, (int)digits, point);
+    return true;
 }
 
 //+------------------------------------------------------------------+
-//| ADVANCE 処理 (インデックスカーソル描画)                            |
+//| 過去足プリロード (バー数または日付指定)                            |
 //+------------------------------------------------------------------+
-void ProcessAdvance(const AdvancePayload &adv, ulong start_us)
+bool PreloadHistoricalRatesEx(string source_symbol, string replay_symbol, datetime start_time, int max_period_sec, uint preload_mode, long preload_date_msc, uint preloaded_bars)
 {
-    if (m_total_ticks <= 0)
+    SymbolSelect(source_symbol, true);
+    datetime preload_start = 0;
+    datetime preload_end = start_time - 1;
+
+    if(preload_mode == 1) // DATE モード
     {
-        LoadChartTicks();
+        if(preload_date_msc > 0)
+        {
+            preload_start = (datetime)(preload_date_msc / 1000);
+        }
     }
 
-    int target_idx = (int)adv.main_idx;
-    if (m_total_ticks > 0 && target_idx > m_total_ticks - 1)
-        target_idx = m_total_ticks - 1;
-
-    if (target_idx > m_current_idx && m_total_ticks > 0)
+    if(preload_start <= 0 || preload_mode == 0) // BARS モードまたはフォールバック
     {
-        int count_to_add = target_idx - m_current_idx;
-        MqlTick ticks_slice[];
-        ArrayResize(ticks_slice, count_to_add);
-        ArrayCopy(ticks_slice, m_all_ticks, 0, m_current_idx + 1, count_to_add);
-
-        // MT5 チャートへ一括追加
-        CustomTicksAdd(m_replay_symbol, ticks_slice);
-        m_current_idx = target_idx;
+        ENUM_TIMEFRAMES tf = SecondsToTimeframe(max_period_sec);
+        int bars = (preloaded_bars > 0) ? (int)preloaded_bars : 300;
+        preload_start = GetBarHistoryStartTime(source_symbol, tf, start_time, bars);
     }
 
-    // チャート再描画（最大 60FPS にスマート間引き）
+    if(preload_start >= start_time)
+    {
+        PrintFormat("[RendererEA] プリロード対象期間なし (開始=%s, リプレイ開始=%s)",
+            TimeToString(preload_start), TimeToString(start_time));
+        return true;
+    }
+
+    PrintFormat("[RendererEA] 過去データプリロード取得: %s -> %s (%s 〜 %s)",
+        source_symbol, replay_symbol, TimeToString(preload_start), TimeToString(preload_end));
+
+    MqlRates preload_rates[];
+    ArrayFree(preload_rates);
+
+    int copied = CopyRates(source_symbol, PERIOD_M1, preload_start, preload_end, preload_rates);
+    if(copied <= 0)
+    {
+        PrintFormat("[RendererEA] [Warning] CopyRatesでのM1バー取得失敗 (Code: %d)。メモリ内ティックからの生成を試行。", GetLastError());
+        bool is_sub = (m_enable_dual_feed && source_symbol == m_source_symbol_sub);
+        int src_tick_count = is_sub ? m_total_ticks_sub : m_total_ticks;
+        if(src_tick_count > 0)
+        {
+            int sample_count = MathMin(src_tick_count, 100000);
+            MqlRates generated[];
+            ArrayResize(generated, sample_count);
+            int gen_count = 0;
+            datetime last_bar_time = 0;
+            for(int i = 0; i < sample_count; i++)
+            {
+                datetime t = is_sub ? (datetime)(m_all_ticks_sub[i].time_msc / 1000) : (datetime)(m_all_ticks[i].time_msc / 1000);
+                datetime bar_time = t - (t % 60);
+                double bid = is_sub ? m_all_ticks_sub[i].bid : m_all_ticks[i].bid;
+                if(gen_count == 0 || bar_time != last_bar_time)
+                {
+                    if(gen_count >= 3000) break;
+                    gen_count++;
+                    generated[gen_count - 1].time = bar_time;
+                    generated[gen_count - 1].open = bid;
+                    generated[gen_count - 1].high = bid;
+                    generated[gen_count - 1].low = bid;
+                    generated[gen_count - 1].close = bid;
+                    generated[gen_count - 1].tick_volume = 1;
+                    generated[gen_count - 1].spread = 20;
+                    last_bar_time = bar_time;
+                }
+                else
+                {
+                    if(bid > generated[gen_count - 1].high) generated[gen_count - 1].high = bid;
+                    if(bid < generated[gen_count - 1].low) generated[gen_count - 1].low = bid;
+                    generated[gen_count - 1].close = bid;
+                    generated[gen_count - 1].tick_volume++;
+                }
+            }
+            if(gen_count > 0)
+            {
+                ArrayResize(generated, gen_count);
+                CustomRatesUpdate(replay_symbol, generated);
+                PrintFormat("[RendererEA] メモリ内ティックから %d 件のM1バーを代替プリロードしました: %s", gen_count, replay_symbol);
+            }
+        }
+        return true;
+    }
+
+    int updated = CustomRatesUpdate(replay_symbol, preload_rates);
+    if(updated < 0)
+    {
+        PrintFormat("[RendererEA] [Error] プリロードデータのシンボル適用に失敗: Code=%d", GetLastError());
+        return false;
+    }
+
+    PrintFormat("[RendererEA] %s: %d 件のM1バーを事前描画データとして正常登録しました", replay_symbol, copied);
+    return true;
+}
+
+//+------------------------------------------------------------------+
+//| 全ビューアーチャートの再描画 (最大60FPSスロットル)                |
+//+------------------------------------------------------------------+
+void RedrawAllViewerCharts(bool force = false)
+{
     ulong now_us = GetMicrosecondCount();
-    if (now_us - m_last_redraw_us >= REDRAW_INTERVAL_US)
-    {
-        ChartRedraw(0);
-        m_last_redraw_us = now_us;
-    }
+    if(!force && (now_us - m_last_redraw_us < REDRAW_INTERVAL_US))
+        return;
 
-    ulong duration_us = (ulong)(GetMicrosecondCount() - start_us);
-    SendAck((ulong)m_current_idx, (ulong)m_current_idx_sub, (uint)duration_us);
-}
-
-//+------------------------------------------------------------------+
-//| RESET 処理 (シーク時再初期化)                                      |
-//+------------------------------------------------------------------+
-void ProcessReset(const ResetPayload &rst)
-{
-    if (m_total_ticks <= 0)
-    {
-        LoadChartTicks();
-    }
-
-    m_current_idx = (int)rst.main_target_idx;
-    int preload_from = (int)rst.main_preload_from;
-
-    if (m_total_ticks > 0 && m_current_idx >= 0 && m_current_idx < m_total_ticks)
-    {
-        int preload_count = m_current_idx - preload_from + 1;
-        if (preload_count > 0 && preload_from >= 0)
-        {
-            MqlTick preload_slice[];
-            ArrayResize(preload_slice, preload_count);
-            ArrayCopy(preload_slice, m_all_ticks, 0, preload_from, preload_count);
-            CustomTicksDelete(m_replay_symbol, 0, LONG_MAX);
-            CustomTicksAdd(m_replay_symbol, preload_slice);
-        }
-        else
-        {
-            CustomTicksDelete(m_replay_symbol, 0, LONG_MAX);
-        }
-    }
+    m_last_redraw_us = now_us;
 
     ChartRedraw(0);
-    SendReady();
+
+    int total_viewers = ArraySize(m_viewer_chart_ids);
+    for(int i = 0; i < total_viewers; i++)
+    {
+        if(m_viewer_chart_ids[i] > 0)
+        {
+            if(force)
+            {
+                ChartSetInteger(m_viewer_chart_ids[i], CHART_AUTOSCROLL, true);
+                ChartNavigate(m_viewer_chart_ids[i], CHART_END, 0);
+            }
+            ChartRedraw(m_viewer_chart_ids[i]);
+        }
+    }
 }
 
 //+------------------------------------------------------------------+
@@ -560,22 +714,18 @@ int OpenChrFileForReading(string profile_file_path)
     }
     FileClose(file_bin);
 
-    // 1. UTF-16LE with BOM (0xFF, 0xFE)
     if(b0 == 0xFF && b1 == 0xFE)
     {
         return FileOpen(profile_file_path, FILE_READ | FILE_TXT | FILE_UNICODE);
     }
-    // 2. UTF-8 with BOM (0xEF, 0xBB, 0xBF)
     if(b0 == 0xEF && b1 == 0xBB && b2 == 0xBF)
     {
         return FileOpen(profile_file_path, FILE_READ | FILE_TXT | FILE_ANSI);
     }
-    // 3. UTF-16LE without BOM (byte 1 == 0x00 and byte 0 != 0x00)
     if(b1 == 0x00 && b0 != 0x00 && fsize >= 4)
     {
         return FileOpen(profile_file_path, FILE_READ | FILE_TXT | FILE_UNICODE);
     }
-    // 4. ANSI / UTF-8 without BOM
     return FileOpen(profile_file_path, FILE_READ | FILE_TXT | FILE_ANSI);
 }
 
@@ -627,6 +777,60 @@ ENUM_TIMEFRAMES GetTimeframeFromPeriod(int p_type, int p_size)
 }
 
 //+------------------------------------------------------------------+
+//| プロファイル内の最大時間枠秒数を取得                             |
+//+------------------------------------------------------------------+
+int GetMaxPeriodSeconds(string profile_name)
+{
+    int max_sec = 60;
+    if(profile_name != "")
+    {
+        string search_mask = profile_name + "\\*.chr";
+        string filename;
+        long search_handle = FileFindFirst(search_mask, filename);
+        if(search_handle != INVALID_HANDLE)
+        {
+            do
+            {
+                string profile_file_path = profile_name + "\\" + filename;
+                int file_in = OpenChrFileForReading(profile_file_path);
+                if(file_in != INVALID_HANDLE)
+                {
+                    int period_type = -1;
+                    int period_size = -1;
+                    while(!FileIsEnding(file_in))
+                    {
+                        string line = FileReadString(file_in);
+                        string trimmed = line;
+                        StringTrimLeft(trimmed);
+                        StringTrimRight(trimmed);
+
+                        if(period_type == -1 && StringFind(trimmed, "period_type=") == 0)
+                        {
+                            period_type = (int)StringToInteger(StringSubstr(trimmed, 12));
+                        }
+                        if(period_size == -1 && StringFind(trimmed, "period_size=") == 0)
+                        {
+                            period_size = (int)StringToInteger(StringSubstr(trimmed, 12));
+                        }
+                        if(period_type != -1 && period_size != -1)
+                            break;
+                    }
+                    FileClose(file_in);
+
+                    if(period_type != -1 && period_size != -1)
+                    {
+                        ENUM_TIMEFRAMES period = GetTimeframeFromPeriod(period_type, period_size);
+                        max_sec = MathMax(max_sec, PeriodSeconds(period));
+                    }
+                }
+            } while(FileFindNext(search_handle, filename));
+            FileFindClose(search_handle);
+        }
+    }
+    return max_sec;
+}
+
+//+------------------------------------------------------------------+
 //| プロファイル解析とテンプレート一時出力                           |
 //+------------------------------------------------------------------+
 bool ProcessProfile(string profile_name, string main_symbol, string sub_symbol, bool enable_dual, ChartLayoutInfo &out_layouts[])
@@ -639,7 +843,7 @@ bool ProcessProfile(string profile_name, string main_symbol, string sub_symbol, 
 
     if(search_handle == INVALID_HANDLE)
     {
-        PrintFormat("[RendererEA] プロファイルフォルダが見つからないか、.chr が存在しません: '%s' (検索マスク: '%s', Code: %d)", profile_name, search_mask, GetLastError());
+        PrintFormat("[RendererEA] プロファイルフォルダが見つからないか、.chr が存在しません: '%s'", profile_name);
         return false;
     }
 
@@ -736,7 +940,6 @@ bool ProcessProfile(string profile_name, string main_symbol, string sub_symbol, 
         }
         FileClose(file_in);
 
-        // 比較銘柄マーカーの検出
         bool is_sub_chart = false;
         if(enable_dual && sub_symbol != "")
         {
@@ -902,7 +1105,7 @@ void CreateMTFCharts(string profile_name, string main_symbol, string sub_symbol 
             string csym = ChartSymbol(chart_id);
             if(csym == main_symbol || (sub_symbol != "" && csym == sub_symbol))
             {
-                PrintFormat("[RendererEA] 既存のビューアーチャートをクローズします: ID=%I64d (%s)", chart_id, csym);
+                PrintFormat("[RendererEA] 既存のビューアーチャートをクローズ: ID=%I64d (%s)", chart_id, csym);
                 ChartClose(chart_id);
                 any_closed = true;
             }
@@ -997,6 +1200,527 @@ void CreateMTFCharts(string profile_name, string main_symbol, string sub_symbol 
 }
 
 //+------------------------------------------------------------------+
+//| 構造体バイトコピー補助関数                                       |
+//+------------------------------------------------------------------+
+template<typename T>
+void StructToBytes(const T &s, uchar &buf[], int offset)
+{
+    uchar src[];
+    int size = (int)sizeof(T);
+    ArrayResize(src, size);
+    StringToCharArray("", src);
+    StructToCharArray(s, src);
+    ArrayCopy(buf, src, offset, 0, size);
+}
+
+template<typename T>
+void BytesToStruct(const uchar &buf[], int offset, T &s)
+{
+    uchar src[];
+    int size = (int)sizeof(T);
+    ArrayResize(src, size);
+    ArrayCopy(src, buf, 0, offset, size);
+    CharArrayToStruct(s, src);
+}
+
+//+------------------------------------------------------------------+
+//| パイプ接続処理                                                    |
+//+------------------------------------------------------------------+
+bool ConnectPipe()
+{
+    if(m_hPipe != INVALID_HANDLE_VALUE)
+        return true;
+
+    WaitNamedPipeW(InpPipeName, 50);
+
+    m_hPipe = CreateFileW(
+        InpPipeName,
+        GENERIC_READ | GENERIC_WRITE,
+        0,
+        0,
+        OPEN_EXISTING,
+        0,
+        0
+    );
+
+    if(m_hPipe == INVALID_HANDLE_VALUE)
+        return false;
+
+    PrintFormat("[RendererEA] Core パイプ接続成功: handle=%I64d", m_hPipe);
+    SendHello();
+    return true;
+}
+
+//+------------------------------------------------------------------+
+//| HELLO 送信                                                       |
+//+------------------------------------------------------------------+
+void SendHello()
+{
+    if(m_hPipe == INVALID_HANDLE_VALUE) return;
+
+    RenderHeader header;
+    header.magic = RENDER_MAGIC;
+    header.msg_type = MSG_HELLO;
+    header.flags = 0;
+    header.epoch = m_current_epoch;
+    header.payload_len = HELLO_PAYLOAD_SIZE;
+
+    HelloPayload payload;
+    payload.ea_version = 400;
+    payload.reserved = 0;
+    payload.main_ticks = (ulong)m_total_ticks;
+    payload.main_hash = 0;
+    payload.sub_ticks = (ulong)m_total_ticks_sub;
+    payload.sub_hash = 0;
+    ArrayInitialize(payload.symbol, 0);
+    string sym = (m_replay_symbol != "") ? m_replay_symbol : Symbol();
+    StringToCharArray(sym, payload.symbol);
+
+    uchar buf[];
+    ArrayResize(buf, HEADER_SIZE + HELLO_PAYLOAD_SIZE);
+    StructToBytes(header, buf, 0);
+    StructToBytes(payload, buf, HEADER_SIZE);
+
+    uint written = 0;
+    WriteFile(m_hPipe, buf, HEADER_SIZE + HELLO_PAYLOAD_SIZE, written, 0);
+}
+
+//+------------------------------------------------------------------+
+//| ACK 送信                                                         |
+//+------------------------------------------------------------------+
+void SendAck(ulong main_applied, ulong sub_applied, uint duration_us)
+{
+    if(m_hPipe == INVALID_HANDLE_VALUE) return;
+
+    RenderHeader header;
+    header.magic = RENDER_MAGIC;
+    header.msg_type = MSG_ACK;
+    header.flags = 0;
+    header.epoch = m_current_epoch;
+    header.payload_len = ACK_PAYLOAD_SIZE;
+
+    AckPayload payload;
+    payload.main_applied_idx = main_applied;
+    payload.sub_applied_idx = sub_applied;
+    payload.render_duration_us = duration_us;
+    payload.reserved = 0;
+
+    uchar buf[];
+    ArrayResize(buf, HEADER_SIZE + ACK_PAYLOAD_SIZE);
+    StructToBytes(header, buf, 0);
+    StructToBytes(payload, buf, HEADER_SIZE);
+
+    uint written = 0;
+    WriteFile(m_hPipe, buf, HEADER_SIZE + ACK_PAYLOAD_SIZE, written, 0);
+}
+
+//+------------------------------------------------------------------+
+//| READY 送信 (シーク/初期化完了)                                   |
+//+------------------------------------------------------------------+
+void SendReady()
+{
+    if(m_hPipe == INVALID_HANDLE_VALUE) return;
+
+    RenderHeader header;
+    header.magic = RENDER_MAGIC;
+    header.msg_type = MSG_READY;
+    header.flags = 0;
+    header.epoch = m_current_epoch;
+    header.payload_len = 0;
+
+    uchar buf[];
+    ArrayResize(buf, HEADER_SIZE);
+    StructToBytes(header, buf, 0);
+
+    uint written = 0;
+    WriteFile(m_hPipe, buf, HEADER_SIZE, written, 0);
+}
+
+//+------------------------------------------------------------------+
+//| INIT 処理 (Core からのリプレイ環境完全構築要求)                  |
+//+------------------------------------------------------------------+
+void ProcessInit(const InitPayload &p)
+{
+    long start_msc = p.start_time_msc;
+    long end_msc = p.end_time_msc;
+    long preload_date_msc = p.preload_date_msc;
+    uint preloaded_bars = p.preloaded_bars;
+    uint preload_mode = p.preload_mode;
+    string source_symbol = CharArrayToString(p.source_symbol);
+    string sub_symbol = CharArrayToString(p.sub_symbol);
+    string profile_name = CharArrayToString(p.profile_name);
+
+    StringTrimLeft(source_symbol);
+    StringTrimRight(source_symbol);
+    StringTrimLeft(sub_symbol);
+    StringTrimRight(sub_symbol);
+    StringTrimLeft(profile_name);
+    StringTrimRight(profile_name);
+
+    if(source_symbol == "") source_symbol = Symbol();
+
+    PrintFormat("[RendererEA] MSG_INIT 受信: source=%s, sub=%s, profile=%s, start=%s, end=%s, pre_mode=%d, pre_bars=%d",
+        source_symbol, sub_symbol, profile_name,
+        TimeToString((datetime)(start_msc / 1000)), TimeToString((datetime)(end_msc / 1000)),
+        preload_mode, preloaded_bars);
+
+    m_source_symbol = source_symbol;
+    if(StringFind(source_symbol, "_Replay") > 0)
+    {
+        m_replay_symbol = source_symbol;
+        m_source_symbol = StringSubstr(source_symbol, 0, StringFind(source_symbol, "_Replay"));
+    }
+    else
+    {
+        m_replay_symbol = source_symbol + "_Replay";
+    }
+
+    m_enable_dual_feed = (sub_symbol != "");
+    if(m_enable_dual_feed)
+    {
+        m_source_symbol_sub = sub_symbol;
+        if(StringFind(sub_symbol, "_Replay") > 0)
+        {
+            m_replay_symbol_sub = sub_symbol;
+            m_source_symbol_sub = StringSubstr(sub_symbol, 0, StringFind(sub_symbol, "_Replay"));
+        }
+        else
+        {
+            m_replay_symbol_sub = sub_symbol + "_Replay";
+        }
+    }
+    else
+    {
+        m_source_symbol_sub = "";
+        m_replay_symbol_sub = "";
+    }
+
+    // 1. カスタムシンボルの作成・初期化
+    if(!InitializeReplaySymbol(m_replay_symbol, m_source_symbol))
+    {
+        PrintFormat("[RendererEA] [Error] メインリプレイシンボル初期化失敗: %s", m_replay_symbol);
+    }
+    if(m_enable_dual_feed && m_replay_symbol_sub != "")
+    {
+        InitializeReplaySymbol(m_replay_symbol_sub, m_source_symbol_sub);
+    }
+
+    // 2. 過去ティックデータのロード
+    datetime start_dt = (datetime)(start_msc / 1000);
+    datetime end_dt = (end_msc > start_msc) ? (datetime)(end_msc / 1000) : 0;
+    if(!LoadHistoricalTicksEx(m_source_symbol, start_dt, end_dt, m_all_ticks, m_total_ticks))
+    {
+        PrintFormat("[RendererEA] [Warning] メインティックデータ読込で警告: %s (チャート作成を続行します)", m_source_symbol);
+    }
+    if(m_enable_dual_feed && m_source_symbol_sub != "")
+    {
+        LoadHistoricalTicksEx(m_source_symbol_sub, start_dt, end_dt, m_all_ticks_sub, m_total_ticks_sub);
+    }
+
+    // 3. 過去足の事前描画 (プリロード)
+    int max_period_sec = GetMaxPeriodSeconds(profile_name);
+    PreloadHistoricalRatesEx(m_source_symbol, m_replay_symbol, start_dt, max_period_sec, preload_mode, preload_date_msc, preloaded_bars);
+    if(m_enable_dual_feed && m_source_symbol_sub != "" && m_replay_symbol_sub != "")
+    {
+        PreloadHistoricalRatesEx(m_source_symbol_sub, m_replay_symbol_sub, start_dt, max_period_sec, preload_mode, preload_date_msc, preloaded_bars);
+    }
+
+    // 4. 初回1ティックの先行描画（チャートオープン時の空描画防止）
+    if(m_total_ticks > 0)
+    {
+        MqlTick first_slice[1];
+        first_slice[0] = m_all_ticks[0];
+        CustomTicksAdd(m_replay_symbol, first_slice);
+        m_current_idx = 0;
+    }
+    else
+    {
+        m_current_idx = -1;
+    }
+
+    if(m_enable_dual_feed && m_total_ticks_sub > 0)
+    {
+        MqlTick first_sub[1];
+        first_sub[0] = m_all_ticks_sub[0];
+        CustomTicksAdd(m_replay_symbol_sub, first_sub);
+        m_current_idx_sub = 0;
+    }
+    else
+    {
+        m_current_idx_sub = -1;
+    }
+
+    // 5. ビューアーチャートのオープン & プロファイル適用
+    CreateMTFCharts(profile_name, m_replay_symbol, m_replay_symbol_sub, m_enable_dual_feed);
+
+    RedrawAllViewerCharts(true);
+
+    // 6. ロード済み総ティック数を HELLO で再通知 & READY 発行
+    SendHello();
+    SendReady();
+    PrintFormat("[RendererEA] MSG_INIT 完了: main_ticks=%d, sub_ticks=%d", m_total_ticks, m_total_ticks_sub);
+}
+
+//+------------------------------------------------------------------+
+//| ADVANCE 処理 (インデックス/仮想時間カーソル描画)                  |
+//+------------------------------------------------------------------+
+void ProcessAdvance(const AdvancePayload &adv, ulong start_us)
+{
+    if(m_replay_symbol == "" || m_total_ticks <= 0)
+    {
+        SendAck(0, 0, 0);
+        return;
+    }
+
+    // 仮想ミリ秒時刻に基づく厳密インデックス特定 (配列長が異なるため main_idx との比較・Max取得は禁止)
+    int target_idx = -1;
+    if(adv.virtual_time_msc > 0 && m_total_ticks > 0)
+    {
+        target_idx = FindTickIndexByMsc(m_all_ticks, m_total_ticks, adv.virtual_time_msc);
+    }
+    if(target_idx < 0)
+    {
+        target_idx = (int)adv.main_idx;
+    }
+
+    if(m_total_ticks > 0 && target_idx > m_total_ticks - 1)
+        target_idx = m_total_ticks - 1;
+    if(target_idx < 0)
+        target_idx = 0;
+
+    // メインシンボルへの差分ティック追加
+    if(target_idx > m_current_idx && m_total_ticks > 0)
+    {
+        int from_idx = (m_current_idx < 0) ? 0 : (m_current_idx + 1);
+        int count_to_add = target_idx - from_idx + 1;
+        if(count_to_add > 0)
+        {
+            MqlTick ticks_slice[];
+            ArrayResize(ticks_slice, count_to_add);
+            ArrayCopy(ticks_slice, m_all_ticks, 0, from_idx, count_to_add);
+            CustomTicksAdd(m_replay_symbol, ticks_slice);
+            m_current_idx = target_idx;
+        }
+    }
+
+    // サブシンボルへの差分ティック追加
+    if(m_enable_dual_feed && m_replay_symbol_sub != "" && m_total_ticks_sub > 0)
+    {
+        int target_sub = -1;
+        if(adv.virtual_time_msc > 0 && m_total_ticks_sub > 0)
+        {
+            target_sub = FindTickIndexByMsc(m_all_ticks_sub, m_total_ticks_sub, adv.virtual_time_msc);
+        }
+        if(target_sub < 0)
+        {
+            target_sub = (int)adv.sub_idx;
+        }
+        if(m_total_ticks_sub > 0 && target_sub > m_total_ticks_sub - 1)
+            target_sub = m_total_ticks_sub - 1;
+        if(target_sub < 0)
+            target_sub = 0;
+
+        if(target_sub > m_current_idx_sub)
+        {
+            int from_sub = (m_current_idx_sub < 0) ? 0 : (m_current_idx_sub + 1);
+            int count_sub = target_sub - from_sub + 1;
+            if(count_sub > 0)
+            {
+                MqlTick sub_slice[];
+                ArrayResize(sub_slice, count_sub);
+                ArrayCopy(sub_slice, m_all_ticks_sub, 0, from_sub, count_sub);
+                CustomTicksAdd(m_replay_symbol_sub, sub_slice);
+                m_current_idx_sub = target_sub;
+            }
+        }
+    }
+
+    // 全ビューアーチャートの更新
+    RedrawAllViewerCharts();
+
+    // チャート左上にリプレイ状態コメントを表示
+    long disp_msc = (m_current_idx >= 0 && m_current_idx < m_total_ticks) ? (long)m_all_ticks[m_current_idx].time_msc : adv.virtual_time_msc;
+    datetime disp_dt = (datetime)(disp_msc / 1000);
+    Comment(StringFormat("=== TickReplay Core v2 ===\nSymbol: %s\nVirtual Time (Server): %s\nRendered Ticks: %d / %d (%.1f%%)",
+        m_replay_symbol, TimeToString(disp_dt, TIME_DATE | TIME_SECONDS),
+        m_current_idx + 1, m_total_ticks,
+        (m_total_ticks > 0) ? ((double)(m_current_idx + 1) / (double)m_total_ticks * 100.0) : 0.0));
+
+    ulong duration_us = (ulong)(GetMicrosecondCount() - start_us);
+    SendAck((ulong)MathMax(0, m_current_idx), (ulong)MathMax(0, m_current_idx_sub), (uint)duration_us);
+}
+
+//+------------------------------------------------------------------+
+//| RESET 処理 (シーク/時間ジャンプ/ループラップ時の差分同期)        |
+//+------------------------------------------------------------------+
+void ProcessReset(const ResetPayload &rst)
+{
+    if(m_replay_symbol == "" || m_total_ticks <= 0)
+    {
+        SendReady();
+        return;
+    }
+
+    int target_idx = -1;
+    if(rst.virtual_time_msc > 0 && m_total_ticks > 0)
+    {
+        target_idx = FindTickIndexByMsc(m_all_ticks, m_total_ticks, rst.virtual_time_msc);
+    }
+    if(target_idx < 0)
+    {
+        target_idx = (int)rst.main_target_idx;
+    }
+
+    if(target_idx < 0) target_idx = 0;
+    if(target_idx >= m_total_ticks) target_idx = m_total_ticks - 1;
+
+    // 同一タイムスタンプを持つティック群の境界を跨がないよう末尾に調整
+    while(target_idx + 1 < m_total_ticks &&
+          m_all_ticks[target_idx + 1].time_msc == m_all_ticks[target_idx].time_msc)
+    {
+        target_idx++;
+    }
+
+    long target_msc = (long)m_all_ticks[target_idx].time_msc;
+
+    // Subシンボルのインデックス算出
+    int target_sub = -1;
+    if(m_enable_dual_feed && m_total_ticks_sub > 0)
+    {
+        if(rst.virtual_time_msc > 0)
+        {
+            target_sub = FindTickIndexByMsc(m_all_ticks_sub, m_total_ticks_sub, rst.virtual_time_msc);
+        }
+        else
+        {
+            target_sub = FindTickIndexByMsc(m_all_ticks_sub, m_total_ticks_sub, target_msc);
+        }
+        if(target_sub < 0)
+        {
+            target_sub = (int)rst.sub_target_idx;
+        }
+        if(target_sub < 0) target_sub = 0;
+        if(target_sub >= m_total_ticks_sub) target_sub = m_total_ticks_sub - 1;
+    }
+
+    // --- メインシンボルの差分シーク・リセット ---
+    if(target_idx == 0)
+    {
+        long del_msc = (long)m_all_ticks[0].time_msc + 1;
+        CustomTicksDelete(m_replay_symbol, del_msc, LONG_MAX);
+        datetime del_time = (datetime)(m_all_ticks[0].time_msc / 1000) + 1;
+        CustomRatesDelete(m_replay_symbol, del_time, D'3000.01.01 00:00:00');
+
+        if(m_current_idx < 0)
+        {
+            MqlTick first_slice[1];
+            first_slice[0] = m_all_ticks[0];
+            CustomTicksAdd(m_replay_symbol, first_slice);
+        }
+        m_current_idx = 0;
+    }
+    else
+    {
+        if(m_current_idx < 0)
+        {
+            int count_to_add = target_idx + 1;
+            MqlTick slice[];
+            ArrayResize(slice, count_to_add);
+            ArrayCopy(slice, m_all_ticks, 0, 0, count_to_add);
+            CustomTicksAdd(m_replay_symbol, slice);
+            m_current_idx = target_idx;
+        }
+        else if(target_idx < m_current_idx)
+        {
+            // 巻き戻し: target_idx 以降の未来ティックおよびバーのみを差分削除
+            long del_msc = (long)m_all_ticks[target_idx].time_msc + 1;
+            CustomTicksDelete(m_replay_symbol, del_msc, LONG_MAX);
+            datetime del_time = (datetime)(m_all_ticks[target_idx].time_msc / 1000) + 1;
+            CustomRatesDelete(m_replay_symbol, del_time, D'3000.01.01 00:00:00');
+            m_current_idx = target_idx;
+        }
+        else if(target_idx > m_current_idx)
+        {
+            // 早送り: 差分ティックのみを一括追加
+            int from_idx = m_current_idx + 1;
+            int count_to_add = target_idx - from_idx + 1;
+            if(count_to_add > 0)
+            {
+                MqlTick slice[];
+                ArrayResize(slice, count_to_add);
+                ArrayCopy(slice, m_all_ticks, 0, from_idx, count_to_add);
+                CustomTicksAdd(m_replay_symbol, slice);
+                m_current_idx = target_idx;
+            }
+        }
+    }
+
+    // --- Subシンボルの差分シーク・リセット ---
+    if(m_enable_dual_feed && m_replay_symbol_sub != "" && m_total_ticks_sub > 0)
+    {
+        if(target_sub == 0)
+        {
+            long del_sub_msc = (long)m_all_ticks_sub[0].time_msc + 1;
+            CustomTicksDelete(m_replay_symbol_sub, del_sub_msc, LONG_MAX);
+            datetime del_sub_time = (datetime)(m_all_ticks_sub[0].time_msc / 1000) + 1;
+            CustomRatesDelete(m_replay_symbol_sub, del_sub_time, D'3000.01.01 00:00:00');
+            if(m_current_idx_sub < 0)
+            {
+                MqlTick sub_first[1];
+                sub_first[0] = m_all_ticks_sub[0];
+                CustomTicksAdd(m_replay_symbol_sub, sub_first);
+            }
+            m_current_idx_sub = 0;
+        }
+        else
+        {
+            if(m_current_idx_sub < 0)
+            {
+                int count_sub = target_sub + 1;
+                MqlTick sub_slice[];
+                ArrayResize(sub_slice, count_sub);
+                ArrayCopy(sub_slice, m_all_ticks_sub, 0, 0, count_sub);
+                CustomTicksAdd(m_replay_symbol_sub, sub_slice);
+                m_current_idx_sub = target_sub;
+            }
+            else if(target_sub < m_current_idx_sub)
+            {
+                long del_sub_msc = (long)m_all_ticks_sub[target_sub].time_msc + 1;
+                CustomTicksDelete(m_replay_symbol_sub, del_sub_msc, LONG_MAX);
+                datetime del_sub_time = (datetime)(m_all_ticks_sub[target_sub].time_msc / 1000) + 1;
+                CustomRatesDelete(m_replay_symbol_sub, del_sub_time, D'3000.01.01 00:00:00');
+                m_current_idx_sub = target_sub;
+            }
+            else if(target_sub > m_current_idx_sub)
+            {
+                int from_sub = m_current_idx_sub + 1;
+                int count_sub = target_sub - from_sub + 1;
+                if(count_sub > 0)
+                {
+                    MqlTick sub_slice[];
+                    ArrayResize(sub_slice, count_sub);
+                    ArrayCopy(sub_slice, m_all_ticks_sub, 0, from_sub, count_sub);
+                    CustomTicksAdd(m_replay_symbol_sub, sub_slice);
+                    m_current_idx_sub = target_sub;
+                }
+            }
+        }
+    }
+
+    RedrawAllViewerCharts(true);
+
+    // チャート左上にリプレイ状態コメントを表示
+    long disp_msc = (m_current_idx >= 0 && m_current_idx < m_total_ticks) ? (long)m_all_ticks[m_current_idx].time_msc : rst.virtual_time_msc;
+    datetime disp_dt = (datetime)(disp_msc / 1000);
+    Comment(StringFormat("=== TickReplay Core v2 ===\nSymbol: %s\nVirtual Time (Server): %s\nRendered Ticks: %d / %d (%.1f%%)",
+        m_replay_symbol, TimeToString(disp_dt, TIME_DATE | TIME_SECONDS),
+        m_current_idx + 1, m_total_ticks,
+        (m_total_ticks > 0) ? ((double)(m_current_idx + 1) / (double)m_total_ticks * 100.0) : 0.0));
+
+    SendReady();
+}
+
+//+------------------------------------------------------------------+
 //| プロファイル適用パケット処理                                      |
 //+------------------------------------------------------------------+
 void ProcessApplyProfile(const ApplyProfilePayload &p)
@@ -1012,10 +1736,156 @@ void ProcessApplyProfile(const ApplyProfilePayload &p)
     StringTrimLeft(sub_sym);
     StringTrimRight(sub_sym);
 
-    if(main_sym == "") main_sym = Symbol();
+    if(main_sym == "") main_sym = (m_replay_symbol != "") ? m_replay_symbol : Symbol();
     bool enable_dual = (sub_sym != "");
 
     PrintFormat("[RendererEA] MSG_APPLY_PROFILE 受信: profile='%s', main='%s', sub='%s'", profile_name, main_sym, sub_sym);
     CreateMTFCharts(profile_name, main_sym, sub_sym, enable_dual);
 }
 
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
+int OnInit()
+{
+    timeBeginPeriod(1);
+    EventSetMillisecondTimer(InpTimerMs);
+
+    PrintFormat("[RendererEA] 描画専用EA起動: パイプ=%s (Core v2 からの要求待機中)", InpPipeName);
+
+    ConnectPipe();
+
+    return(INIT_SUCCEEDED);
+}
+
+//+------------------------------------------------------------------+
+//| Expert deinitialization function                                 |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+{
+    EventKillTimer();
+    timeEndPeriod(1);
+
+    if(m_hPipe != INVALID_HANDLE_VALUE)
+    {
+        CloseHandle(m_hPipe);
+        m_hPipe = INVALID_HANDLE_VALUE;
+    }
+
+    // ビューアーチャートのクローズ
+    int total_viewers = ArraySize(m_viewer_chart_ids);
+    long current_cid = ChartID();
+    for(int i = 0; i < total_viewers; i++)
+    {
+        if(m_viewer_chart_ids[i] > 0 && m_viewer_chart_ids[i] != current_cid)
+        {
+            ChartClose(m_viewer_chart_ids[i]);
+            m_viewer_chart_ids[i] = 0;
+        }
+    }
+    ArrayFree(m_viewer_chart_ids);
+
+    CleanTempTemplates();
+
+    PrintFormat("[RendererEA] 終了処理完了: 理由=%d", reason);
+}
+
+//+------------------------------------------------------------------+
+//| Timer event handler                                              |
+//+------------------------------------------------------------------+
+void OnTimer()
+{
+    if(m_hPipe == INVALID_HANDLE_VALUE)
+    {
+        ConnectPipe();
+        return;
+    }
+
+    uint bytes_avail = 0;
+    if(!PeekNamedPipe(m_hPipe, 0, 0, 0, bytes_avail, 0))
+    {
+        CloseHandle(m_hPipe);
+        m_hPipe = INVALID_HANDLE_VALUE;
+        return;
+    }
+
+    if(bytes_avail < HEADER_SIZE)
+        return;
+
+    while(bytes_avail >= HEADER_SIZE)
+    {
+        uchar header_buf[];
+        ArrayResize(header_buf, HEADER_SIZE);
+        uint read_bytes = 0;
+        if(!ReadFile(m_hPipe, header_buf, HEADER_SIZE, read_bytes, 0) || read_bytes < HEADER_SIZE)
+        {
+            CloseHandle(m_hPipe);
+            m_hPipe = INVALID_HANDLE_VALUE;
+            return;
+        }
+
+        RenderHeader header;
+        BytesToStruct(header_buf, 0, header);
+
+        if(header.magic != RENDER_MAGIC)
+        {
+            PrintFormat("[RendererEA] 不正なマジックナンバー: 0x%08X", header.magic);
+            CloseHandle(m_hPipe);
+            m_hPipe = INVALID_HANDLE_VALUE;
+            return;
+        }
+
+        m_current_epoch = header.epoch;
+        uchar payload_buf[];
+        ArrayResize(payload_buf, header.payload_len);
+
+        if(header.payload_len > 0)
+        {
+            if(!ReadFile(m_hPipe, payload_buf, header.payload_len, read_bytes, 0) || read_bytes < header.payload_len)
+            {
+                CloseHandle(m_hPipe);
+                m_hPipe = INVALID_HANDLE_VALUE;
+                return;
+            }
+        }
+
+        ulong start_us = GetMicrosecondCount();
+
+        switch(header.msg_type)
+        {
+            case MSG_INIT:
+            {
+                InitPayload init_p;
+                BytesToStruct(payload_buf, 0, init_p);
+                ProcessInit(init_p);
+                break;
+            }
+            case MSG_ADVANCE:
+            {
+                AdvancePayload adv;
+                BytesToStruct(payload_buf, 0, adv);
+                ProcessAdvance(adv, start_us);
+                break;
+            }
+            case MSG_RESET:
+            {
+                ResetPayload rst;
+                BytesToStruct(payload_buf, 0, rst);
+                ProcessReset(rst);
+                break;
+            }
+            case MSG_APPLY_PROFILE:
+            {
+                ApplyProfilePayload app;
+                BytesToStruct(payload_buf, 0, app);
+                ProcessApplyProfile(app);
+                break;
+            }
+            default:
+                break;
+        }
+
+        if(!PeekNamedPipe(m_hPipe, 0, 0, 0, bytes_avail, 0))
+            break;
+    }
+}

@@ -2,13 +2,13 @@ use std::io::{self, Read};
 
 pub const RENDER_PIPE_NAME: &str = r"\\.\pipe\tick_replay_render";
 pub const RENDER_MAGIC: u32 = 0x54525232; // 'TRR2' (Tick Replay Renderer v2)
-
 pub const MSG_HELLO: u16 = 0x0001;
 pub const MSG_ADVANCE: u16 = 0x0002;
 pub const MSG_RESET: u16 = 0x0003;
 pub const MSG_ACK: u16 = 0x0004;
 pub const MSG_READY: u16 = 0x0005;
 pub const MSG_APPLY_PROFILE: u16 = 0x0006;
+pub const MSG_INIT: u16 = 0x0007;
 
 /// 固定長 16 バイトヘッダー (自然アライメント)
 #[repr(C)]
@@ -61,7 +61,7 @@ pub struct AdvancePayload {
     pub virtual_time_msc: i64,
 }
 
-/// 0x0003 RESET ペイロード (Core -> EA, 32 bytes)
+/// 0x0003 RESET ペイロード (Core -> EA, 48 bytes)
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ResetPayload {
@@ -69,6 +69,8 @@ pub struct ResetPayload {
     pub main_preload_from: u64,
     pub sub_target_idx: u64,
     pub sub_preload_from: u64,
+    pub virtual_time_msc: i64,
+    pub reserved: i64,
 }
 
 /// 0x0004 ACK ペイロード (EA -> Core, 24 bytes)
@@ -90,9 +92,23 @@ pub struct ApplyProfilePayload {
     pub sub_symbol: [u8; 32],
 }
 
+/// 0x0007 INIT ペイロード (Core -> EA, 192 bytes)
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct InitPayload {
+    pub start_time_msc: i64,
+    pub end_time_msc: i64,
+    pub preload_date_msc: i64,
+    pub preloaded_bars: u32,
+    pub preload_mode: u32,
+    pub source_symbol: [u8; 32],
+    pub sub_symbol: [u8; 32],
+    pub profile_name: [u8; 64],
+    pub reserved: [u8; 32],
+}
+
 /// プロトコル送受信ヘルパー
 pub struct RenderPacketCodec;
-
 
 impl RenderPacketCodec {
     pub fn encode_advance(epoch: u32, main_idx: u64, sub_idx: u64, virtual_time_msc: i64) -> Vec<u8> {
@@ -120,12 +136,15 @@ impl RenderPacketCodec {
         main_preload_from: u64,
         sub_target_idx: u64,
         sub_preload_from: u64,
+        virtual_time_msc: i64,
     ) -> Vec<u8> {
         let payload = ResetPayload {
             main_target_idx,
             main_preload_from,
             sub_target_idx,
             sub_preload_from,
+            virtual_time_msc,
+            reserved: 0,
         };
         let header = RenderHeader::new(
             MSG_RESET,
@@ -135,6 +154,53 @@ impl RenderPacketCodec {
         );
 
         let mut buf = Vec::with_capacity(RenderHeader::SIZE + std::mem::size_of::<ResetPayload>());
+        buf.extend_from_slice(bytemuck::bytes_of(&header));
+        buf.extend_from_slice(bytemuck::bytes_of(&payload));
+        buf
+    }
+
+    pub fn encode_init(
+        epoch: u32,
+        start_time_msc: i64,
+        end_time_msc: i64,
+        preload_date_msc: i64,
+        preloaded_bars: u32,
+        preload_mode: u32,
+        source_symbol: &str,
+        sub_symbol: &str,
+        profile_name: &str,
+    ) -> Vec<u8> {
+        let mut payload = InitPayload {
+            start_time_msc,
+            end_time_msc,
+            preload_date_msc,
+            preloaded_bars,
+            preload_mode,
+            source_symbol: [0u8; 32],
+            sub_symbol: [0u8; 32],
+            profile_name: [0u8; 64],
+            reserved: [0u8; 32],
+        };
+        let s_bytes = source_symbol.as_bytes();
+        let s_len = s_bytes.len().min(31);
+        payload.source_symbol[..s_len].copy_from_slice(&s_bytes[..s_len]);
+
+        let sub_bytes = sub_symbol.as_bytes();
+        let sub_len = sub_bytes.len().min(31);
+        payload.sub_symbol[..sub_len].copy_from_slice(&sub_bytes[..sub_len]);
+
+        let p_bytes = profile_name.as_bytes();
+        let p_len = p_bytes.len().min(63);
+        payload.profile_name[..p_len].copy_from_slice(&p_bytes[..p_len]);
+
+        let header = RenderHeader::new(
+            MSG_INIT,
+            0,
+            epoch,
+            std::mem::size_of::<InitPayload>() as u32,
+        );
+
+        let mut buf = Vec::with_capacity(RenderHeader::SIZE + std::mem::size_of::<InitPayload>());
         buf.extend_from_slice(bytemuck::bytes_of(&header));
         buf.extend_from_slice(bytemuck::bytes_of(&payload));
         buf
@@ -212,12 +278,24 @@ pub enum RenderPipeCommand {
         main_preload_from: u64,
         sub_target_idx: u64,
         sub_preload_from: u64,
+        virtual_time_msc: i64,
     },
     ApplyProfile {
         epoch: u32,
         profile_name: String,
         main_symbol: String,
         sub_symbol: String,
+    },
+    Init {
+        epoch: u32,
+        start_time_msc: i64,
+        end_time_msc: i64,
+        preload_date_msc: i64,
+        preloaded_bars: u32,
+        preload_mode: u32,
+        source_symbol: String,
+        sub_symbol: String,
+        profile_name: String,
     },
 }
 
@@ -226,6 +304,8 @@ pub struct RenderPipeHandle {
     cmd_tx: tokio::sync::mpsc::UnboundedSender<RenderPipeCommand>,
     connected: std::sync::Arc<std::sync::atomic::AtomicBool>,
     last_applied_idx: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    last_init: std::sync::Arc<std::sync::Mutex<Option<RenderPipeCommand>>>,
+    last_reset: std::sync::Arc<std::sync::Mutex<Option<RenderPipeCommand>>>,
 }
 
 impl RenderPipeHandle {
@@ -247,16 +327,18 @@ impl RenderPipeHandle {
         main_preload_from: u64,
         sub_target_idx: u64,
         sub_preload_from: u64,
+        virtual_time_msc: i64,
     ) {
-        if self.connected.load(std::sync::atomic::Ordering::Relaxed) {
-            let _ = self.cmd_tx.send(RenderPipeCommand::Reset {
-                epoch,
-                main_target_idx,
-                main_preload_from,
-                sub_target_idx,
-                sub_preload_from,
-            });
-        }
+        let cmd = RenderPipeCommand::Reset {
+            epoch,
+            main_target_idx,
+            main_preload_from,
+            sub_target_idx,
+            sub_preload_from,
+            virtual_time_msc,
+        };
+        *self.last_reset.lock().unwrap() = Some(cmd.clone());
+        let _ = self.cmd_tx.send(cmd);
     }
 
     pub fn send_apply_profile(
@@ -266,14 +348,39 @@ impl RenderPipeHandle {
         main_symbol: &str,
         sub_symbol: &str,
     ) {
-        if self.connected.load(std::sync::atomic::Ordering::Relaxed) {
-            let _ = self.cmd_tx.send(RenderPipeCommand::ApplyProfile {
-                epoch,
-                profile_name: profile_name.to_string(),
-                main_symbol: main_symbol.to_string(),
-                sub_symbol: sub_symbol.to_string(),
-            });
-        }
+        let _ = self.cmd_tx.send(RenderPipeCommand::ApplyProfile {
+            epoch,
+            profile_name: profile_name.to_string(),
+            main_symbol: main_symbol.to_string(),
+            sub_symbol: sub_symbol.to_string(),
+        });
+    }
+
+    pub fn send_init(
+        &self,
+        epoch: u32,
+        start_time_msc: i64,
+        end_time_msc: i64,
+        preload_date_msc: i64,
+        preloaded_bars: u32,
+        preload_mode: u32,
+        source_symbol: &str,
+        sub_symbol: &str,
+        profile_name: &str,
+    ) {
+        let cmd = RenderPipeCommand::Init {
+            epoch,
+            start_time_msc,
+            end_time_msc,
+            preload_date_msc,
+            preloaded_bars,
+            preload_mode,
+            source_symbol: source_symbol.to_string(),
+            sub_symbol: sub_symbol.to_string(),
+            profile_name: profile_name.to_string(),
+        };
+        *self.last_init.lock().unwrap() = Some(cmd.clone());
+        let _ = self.cmd_tx.send(cmd);
     }
 
     pub fn is_connected(&self) -> bool {
@@ -306,9 +413,13 @@ impl RenderPipeServer {
         let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::unbounded_channel::<RenderPipeCommand>();
         let connected = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let last_applied_idx = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let last_init = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let last_reset = std::sync::Arc::new(std::sync::Mutex::new(None));
 
         let connected_clone = connected.clone();
         let last_applied_clone = last_applied_idx.clone();
+        let last_init_clone = last_init.clone();
+        let last_reset_clone = last_reset.clone();
 
         let join_handle = tauri::async_runtime::spawn(async move {
             #[cfg(windows)]
@@ -388,8 +499,8 @@ impl RenderPipeServer {
                                         break;
                                     }
                                 }
-                                RenderPipeCommand::Reset { epoch, main_target_idx, main_preload_from, sub_target_idx, sub_preload_from } => {
-                                    let packet = RenderPacketCodec::encode_reset(epoch, main_target_idx, main_preload_from, sub_target_idx, sub_preload_from);
+                                RenderPipeCommand::Reset { epoch, main_target_idx, main_preload_from, sub_target_idx, sub_preload_from, virtual_time_msc } => {
+                                    let packet = RenderPacketCodec::encode_reset(epoch, main_target_idx, main_preload_from, sub_target_idx, sub_preload_from, virtual_time_msc);
                                     if let Err(e) = writer.write_all(&packet).await {
                                         eprintln!("[RenderPipe] RESET 送信エラー: {}", e);
                                         break;
@@ -402,9 +513,26 @@ impl RenderPipeServer {
                                         break;
                                     }
                                 }
+                                RenderPipeCommand::Init { epoch, start_time_msc, end_time_msc, preload_date_msc, preloaded_bars, preload_mode, source_symbol, sub_symbol, profile_name } => {
+                                    let packet = RenderPacketCodec::encode_init(epoch, start_time_msc, end_time_msc, preload_date_msc, preloaded_bars, preload_mode, &source_symbol, &sub_symbol, &profile_name);
+                                    if let Err(e) = writer.write_all(&packet).await {
+                                        eprintln!("[RenderPipe] INIT 送信エラー: {}", e);
+                                        break;
+                                    }
+                                }
                             }
                         }
                     });
+
+                    // MT5再接続時または後から起動時に、保存済み INIT / RESET を自動再送信して状態を同期
+                    if let Some(cmd) = last_init_clone.lock().unwrap().clone() {
+                        println!("[RenderPipe] 接続された MT5 EA へ保存済み INIT を即座に送信");
+                        let _ = tx_writer.send(cmd);
+                    }
+                    if let Some(cmd) = last_reset_clone.lock().unwrap().clone() {
+                        println!("[RenderPipe] 接続された MT5 EA へ保存済み RESET を即座に送信");
+                        let _ = tx_writer.send(cmd);
+                    }
 
                     // 3. Reader & コマンド配送ループ (EOF 切断検知を常時実行)
                     let mut read_buf = [0u8; 512];
@@ -497,6 +625,8 @@ impl RenderPipeServer {
             cmd_tx,
             connected,
             last_applied_idx,
+            last_init,
+            last_reset,
         };
 
         (handle, join_handle)
@@ -512,9 +642,10 @@ mod tests {
         assert_eq!(std::mem::size_of::<RenderHeader>(), 16);
         assert_eq!(std::mem::size_of::<HelloPayload>(), 72);
         assert_eq!(std::mem::size_of::<AdvancePayload>(), 24);
-        assert_eq!(std::mem::size_of::<ResetPayload>(), 32);
+        assert_eq!(std::mem::size_of::<ResetPayload>(), 48);
         assert_eq!(std::mem::size_of::<AckPayload>(), 24);
         assert_eq!(std::mem::size_of::<ApplyProfilePayload>(), 128);
+        assert_eq!(std::mem::size_of::<InitPayload>(), 192);
     }
 
     #[test]
@@ -532,6 +663,53 @@ mod tests {
         assert_eq!(adv.main_idx, 1000);
         assert_eq!(adv.sub_idx, 500);
         assert_eq!(adv.virtual_time_msc, 1720000000);
+    }
+
+    #[test]
+    fn test_encode_and_read_reset() {
+        let bytes = RenderPacketCodec::encode_reset(5, 2000, 1700, 0, 0, 1720005000);
+        let mut cursor = std::io::Cursor::new(bytes);
+        let (header, payload) = RenderPacketCodec::read_packet(&mut cursor).unwrap();
+
+        assert_eq!(header.magic, RENDER_MAGIC);
+        assert_eq!(header.msg_type, MSG_RESET);
+        assert_eq!(header.epoch, 5);
+        assert_eq!(payload.len(), std::mem::size_of::<ResetPayload>());
+
+        let rst: &ResetPayload = bytemuck::from_bytes(&payload);
+        assert_eq!(rst.main_target_idx, 2000);
+        assert_eq!(rst.main_preload_from, 1700);
+        assert_eq!(rst.virtual_time_msc, 1720005000);
+    }
+
+    #[test]
+    fn test_encode_and_read_init() {
+        let bytes = RenderPacketCodec::encode_init(
+            1,
+            1720000000,
+            1720050000,
+            0,
+            300,
+            0,
+            "USDJPY.cl",
+            "EURJPY",
+            "Default",
+        );
+        let mut cursor = std::io::Cursor::new(bytes);
+        let (header, payload) = RenderPacketCodec::read_packet(&mut cursor).unwrap();
+
+        assert_eq!(header.magic, RENDER_MAGIC);
+        assert_eq!(header.msg_type, MSG_INIT);
+        assert_eq!(header.epoch, 1);
+        assert_eq!(payload.len(), 192);
+
+        let init: &InitPayload = bytemuck::from_bytes(&payload);
+        assert_eq!(init.start_time_msc, 1720000000);
+        assert_eq!(init.end_time_msc, 1720050000);
+        assert_eq!(init.preloaded_bars, 300);
+        assert_eq!(String::from_utf8_lossy(&init.source_symbol).trim_matches('\0'), "USDJPY.cl");
+        assert_eq!(String::from_utf8_lossy(&init.sub_symbol).trim_matches('\0'), "EURJPY");
+        assert_eq!(String::from_utf8_lossy(&init.profile_name).trim_matches('\0'), "Default");
     }
 
     #[test]
