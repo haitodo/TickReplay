@@ -61,8 +61,6 @@ pub struct ReplayState {
     pub trade_revision: std::sync::atomic::AtomicU64,
     // シーク・リセットエポック番号（シーク操作等でインクリメント）
     pub seek_epoch: std::sync::atomic::AtomicU64,
-    // Feature Flag: Replay Core v2 (Rust 自律駆動モード、常に有効)
-    pub use_core_v2: std::sync::atomic::AtomicBool,
     // Replay Core v2 操作ハンドル
     pub core_handle: Mutex<Option<crate::core::ReplayCoreHandle>>,
     // Replay Core v2 バックグラウンドタスク JoinHandle
@@ -130,7 +128,6 @@ impl ReplayState {
             job_guard: crate::process_guard::ProcessJobGuard::new(),
             trade_revision: std::sync::atomic::AtomicU64::new(1),
             seek_epoch: std::sync::atomic::AtomicU64::new(1),
-            use_core_v2: std::sync::atomic::AtomicBool::new(true),
             core_handle: Mutex::new(None),
             core_join_handle: Mutex::new(None),
             render_pipe_handle: Mutex::new(None),

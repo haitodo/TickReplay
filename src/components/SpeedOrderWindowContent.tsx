@@ -128,7 +128,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
   });
 
   const [isAuditModalOpen, setIsAuditModalOpen] = useState<boolean>(false);
-  const [useCoreV2State, setUseCoreV2State] = useState<boolean>(false);
+  const [useCoreV2State, setUseCoreV2State] = useState<boolean>(true);
   const [latencyModelType, setLatencyModelType] = useState<"fixed" | "realistic" | "none">(() => {
     return (localStorage.getItem("speed-order-latency-model") as "fixed" | "realistic" | "none") || "realistic";
   });
