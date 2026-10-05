@@ -10,11 +10,9 @@ import { getContractSizeLabel } from "../domain/contractUtils";
 import { VirtualAccount, VirtualPosition } from "../types/trading";
 import { ReplayProgressPayload } from "../types/replay";
 import { PersistedSettings } from "../types/settings";
-import { ExecutionAuditModal } from "./Modals/ExecutionAuditModal";
 import {
   ReplayCommand,
   sendReplayCommand,
-  isUseCoreV2,
   setExecutionModels,
   getExecutionAuditLog,
 } from "../utils/command";
@@ -127,8 +125,10 @@ export const SpeedOrderWindowContent: React.FC = () => {
     return 30;
   });
 
-  const [isAuditModalOpen, setIsAuditModalOpen] = useState<boolean>(false);
-  const [useCoreV2State, setUseCoreV2State] = useState<boolean>(true);
+  const [showAuditToast, setShowAuditToast] = useState<boolean>(() => {
+    const saved = localStorage.getItem("speed-order-show-audit-toast");
+    return saved !== null ? saved === "true" : true;
+  });
   const [latencyModelType, setLatencyModelType] = useState<"fixed" | "realistic" | "none">(() => {
     return (localStorage.getItem("speed-order-latency-model") as "fixed" | "realistic" | "none") || "realistic";
   });
@@ -136,12 +136,6 @@ export const SpeedOrderWindowContent: React.FC = () => {
     return (localStorage.getItem("speed-order-slippage-model") as "realistic" | "none") || "realistic";
   });
   const [recentAuditNotification, setRecentAuditNotification] = useState<ExecutionAuditRecord | null>(null);
-
-  useEffect(() => {
-    isUseCoreV2()
-      .then((enabled) => setUseCoreV2State(enabled))
-      .catch((e) => console.error("Failed to check use_core_v2", e));
-  }, []);
 
   const updateExecutionModels = useCallback(
     async (latType: "fixed" | "realistic" | "none", slipType: "realistic" | "none", fixedMs: number) => {
@@ -750,10 +744,14 @@ export const SpeedOrderWindowContent: React.FC = () => {
       sl_points: slEnabled ? slPoints : 0,
       tp_points: tpEnabled ? tpPoints : 0
     });
-    // Core v2 約定ログを直後にチェックして通知トーストを表示
+    // Core v2 約定ログを直後および遅延後にチェックして通知トーストを表示
     setTimeout(() => {
       checkLatestAuditLog();
-    }, 60);
+    }, 80);
+    const delayCheck = Math.max(150, (orderLatencyMs || 30) + 100);
+    setTimeout(() => {
+      checkLatestAuditLog();
+    }, delayCheck);
   };
 
   const handleCloseAll = () => sendCommand({ command: "ORDER_CLOSE_ALL" });
@@ -998,34 +996,6 @@ export const SpeedOrderWindowContent: React.FC = () => {
             <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>account_balance_wallet</span>
           </button>
 
-          {/* 約定監査ログボタン */}
-          <button
-            className="speed-audit-btn"
-            onClick={() => setIsAuditModalOpen(true)}
-            title="約定監査ログ (Core v2 決定論的約定 & 遅延・スリップ詳細)"
-            style={{
-              background: "transparent",
-              border: "none",
-              color: useCoreV2State ? "var(--primary, #3b82f6)" : "var(--on-surface-variant)",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "4px",
-              borderRadius: "50%",
-              transition: "var(--transition-fast)",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = "var(--primary, #3b82f6)";
-              e.currentTarget.style.backgroundColor = "rgba(59,130,246,0.1)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = useCoreV2State ? "var(--primary, #3b82f6)" : "var(--on-surface-variant)";
-              e.currentTarget.style.backgroundColor = "transparent";
-            }}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>verified_user</span>
-          </button>
 
           {/* 設定ボタン */}
           <button
@@ -1068,10 +1038,12 @@ export const SpeedOrderWindowContent: React.FC = () => {
       </div>
 
       {/* 最新約定トースト通知 (Core v2 約定フィードバック) */}
-      {recentAuditNotification && (
+      {recentAuditNotification && showAuditToast && (
         <div
           className="audit-toast-banner"
-          onClick={() => setIsAuditModalOpen(true)}
+          onClick={() => {
+            invoke("open_tracely_app").catch(console.error);
+          }}
           style={{
             position: "absolute",
             top: "50px",
@@ -1092,7 +1064,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
             borderRadius: "4px",
             cursor: "pointer",
           }}
-          title="クリックして約定監査ログを開く"
+          title="クリックしてトレード分析 (Tracely) を開く"
         >
           <span className="material-symbols-outlined" style={{ fontSize: "16px", color: "var(--primary)" }}>
             check_circle
@@ -1708,18 +1680,40 @@ export const SpeedOrderWindowContent: React.FC = () => {
                 </div>
               </div>
 
-              {/* 約定監査ログボタン */}
+              {/* 約定通知トースト表示切り替え */}
               <div className="speed-settings-row">
                 <div className="speed-settings-label">
-                  <span className="label-text">約定監査ログ (Audit Log)</span>
-                  <span className="label-desc">過去の全注文の遅延・約定価格・すべりを検証</span>
+                  <span className="label-text">約定通知トースト</span>
+                  <span className="label-desc">発注直後に遅延・スリップのサマリーを通知</span>
+                </div>
+                <div className="speed-settings-control">
+                  <label className="speed-switch">
+                    <input
+                      type="checkbox"
+                      checked={showAuditToast}
+                      onChange={(e) => {
+                        const val = e.target.checked;
+                        setShowAuditToast(val);
+                        localStorage.setItem("speed-order-show-audit-toast", String(val));
+                      }}
+                    />
+                    <span className="speed-slider"></span>
+                  </label>
+                </div>
+              </div>
+
+              {/* トレード分析・約定監査 (Tracely) 起動ボタン */}
+              <div className="speed-settings-row">
+                <div className="speed-settings-label">
+                  <span className="label-text">トレード分析 (Tracely)</span>
+                  <span className="label-desc">詳細な約定監査ログ・執行品質・統計分析</span>
                 </div>
                 <div className="speed-settings-control">
                   <button
                     type="button"
                     onClick={() => {
                       setIsSettingsOpen(false);
-                      setIsAuditModalOpen(true);
+                      invoke("open_tracely_app").catch(console.error);
                     }}
                     style={{
                       width: "100%",
@@ -1738,9 +1732,9 @@ export const SpeedOrderWindowContent: React.FC = () => {
                     }}
                   >
                     <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>
-                      receipt_long
+                      analytics
                     </span>
-                    監査ログを表示
+                    Tracely を起動
                   </button>
                 </div>
               </div>
@@ -1956,11 +1950,6 @@ export const SpeedOrderWindowContent: React.FC = () => {
           </div>
         </div>
       )}
-      {/* 約定監査ログモーダル */}
-      <ExecutionAuditModal
-        isOpen={isAuditModalOpen}
-        onClose={() => setIsAuditModalOpen(false)}
-      />
     </div>
   );
 };

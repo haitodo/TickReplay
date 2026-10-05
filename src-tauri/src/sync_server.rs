@@ -114,6 +114,9 @@ async fn handle_connection(
             val["history_revision"] = serde_json::json!(eng_rev);
         }
 
+        let audits = state.core_handle.lock().unwrap().as_ref().map(|c| c.status().latest_audits).unwrap_or_default();
+        val["execution_audits"] = serde_json::to_value(&audits).unwrap_or_default();
+
         Some(val.to_string())
     };
     if let Some(status) = initial_status {
@@ -169,6 +172,8 @@ async fn handle_connection(
                             if let Some(p) = pos { resp["positions"] = p; }
                             resp["trade_revision"] = serde_json::json!(rev);
                             resp["history_revision"] = serde_json::json!(rev);
+                            let audits = state.core_handle.lock().unwrap().as_ref().map(|c| c.status().latest_audits).unwrap_or_default();
+                            resp["execution_audits"] = serde_json::to_value(&audits).unwrap_or_default();
                             let _ = write.send(Message::Text(resp.to_string().into())).await;
                         }
                         // Drenhis 等からのコマンド（SEEK, SEEK_TIME, CONTROL, etc.）を Replay Core v2 に直接ディスパッチ

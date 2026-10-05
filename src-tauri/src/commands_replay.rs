@@ -37,6 +37,9 @@ pub fn emit_trading_status_update(
         obj.insert("trade_revision".to_string(), serde_json::json!(engine.revision));
         obj.insert("history_revision".to_string(), serde_json::json!(engine.revision));
         *state.last_history.lock().unwrap() = Some(hist_val);
+
+        let audits = state.core_handle.lock().unwrap().as_ref().map(|c| c.status().latest_audits).unwrap_or_default();
+        obj.insert("execution_audits".to_string(), serde_json::to_value(&audits).unwrap_or_default());
     }
 
     if let Ok(json_str) = serde_json::to_string(&val) {
@@ -338,6 +341,7 @@ pub async fn send_command(
                     let volume = val.get("volume").and_then(|v| v.as_f64()).unwrap_or(1.0);
                     let sl_points = val.get("sl_points").and_then(|v| v.as_f64()).unwrap_or(0.0);
                     let tp_points = val.get("tp_points").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let comment = val.get("comment").and_then(|c| c.as_str()).map(|s| s.to_string());
                     let v_time = *state.current_virtual_time_msc.lock().unwrap();
                     let is_playing = state.playback.lock().unwrap().is_playing;
 
@@ -356,6 +360,17 @@ pub async fn send_command(
                             drop(engine);
                             drop(feed_guard);
                             emit_trading_status_update(&app_handle, &state);
+
+                            // Replay Core v2 (決定論的約定 & 約定監査ログ) へも注文を連携
+                            let core_opt = state.core_handle.lock().unwrap().clone();
+                            if let Some(core) = core_opt {
+                                let side = if type_str == "BUY" {
+                                    crate::core::types::OrderSide::Buy
+                                } else {
+                                    crate::core::types::OrderSide::Sell
+                                };
+                                core.submit_order(sym, side, volume, sl_points, tp_points, comment);
+                            }
                         }
                     }
                     return Ok(());
@@ -392,6 +407,12 @@ pub async fn send_command(
                                 emit_trading_status_update(&app_handle, &state);
                             }
                         }
+
+                        let core_opt = state.core_handle.lock().unwrap().clone();
+                        if let Some(core) = core_opt {
+                            let vol_opt = if volume > 0.0 { Some(volume) } else { None };
+                            core.close_position(ticket, vol_opt, Some("MANUAL".to_string()));
+                        }
                     }
                     return Ok(());
                 }
@@ -424,6 +445,11 @@ pub async fn send_command(
                                 emit_trading_status_update(&app_handle, &state);
                             }
                         }
+
+                        let core_opt = state.core_handle.lock().unwrap().clone();
+                        if let Some(core) = core_opt {
+                            core.close_all_positions(Some("MANUAL".to_string()));
+                        }
                     }
                     return Ok(());
                 }
@@ -434,13 +460,13 @@ pub async fn send_command(
                     if let Some(ref mut feed) = *feed_guard {
                         let mut engine = state.trading_engine.lock().unwrap();
                         let latency = engine.latency_ms;
+                        let buy_tickets: Vec<(i32, f64)> = engine.positions.iter().filter(|p| p.r#type == "BUY").map(|p| (p.ticket, p.volume)).collect();
                         if is_playing && latency > 0 {
-                            let to_close: Vec<(i32, f64)> = engine.positions.iter().filter(|p| p.r#type == "BUY").map(|p| (p.ticket, p.volume)).collect();
-                            for (t, v) in to_close {
+                            for (t, v) in &buy_tickets {
                                 engine.pending_closes.push(crate::virtual_trading::PendingClose {
                                     execute_after_msc: v_time + latency,
-                                    ticket: t,
-                                    volume: v,
+                                    ticket: *t,
+                                    volume: *v,
                                     reason: "MANUAL".to_string(),
                                 });
                             }
@@ -456,6 +482,13 @@ pub async fn send_command(
                                 emit_trading_status_update(&app_handle, &state);
                             }
                         }
+
+                        let core_opt = state.core_handle.lock().unwrap().clone();
+                        if let Some(core) = core_opt {
+                            for (t, v) in buy_tickets {
+                                core.close_position(t, Some(v), Some("MANUAL".to_string()));
+                            }
+                        }
                     }
                     return Ok(());
                 }
@@ -466,13 +499,13 @@ pub async fn send_command(
                     if let Some(ref mut feed) = *feed_guard {
                         let mut engine = state.trading_engine.lock().unwrap();
                         let latency = engine.latency_ms;
+                        let sell_tickets: Vec<(i32, f64)> = engine.positions.iter().filter(|p| p.r#type == "SELL").map(|p| (p.ticket, p.volume)).collect();
                         if is_playing && latency > 0 {
-                            let to_close: Vec<(i32, f64)> = engine.positions.iter().filter(|p| p.r#type == "SELL").map(|p| (p.ticket, p.volume)).collect();
-                            for (t, v) in to_close {
+                            for (t, v) in &sell_tickets {
                                 engine.pending_closes.push(crate::virtual_trading::PendingClose {
                                     execute_after_msc: v_time + latency,
-                                    ticket: t,
-                                    volume: v,
+                                    ticket: *t,
+                                    volume: *v,
                                     reason: "MANUAL".to_string(),
                                 });
                             }
@@ -488,6 +521,13 @@ pub async fn send_command(
                                 emit_trading_status_update(&app_handle, &state);
                             }
                         }
+
+                        let core_opt = state.core_handle.lock().unwrap().clone();
+                        if let Some(core) = core_opt {
+                            for (t, v) in sell_tickets {
+                                core.close_position(t, Some(v), Some("MANUAL".to_string()));
+                            }
+                        }
                     }
                     return Ok(());
                 }
@@ -499,6 +539,11 @@ pub async fn send_command(
                     engine.modify_order(ticket, sl, tp);
                     drop(engine);
                     emit_trading_status_update(&app_handle, &state);
+
+                    let core_opt = state.core_handle.lock().unwrap().clone();
+                    if let Some(core) = core_opt {
+                        core.modify_position(ticket, sl, tp);
+                    }
                     return Ok(());
                 }
                 "SET_CONTRACT_SIZE" => {
@@ -685,6 +730,7 @@ pub async fn send_command(
                                 "account": account_val,
                                 "positions": positions_val,
                                 "history": history_val.clone(),
+                                "execution_audits": serde_json::to_value(&snap.latest_audits).unwrap_or_default(),
                             });
                             if let Some(ref quote) = quote_opt {
                                 if let Some(obj) = status_val.as_object_mut() {
