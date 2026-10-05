@@ -169,6 +169,9 @@ export const SpeedOrderWindowContent: React.FC = () => {
   }, [latencyModelType, slippageModelType, orderLatencyMs, updateExecutionModels]);
 
   const checkLatestAuditLog = useCallback(async () => {
+    const isToastEnabled = localStorage.getItem("speed-order-show-audit-toast") !== "false";
+    if (!isToastEnabled) return;
+
     try {
       const records = await getExecutionAuditLog();
       if (records.length > 0) {
@@ -266,6 +269,10 @@ export const SpeedOrderWindowContent: React.FC = () => {
     localStorage.setItem("speed-order-quick-lots", JSON.stringify(quickLots));
   }, [quickLots]);
 
+  useEffect(() => {
+    localStorage.setItem("speed-order-show-audit-toast", String(showAuditToast));
+  }, [showAuditToast]);
+
   const sortedQuickLots = useMemo(() => {
     const valid = quickLots.filter(v => v > 0).sort((a, b) => a - b);
     return valid.length > 0 ? valid : [1];
@@ -335,6 +342,12 @@ export const SpeedOrderWindowContent: React.FC = () => {
       } else if (e.key === "replay-timezone-mode" && e.newValue) {
         if (e.newValue === "JST" || e.newValue === "SERVER") {
           setTimezoneMode(e.newValue);
+        }
+      } else if (e.key === "speed-order-show-audit-toast" && e.newValue) {
+        const isEnabled = e.newValue !== "false";
+        setShowAuditToast(isEnabled);
+        if (!isEnabled) {
+          setRecentAuditNotification(null);
         }
       }
     };
@@ -1078,14 +1091,46 @@ export const SpeedOrderWindowContent: React.FC = () => {
           <button
             onClick={(e) => {
               e.stopPropagation();
+              setShowAuditToast(false);
+              localStorage.setItem("speed-order-show-audit-toast", "false");
+              window.dispatchEvent(new StorageEvent("storage", {
+                key: "speed-order-show-audit-toast",
+                newValue: "false"
+              }));
               setRecentAuditNotification(null);
             }}
+            title="約定通知トーストをオフにする（設定からいつでも再有効化可能）"
+            style={{
+              background: "transparent",
+              border: "1px solid rgba(255,255,255,0.2)",
+              borderRadius: "3px",
+              color: "var(--on-surface-variant)",
+              cursor: "pointer",
+              padding: "1px 5px",
+              fontSize: "10px",
+              display: "flex",
+              alignItems: "center",
+              gap: "2px",
+              whiteSpace: "nowrap"
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: "12px" }}>notifications_off</span>
+            <span>オフ</span>
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setRecentAuditNotification(null);
+            }}
+            title="通知を閉じる"
             style={{
               background: "transparent",
               border: "none",
               color: "var(--on-surface-variant)",
               cursor: "pointer",
               padding: "0 2px",
+              fontSize: "14px",
+              lineHeight: 1
             }}
           >
             &times;
@@ -1681,23 +1726,46 @@ export const SpeedOrderWindowContent: React.FC = () => {
               </div>
 
               {/* 約定通知トースト表示切り替え */}
-              <div className="speed-settings-row">
+              <div
+                className="speed-settings-row"
+                style={{ cursor: "pointer" }}
+                onClick={() => {
+                  const nextVal = !showAuditToast;
+                  setShowAuditToast(nextVal);
+                  localStorage.setItem("speed-order-show-audit-toast", String(nextVal));
+                  window.dispatchEvent(new StorageEvent("storage", {
+                    key: "speed-order-show-audit-toast",
+                    newValue: String(nextVal)
+                  }));
+                  if (!nextVal) {
+                    setRecentAuditNotification(null);
+                  }
+                }}
+              >
                 <div className="speed-settings-label">
                   <span className="label-text">約定通知トースト</span>
                   <span className="label-desc">発注直後に遅延・スリップのサマリーを通知</span>
                 </div>
-                <div className="speed-settings-control">
-                  <label className="speed-switch">
+                <div className="speed-settings-control" onClick={(e) => e.stopPropagation()}>
+                  <label className="speed-switch" htmlFor="speed-order-toast-toggle">
                     <input
+                      id="speed-order-toast-toggle"
                       type="checkbox"
                       checked={showAuditToast}
                       onChange={(e) => {
                         const val = e.target.checked;
                         setShowAuditToast(val);
                         localStorage.setItem("speed-order-show-audit-toast", String(val));
+                        window.dispatchEvent(new StorageEvent("storage", {
+                          key: "speed-order-show-audit-toast",
+                          newValue: String(val)
+                        }));
+                        if (!val) {
+                          setRecentAuditNotification(null);
+                        }
                       }}
                     />
-                    <span className="speed-slider"></span>
+                    <span className="speed-switch-slider"></span>
                   </label>
                 </div>
               </div>
