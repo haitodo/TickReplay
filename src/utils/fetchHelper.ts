@@ -1,3 +1,5 @@
+import { getErrorMessage } from "./getErrorMessage";
+
 /**
  * CORS制限のある外部API（例: FRED API, GDELT API）向けに、直接通信失敗時にCORSプロキシ経由で自動フォールバックするfetch関数
  */
@@ -15,13 +17,13 @@ export async function fetchWithCorsFallback(
       signal: controller.signal
     });
     return response;
-  } catch (directError: any) {
+  } catch (directError: unknown) {
     clearTimeout(timeoutId);
 
     const isAbort =
-      directError.name === "AbortError" ||
-      directError.name === "TimeoutError" ||
-      String(directError?.message).includes("aborted");
+      (directError instanceof Error &&
+        (directError.name === "AbortError" || directError.name === "TimeoutError")) ||
+      getErrorMessage(directError).includes("aborted");
 
     if (isAbort) {
       throw directError;
@@ -41,11 +43,11 @@ export async function fetchWithCorsFallback(
           signal: proxyController.signal
         });
         return proxyResponse;
-      } catch (proxyError: any) {
+      } catch (proxyError: unknown) {
         if (
-          proxyError.name === "AbortError" ||
-          proxyError.name === "TimeoutError" ||
-          String(proxyError?.message).includes("aborted")
+          (proxyError instanceof Error &&
+            (proxyError.name === "AbortError" || proxyError.name === "TimeoutError")) ||
+          getErrorMessage(proxyError).includes("aborted")
         ) {
           throw proxyError;
         }

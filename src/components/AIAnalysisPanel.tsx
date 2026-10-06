@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { STORAGE_KEYS } from "../constants/storageKeys";
 import { useDataSources } from "../hooks/useDataSources";
+import { getErrorMessage } from "../utils/getErrorMessage";
 import {
   formatJstTime,
   formatServerTime,
@@ -199,9 +200,9 @@ ${contextData.summaryText}`;
           }
         }
       }
-    } catch (e: any) {
-      if (e.name !== "AbortError") {
-        setErrorMessage(e.message || "AI解析中にエラーが発生しました。");
+    } catch (e: unknown) {
+      if (!(e instanceof Error && e.name === "AbortError")) {
+        setErrorMessage(getErrorMessage(e) || "AI解析中にエラーが発生しました。");
       }
     } finally {
       setIsAnalyzing(false);

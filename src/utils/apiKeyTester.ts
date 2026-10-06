@@ -1,4 +1,5 @@
 import { fetchWithCorsFallback } from "./fetchHelper";
+import { getErrorMessage } from "./getErrorMessage";
 
 export interface ApiTestResult {
   success: boolean;
@@ -110,9 +111,10 @@ export async function testOpenRouterKey(apiKey: string, model: string): Promise<
       message: `エラー (${response.status}): ${rawMsg || "接続リクエスト失敗"}`,
       latency
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     const latency = Math.round(performance.now() - startTime);
-    if (error.name === "AbortError") {
+    const errorMessage = getErrorMessage(error);
+    if (error instanceof Error && error.name === "AbortError") {
       return {
         success: false,
         status: "error",
@@ -123,7 +125,7 @@ export async function testOpenRouterKey(apiKey: string, model: string): Promise<
     return {
       success: false,
       status: "error",
-      message: `通信エラー: ${error.message || "ネットワーク接続に失敗しました"}`,
+      message: `通信エラー: ${errorMessage || "ネットワーク接続に失敗しました"}`,
       latency
     };
   }
@@ -178,9 +180,10 @@ export async function testFredKey(apiKey: string): Promise<ApiTestResult> {
       message: `認証エラー (${response.status}): ${errData?.error_message || "FRED API Keyが無効です。"}`,
       latency
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     const latency = Math.round(performance.now() - startTime);
-    if (error.name === "AbortError") {
+    const errorMessage = getErrorMessage(error);
+    if (error instanceof Error && error.name === "AbortError") {
       return {
         success: false,
         status: "error",
@@ -191,7 +194,7 @@ export async function testFredKey(apiKey: string): Promise<ApiTestResult> {
     return {
       success: false,
       status: "error",
-      message: `通信エラー: ${error.message || "FRED APIへの接続に失敗しました"}`,
+      message: `通信エラー: ${errorMessage || "FRED APIへの接続に失敗しました"}`,
       latency
     };
   }
@@ -250,9 +253,10 @@ export async function testFinnhubKey(apiKey: string): Promise<ApiTestResult> {
       message: `エラー (${response.status}): Finnhub APIキーを確認してください。`,
       latency
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     const latency = Math.round(performance.now() - startTime);
-    if (error.name === "AbortError") {
+    const errorMessage = getErrorMessage(error);
+    if (error instanceof Error && error.name === "AbortError") {
       return {
         success: false,
         status: "error",
@@ -263,7 +267,7 @@ export async function testFinnhubKey(apiKey: string): Promise<ApiTestResult> {
     return {
       success: false,
       status: "error",
-      message: `通信エラー: ${error.message || "Finnhub APIへの接続に失敗しました"}`,
+      message: `通信エラー: ${errorMessage || "Finnhub APIへの接続に失敗しました"}`,
       latency
     };
   }
@@ -321,13 +325,14 @@ export async function testGdeltApi(): Promise<ApiTestResult> {
       message: `通信エラー (${response.status}): GDELT APIへの接続に失敗しました。`,
       latency
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     const latency = Math.round(performance.now() - startTime);
+    const errorMessage = getErrorMessage(error);
     if (
-      error.name === "AbortError" ||
-      error.name === "TimeoutError" ||
-      String(error?.message).includes("aborted") ||
-      String(error?.message).includes("timeout")
+      (error instanceof Error && error.name === "AbortError") ||
+      (error instanceof Error && error.name === "TimeoutError") ||
+      errorMessage.includes("aborted") ||
+      errorMessage.includes("timeout")
     ) {
       return {
         success: false,
@@ -339,7 +344,7 @@ export async function testGdeltApi(): Promise<ApiTestResult> {
     return {
       success: false,
       status: "error",
-      message: `通信エラー: ${error.message || "GDELT APIへの接続に失敗しました"}`,
+      message: `通信エラー: ${errorMessage || "GDELT APIへの接続に失敗しました"}`,
       latency
     };
   }

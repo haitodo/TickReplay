@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { COMMANDS } from "../constants/commands";
 import { invoke } from "@tauri-apps/api/core";
+import { getErrorMessage } from "../utils/getErrorMessage";
 import { getMonthRange } from "../utils/dateUtils";
 import {
   type ScannedZipFile,
@@ -131,7 +132,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
         updateRootDir(selected);
         handleScanWithDir(selected);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Failed to open folder picker:", err);
     }
   };
@@ -203,8 +204,8 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
       if (groups.length === 0) {
         setErrorMessage("指定されたフォルダ内に ZIP データが見つかりませんでした。");
       }
-    } catch (e: any) {
-      setErrorMessage("フォルダ走査中にエラーが発生しました: " + (e?.message || e));
+    } catch (e: unknown) {
+      setErrorMessage("フォルダ走査中にエラーが発生しました: " + (getErrorMessage(e) || String(e)));
     } finally {
       setIsScanning(false);
     }
@@ -400,8 +401,8 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
             files: grp.files.map(f => f.file_path === item.filePath ? { ...f, already_imported: true } : f)
           };
         }));
-      } catch (err: any) {
-        setLogs(prev => [...prev, `❌ [失敗] ${label}: ${err?.message || err}`]);
+      } catch (err: unknown) {
+        setLogs(prev => [...prev, `❌ [失敗] ${label}: ${getErrorMessage(err) || String(err)}`]);
       }
     }
 
