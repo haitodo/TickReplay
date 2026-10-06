@@ -1,6 +1,6 @@
 import React from "react";
 
-export interface DeleteSessionModalProps {
+interface DeleteSessionModalProps {
   isOpen: boolean;
   message?: string;
   onConfirm: () => void;

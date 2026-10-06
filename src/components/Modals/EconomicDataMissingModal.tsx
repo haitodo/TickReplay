@@ -3,7 +3,7 @@ import { COMMANDS } from "../../constants/commands";
 import { invoke } from "@tauri-apps/api/core";
 import { formatYearMonthJapanese } from "../../utils/economicDataUtils";
 
-export interface EconomicDataMissingModalProps {
+interface EconomicDataMissingModalProps {
   isOpen: boolean;
   onClose: () => void;
   onProceed: () => void;

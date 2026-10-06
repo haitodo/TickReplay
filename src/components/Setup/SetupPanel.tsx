@@ -24,7 +24,7 @@ import {
   alignDateRangeToYear
 } from "../../utils/dateUtils";
 
-export interface SetupPanelProps {
+interface SetupPanelProps {
   status: "DISCONNECTED" | "CONNECTED" | "READY" | "ACTIVE";
   setupTab: "replay" | "trading" | "resume";
   setSetupTab: (tab: "replay" | "trading" | "resume") => void;

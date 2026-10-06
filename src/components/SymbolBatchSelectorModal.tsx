@@ -16,7 +16,7 @@ import {
 } from "../utils/symbolUtils";
 import { getMonthRange, getYearRange, parseDateTimeStr } from "../utils/dateUtils";
 
-export interface SymbolBatchSelectorModalProps {
+interface SymbolBatchSelectorModalProps {
   isOpen: boolean;
   onClose: () => void;
   availableSymbols: (SymbolItem | string)[];

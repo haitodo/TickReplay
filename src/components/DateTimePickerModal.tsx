@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { parseDateTimeStr, formatDateTimeStr } from "../utils/dateUtils";
 
-export interface DateTimePickerModalProps {
+interface DateTimePickerModalProps {
   fieldLabel: string;
   value: string;
   onChange: (val: string) => void;

@@ -2,7 +2,7 @@ import React from "react";
 import { TimeStepItem } from "../../App";
 import { formatJstTime, formatServerTime, getNewsTimeForDisplay } from "../../utils/timeUtils";
 
-export interface ControlDashboardProps {
+interface ControlDashboardProps {
   speedMode: "TEMPORAL" | "COUNT";
   multiplier: number;
   tickStep: number;

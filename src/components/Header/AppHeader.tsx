@@ -6,7 +6,7 @@ import { THEME_LIST, ThemeType } from "../../constants/themePresets";
 import { SessionBoundaryInfo } from "../../domain/sessionBoundaries";
 import { getCachedEconomicAvailabilityMap, isEconomicSpreadActive } from "../../utils/economicDataUtils";
 
-export interface AppHeaderProps {
+interface AppHeaderProps {
   status: "DISCONNECTED" | "CONNECTED" | "READY" | "ACTIVE";
   virtualTimeMsc: number;
   timezoneMode: "JST" | "SERVER";

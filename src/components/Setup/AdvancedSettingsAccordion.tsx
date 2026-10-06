@@ -6,7 +6,7 @@ import { TerminalInfo } from "../../types/terminal";
 import { MaxBarsInfo } from "../../utils/hotkeyUtils";
 import { getNewsTimeForDisplay } from "../../utils/timeUtils";
 
-export interface AdvancedSettingsAccordionProps {
+interface AdvancedSettingsAccordionProps {
   terminals: TerminalInfo[];
   selectedTerminal: string;
   setSelectedTerminal: (val: string) => void;

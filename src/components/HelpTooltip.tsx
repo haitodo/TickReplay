@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 
-export interface HelpTooltipProps {
+interface HelpTooltipProps {
   title?: string;
   content: React.ReactNode;
   tip?: string;

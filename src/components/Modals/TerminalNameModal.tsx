@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { TerminalInfo } from "../../types/terminal";
 
-export interface TerminalNameModalProps {
+interface TerminalNameModalProps {
   isOpen: boolean;
   terminal: TerminalInfo | null;
   onSave: (terminalPath: string, customName: string) => Promise<void> | void;

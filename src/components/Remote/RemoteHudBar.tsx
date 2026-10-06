@@ -3,7 +3,7 @@ import { COMMANDS } from "../../constants/commands";
 import { invoke } from "@tauri-apps/api/core";
 import { formatJstTime, formatServerTime, getNewsTimeForDisplay } from "../../utils/timeUtils";
 
-export interface RemoteHudBarProps {
+interface RemoteHudBarProps {
   handleDragStart: (e: React.MouseEvent) => void;
   timezoneMode: "JST" | "SERVER";
   virtualTimeMsc: number;

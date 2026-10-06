@@ -6,7 +6,7 @@ import { DEFAULT_HOTKEYS, HOTKEY_METADATA, formatShortcutForDisplay } from "../.
 import { THEME_LIST, ThemeType } from "../../constants/themePresets";
 import { ApiTestResult } from "../../utils/apiKeyTester";
 
-export interface SettingsModalProps {
+interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   activeTab: "general" | "hotkeys" | "theme" | "ai";
