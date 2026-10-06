@@ -38,10 +38,10 @@ export default tseslint.config(
 
       "@typescript-eslint/no-explicit-any": "warn", // 既存16件
       "@typescript-eslint/no-unused-vars": "warn", // 既存13件
-      "no-empty": "warn", // 既存4件 (空の catch など)
-      "prefer-const": "warn", // 既存4件
-      "no-useless-assignment": "warn", // 既存1件
-      "@typescript-eslint/no-empty-object-type": "warn", // 既存1件
+      "no-empty": "error",
+      "prefer-const": "error",
+      "no-useless-assignment": "error",
+      "@typescript-eslint/no-empty-object-type": "error",
     },
   },
 

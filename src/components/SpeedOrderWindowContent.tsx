@@ -534,7 +534,9 @@ export const SpeedOrderWindowContent: React.FC = () => {
             setErrorMessage(translateErrorMessage(parsed.message || ""));
             return;
           }
-        } catch (_) {}
+        } catch (_) {
+          // Ignore malformed status payloads and continue the regular status update.
+        }
       }
       scheduleStatus(event.payload);
     });

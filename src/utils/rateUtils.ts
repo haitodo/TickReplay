@@ -9,7 +9,7 @@ export function formatRate(price: number | undefined | null, symbolOrIsJpy?: str
   if (price === undefined || price === null || isNaN(price) || price <= 0) {
     return "-";
   }
-  let isJpy = false;
+  let isJpy: boolean;
   if (typeof symbolOrIsJpy === "boolean") {
     isJpy = symbolOrIsJpy;
   } else if (typeof symbolOrIsJpy === "string") {

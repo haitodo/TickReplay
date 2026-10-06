@@ -1054,7 +1054,9 @@ function MainWindow() {
       // 2. まだ接続が検知されていない場合、PING 送信を試行
       try {
         await sendCommand({ command: "PING" });
-      } catch (_) {}
+      } catch (_) {
+        // The PING is best-effort; the status check below determines connectivity.
+      }
 
       const recheck = await invoke<string>(COMMANDS.getLastStatus);
       if (recheck && recheck.trim() !== "") {
@@ -1085,7 +1087,9 @@ function MainWindow() {
             handleStatusStringRef.current(lastStatus);
           }
         }
-      } catch (_) {}
+      } catch (_) {
+        // A failed poll is transient; the next interval retries.
+      }
     }, 500);
 
     return () => clearInterval(intervalId);
@@ -2405,7 +2409,7 @@ function MainWindow() {
           return Math.abs(curr - multiplier) < Math.abs(presets[closestIdx] - multiplier) ? currIdx : closestIdx;
         }, 0);
       }
-      let nextIdx = increment ? Math.min(presets.length - 1, idx + 1) : Math.max(0, idx - 1);
+      const nextIdx = increment ? Math.min(presets.length - 1, idx + 1) : Math.max(0, idx - 1);
       updateSpeed("TEMPORAL", presets[nextIdx], tickStep);
     } else {
       const presets = [...tickPresets].sort((a, b) => a - b);
@@ -2416,7 +2420,7 @@ function MainWindow() {
           return Math.abs(curr - tickStep) < Math.abs(presets[closestIdx] - tickStep) ? currIdx : closestIdx;
         }, 0);
       }
-      let nextIdx = increment ? Math.min(presets.length - 1, idx + 1) : Math.max(0, idx - 1);
+      const nextIdx = increment ? Math.min(presets.length - 1, idx + 1) : Math.max(0, idx - 1);
       updateSpeed("COUNT", multiplier, presets[nextIdx]);
     }
   };

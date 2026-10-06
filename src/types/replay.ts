@@ -111,7 +111,7 @@ export interface ReplayLoopPayload {
   b_idx?: number;
 }
 
-export interface ReplayStatusPayload extends ReplayProgressPayload {}
+export type ReplayStatusPayload = ReplayProgressPayload;
 
 export interface ExecutionAuditRecord {
   ticket: number;

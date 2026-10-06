@@ -423,8 +423,8 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
   const handleApplyToReplay = () => {
     if (!onApplyToReplay || lastImportedSymbols.length === 0) return;
 
-    let primary = lastImportedSymbols.find(s => s.toUpperCase().includes("USDJPY")) || lastImportedSymbols[0];
-    let syncList = lastImportedSymbols.filter(s => s !== primary);
+    const primary = lastImportedSymbols.find(s => s.toUpperCase().includes("USDJPY")) || lastImportedSymbols[0];
+    const syncList = lastImportedSymbols.filter(s => s !== primary);
 
     const matchYear = primary.match(/_(\d{4})$/);
     let dateRange: { start: string; end: string } | undefined = undefined;
