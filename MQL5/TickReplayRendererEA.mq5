@@ -821,13 +821,6 @@ void RedrawAllViewerCharts(bool force = false)
         {
             if(force)
             {
-                // 時間枠/シンボルの同期リフレッシュ（同一設定の再適用でヒストリキャッシュ強制更新）
-                string cur_sym = ChartSymbol(m_viewer_chart_ids[i]);
-                ENUM_TIMEFRAMES cur_period = ChartPeriod(m_viewer_chart_ids[i]);
-                if(cur_sym != "")
-                {
-                    ChartSetSymbolPeriod(m_viewer_chart_ids[i], cur_sym, cur_period);
-                }
                 ChartSetInteger(m_viewer_chart_ids[i], CHART_AUTOSCROLL, true);
                 ChartNavigate(m_viewer_chart_ids[i], CHART_END, 0);
             }
@@ -1834,13 +1827,6 @@ void ProcessReset(const ResetPayload &rst)
             CustomRatesUpdate(m_replay_symbol, cur_bar_rates);
         }
 
-        int recent_cnt = MathMin(target_idx - bar_start_idx + 1, 300);
-        int recent_start = target_idx - recent_cnt + 1;
-        MqlTick cur_slice[];
-        ArrayResize(cur_slice, recent_cnt);
-        ArrayCopy(cur_slice, m_all_ticks, 0, recent_start, recent_cnt);
-        CustomTicksAdd(m_replay_symbol, cur_slice);
-
         m_current_idx = target_idx;
     }
     else if(target_idx > m_current_idx)
@@ -1914,13 +1900,6 @@ void ProcessReset(const ResetPayload &rst)
                 CustomRatesUpdate(m_replay_symbol_sub, cur_sub_rates);
             }
 
-            int recent_sub_cnt = MathMin(target_sub - sub_bar_start + 1, 300);
-            int recent_sub_start = target_sub - recent_sub_cnt + 1;
-            MqlTick sub_cur_slice[];
-            ArrayResize(sub_cur_slice, recent_sub_cnt);
-            ArrayCopy(sub_cur_slice, m_all_ticks_sub, 0, recent_sub_start, recent_sub_cnt);
-            CustomTicksAdd(m_replay_symbol_sub, sub_cur_slice);
-
             m_current_idx_sub = target_sub;
         }
         else if(target_sub > m_current_idx_sub)
@@ -1958,7 +1937,7 @@ void ProcessReset(const ResetPayload &rst)
 
     // チャート強制リフレッシュ & 追跡スクロール設定
     RedrawAllViewerCharts(true);
-    m_pending_reset_redraw_count = 5;
+    m_pending_reset_redraw_count = 1;
 
     // チャート左上にリプレイ状態コメントを表示
     long disp_msc = (m_current_idx >= 0 && m_current_idx < m_total_ticks) ? (long)m_all_ticks[m_current_idx].time_msc : rst.virtual_time_msc;
