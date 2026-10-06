@@ -37,7 +37,11 @@ export default tseslint.config(
       "no-undef": "off",
 
       "@typescript-eslint/no-explicit-any": "warn", // 既存16件
-      "@typescript-eslint/no-unused-vars": "warn", // 既存13件
+      "@typescript-eslint/no-unused-vars": ["warn", {
+        varsIgnorePattern: "^_",
+        argsIgnorePattern: "^_",
+        caughtErrorsIgnorePattern: "^_",
+      }],
       "no-empty": "error",
       "prefer-const": "error",
       "no-useless-assignment": "error",

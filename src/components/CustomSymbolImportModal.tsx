@@ -146,7 +146,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
       updateRootDir(target);
       setSelectedFormatFilter("ALL");
       handleScanWithDir(target);
-    } catch (e) {
+    } catch {
       const fallback = defaultRootDir || "D:\\Drehis\\tick";
       updateRootDir(fallback);
       handleScanWithDir(fallback);

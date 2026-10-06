@@ -115,7 +115,7 @@ export function useTheme() {
         localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
         localStorage.setItem(STORAGE_KEYS.theme, nextTheme);
         localStorage.setItem(STORAGE_KEYS.themeMode, nextTheme);
-      } catch (e) {
+      } catch {
         // Keep the in-memory theme switch working if localStorage is unavailable.
       }
       applyThemeToDocument(nextTheme);

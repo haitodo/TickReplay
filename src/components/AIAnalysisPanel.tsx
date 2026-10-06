@@ -194,7 +194,7 @@ ${contextData.summaryText}`;
               const content = parsed.choices?.[0]?.delta?.content || "";
               accumulated += content;
               setAnalysisText(accumulated);
-            } catch (e) {
+            } catch {
               // Parse error for partial chunk ignored
             }
           }
