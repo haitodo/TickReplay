@@ -940,7 +940,6 @@ export const SpeedOrderWindowContent: React.FC = () => {
       {/* ヘッダー */}
       <div className="speed-order-header" data-tauri-drag-region>
         <div className="speed-order-title" data-tauri-drag-region>
-          <span className="material-symbols-outlined icon-accent" data-tauri-drag-region>monetization_on</span>
           <button
             type="button"
             className="ctrl-time-btn font-data"
@@ -954,24 +953,26 @@ export const SpeedOrderWindowContent: React.FC = () => {
             </span>
           </button>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }} data-tauri-drag-region>
+        <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }} data-tauri-drag-region>
           {jfxReal !== null && (
             <span
               className="jfx-badge"
               style={{
-                fontSize: "11px",
+                fontSize: "10px",
                 fontWeight: 700,
-                padding: "2px 6px",
+                padding: "1px 5px",
                 borderRadius: "4px",
-                letterSpacing: "0.5px",
+                letterSpacing: "0.3px",
+                lineHeight: "1.2",
                 backgroundColor: jfxReal ? "rgba(34, 197, 94, 0.15)" : "rgba(234, 179, 8, 0.15)",
                 color: jfxReal ? "#4ade80" : "#facc15",
                 border: jfxReal ? "1px solid rgba(74, 222, 128, 0.4)" : "1px solid rgba(250, 204, 21, 0.4)",
                 userSelect: "none",
+                flexShrink: 0,
               }}
               title={jfxReal ? "JFX実ティックデータ執行中 (スプレッド原則固定0.2銭)" : "JFX疑似固定スプレッド(0.2銭)フォールバック執行中"}
             >
-              {jfxReal ? "JFX リアル" : "JFX 疑似 0.2銭"}
+              {jfxReal ? "JFX" : "疑似"}
             </span>
           )}
           {/* 口座・ポジション管理（ポジション一覧）ウィンドウ起動ボタン */}
