@@ -54,6 +54,13 @@ import { PersistedSettings } from "./types/settings";
 import { TradeHistoryItem, VirtualAccount, VirtualPosition } from "./types/trading";
 import { translateErrorMessage } from "./utils/i18nUtils";
 import { organizeSessions, getCurrentSession } from "./domain/sessionBoundaries";
+import {
+  nextAccount,
+  nextMainFeedRate,
+  nextSubFeedRate,
+  nextPositions,
+  shouldApplyHistory
+} from "./domain/tradeStateUpdate";
 import { ReplayCommand, sendReplayCommand } from "./utils/command";
 
 
@@ -66,49 +73,6 @@ export const DEFAULT_TIME_STEPS: TimeStepItem[] = [
 ];
 
 export type { TimeStepItem } from "./types/replay";
-
-/**
- * 口座情報の高速等価比較（JSON.stringify による毎フレームGCアロケーションを抑止）
- */
-function isAccountEqual(a: VirtualAccount | null, b?: VirtualAccount): boolean {
-  if (!a || !b) return a === b;
-  return (
-    a.balance === b.balance &&
-    a.equity === b.equity &&
-    a.margin === b.margin &&
-    a.free_margin === b.free_margin &&
-    a.margin_level === b.margin_level &&
-    a.total_profit === b.total_profit &&
-    a.leverage === b.leverage
-  );
-}
-
-/**
- * 保有ポジション配列の高速等価比較（JSON.stringify による毎フレームGCアロケーションを抑止）
- */
-function arePositionsEqual(a?: VirtualPosition[], b?: VirtualPosition[]): boolean {
-  if (!a || !b) return a === b;
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    const p1 = a[i];
-    const p2 = b[i];
-    if (
-      p1.ticket !== p2.ticket ||
-      p1.type !== p2.type ||
-      p1.volume !== p2.volume ||
-      p1.open_price !== p2.open_price ||
-      p1.current_price !== p2.current_price ||
-      p1.profit !== p2.profit ||
-      p1.sl !== p2.sl ||
-      p1.tp !== p2.tp ||
-      p1.mfe_pips !== p2.mfe_pips ||
-      p1.mae_pips !== p2.mae_pips
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
 
 interface SymbolSelectionPayload {
   sourceSymbol?: string;
@@ -802,38 +766,12 @@ function MainWindow() {
           if (data.tick_step !== undefined) setTickStep((prev) => prev !== (data.tick_step ?? prev) ? (data.tick_step ?? prev) : prev);
         }
         setErrorMessage((prev) => prev !== "" ? "" : prev);
-        if (data.account) {
-          setAccount((prev) => {
-            if (isAccountEqual(prev, data.account)) return prev;
-            return data.account ?? prev;
-          });
-        }
-        if (data.bid !== undefined && data.ask !== undefined) {
-          const spread = data.spread !== undefined ? data.spread : 0;
-          setMainFeedRate((prev) => {
-            if (prev.bid === data.bid && prev.ask === data.ask && prev.spread === spread) return prev;
-            return { bid: data.bid!, ask: data.ask!, spread };
-          });
-        }
-        if (data.dual_feed) {
-          const sym = data.sub_symbol || "";
-          const sBid = data.sub_bid || 0;
-          const sAsk = data.sub_ask || 0;
-          const sSpread = data.sub_spread !== undefined ? data.sub_spread : 0;
-          setSubFeedRate((prev) => {
-            if (prev && prev.active && prev.symbol === sym && prev.bid === sBid && prev.ask === sAsk && prev.spread === sSpread) return prev;
-            return { active: true, symbol: sym, bid: sBid, ask: sAsk, spread: sSpread };
-          });
-        } else {
-          setSubFeedRate((prev) => prev === null ? prev : null);
-        }
-        if (data.positions) {
-          setPositions((prev) => {
-            if (arePositionsEqual(prev, data.positions)) return prev;
-            return data.positions ?? prev;
-          });
-        }
-        if (data.history && (data.history_revision === undefined || historyRevisionRef.current !== data.history_revision)) {
+        // 取引状態の反映。READY / ACTIVE で共通 (詳細は domain/tradeStateUpdate.ts)
+        setAccount((prev) => nextAccount(prev, data.account));
+        setMainFeedRate((prev) => nextMainFeedRate(prev, data));
+        setSubFeedRate((prev) => nextSubFeedRate(prev, data));
+        setPositions((prev) => nextPositions(prev, data.positions));
+        if (shouldApplyHistory(data.history, data.history_revision, historyRevisionRef.current)) {
           historyRevisionRef.current = data.history_revision;
           setHistory(data.history);
         }
@@ -1010,38 +948,12 @@ function MainWindow() {
           setLoopAIdx((prev) => prev !== (loop.a_idx ?? -1) ? (loop.a_idx ?? -1) : prev);
           setLoopBIdx((prev) => prev !== (loop.b_idx ?? -1) ? (loop.b_idx ?? -1) : prev);
         }
-        if (data.account) {
-          setAccount((prev) => {
-            if (isAccountEqual(prev, data.account)) return prev;
-            return data.account ?? prev;
-          });
-        }
-        if (data.bid !== undefined && data.ask !== undefined) {
-          const spread = data.spread !== undefined ? data.spread : 0;
-          setMainFeedRate((prev) => {
-            if (prev.bid === data.bid && prev.ask === data.ask && prev.spread === spread) return prev;
-            return { bid: data.bid!, ask: data.ask!, spread };
-          });
-        }
-        if (data.dual_feed) {
-          const sym = data.sub_symbol || "";
-          const sBid = data.sub_bid || 0;
-          const sAsk = data.sub_ask || 0;
-          const sSpread = data.sub_spread !== undefined ? data.sub_spread : 0;
-          setSubFeedRate((prev) => {
-            if (prev && prev.active && prev.symbol === sym && prev.bid === sBid && prev.ask === sAsk && prev.spread === sSpread) return prev;
-            return { active: true, symbol: sym, bid: sBid, ask: sAsk, spread: sSpread };
-          });
-        } else {
-          setSubFeedRate((prev) => prev === null ? prev : null);
-        }
-        if (data.positions) {
-          setPositions((prev) => {
-            if (arePositionsEqual(prev, data.positions)) return prev;
-            return data.positions ?? prev;
-          });
-        }
-        if (data.history && (data.history_revision === undefined || historyRevisionRef.current !== data.history_revision)) {
+        // 取引状態の反映。READY / ACTIVE で共通 (詳細は domain/tradeStateUpdate.ts)
+        setAccount((prev) => nextAccount(prev, data.account));
+        setMainFeedRate((prev) => nextMainFeedRate(prev, data));
+        setSubFeedRate((prev) => nextSubFeedRate(prev, data));
+        setPositions((prev) => nextPositions(prev, data.positions));
+        if (shouldApplyHistory(data.history, data.history_revision, historyRevisionRef.current)) {
           historyRevisionRef.current = data.history_revision;
           setHistory(data.history);
         }
