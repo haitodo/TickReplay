@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { CustomSymbolImportModal } from "../CustomSymbolImportModal";
+import type { SelectionMap } from "../../types/uiState";
 import {
   type ScannedPairGroup,
   type ImportFilters,
@@ -240,7 +241,7 @@ describe("collectFiles / countSelected / countTotalSelected", () => {
   });
 
   it("counts only selected visible files, but counts every selection in total", () => {
-    const selectedMonths: { [path: string]: boolean } = {
+    const selectedMonths: SelectionMap = {
       "D:/tick/XM/USDJPY_2024-01.parquet": true,
       "D:/tick/XM/USDJPY_2024-02.parquet": false,
       "D:/tick/DMM/USDJPY_2024-01.parquet": true,
@@ -285,7 +286,7 @@ describe("applySelectionMode", () => {
   });
 
   it("does not mutate the previous selection object", () => {
-    const prev: { [path: string]: boolean } = { "D:/tick/XM/USDJPY_2024-01.parquet": false };
+    const prev: SelectionMap = { "D:/tick/XM/USDJPY_2024-01.parquet": false };
     applySelectionMode(files, "all", prev);
     expect(prev["D:/tick/XM/USDJPY_2024-01.parquet"]).toBe(false);
     expect(prev["D:/tick/XM/USDJPY_2024-02.parquet"]).toBeUndefined();
@@ -348,7 +349,7 @@ describe("applyBrokerFilterSelection", () => {
 describe("collectImportItems", () => {
   it("takes items exclusively from the passed groups", () => {
     // 他業者に残存する選択があっても、渡されたグループ以外は取り込まない
-    const selectedMonths: { [path: string]: boolean } = {
+    const selectedMonths: SelectionMap = {
       "D:/tick/XM/USDJPY_2024-01.parquet": true,
       "D:/tick/XM/USDJPY_2024-02.parquet": false,
       "D:/tick/DMM/USDJPY_2024-01.parquet": true,

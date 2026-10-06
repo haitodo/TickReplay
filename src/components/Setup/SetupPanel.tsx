@@ -16,6 +16,7 @@ import { TerminalInfo } from "../../types/terminal";
 import { MaxBarsInfo } from "../../utils/hotkeyUtils";
 import { formatJstTime, getNewsTimeForDisplay } from "../../utils/timeUtils";
 import { SavedSession } from "../../types/session";
+import type { ExpandedGroupsMap } from "../../types/uiState";
 import {
   getMonthRange,
   getYearRange,
@@ -95,8 +96,8 @@ interface SetupPanelProps {
   pseudoRolloverRecoveryMin?: number;
   setPseudoRolloverRecoveryMin?: (val: number) => void;
   savedSessions: SavedSession[];
-  expandedGroups: { [key: string]: boolean };
-  setExpandedGroups: React.Dispatch<React.SetStateAction<{ [key: string]: boolean }>>;
+  expandedGroups: ExpandedGroupsMap;
+  setExpandedGroups: React.Dispatch<React.SetStateAction<ExpandedGroupsMap>>;
   handleClearAllSessions: () => void;
   handleDeleteSessions: (ids: string[], msg: string) => void;
   handleResumeSession: (session: SavedSession) => void;

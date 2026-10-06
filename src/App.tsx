@@ -54,6 +54,7 @@ import {
 } from "./types";
 import { SavedSession } from "./types/session";
 import { PersistedSettings } from "./types/settings";
+import type { ExpandedGroupsMap } from "./types/uiState";
 import { TradeHistoryItem, VirtualAccount, VirtualPosition } from "./types/trading";
 import { translateErrorMessage } from "./utils/i18nUtils";
 import { organizeSessions, getCurrentSession } from "./domain/sessionBoundaries";
@@ -245,7 +246,7 @@ function MainWindow() {
   const [currentSessionName, setCurrentSessionName] = useState<string>("");
   const [currentGroupSessionId, setCurrentGroupSessionId] = useState<string | null>(null);
   const [saveAsNewSnapshot, setSaveAsNewSnapshot] = useState<boolean>(false);
-  const [expandedGroups, setExpandedGroups] = useState<{ [key: string]: boolean }>({});
+  const [expandedGroups, setExpandedGroups] = useState<ExpandedGroupsMap>({});
 
   // 経済指標データの充足確認モーダル用 State
   const [isEconomicWarningOpen, setIsEconomicWarningOpen] = useState(false);

@@ -1,3 +1,5 @@
+import type { SelectionMap } from "../types/uiState";
+
 /**
  * カスタムシンボルインポート画面のフィルタリング・選択に関する純粋ロジック。
  *
@@ -136,7 +138,7 @@ export function collectFiles(groups: ScannedPairGroup[]): ScannedZipFile[] {
 /** 可視ファイルのうち選択されているものの件数。 */
 export function countSelected(
   files: ScannedZipFile[],
-  selectedMonths: { [filePath: string]: boolean }
+  selectedMonths: SelectionMap
 ): number {
   return files.filter((f) => selectedMonths[f.file_path]).length;
 }
@@ -145,7 +147,7 @@ export function countSelected(
  * 全スキャンファイル中の総選択数。フィルタで隠れている選択も含むため、
  * 可視件数との差が「他フィルタに残存する選択」の検知に使われる。
  */
-export function countTotalSelected(selectedMonths: { [filePath: string]: boolean }): number {
+export function countTotalSelected(selectedMonths: SelectionMap): number {
   return Object.values(selectedMonths).filter(Boolean).length;
 }
 
@@ -153,8 +155,8 @@ export function countTotalSelected(selectedMonths: { [filePath: string]: boolean
 export function applySelectionMode(
   files: ScannedZipFile[],
   mode: SelectionMode,
-  prev: { [filePath: string]: boolean }
-): { [filePath: string]: boolean } {
+  prev: SelectionMap
+): SelectionMap {
   const next = { ...prev };
   files.forEach((f) => {
     if (mode === "all") {
@@ -176,8 +178,8 @@ export function applySelectionMode(
 export function applyBrokerFilterSelection(
   groups: ScannedPairGroup[],
   broker: string,
-  prev: { [filePath: string]: boolean }
-): { [filePath: string]: boolean } {
+  prev: SelectionMap
+): SelectionMap {
   if (broker === "ALL") return prev;
 
   const next = { ...prev };
@@ -218,7 +220,7 @@ export function applyBrokerFilterSelection(
  */
 export function collectImportItems(
   groups: ScannedPairGroup[],
-  selectedMonths: { [filePath: string]: boolean },
+  selectedMonths: SelectionMap,
   symbolNames: { [key: string]: string } = {},
   groupPaths: { [key: string]: string } = {}
 ): ImportItem[] {

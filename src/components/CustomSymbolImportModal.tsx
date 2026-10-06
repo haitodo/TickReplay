@@ -3,6 +3,7 @@ import { COMMANDS } from "../constants/commands";
 import { invoke } from "@tauri-apps/api/core";
 import { getErrorMessage } from "../utils/getErrorMessage";
 import { getMonthRange } from "../utils/dateUtils";
+import type { SelectionMap } from "../types/uiState";
 import {
   type ScannedZipFile,
   type ScannedPairGroup,
@@ -55,7 +56,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
   const [isScanning, setIsScanning] = useState(false);
   const [symbolNames, setSymbolNames] = useState<{ [key: string]: string }>({});
   const [groupPaths, setGroupPaths] = useState<{ [key: string]: string }>({});
-  const [selectedMonths, setSelectedMonths] = useState<{ [filePath: string]: boolean }>({});
+  const [selectedMonths, setSelectedMonths] = useState<SelectionMap>({});
 
   // フィルタリング用ステート
   const [selectedBrokerFilter, setSelectedBrokerFilter] = useState<string>("ALL");
@@ -184,7 +185,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
       // 初期値設定
       const initialNames: { [key: string]: string } = {};
       const initialGroups: { [key: string]: string } = {};
-      const initialMonths: { [filePath: string]: boolean } = {};
+      const initialMonths: SelectionMap = {};
 
       groups.forEach(g => {
         const key = getGroupKey(g);
