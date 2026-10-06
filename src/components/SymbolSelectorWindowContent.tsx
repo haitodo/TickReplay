@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { STORAGE_KEYS } from "../constants/storageKeys";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -64,7 +65,7 @@ export const SymbolSelectorWindowContent: React.FC = () => {
   const loadSymbols = useCallback(async (forceResetMode = false) => {
     try {
       // 1. ローカルストレージまたはTauriから現在の設定を取得
-      const savedStateStr = localStorage.getItem("symbol-selector-current-state");
+      const savedStateStr = localStorage.getItem(STORAGE_KEYS.symbolSelectorCurrentState);
       if (savedStateStr) {
         try {
           const parsed = JSON.parse(savedStateStr);
@@ -103,7 +104,7 @@ export const SymbolSelectorWindowContent: React.FC = () => {
       }
 
       // 2. MT5から直接シンボル一覧を取得（端末パスがある場合）
-      const terminalPath = localStorage.getItem("selected-terminal-path") || "";
+      const terminalPath = localStorage.getItem(STORAGE_KEYS.selectedTerminalPath) || "";
       const list = await invoke<SymbolItem[]>("get_available_symbols", { terminalPath });
       if (Array.isArray(list) && list.length > 0) {
         setAvailableSymbols(list);
@@ -408,7 +409,7 @@ export const SymbolSelectorWindowContent: React.FC = () => {
 
     // ローカルストレージに最新状態をキャッシュ
     try {
-      localStorage.setItem("symbol-selector-current-state", JSON.stringify({
+      localStorage.setItem(STORAGE_KEYS.symbolSelectorCurrentState, JSON.stringify({
         sourceSymbol: src,
         subSourceSymbol: sub,
         enableDualFeed: isDual,

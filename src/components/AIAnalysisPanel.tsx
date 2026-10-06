@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { STORAGE_KEYS } from "../constants/storageKeys";
 import { useDataSources } from "../hooks/useDataSources";
 import {
   formatJstTime,
@@ -224,14 +225,14 @@ ${contextData.summaryText}`;
   const handleSaveToLog = () => {
     if (!analysisText) return;
     try {
-      const existingLogs = JSON.parse(localStorage.getItem("tickreplay_ai_notes") || "[]");
+      const existingLogs = JSON.parse(localStorage.getItem(STORAGE_KEYS.tickreplayAiNotes) || "[]");
       const newEntry = {
         id: Date.now(),
         timeStr: formatTime(virtualTimeMsc),
         symbol,
         text: analysisText
       };
-      localStorage.setItem("tickreplay_ai_notes", JSON.stringify([newEntry, ...existingLogs]));
+      localStorage.setItem(STORAGE_KEYS.tickreplayAiNotes, JSON.stringify([newEntry, ...existingLogs]));
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {

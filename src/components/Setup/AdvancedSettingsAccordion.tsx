@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { STORAGE_KEYS } from "../../constants/storageKeys";
 import { CustomSelect } from "../../CustomSelect";
 import { HelpTooltip } from "../HelpTooltip";
 import { TerminalInfo } from "../../types/terminal";
@@ -114,13 +115,13 @@ export const AdvancedSettingsAccordion: React.FC<AdvancedSettingsAccordionProps>
 }) => {
   // アコーディオン開閉状態の永続化
   const [isOpen, setIsOpen] = useState<boolean>(() => {
-    return localStorage.getItem("tickreplay_setup_advanced_open") === "true";
+    return localStorage.getItem(STORAGE_KEYS.tickreplaySetupAdvancedOpen) === "true";
   });
 
   const toggleAccordion = () => {
     setIsOpen((prev) => {
       const next = !prev;
-      localStorage.setItem("tickreplay_setup_advanced_open", String(next));
+      localStorage.setItem(STORAGE_KEYS.tickreplaySetupAdvancedOpen, String(next));
       return next;
     });
   };

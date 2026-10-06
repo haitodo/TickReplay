@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { STORAGE_KEYS } from "../../constants/storageKeys";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -26,14 +27,14 @@ export const ControllerWindowContent: React.FC = () => {
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
   const [timezoneMode, setTimezoneMode] = useState<"JST" | "SERVER">(() => {
-    const saved = localStorage.getItem("replay-timezone-mode");
+    const saved = localStorage.getItem(STORAGE_KEYS.replayTimezoneMode);
     return saved === "SERVER" ? "SERVER" : "JST";
   });
 
   // ウィンドウ間でのタイムゾーンモード変更の同期
   useEffect(() => {
     const handleStorage = (e: StorageEvent) => {
-      if (e.key === "replay-timezone-mode" && e.newValue) {
+      if (e.key === STORAGE_KEYS.replayTimezoneMode && e.newValue) {
         if (e.newValue === "JST" || e.newValue === "SERVER") {
           setTimezoneMode(e.newValue);
         }
@@ -72,7 +73,7 @@ export const ControllerWindowContent: React.FC = () => {
 
   // タイムステップ
   const [timeSteps, setTimeSteps] = useState<TimeStepItem[]>(() => {
-    const saved = localStorage.getItem("custom-time-steps");
+    const saved = localStorage.getItem(STORAGE_KEYS.customTimeSteps);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -117,7 +118,7 @@ export const ControllerWindowContent: React.FC = () => {
           if (settings.start_time) setStartTime(settings.start_time);
           if (settings.end_time) setEndTime(settings.end_time);
           if (settings.source_symbol) setSourceSymbol((prev) => prev || settings.source_symbol || "");
-          if (settings.timezone_mode && !localStorage.getItem("replay-timezone-mode")) {
+          if (settings.timezone_mode && !localStorage.getItem(STORAGE_KEYS.replayTimezoneMode)) {
             setTimezoneMode(settings.timezone_mode as "JST" | "SERVER");
           }
           if (settings.time_presets && Array.isArray(settings.time_presets) && settings.time_presets.length > 0) {
@@ -488,7 +489,7 @@ export const ControllerWindowContent: React.FC = () => {
           onClick={() => {
             const next = timezoneMode === "JST" ? "SERVER" : "JST";
             setTimezoneMode(next);
-            localStorage.setItem("replay-timezone-mode", next);
+            localStorage.setItem(STORAGE_KEYS.replayTimezoneMode, next);
           }}
           title={`表示タイムゾーン切替 (現在: ${timezoneMode === "JST" ? "JST 日本時間" : "SERVER MT5サーバー時刻"})\nリプレイ日時: ${rawTimeStr}\nクリックで切替`}
         >
@@ -740,8 +741,8 @@ export const ControllerWindowContent: React.FC = () => {
                 onClick={() => {
                   setTimePresets(editingTimePresets);
                   setTickPresets(editingTickPresets);
-                  localStorage.setItem("time-presets", JSON.stringify(editingTimePresets));
-                  localStorage.setItem("tick-presets", JSON.stringify(editingTickPresets));
+                  localStorage.setItem(STORAGE_KEYS.timePresets, JSON.stringify(editingTimePresets));
+                  localStorage.setItem(STORAGE_KEYS.tickPresets, JSON.stringify(editingTickPresets));
                   setIsSpeedPresetsModalOpen(false);
                 }}
               >
@@ -813,7 +814,7 @@ export const ControllerWindowContent: React.FC = () => {
                 className="btn-modal-primary"
                 onClick={() => {
                   setTimeSteps(editingTimeSteps);
-                  localStorage.setItem("custom-time-steps", JSON.stringify(editingTimeSteps));
+                  localStorage.setItem(STORAGE_KEYS.customTimeSteps, JSON.stringify(editingTimeSteps));
                   setIsTimeStepsModalOpen(false);
                 }}
               >

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { STORAGE_KEYS } from "../../constants/storageKeys";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { emit } from "@tauri-apps/api/event";
@@ -40,7 +41,7 @@ export const SettingsWindowContent: React.FC = () => {
   const [limitTickHistory, setLimitTickHistory] = useState(true);
   const [tickHistoryTimeframe, setTickHistoryTimeframe] = useState("M5");
   const [maxHistoryBars, setMaxHistoryBars] = useState(300);
-  const [economicDataDir, setEconomicDataDir] = useState<string>(() => localStorage.getItem("replay_economic_data_dir") || "");
+  const [economicDataDir, setEconomicDataDir] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.replayEconomicDataDir) || "");
 
   // ホットキー
   const [hotkeys, setHotkeys] = useState<Record<string, string>>(DEFAULT_HOTKEYS);
@@ -51,10 +52,10 @@ export const SettingsWindowContent: React.FC = () => {
   const [tickPresets, setTickPresets] = useState<number[]>([1, 2, 5, 10, 30, 60]);
 
   // AI設定
-  const [openRouterApiKey, setOpenRouterApiKey] = useState<string>(() => localStorage.getItem("openrouter-api-key") || "");
-  const [openRouterModel, setOpenRouterModel] = useState<string>(() => localStorage.getItem("openrouter-model") || "google/gemini-2.5-flash");
-  const [fredApiKey, setFredApiKey] = useState<string>(() => localStorage.getItem("fred-api-key") || "");
-  const [finnhubApiKey, setFinnhubApiKey] = useState<string>(() => localStorage.getItem("finnhub-api-key") || "");
+  const [openRouterApiKey, setOpenRouterApiKey] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.openRouterApiKey) || "");
+  const [openRouterModel, setOpenRouterModel] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.openRouterModel) || "google/gemini-2.5-flash");
+  const [fredApiKey, setFredApiKey] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.fredApiKey) || "");
+  const [finnhubApiKey, setFinnhubApiKey] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.finnhubApiKey) || "");
 
   // APIテスト
   const [openRouterTestResult, setOpenRouterTestResult] = useState<ApiTestResult>({ success: false, status: "idle", message: "" });
@@ -81,12 +82,12 @@ export const SettingsWindowContent: React.FC = () => {
           if (data.max_history_bars !== undefined) setMaxHistoryBars(data.max_history_bars);
           if (data.economic_data_dir) {
             setEconomicDataDir(data.economic_data_dir);
-          } else if (!localStorage.getItem("replay_economic_data_dir")) {
+          } else if (!localStorage.getItem(STORAGE_KEYS.replayEconomicDataDir)) {
             invoke<string>("get_default_economic_data_dir")
               .then((def) => {
                 if (def) {
                   setEconomicDataDir(def);
-                  localStorage.setItem("replay_economic_data_dir", def);
+                  localStorage.setItem(STORAGE_KEYS.replayEconomicDataDir, def);
                 }
               })
               .catch(() => {});
@@ -133,16 +134,16 @@ export const SettingsWindowContent: React.FC = () => {
             economic_data_dir: activeEconomicDataDir,
           },
         });
-        localStorage.setItem("tickreplay_theme", activeTheme);
-        localStorage.setItem("theme", activeTheme);
-        localStorage.setItem("theme-mode", activeTheme);
-        localStorage.setItem("pl-color-style", plColorStyle);
-        localStorage.setItem("speed-order-color-style", orderColorStyle);
-        localStorage.setItem("openrouter-api-key", openRouterApiKey);
-        localStorage.setItem("openrouter-model", openRouterModel);
-        localStorage.setItem("fred-api-key", fredApiKey);
-        localStorage.setItem("finnhub-api-key", finnhubApiKey);
-        localStorage.setItem("replay_economic_data_dir", activeEconomicDataDir);
+        localStorage.setItem(STORAGE_KEYS.tickreplayTheme, activeTheme);
+        localStorage.setItem(STORAGE_KEYS.theme, activeTheme);
+        localStorage.setItem(STORAGE_KEYS.themeMode, activeTheme);
+        localStorage.setItem(STORAGE_KEYS.plColorStyle, plColorStyle);
+        localStorage.setItem(STORAGE_KEYS.speedOrderColorStyle, orderColorStyle);
+        localStorage.setItem(STORAGE_KEYS.openRouterApiKey, openRouterApiKey);
+        localStorage.setItem(STORAGE_KEYS.openRouterModel, openRouterModel);
+        localStorage.setItem(STORAGE_KEYS.fredApiKey, fredApiKey);
+        localStorage.setItem(STORAGE_KEYS.finnhubApiKey, finnhubApiKey);
+        localStorage.setItem(STORAGE_KEYS.replayEconomicDataDir, activeEconomicDataDir);
 
         emit("settings-updated", {
           theme: activeTheme,

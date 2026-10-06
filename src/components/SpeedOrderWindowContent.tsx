@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { STORAGE_KEYS } from "../constants/storageKeys";
 import { invoke } from "@tauri-apps/api/core";
 import { translateErrorMessage } from "../utils/i18nUtils";
 import { DEFAULT_HOTKEYS, matchesHotkey } from "../utils/hotkeyUtils";
@@ -32,74 +33,74 @@ export const SpeedOrderWindowContent: React.FC = () => {
   const askFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [showHistory, setShowHistory] = useState<boolean>(() => {
-    return localStorage.getItem("speed-order-show-history") === "true";
+    return localStorage.getItem(STORAGE_KEYS.speedOrderShowHistory) === "true";
   });
   const [contractSize] = useState<number>(() => {
-    const saved = localStorage.getItem("speed-order-contract-size");
+    const saved = localStorage.getItem(STORAGE_KEYS.speedOrderContractSize);
     return saved ? parseInt(saved, 10) : 10000;
   });
   const [orderColorStyle, setOrderColorStyle] = useState<"blue-red" | "red-green">(() => {
-    const saved = localStorage.getItem("speed-order-color-style");
+    const saved = localStorage.getItem(STORAGE_KEYS.speedOrderColorStyle);
     if (saved === "red-primary") return "red-green";
     return (saved as "blue-red" | "red-green") || "blue-red";
   });
   const [plColorStyle, setPlColorStyle] = useState<"red-blue" | "green-red">(() => {
-    return (localStorage.getItem("pl-color-style") as "red-blue" | "green-red") || "red-blue";
+    return (localStorage.getItem(STORAGE_KEYS.plColorStyle) as "red-blue" | "green-red") || "red-blue";
   });
   const [hedging, setHedging] = useState<boolean>(() => {
-    const saved = localStorage.getItem("speed-order-hedging");
+    const saved = localStorage.getItem(STORAGE_KEYS.speedOrderHedging);
     return saved === "true";
   });
   const [lots, setLots] = useState<number>(() => {
-    const savedLots = localStorage.getItem("speed-order-lots");
+    const savedLots = localStorage.getItem(STORAGE_KEYS.speedOrderLots);
     if (savedLots !== null) {
       const parsed = parseFloat(savedLots);
       if (!isNaN(parsed)) return parsed;
     }
-    const savedContract = localStorage.getItem("speed-order-contract-size");
+    const savedContract = localStorage.getItem(STORAGE_KEYS.speedOrderContractSize);
     const contract = savedContract ? parseInt(savedContract, 10) : 10000;
     if (contract === 100000) return 0.1;
     if (contract === 1000) return 10;
     return 1;
   });
   const [slPoints, setSlPoints] = useState<number>(() => {
-    const saved = localStorage.getItem("speed-order-sl-points");
+    const saved = localStorage.getItem(STORAGE_KEYS.speedOrderSlPoints);
     return saved ? Math.max(0, parseInt(saved, 10)) : 0;
   });
   const [slEnabled, setSlEnabled] = useState<boolean>(() => {
-    const saved = localStorage.getItem("speed-order-sl-enabled");
+    const saved = localStorage.getItem(STORAGE_KEYS.speedOrderSlEnabled);
     return saved !== "false";
   });
   const [tpPoints, setTpPoints] = useState<number>(() => {
-    const saved = localStorage.getItem("speed-order-tp-points");
+    const saved = localStorage.getItem(STORAGE_KEYS.speedOrderTpPoints);
     return saved ? Math.max(0, parseInt(saved, 10)) : 0;
   });
   const [tpEnabled, setTpEnabled] = useState<boolean>(() => {
-    const saved = localStorage.getItem("speed-order-tp-enabled");
+    const saved = localStorage.getItem(STORAGE_KEYS.speedOrderTpEnabled);
     return saved !== "false";
   });
   const [maxSpreadPips, setMaxSpreadPips] = useState<number>(() => {
-    const saved = localStorage.getItem("speed-order-max-spread-pips");
+    const saved = localStorage.getItem(STORAGE_KEYS.speedOrderMaxSpreadPips);
     return saved !== null ? Math.max(0, parseFloat(saved) || 0) : 2.0;
   });
   const [maxSpreadEnabled, setMaxSpreadEnabled] = useState<boolean>(() => {
-    const saved = localStorage.getItem("speed-order-max-spread-enabled");
+    const saved = localStorage.getItem(STORAGE_KEYS.speedOrderMaxSpreadEnabled);
     return saved === "true";
   });
   const [account, setAccount] = useState<VirtualAccount | null>(null);
   const [positions, setPositions] = useState<VirtualPosition[]>([]);
   const [showHoldingTime, setShowHoldingTime] = useState<boolean>(() => {
-    const saved = localStorage.getItem("speed-order-show-holding-time");
+    const saved = localStorage.getItem(STORAGE_KEYS.speedOrderShowHoldingTime);
     return saved !== "false";
   });
   const [holdingTimeMode, setHoldingTimeMode] = useState<"pc" | "server">(
-    () => (localStorage.getItem("speed-order-holding-time-mode") as "pc" | "server") || "pc"
+    () => (localStorage.getItem(STORAGE_KEYS.speedOrderHoldingTimeMode) as "pc" | "server") || "pc"
   );
-  const [sourceSymbol, setSourceSymbol] = useState<string>(() => localStorage.getItem("speed-order-symbol") || "");
+  const [sourceSymbol, setSourceSymbol] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.speedOrderSymbol) || "");
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [virtualTimeMsc, setVirtualTimeMsc] = useState<number>(0);
   const [timezoneMode, setTimezoneMode] = useState<"JST" | "SERVER">(() => {
-    const saved = localStorage.getItem("replay-timezone-mode");
+    const saved = localStorage.getItem(STORAGE_KEYS.replayTimezoneMode);
     return saved === "SERVER" ? "SERVER" : "JST";
   });
   const [economicMap, setEconomicMap] = useState<Record<string, boolean>>(() => getCachedEconomicAvailabilityMap());
@@ -108,7 +109,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
   const prevStatusRef = useRef<string>("DISCONNECTED");
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [errorDisplayDuration, setErrorDisplayDuration] = useState<number>(() => {
-    const saved = localStorage.getItem("speed-order-error-display-duration");
+    const saved = localStorage.getItem(STORAGE_KEYS.speedOrderErrorDisplayDuration);
     if (saved !== null) {
       const parsed = parseFloat(saved);
       if (!isNaN(parsed) && parsed >= 0) return Math.round(parsed * 10) / 10;
@@ -117,7 +118,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
   });
 
   const [orderLatencyMs, setOrderLatencyMs] = useState<number>(() => {
-    const saved = localStorage.getItem("speed-order-latency-ms");
+    const saved = localStorage.getItem(STORAGE_KEYS.speedOrderLatencyMs);
     if (saved !== null) {
       const parsed = parseInt(saved, 10);
       if (!isNaN(parsed) && parsed >= 0) return Math.min(200, parsed);
@@ -126,14 +127,14 @@ export const SpeedOrderWindowContent: React.FC = () => {
   });
 
   const [showAuditToast, setShowAuditToast] = useState<boolean>(() => {
-    const saved = localStorage.getItem("speed-order-show-audit-toast");
+    const saved = localStorage.getItem(STORAGE_KEYS.speedOrderShowAuditToast);
     return saved !== null ? saved === "true" : true;
   });
   const [latencyModelType, setLatencyModelType] = useState<"fixed" | "realistic" | "none">(() => {
-    return (localStorage.getItem("speed-order-latency-model") as "fixed" | "realistic" | "none") || "realistic";
+    return (localStorage.getItem(STORAGE_KEYS.speedOrderLatencyModel) as "fixed" | "realistic" | "none") || "realistic";
   });
   const [slippageModelType, setSlippageModelType] = useState<"realistic" | "none">(() => {
-    return (localStorage.getItem("speed-order-slippage-model") as "realistic" | "none") || "realistic";
+    return (localStorage.getItem(STORAGE_KEYS.speedOrderSlippageModel) as "realistic" | "none") || "realistic";
   });
   const [recentAuditNotification, setRecentAuditNotification] = useState<ExecutionAuditRecord | null>(null);
 
@@ -169,7 +170,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
   }, [latencyModelType, slippageModelType, orderLatencyMs, updateExecutionModels]);
 
   const checkLatestAuditLog = useCallback(async () => {
-    const isToastEnabled = localStorage.getItem("speed-order-show-audit-toast") !== "false";
+    const isToastEnabled = localStorage.getItem(STORAGE_KEYS.speedOrderShowAuditToast) !== "false";
     if (!isToastEnabled) return;
 
     try {
@@ -187,7 +188,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
   }, []);
 
   const [quickLots, setQuickLots] = useState<number[]>(() => {
-    const saved = localStorage.getItem("speed-order-quick-lots");
+    const saved = localStorage.getItem(STORAGE_KEYS.speedOrderQuickLots);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -208,7 +209,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
 
   // ホットキー設定の状態
   const [hotkeys, setHotkeys] = useState<Record<string, string>>(() => {
-    const saved = localStorage.getItem("speed-order-hotkeys");
+    const saved = localStorage.getItem(STORAGE_KEYS.speedOrderHotkeys);
     if (saved) {
       try {
         return JSON.parse(saved);
@@ -221,56 +222,56 @@ export const SpeedOrderWindowContent: React.FC = () => {
 
   // 設定変更時にlocalStorageへ保存するエフェクト
   useEffect(() => {
-    localStorage.setItem("speed-order-lots", String(lots));
+    localStorage.setItem(STORAGE_KEYS.speedOrderLots, String(lots));
   }, [lots]);
 
   useEffect(() => {
-    localStorage.setItem("speed-order-sl-points", String(slPoints));
+    localStorage.setItem(STORAGE_KEYS.speedOrderSlPoints, String(slPoints));
   }, [slPoints]);
 
   useEffect(() => {
-    localStorage.setItem("speed-order-sl-enabled", String(slEnabled));
+    localStorage.setItem(STORAGE_KEYS.speedOrderSlEnabled, String(slEnabled));
   }, [slEnabled]);
 
   useEffect(() => {
-    localStorage.setItem("speed-order-tp-points", String(tpPoints));
+    localStorage.setItem(STORAGE_KEYS.speedOrderTpPoints, String(tpPoints));
   }, [tpPoints]);
 
   useEffect(() => {
-    localStorage.setItem("speed-order-tp-enabled", String(tpEnabled));
+    localStorage.setItem(STORAGE_KEYS.speedOrderTpEnabled, String(tpEnabled));
   }, [tpEnabled]);
 
   useEffect(() => {
-    localStorage.setItem("speed-order-max-spread-pips", String(maxSpreadPips));
+    localStorage.setItem(STORAGE_KEYS.speedOrderMaxSpreadPips, String(maxSpreadPips));
   }, [maxSpreadPips]);
 
   useEffect(() => {
-    localStorage.setItem("speed-order-max-spread-enabled", String(maxSpreadEnabled));
+    localStorage.setItem(STORAGE_KEYS.speedOrderMaxSpreadEnabled, String(maxSpreadEnabled));
   }, [maxSpreadEnabled]);
 
   useEffect(() => {
-    localStorage.setItem("speed-order-show-holding-time", String(showHoldingTime));
+    localStorage.setItem(STORAGE_KEYS.speedOrderShowHoldingTime, String(showHoldingTime));
   }, [showHoldingTime]);
 
   useEffect(() => {
-    localStorage.setItem("speed-order-holding-time-mode", holdingTimeMode);
+    localStorage.setItem(STORAGE_KEYS.speedOrderHoldingTimeMode, holdingTimeMode);
   }, [holdingTimeMode]);
 
   useEffect(() => {
-    localStorage.setItem("speed-order-error-display-duration", String(errorDisplayDuration));
+    localStorage.setItem(STORAGE_KEYS.speedOrderErrorDisplayDuration, String(errorDisplayDuration));
   }, [errorDisplayDuration]);
 
   useEffect(() => {
-    localStorage.setItem("speed-order-latency-ms", String(orderLatencyMs));
+    localStorage.setItem(STORAGE_KEYS.speedOrderLatencyMs, String(orderLatencyMs));
     sendCommand({ command: "SET_LATENCY", latency_ms: orderLatencyMs });
   }, [orderLatencyMs]);
 
   useEffect(() => {
-    localStorage.setItem("speed-order-quick-lots", JSON.stringify(quickLots));
+    localStorage.setItem(STORAGE_KEYS.speedOrderQuickLots, JSON.stringify(quickLots));
   }, [quickLots]);
 
   useEffect(() => {
-    localStorage.setItem("speed-order-show-audit-toast", String(showAuditToast));
+    localStorage.setItem(STORAGE_KEYS.speedOrderShowAuditToast, String(showAuditToast));
   }, [showAuditToast]);
 
   const sortedQuickLots = useMemo(() => {
@@ -297,29 +298,29 @@ export const SpeedOrderWindowContent: React.FC = () => {
   }, [errorMessage, errorDisplayDuration]);
   useEffect(() => {
     const handleStorage = (e: StorageEvent) => {
-      if (e.key === "speed-order-hedging" && e.newValue) {
+      if (e.key === STORAGE_KEYS.speedOrderHedging && e.newValue) {
         setHedging(e.newValue === "true");
-      } else if (e.key === "speed-order-show-holding-time" && e.newValue) {
+      } else if (e.key === STORAGE_KEYS.speedOrderShowHoldingTime && e.newValue) {
         setShowHoldingTime(e.newValue !== "false");
-      } else if (e.key === "speed-order-holding-time-mode" && e.newValue) {
+      } else if (e.key === STORAGE_KEYS.speedOrderHoldingTimeMode && e.newValue) {
         setHoldingTimeMode(e.newValue as "pc" | "server");
-      } else if (e.key === "speed-order-error-display-duration" && e.newValue) {
+      } else if (e.key === STORAGE_KEYS.speedOrderErrorDisplayDuration && e.newValue) {
         const parsed = parseFloat(e.newValue);
         if (!isNaN(parsed) && parsed >= 0) {
           setErrorDisplayDuration(Math.round(parsed * 10) / 10);
         }
-      } else if (e.key === "speed-order-latency-ms" && e.newValue) {
+      } else if (e.key === STORAGE_KEYS.speedOrderLatencyMs && e.newValue) {
         const parsed = parseInt(e.newValue, 10);
         if (!isNaN(parsed) && parsed >= 0) {
           setOrderLatencyMs(Math.min(200, parsed));
         }
-      } else if (e.key === "speed-order-hotkeys" && e.newValue) {
+      } else if (e.key === STORAGE_KEYS.speedOrderHotkeys && e.newValue) {
         try {
           setHotkeys(JSON.parse(e.newValue));
         } catch (err) {
           console.error("Failed to parse hotkeys from storage event", err);
         }
-      } else if (e.key === "speed-order-quick-lots" && e.newValue) {
+      } else if (e.key === STORAGE_KEYS.speedOrderQuickLots && e.newValue) {
         try {
           const parsed = JSON.parse(e.newValue);
           if (Array.isArray(parsed) && parsed.length >= 1) {
@@ -339,11 +340,11 @@ export const SpeedOrderWindowContent: React.FC = () => {
         } catch (err) {
           console.error("Failed to parse economic availability in speed order", err);
         }
-      } else if (e.key === "replay-timezone-mode" && e.newValue) {
+      } else if (e.key === STORAGE_KEYS.replayTimezoneMode && e.newValue) {
         if (e.newValue === "JST" || e.newValue === "SERVER") {
           setTimezoneMode(e.newValue);
         }
-      } else if (e.key === "speed-order-show-audit-toast" && e.newValue) {
+      } else if (e.key === STORAGE_KEYS.speedOrderShowAuditToast && e.newValue) {
         const isEnabled = e.newValue !== "false";
         setShowAuditToast(isEnabled);
         if (!isEnabled) {
@@ -371,9 +372,9 @@ export const SpeedOrderWindowContent: React.FC = () => {
         if (saved.hotkeys) {
           const merged = { ...DEFAULT_HOTKEYS, ...saved.hotkeys };
           setHotkeys(merged);
-          localStorage.setItem("speed-order-hotkeys", JSON.stringify(merged));
+          localStorage.setItem(STORAGE_KEYS.speedOrderHotkeys, JSON.stringify(merged));
         }
-        if (saved.timezone_mode && !localStorage.getItem("replay-timezone-mode")) {
+        if (saved.timezone_mode && !localStorage.getItem(STORAGE_KEYS.replayTimezoneMode)) {
           setTimezoneMode(saved.timezone_mode as "JST" | "SERVER");
         }
       }
@@ -386,10 +387,10 @@ export const SpeedOrderWindowContent: React.FC = () => {
         if (data.status === "ACTIVE" || data.status === "READY" || data.status === "CONNECTED") {
           setStatus(data.status);
           prevStatusRef.current = data.status;
-          const currentShow = localStorage.getItem("speed-order-show-history") === "true";
-          const currentContractSize = parseInt(localStorage.getItem("speed-order-contract-size") || "10000", 10);
-          const currentHedging = localStorage.getItem("speed-order-hedging") === "true";
-          const currentLatency = parseInt(localStorage.getItem("speed-order-latency-ms") || "30", 10);
+          const currentShow = localStorage.getItem(STORAGE_KEYS.speedOrderShowHistory) === "true";
+          const currentContractSize = parseInt(localStorage.getItem(STORAGE_KEYS.speedOrderContractSize) || "10000", 10);
+          const currentHedging = localStorage.getItem(STORAGE_KEYS.speedOrderHedging) === "true";
+          const currentLatency = parseInt(localStorage.getItem(STORAGE_KEYS.speedOrderLatencyMs) || "30", 10);
           sendCommand({ command: "SET_HISTORY_VISIBILITY", show: currentShow });
           sendCommand({ command: "SET_CONTRACT_SIZE", size: currentContractSize });
           sendCommand({ command: "SET_HEDGING", allowed: currentHedging });
@@ -420,10 +421,10 @@ export const SpeedOrderWindowContent: React.FC = () => {
         if (data.status === "ACTIVE" || data.status === "READY" || data.status === "CONNECTED") {
           const prev = prevStatusRef.current;
           if (prev === "DISCONNECTED") {
-            const currentShow = localStorage.getItem("speed-order-show-history") === "true";
-            const currentContractSize = parseInt(localStorage.getItem("speed-order-contract-size") || "10000", 10);
-            const currentHedging = localStorage.getItem("speed-order-hedging") === "true";
-            const currentLatency = parseInt(localStorage.getItem("speed-order-latency-ms") || "30", 10);
+            const currentShow = localStorage.getItem(STORAGE_KEYS.speedOrderShowHistory) === "true";
+            const currentContractSize = parseInt(localStorage.getItem(STORAGE_KEYS.speedOrderContractSize) || "10000", 10);
+            const currentHedging = localStorage.getItem(STORAGE_KEYS.speedOrderHedging) === "true";
+            const currentLatency = parseInt(localStorage.getItem(STORAGE_KEYS.speedOrderLatencyMs) || "30", 10);
             sendCommand({ command: "SET_HISTORY_VISIBILITY", show: currentShow });
             sendCommand({ command: "SET_CONTRACT_SIZE", size: currentContractSize });
             sendCommand({ command: "SET_HEDGING", allowed: currentHedging });
@@ -483,7 +484,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
           if (data.source_symbol) {
             setSourceSymbol((prev) => {
               if (prev !== data.source_symbol) {
-                localStorage.setItem("speed-order-symbol", data.source_symbol ?? prev);
+                localStorage.setItem(STORAGE_KEYS.speedOrderSymbol, data.source_symbol ?? prev);
                 return data.source_symbol ?? prev;
               }
               return prev;
@@ -615,13 +616,13 @@ export const SpeedOrderWindowContent: React.FC = () => {
             (state.lastActiveTime ? (Date.now() - state.lastActiveTime) : 0);
           
           try {
-            const storedTimesStr = localStorage.getItem("speed-order-position-real-times");
+            const storedTimesStr = localStorage.getItem(STORAGE_KEYS.speedOrderPositionRealTimes);
             const storedTimes = storedTimesStr ? JSON.parse(storedTimesStr) : {};
             storedTimes[ticket] = finalDuration;
-            localStorage.setItem("speed-order-position-real-times", JSON.stringify(storedTimes));
+            localStorage.setItem(STORAGE_KEYS.speedOrderPositionRealTimes, JSON.stringify(storedTimes));
             
             window.dispatchEvent(new StorageEvent("storage", {
-              key: "speed-order-position-real-times",
+              key: STORAGE_KEYS.speedOrderPositionRealTimes,
               newValue: JSON.stringify(storedTimes)
             }));
           } catch (e) {
@@ -635,7 +636,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
     // 2. Initialize new positions
     let storedTimes: Record<number, number> = {};
     try {
-      const storedTimesStr = localStorage.getItem("speed-order-position-real-times");
+      const storedTimesStr = localStorage.getItem(STORAGE_KEYS.speedOrderPositionRealTimes);
       if (storedTimesStr) {
         storedTimes = JSON.parse(storedTimesStr);
       }
@@ -689,7 +690,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
       currentTimesToStore[tk] = state.accumulatedMs + 
         (state.lastActiveTime ? (Date.now() - state.lastActiveTime) : 0);
     });
-    localStorage.setItem("speed-order-position-real-times", JSON.stringify(currentTimesToStore));
+    localStorage.setItem(STORAGE_KEYS.speedOrderPositionRealTimes, JSON.stringify(currentTimesToStore));
   };
 
   useEffect(() => {
@@ -932,7 +933,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
   const handleToggleTimezone = () => {
     const next = timezoneMode === "JST" ? "SERVER" : "JST";
     setTimezoneMode(next);
-    localStorage.setItem("replay-timezone-mode", next);
+    localStorage.setItem(STORAGE_KEYS.replayTimezoneMode, next);
   };
 
   return (
@@ -1093,9 +1094,9 @@ export const SpeedOrderWindowContent: React.FC = () => {
             onClick={(e) => {
               e.stopPropagation();
               setShowAuditToast(false);
-              localStorage.setItem("speed-order-show-audit-toast", "false");
+              localStorage.setItem(STORAGE_KEYS.speedOrderShowAuditToast, "false");
               window.dispatchEvent(new StorageEvent("storage", {
-                key: "speed-order-show-audit-toast",
+                key: STORAGE_KEYS.speedOrderShowAuditToast,
                 newValue: "false"
               }));
               setRecentAuditNotification(null);
@@ -1496,7 +1497,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
                       onChange={(e) => {
                         const val = e.target.checked;
                         setShowHistory(val);
-                        localStorage.setItem("speed-order-show-history", String(val));
+                        localStorage.setItem(STORAGE_KEYS.speedOrderShowHistory, String(val));
                         sendCommand({ command: "SET_HISTORY_VISIBILITY", show: val });
                       }}
                     />
@@ -1518,9 +1519,9 @@ export const SpeedOrderWindowContent: React.FC = () => {
                       onChange={(e) => {
                         const val = e.target.checked;
                         setShowHoldingTime(val);
-                        localStorage.setItem("speed-order-show-holding-time", String(val));
+                        localStorage.setItem(STORAGE_KEYS.speedOrderShowHoldingTime, String(val));
                         window.dispatchEvent(new StorageEvent("storage", {
-                          key: "speed-order-show-holding-time",
+                          key: STORAGE_KEYS.speedOrderShowHoldingTime,
                           newValue: String(val)
                         }));
                       }}
@@ -1542,9 +1543,9 @@ export const SpeedOrderWindowContent: React.FC = () => {
                       onChange={(val) => {
                         const typedVal = val as "pc" | "server";
                         setHoldingTimeMode(typedVal);
-                        localStorage.setItem("speed-order-holding-time-mode", typedVal);
+                        localStorage.setItem(STORAGE_KEYS.speedOrderHoldingTimeMode, typedVal);
                         window.dispatchEvent(new StorageEvent("storage", {
-                          key: "speed-order-holding-time-mode",
+                          key: STORAGE_KEYS.speedOrderHoldingTimeMode,
                           newValue: typedVal
                         }));
                       }}
@@ -1586,9 +1587,9 @@ export const SpeedOrderWindowContent: React.FC = () => {
                         const val = parseFloat(e.target.value);
                         const safeVal = isNaN(val) ? 0 : Math.max(0, Math.round(val * 10) / 10);
                         setErrorDisplayDuration(safeVal);
-                        localStorage.setItem("speed-order-error-display-duration", String(safeVal));
+                        localStorage.setItem(STORAGE_KEYS.speedOrderErrorDisplayDuration, String(safeVal));
                         window.dispatchEvent(new StorageEvent("storage", {
-                          key: "speed-order-error-display-duration",
+                          key: STORAGE_KEYS.speedOrderErrorDisplayDuration,
                           newValue: String(safeVal)
                         }));
                       }}
@@ -1613,7 +1614,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
                       onChange={(e) => {
                         const val = e.target.checked;
                         setHedging(val);
-                        localStorage.setItem("speed-order-hedging", String(val));
+                        localStorage.setItem(STORAGE_KEYS.speedOrderHedging, String(val));
                         sendCommand({ command: "SET_HEDGING", allowed: val });
                       }}
                     />
@@ -1654,7 +1655,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
                     onChange={(val) => {
                       const typed = val as "fixed" | "realistic" | "none";
                       setLatencyModelType(typed);
-                      localStorage.setItem("speed-order-latency-model", typed);
+                      localStorage.setItem(STORAGE_KEYS.speedOrderLatencyModel, typed);
                     }}
                     style={{ width: "100%" }}
                     options={[
@@ -1715,7 +1716,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
                     onChange={(val) => {
                       const typed = val as "realistic" | "none";
                       setSlippageModelType(typed);
-                      localStorage.setItem("speed-order-slippage-model", typed);
+                      localStorage.setItem(STORAGE_KEYS.speedOrderSlippageModel, typed);
                     }}
                     style={{ width: "100%" }}
                     options={[
@@ -1733,9 +1734,9 @@ export const SpeedOrderWindowContent: React.FC = () => {
                 onClick={() => {
                   const nextVal = !showAuditToast;
                   setShowAuditToast(nextVal);
-                  localStorage.setItem("speed-order-show-audit-toast", String(nextVal));
+                  localStorage.setItem(STORAGE_KEYS.speedOrderShowAuditToast, String(nextVal));
                   window.dispatchEvent(new StorageEvent("storage", {
-                    key: "speed-order-show-audit-toast",
+                    key: STORAGE_KEYS.speedOrderShowAuditToast,
                     newValue: String(nextVal)
                   }));
                   if (!nextVal) {
@@ -1756,9 +1757,9 @@ export const SpeedOrderWindowContent: React.FC = () => {
                       onChange={(e) => {
                         const val = e.target.checked;
                         setShowAuditToast(val);
-                        localStorage.setItem("speed-order-show-audit-toast", String(val));
+                        localStorage.setItem(STORAGE_KEYS.speedOrderShowAuditToast, String(val));
                         window.dispatchEvent(new StorageEvent("storage", {
-                          key: "speed-order-show-audit-toast",
+                          key: STORAGE_KEYS.speedOrderShowAuditToast,
                           newValue: String(val)
                         }));
                         if (!val) {
@@ -1974,7 +1975,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
                     onChange={(val) => {
                       const typedVal = val as "blue-red" | "red-green";
                       setOrderColorStyle(typedVal);
-                      localStorage.setItem("speed-order-color-style", typedVal);
+                      localStorage.setItem(STORAGE_KEYS.speedOrderColorStyle, typedVal);
                     }}
                     style={{
                       width: "100%",
@@ -1998,7 +1999,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
                     onChange={(val) => {
                       const typedVal = val as "red-blue" | "green-red";
                       setPlColorStyle(typedVal);
-                      localStorage.setItem("pl-color-style", typedVal);
+                      localStorage.setItem(STORAGE_KEYS.plColorStyle, typedVal);
                     }}
                     style={{
                       width: "100%",

@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
+import { STORAGE_KEYS } from "../constants/storageKeys";
 import { THEME_LIST, ThemeType, ThemeConfig } from "../constants/themePresets";
 import { listen } from "@tauri-apps/api/event";
 
-const THEME_STORAGE_KEY = "tickreplay_theme";
+const THEME_STORAGE_KEY = STORAGE_KEYS.tickreplayTheme;
 const VALID_THEMES: ThemeType[] = ["dark", "dim", "light", "sepia", "warm-sepia"];
 
 interface SettingsUpdatedPayload {
@@ -16,8 +17,8 @@ interface SettingsUpdatedPayload {
 function getInitialTheme(): ThemeType {
   try {
     const saved = (localStorage.getItem(THEME_STORAGE_KEY) ||
-      localStorage.getItem("theme") ||
-      localStorage.getItem("theme-mode") ||
+      localStorage.getItem(STORAGE_KEYS.theme) ||
+      localStorage.getItem(STORAGE_KEYS.themeMode) ||
       "dark") as ThemeType;
     if (VALID_THEMES.includes(saved)) {
       return saved;
@@ -83,10 +84,10 @@ function applyThemeToDocument(theme: ThemeType) {
 export function useTheme() {
   const [theme, setThemeState] = useState<ThemeType>(getInitialTheme);
   const [plColorStyle, setPlColorStyle] = useState<"red-blue" | "green-red">(() => {
-    return (localStorage.getItem("pl-color-style") as "red-blue" | "green-red") || "red-blue";
+    return (localStorage.getItem(STORAGE_KEYS.plColorStyle) as "red-blue" | "green-red") || "red-blue";
   });
   const [orderColorStyle, setOrderColorStyle] = useState<"blue-red" | "red-green">(() => {
-    const saved = localStorage.getItem("speed-order-color-style");
+    const saved = localStorage.getItem(STORAGE_KEYS.speedOrderColorStyle);
     if (saved === "red-primary") return "red-green";
     return (saved as "blue-red" | "red-green") || "blue-red";
   });
@@ -95,8 +96,8 @@ export function useTheme() {
     if (!VALID_THEMES.includes(newTheme)) return;
     try {
       localStorage.setItem(THEME_STORAGE_KEY, newTheme);
-      localStorage.setItem("theme", newTheme);
-      localStorage.setItem("theme-mode", newTheme);
+      localStorage.setItem(STORAGE_KEYS.theme, newTheme);
+      localStorage.setItem(STORAGE_KEYS.themeMode, newTheme);
     } catch (e) {
       console.warn("Failed to save theme to localStorage:", e);
     }
@@ -111,8 +112,8 @@ export function useTheme() {
       const nextTheme = VALID_THEMES[nextIdx];
       try {
         localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
-        localStorage.setItem("theme", nextTheme);
-        localStorage.setItem("theme-mode", nextTheme);
+        localStorage.setItem(STORAGE_KEYS.theme, nextTheme);
+        localStorage.setItem(STORAGE_KEYS.themeMode, nextTheme);
       } catch (e) {}
       applyThemeToDocument(nextTheme);
       return nextTheme;
@@ -127,20 +128,20 @@ export function useTheme() {
   // 損益配色適用エフェクト
   useEffect(() => {
     document.documentElement.setAttribute("data-pl-style", plColorStyle);
-    localStorage.setItem("pl-color-style", plColorStyle);
+    localStorage.setItem(STORAGE_KEYS.plColorStyle, plColorStyle);
   }, [plColorStyle]);
 
   // 発注カラー配色適用エフェクト
   useEffect(() => {
     document.documentElement.setAttribute("data-order-color-style", orderColorStyle);
-    localStorage.setItem("speed-order-color-style", orderColorStyle);
+    localStorage.setItem(STORAGE_KEYS.speedOrderColorStyle, orderColorStyle);
   }, [orderColorStyle]);
 
   // 他ウィンドウからの設定変更（Tauriイベント & storageイベント）を監視
   useEffect(() => {
     const handleStorage = (e: StorageEvent) => {
       if (
-        (e.key === THEME_STORAGE_KEY || e.key === "theme" || e.key === "theme-mode") &&
+        (e.key === THEME_STORAGE_KEY || e.key === STORAGE_KEYS.theme || e.key === STORAGE_KEYS.themeMode) &&
         e.newValue &&
         VALID_THEMES.includes(e.newValue as ThemeType)
       ) {
@@ -148,10 +149,10 @@ export function useTheme() {
         applyThemeToDocument(newTheme);
         setThemeState(newTheme);
       }
-      if (e.key === "pl-color-style" && e.newValue) {
+      if (e.key === STORAGE_KEYS.plColorStyle && e.newValue) {
         setPlColorStyle(e.newValue as "red-blue" | "green-red");
       }
-      if (e.key === "speed-order-color-style" && e.newValue) {
+      if (e.key === STORAGE_KEYS.speedOrderColorStyle && e.newValue) {
         setOrderColorStyle(e.newValue as "blue-red" | "red-green");
       }
     };

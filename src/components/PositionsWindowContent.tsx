@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { STORAGE_KEYS } from "../constants/storageKeys";
 import { listen } from "@tauri-apps/api/event";
 import { formatRate } from "../utils/rateUtils";
 import { useTheme } from "../hooks/useTheme";
@@ -13,7 +14,7 @@ export const PositionsWindowContent: React.FC = () => {
   const [account, setAccount] = useState<VirtualAccount | null>(null);
   const [status, setStatus] = useState<string>("DISCONNECTED");
   const [contractSize] = useState<number>(() => {
-    const saved = localStorage.getItem("speed-order-contract-size");
+    const saved = localStorage.getItem(STORAGE_KEYS.speedOrderContractSize);
     return saved ? parseInt(saved, 10) : 10000;
   });
 

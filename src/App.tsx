@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { STORAGE_KEYS } from "./constants/storageKeys";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -249,7 +250,7 @@ function MainWindow() {
   const [economicMissingMonths, setEconomicMissingMonths] = useState<string[]>([]);
   const [economicAvailableMonths, setEconomicAvailableMonths] = useState<string[]>([]);
   const [_economicAvailabilityMap, setEconomicAvailabilityMap] = useState<Record<string, boolean>>({});
-  const [economicDataDir, setEconomicDataDir] = useState<string>(() => localStorage.getItem("replay_economic_data_dir") || "");
+  const [economicDataDir, setEconomicDataDir] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.replayEconomicDataDir) || "");
 
   // 新規スナップショット保存チェックボックス切り替え時に保存名を動的に更新する
   useEffect(() => {
@@ -451,9 +452,9 @@ function MainWindow() {
   // シンボル選択セレクターウィンドウを開く
   const handleOpenSymbolSelector = async () => {
     try {
-      localStorage.setItem("selected-terminal-path", selectedTerminal);
+      localStorage.setItem(STORAGE_KEYS.selectedTerminalPath, selectedTerminal);
       localStorage.setItem(
-        "symbol-selector-current-state",
+        STORAGE_KEYS.symbolSelectorCurrentState,
         JSON.stringify({
           sourceSymbol,
           subSourceSymbol,
@@ -616,7 +617,7 @@ function MainWindow() {
 
   // タイムステップカスタマイズ State
   const [timeSteps, setTimeSteps] = useState<TimeStepItem[]>(() => {
-    const saved = localStorage.getItem("custom-time-steps");
+    const saved = localStorage.getItem(STORAGE_KEYS.customTimeSteps);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -641,23 +642,23 @@ function MainWindow() {
   const [modalNewTickPreset, setModalNewTickPreset] = useState<string>("");
 
   useEffect(() => {
-    localStorage.setItem("custom-time-steps", JSON.stringify(timeSteps));
+    localStorage.setItem(STORAGE_KEYS.customTimeSteps, JSON.stringify(timeSteps));
   }, [timeSteps]);
   
   // AI急変動・トレンド解析用 State
-  const [openRouterApiKey, setOpenRouterApiKey] = useState<string>(() => localStorage.getItem("openrouter-api-key") || "");
-  const [openRouterModel, setOpenRouterModel] = useState<string>(() => localStorage.getItem("openrouter-model") || "google/gemini-2.5-flash");
-  const [fredApiKey, setFredApiKey] = useState<string>(() => localStorage.getItem("fred-api-key") || "");
-  const [finnhubApiKey, setFinnhubApiKey] = useState<string>(() => localStorage.getItem("finnhub-api-key") || "");
+  const [openRouterApiKey, setOpenRouterApiKey] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.openRouterApiKey) || "");
+  const [openRouterModel, setOpenRouterModel] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.openRouterModel) || "google/gemini-2.5-flash");
+  const [fredApiKey, setFredApiKey] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.fredApiKey) || "");
+  const [finnhubApiKey, setFinnhubApiKey] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.finnhubApiKey) || "");
   const [isAIPanelOpen, setIsAIPanelOpen] = useState<boolean>(false);
   const [aiTargetTimeMsc, setAiTargetTimeMsc] = useState<number>(0);
 
   // AI設定のlocalStorage保存同期
   useEffect(() => {
-    localStorage.setItem("openrouter-api-key", openRouterApiKey);
-    localStorage.setItem("openrouter-model", openRouterModel);
-    localStorage.setItem("fred-api-key", fredApiKey);
-    localStorage.setItem("finnhub-api-key", finnhubApiKey);
+    localStorage.setItem(STORAGE_KEYS.openRouterApiKey, openRouterApiKey);
+    localStorage.setItem(STORAGE_KEYS.openRouterModel, openRouterModel);
+    localStorage.setItem(STORAGE_KEYS.fredApiKey, fredApiKey);
+    localStorage.setItem(STORAGE_KEYS.finnhubApiKey, finnhubApiKey);
   }, [openRouterApiKey, openRouterModel, fredApiKey, finnhubApiKey]);
 
   // API Key 接続テスト用 State
@@ -727,15 +728,15 @@ function MainWindow() {
   const [timezoneMode, setTimezoneMode] = useState<"JST" | "SERVER">("JST");
   
   const [hedging, setHedging] = useState<boolean>(() => {
-    const saved = localStorage.getItem("speed-order-hedging");
+    const saved = localStorage.getItem(STORAGE_KEYS.speedOrderHedging);
     return saved === "true";
   });
   const [showHoldingTime, setShowHoldingTime] = useState<boolean>(() => {
-    const saved = localStorage.getItem("speed-order-show-holding-time");
+    const saved = localStorage.getItem(STORAGE_KEYS.speedOrderShowHoldingTime);
     return saved !== "false";
   });
   const [holdingTimeMode, setHoldingTimeMode] = useState<"pc" | "server">(
-    () => (localStorage.getItem("speed-order-holding-time-mode") as "pc" | "server") || "pc"
+    () => (localStorage.getItem(STORAGE_KEYS.speedOrderHoldingTimeMode) as "pc" | "server") || "pc"
   );
   const isDraggingRef = useRef(false);
   const savedConfig = useRef<PersistedSettings | null>(null); // 保存された設定キャッシュ用のRef
@@ -800,9 +801,9 @@ function MainWindow() {
                 });
               }
             }
-            localStorage.setItem("speed-order-position-real-times", JSON.stringify(restoredTimes));
+            localStorage.setItem(STORAGE_KEYS.speedOrderPositionRealTimes, JSON.stringify(restoredTimes));
             window.dispatchEvent(new StorageEvent("storage", {
-              key: "speed-order-position-real-times",
+              key: STORAGE_KEYS.speedOrderPositionRealTimes,
               newValue: JSON.stringify(restoredTimes)
             }));
           } catch (e) {
@@ -1092,7 +1093,7 @@ function MainWindow() {
 
   // --- 両建て設定適用エフェクト
   useEffect(() => {
-    localStorage.setItem("speed-order-hedging", String(hedging));
+    localStorage.setItem(STORAGE_KEYS.speedOrderHedging, String(hedging));
   }, [hedging]);
 
   // --- 疑似レート設定をEAに同期するエフェクト
@@ -1128,15 +1129,15 @@ function MainWindow() {
   // --- 複数ウィンドウ間での設定同期用エフェクト
   useEffect(() => {
     const handleStorage = (e: StorageEvent) => {
-      if (e.key === "pl-color-style" && e.newValue) {
+      if (e.key === STORAGE_KEYS.plColorStyle && e.newValue) {
         setPlColorStyle(e.newValue as "red-blue" | "green-red");
-      } else if (e.key === "speed-order-color-style" && e.newValue) {
+      } else if (e.key === STORAGE_KEYS.speedOrderColorStyle && e.newValue) {
         setOrderColorStyle(e.newValue as "blue-red" | "red-green");
-      } else if (e.key === "speed-order-hedging" && e.newValue) {
+      } else if (e.key === STORAGE_KEYS.speedOrderHedging && e.newValue) {
         setHedging(e.newValue === "true");
-      } else if (e.key === "speed-order-show-holding-time" && e.newValue) {
+      } else if (e.key === STORAGE_KEYS.speedOrderShowHoldingTime && e.newValue) {
         setShowHoldingTime(e.newValue !== "false");
-      } else if (e.key === "speed-order-holding-time-mode" && e.newValue) {
+      } else if (e.key === STORAGE_KEYS.speedOrderHoldingTimeMode && e.newValue) {
         setHoldingTimeMode(e.newValue as "pc" | "server");
       }
     };
@@ -1305,30 +1306,30 @@ function MainWindow() {
           }
           if (saved.show_holding_time !== undefined && saved.show_holding_time !== null) {
             setShowHoldingTime(saved.show_holding_time);
-            localStorage.setItem("speed-order-show-holding-time", String(saved.show_holding_time));
+            localStorage.setItem(STORAGE_KEYS.speedOrderShowHoldingTime, String(saved.show_holding_time));
           }
           if (saved.holding_time_mode) {
             setHoldingTimeMode(saved.holding_time_mode as "pc" | "server");
-            localStorage.setItem("speed-order-holding-time-mode", saved.holding_time_mode);
+            localStorage.setItem(STORAGE_KEYS.speedOrderHoldingTimeMode, saved.holding_time_mode);
           }
           if (saved.contract_size !== undefined && saved.contract_size !== null) {
             setContractSize(saved.contract_size);
-            localStorage.setItem("speed-order-contract-size", String(saved.contract_size));
+            localStorage.setItem(STORAGE_KEYS.speedOrderContractSize, String(saved.contract_size));
           } else {
-            const savedContract = localStorage.getItem("speed-order-contract-size");
+            const savedContract = localStorage.getItem(STORAGE_KEYS.speedOrderContractSize);
             if (savedContract) {
               setContractSize(parseInt(savedContract, 10));
             }
           }
           if (saved.economic_data_dir) {
             setEconomicDataDir(saved.economic_data_dir);
-            localStorage.setItem("replay_economic_data_dir", saved.economic_data_dir);
-          } else if (!localStorage.getItem("replay_economic_data_dir")) {
+            localStorage.setItem(STORAGE_KEYS.replayEconomicDataDir, saved.economic_data_dir);
+          } else if (!localStorage.getItem(STORAGE_KEYS.replayEconomicDataDir)) {
             invoke<string>("get_default_economic_data_dir")
               .then((def) => {
                 if (def) {
                   setEconomicDataDir(def);
-                  localStorage.setItem("replay_economic_data_dir", def);
+                  localStorage.setItem(STORAGE_KEYS.replayEconomicDataDir, def);
                 }
               })
               .catch(() => {});
@@ -1349,7 +1350,7 @@ function MainWindow() {
       } catch (e) {
         console.error("Failed to sync initial hotkeys", e);
       }
-      localStorage.setItem("speed-order-hotkeys", JSON.stringify(loadedHotkeys));
+      localStorage.setItem(STORAGE_KEYS.speedOrderHotkeys, JSON.stringify(loadedHotkeys));
 
       try {
         await invoke("sync_presets", { timePresets: loadedTimePresets, tickPresets: loadedTickPresets });
@@ -1618,9 +1619,9 @@ function MainWindow() {
       })(),
     };
     try {
-      localStorage.setItem("speed-order-hotkeys", JSON.stringify(customHotkeys));
-      localStorage.setItem("speed-order-contract-size", customContractSize.toString());
-      localStorage.setItem("replay_economic_data_dir", customEconomicDataDir);
+      localStorage.setItem(STORAGE_KEYS.speedOrderHotkeys, JSON.stringify(customHotkeys));
+      localStorage.setItem(STORAGE_KEYS.speedOrderContractSize, customContractSize.toString());
+      localStorage.setItem(STORAGE_KEYS.replayEconomicDataDir, customEconomicDataDir);
       await invoke("save_settings", { settings: settingsObj });
       await invoke("sync_presets", { timePresets: customTimePresets, tickPresets: customTickPresets });
     } catch (e) {
@@ -1725,7 +1726,7 @@ function MainWindow() {
 
   const saveEconomicDataDir = async (newDir: string) => {
     setEconomicDataDir(newDir);
-    localStorage.setItem("replay_economic_data_dir", newDir);
+    localStorage.setItem(STORAGE_KEYS.replayEconomicDataDir, newDir);
     try {
       await invoke("save_settings", {
         settings: {
@@ -1888,7 +1889,7 @@ function MainWindow() {
     setInitialBalance(1000000);
     setLeverage(25);
     setContractSize(10000);
-    localStorage.setItem("speed-order-contract-size", "10000");
+    localStorage.setItem(STORAGE_KEYS.speedOrderContractSize, "10000");
     setHedging(false);
     setEnablePseudoRate(true);
 
@@ -2025,7 +2026,7 @@ function MainWindow() {
     }
     if (session.settings.contract_size !== undefined) {
       setContractSize(session.settings.contract_size);
-      localStorage.setItem("speed-order-contract-size", String(session.settings.contract_size));
+      localStorage.setItem(STORAGE_KEYS.speedOrderContractSize, String(session.settings.contract_size));
     }
     setStartTime(session.settings.start_time);
     setEndTime(session.settings.end_time);
@@ -2224,7 +2225,7 @@ function MainWindow() {
         positions: positions.map(p => {
           let pcAccumulated = 0;
           try {
-            const storedTimesStr = localStorage.getItem("speed-order-position-real-times");
+            const storedTimesStr = localStorage.getItem(STORAGE_KEYS.speedOrderPositionRealTimes);
             if (storedTimesStr) {
               const storedTimes = JSON.parse(storedTimesStr);
               if (storedTimes[p.ticket] !== undefined) {
@@ -2255,7 +2256,7 @@ function MainWindow() {
         history: history.map(h => {
           let pcAccumulated = 0;
           try {
-            const storedTimesStr = localStorage.getItem("speed-order-position-real-times");
+            const storedTimesStr = localStorage.getItem(STORAGE_KEYS.speedOrderPositionRealTimes);
             if (storedTimesStr) {
               const storedTimes = JSON.parse(storedTimesStr);
               if (storedTimes[h.ticket] !== undefined) {

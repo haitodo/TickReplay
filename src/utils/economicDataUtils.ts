@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { STORAGE_KEYS } from "../constants/storageKeys";
 
 export interface EconomicMonthStatus {
   year_month: string;
@@ -17,7 +18,7 @@ export interface EconomicDataAvailability {
   available_months: string[];
 }
 
-export const ECONOMIC_DIR_STORAGE_KEY = "replay_economic_data_dir";
+export const ECONOMIC_DIR_STORAGE_KEY = STORAGE_KEYS.replayEconomicDataDir;
 const STORAGE_KEY = "replay-economic-availability";
 const SYMBOL_KEY = "replay-economic-symbol";
 
