@@ -1,24 +1,25 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getMonthRange } from "../utils/dateUtils";
+import {
+  type ScannedZipFile,
+  type ScannedPairGroup,
+  type ImportFilters,
+  type SelectionMode,
+  type ImportItem,
+  getGroupKey,
+  getGroupBroker,
+  getGroupYear,
+  filterGroups,
+  collectFiles,
+  countSelected,
+  countTotalSelected,
+  applySelectionMode,
+  applyBrokerFilterSelection,
+  collectImportItems
+} from "../domain/customSymbolImport";
 
-export interface ScannedZipFile {
-  year_month: string;
-  file_path: string;
-  already_imported: boolean;
-  file_type?: "parquet" | "zip" | string;
-}
-
-export interface ScannedPairGroup {
-  category: string;
-  broker?: string;
-  year?: string;
-  pair_name: string;
-  suggested_symbol_name: string;
-  group_path: string;
-  files: ScannedZipFile[];
-  already_exists_in_mt5: boolean;
-}
+export type { ScannedZipFile, ScannedPairGroup } from "../domain/customSymbolImport";
 
 interface CustomSymbolImportModalProps {
   isOpen: boolean;
@@ -71,28 +72,6 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
   const [importCompletedSuccessfully, setImportCompletedSuccessfully] = useState(false);
 
   const cancelImportRef = useRef(false);
-
-  const getGroupKey = (g: { category?: string; pair_name: string; suggested_symbol_name?: string }) => {
-    return g.suggested_symbol_name || `${g.category || "Custom"}_${g.pair_name}`;
-  };
-
-  const getGroupBroker = (g: ScannedPairGroup): string => {
-    if (g.broker && g.broker.trim() && g.broker.toLowerCase() !== "custom") return g.broker;
-    if (g.category && !/^\d{4}$/.test(g.category) && g.category.toLowerCase() !== "custom") return g.category;
-    return "Custom";
-  };
-
-  const getGroupYear = (g: ScannedPairGroup): string => {
-    if (g.year && /^\d{4}$/.test(g.year)) return g.year;
-    if (g.category && /^\d{4}$/.test(g.category)) return g.category;
-    if (g.files.length > 0 && g.files[0].year_month) {
-      const match = g.files[0].year_month.match(/^(\d{4})/);
-      if (match) return match[1];
-    }
-    const matchSym = g.suggested_symbol_name.match(/_(\d{4})(?:_|$)/);
-    if (matchSym) return matchSym[1];
-    return "";
-  };
 
   // モーダル表示時に MT5 EA 接続状態を確認 ＆ デフォルトパス取得 ＆ 自動スキャン
   useEffect(() => {
@@ -296,163 +275,48 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
   }, [scannedGroups]);
 
   // フィルタリング適用後のグループ
+  // 判定ロジックは domain/customSymbolImport.ts に置き、UI を描画せずにテストできるようにしている
   const filteredGroups = useMemo(() => {
-    return scannedGroups
-      .map(g => {
-        const filteredFiles = g.files.filter(f => {
-          if (selectedFormatFilter === "ALL") return true;
-          const isP = f.file_type === "parquet" || f.file_path.toLowerCase().endsWith(".parquet");
-          if (selectedFormatFilter === "parquet") return isP;
-          if (selectedFormatFilter === "zip") return !isP;
-          return true;
-        });
-        return {
-          ...g,
-          files: filteredFiles
-        };
-      })
-      .filter(g => {
-        if (g.files.length === 0) return false;
-        const b = getGroupBroker(g);
-        const y = getGroupYear(g);
-        if (selectedBrokerFilter !== "ALL" && b !== selectedBrokerFilter) return false;
-        if (selectedYearFilter !== "ALL" && y !== selectedYearFilter) return false;
-        
-        const totalFiles = g.files.length;
-        const importedFiles = g.files.filter(f => f.already_imported).length;
-        const isComplete = importedFiles === totalFiles && totalFiles > 0;
-        
-        if (selectedStatusFilter === "unimported_only" && isComplete) return false;
-        if (selectedStatusFilter === "imported_only" && !isComplete) return false;
-
-        if (searchQuery.trim()) {
-          const q = searchQuery.trim().toUpperCase();
-          const key = getGroupKey(g);
-          const symName = symbolNames[key] || g.suggested_symbol_name || "";
-          if (
-            !g.pair_name.toUpperCase().includes(q) &&
-            !symName.toUpperCase().includes(q) &&
-            !b.toUpperCase().includes(q) &&
-            !y.includes(q)
-          ) {
-            return false;
-          }
-        }
-        return true;
-      });
+    const f: ImportFilters = {
+      broker: selectedBrokerFilter,
+      year: selectedYearFilter,
+      status: selectedStatusFilter,
+      format: selectedFormatFilter,
+      searchQuery
+    };
+    return filterGroups(scannedGroups, f, symbolNames);
   }, [scannedGroups, selectedBrokerFilter, selectedYearFilter, selectedStatusFilter, selectedFormatFilter, searchQuery, symbolNames]);
 
   // フィルタ後のファイル一覧
-  const visibleFiles = useMemo(() => {
-    const list: ScannedZipFile[] = [];
-    filteredGroups.forEach(g => {
-      g.files.forEach(f => list.push(f));
-    });
-    return list;
-  }, [filteredGroups]);
+  const visibleFiles = useMemo(() => collectFiles(filteredGroups), [filteredGroups]);
 
-  const visibleSelectedCount = useMemo(() => {
-    return visibleFiles.filter(f => selectedMonths[f.file_path]).length;
-  }, [visibleFiles, selectedMonths]);
+  const visibleSelectedCount = useMemo(
+    () => countSelected(visibleFiles, selectedMonths),
+    [visibleFiles, selectedMonths]
+  );
 
   // 全スキャンファイル中の総選択数 (他フィルタに残存する選択を検知・可視化)
-  const totalSelectedCount = useMemo(() => {
-    return Object.values(selectedMonths).filter(Boolean).length;
-  }, [selectedMonths]);
+  const totalSelectedCount = useMemo(() => countTotalSelected(selectedMonths), [selectedMonths]);
 
   // 業者フィルタ切り替え時のハンドラ (他業者の選択残留を防止し、選択の整合性を保つ)
   const handleBrokerFilterChange = (broker: string) => {
     setSelectedBrokerFilter(broker);
-    if (broker !== "ALL") {
-      setSelectedMonths(prev => {
-        const next = { ...prev };
-        let anySelectedInThisBroker = false;
-
-        scannedGroups.forEach(g => {
-          const gBroker = getGroupBroker(g);
-          if (gBroker !== broker) {
-            // 選択した業者以外のファイルのチェックを解除し、隠れた選択が残らないようにする
-            g.files.forEach(f => {
-              next[f.file_path] = false;
-            });
-          } else {
-            g.files.forEach(f => {
-              if (next[f.file_path]) anySelectedInThisBroker = true;
-            });
-          }
-        });
-
-        // もしこの業者でまだ1件も選択されていない場合は未インポート分を自動選択
-        if (!anySelectedInThisBroker) {
-          scannedGroups.forEach(g => {
-            if (getGroupBroker(g) === broker) {
-              g.files.forEach(f => {
-                if (!f.already_imported) {
-                  next[f.file_path] = true;
-                }
-              });
-            }
-          });
-        }
-
-        return next;
-      });
-    }
+    setSelectedMonths(prev => applyBrokerFilterSelection(scannedGroups, broker, prev));
   };
 
   // 表示中の一括選択・解除
-  const handleSelectVisibleFiles = (mode: "all" | "none" | "unimported") => {
-    setSelectedMonths(prev => {
-      const next = { ...prev };
-      filteredGroups.forEach(g => {
-        g.files.forEach(f => {
-          if (mode === "all") {
-            next[f.file_path] = true;
-          } else if (mode === "none") {
-            next[f.file_path] = false;
-          } else if (mode === "unimported") {
-            next[f.file_path] = !f.already_imported;
-          }
-        });
-      });
-      return next;
-    });
+  const handleSelectVisibleFiles = (mode: SelectionMode) => {
+    setSelectedMonths(prev => applySelectionMode(collectFiles(filteredGroups), mode, prev));
   };
 
   // 特定の年グループ単位の一括選択・解除
-  const handleSelectYearGroups = (groupsInYear: ScannedPairGroup[], mode: "all" | "none" | "unimported") => {
-    setSelectedMonths(prev => {
-      const next = { ...prev };
-      groupsInYear.forEach(g => {
-        g.files.forEach(f => {
-          if (mode === "all") {
-            next[f.file_path] = true;
-          } else if (mode === "none") {
-            next[f.file_path] = false;
-          } else if (mode === "unimported") {
-            next[f.file_path] = !f.already_imported;
-          }
-        });
-      });
-      return next;
-    });
+  const handleSelectYearGroups = (groupsInYear: ScannedPairGroup[], mode: SelectionMode) => {
+    setSelectedMonths(prev => applySelectionMode(collectFiles(groupsInYear), mode, prev));
   };
 
   // 単一ペア単位の一括選択・解除
-  const handleSelectGroupFiles = (files: ScannedZipFile[], mode: "all" | "none" | "unimported") => {
-    setSelectedMonths(prev => {
-      const next = { ...prev };
-      files.forEach(f => {
-        if (mode === "all") {
-          next[f.file_path] = true;
-        } else if (mode === "none") {
-          next[f.file_path] = false;
-        } else if (mode === "unimported") {
-          next[f.file_path] = !f.already_imported;
-        }
-      });
-      return next;
-    });
+  const handleSelectGroupFiles = (files: ScannedZipFile[], mode: SelectionMode) => {
+    setSelectedMonths(prev => applySelectionMode(files, mode, prev));
   };
 
   const handleStopImport = () => {
@@ -473,34 +337,14 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
     }
 
     // インポート対象のファイルをリストアップ (現在フィルタ表示されているグループのみを厳格に対象とする)
-    const itemsToImport: {
-      pairName: string;
-      symbolName: string;
-      groupPath: string;
-      filePath: string;
-      yearMonth: string;
-    }[] = [];
+    const itemsToImport: ImportItem[] = collectImportItems(
+      filteredGroups,
+      selectedMonths,
+      symbolNames,
+      groupPaths
+    );
 
-    const importedSymbolSet = new Set<string>();
-
-    filteredGroups.forEach(g => {
-      const key = getGroupKey(g);
-      const symName = symbolNames[key] || g.suggested_symbol_name || `${g.pair_name}_Custom`;
-      const grpPath = groupPaths[key] || g.group_path || (g.category && g.category !== "Custom" ? g.category : "Custom");
-
-      g.files.forEach(f => {
-        if (selectedMonths[f.file_path]) {
-          itemsToImport.push({
-            pairName: g.pair_name,
-            symbolName: symName,
-            groupPath: grpPath,
-            filePath: f.file_path,
-            yearMonth: f.year_month
-          });
-          importedSymbolSet.add(symName);
-        }
-      });
-    });
+    const importedSymbolSet = new Set(itemsToImport.map(it => it.symbolName));
 
     if (itemsToImport.length === 0) {
       setErrorMessage("インポート対象のデータが選択されていません。");
