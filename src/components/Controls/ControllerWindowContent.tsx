@@ -130,13 +130,15 @@ export const ControllerWindowContent: React.FC = () => {
       })
       .catch(console.warn);
 
+    // 購読完了前にこの effect が破棄された場合でもリスナーを残さないためのフラグ
+    let disposed = false;
     let unlisten: (() => void) | undefined;
 
     const setupListener = async () => {
       // 初期ステータス取得
       try {
         const lastStatusStr = await invoke<string>("get_last_status");
-        if (lastStatusStr) {
+        if (!disposed && lastStatusStr) {
           handleStatusPayload(lastStatusStr);
         }
       } catch (err) {
@@ -144,14 +146,22 @@ export const ControllerWindowContent: React.FC = () => {
       }
 
       // イベント購読
-      unlisten = await listen<string>("mt5-status", (event) => {
+      const off = await listen<string>("mt5-status", (event) => {
         handleStatusPayload(event.payload);
       });
+
+      // 購読が解決する前にアンマウントされていた場合は即座に解除する
+      if (disposed) {
+        off();
+        return;
+      }
+      unlisten = off;
     };
 
     setupListener();
 
     return () => {
+      disposed = true;
       if (unlisten) unlisten();
     };
   }, []);

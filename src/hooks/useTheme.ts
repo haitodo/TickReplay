@@ -158,8 +158,9 @@ export function useTheme() {
 
     window.addEventListener("storage", handleStorage);
 
-    let unlistenTauri: (() => void) | undefined;
-    listen<SettingsUpdatedPayload>("settings-updated", (event) => {
+    // 購読解除は「解決後」に必ず行う。登録が解決する前にこの effect が
+    // 破棄されても、解決時点で解除されるためリスナーが残らない。
+    const unlistenTauri = listen<SettingsUpdatedPayload>("settings-updated", (event) => {
       if (event.payload) {
         const { theme: updatedTheme, themeMode, themeId, plColorStyle: updatedPl, orderColorStyle: updatedOrder } = event.payload;
         const candidate = updatedTheme || themeMode || themeId;
@@ -170,13 +171,11 @@ export function useTheme() {
         if (updatedPl) setPlColorStyle(updatedPl);
         if (updatedOrder) setOrderColorStyle(updatedOrder);
       }
-    }).then((unlisten) => {
-      unlistenTauri = unlisten;
-    }).catch(() => {});
+    });
 
     return () => {
       window.removeEventListener("storage", handleStorage);
-      if (unlistenTauri) unlistenTauri();
+      unlistenTauri.then((fn) => fn()).catch(() => {});
     };
   }, []);
 
