@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
+import { COMMANDS } from "../constants/commands";
 import { invoke } from "@tauri-apps/api/core";
 import { getMonthRange } from "../utils/dateUtils";
 import {
@@ -80,7 +81,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
       setImportCompletedSuccessfully(false);
       setLastImportedSymbols([]);
       
-      invoke<string>("get_default_custom_symbol_dir")
+      invoke<string>(COMMANDS.getDefaultCustomSymbolDir)
         .then((defDir) => {
           if (defDir) {
             setDefaultRootDir(defDir);
@@ -105,7 +106,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
 
   const checkMt5Connection = async (): Promise<boolean> => {
     try {
-      const statusStr = await invoke<string>("get_last_status");
+      const statusStr = await invoke<string>(COMMANDS.getLastStatus);
       const isConnected = !!(statusStr && statusStr.trim().length > 0);
       setMt5Connected(isConnected);
       return isConnected;
@@ -125,7 +126,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
 
   const handleBrowseFolder = async () => {
     try {
-      const selected = await invoke<string | null>("select_folder");
+      const selected = await invoke<string | null>(COMMANDS.selectFolder);
       if (selected) {
         updateRootDir(selected);
         handleScanWithDir(selected);
@@ -138,7 +139,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
   // デフォルトフォルダ (Drenhis Parquet出力) へリセット
   const handleResetToDefault = async () => {
     try {
-      const defDir = await invoke<string>("get_default_custom_symbol_dir");
+      const defDir = await invoke<string>(COMMANDS.getDefaultCustomSymbolDir);
       const target = defDir || defaultRootDir || "D:\\Drehis\\tick";
       setDefaultRootDir(target);
       updateRootDir(target);
@@ -161,7 +162,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
     setIsScanning(true);
     setImportCompletedSuccessfully(false);
     try {
-      const groups = await invoke<ScannedPairGroup[]>("scan_custom_symbol_files", {
+      const groups = await invoke<ScannedPairGroup[]>(COMMANDS.scanCustomSymbolFiles, {
         rootDir: targetDir,
         terminalPath
       });
@@ -377,7 +378,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
       });
 
       try {
-        const tickCount = await invoke<number>("import_custom_symbol_chunk", {
+        const tickCount = await invoke<number>(COMMANDS.importCustomSymbolChunk, {
           symbolName: item.symbolName,
           groupPath: item.groupPath,
           baseSymbol: item.pairName,

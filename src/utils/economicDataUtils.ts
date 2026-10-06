@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { COMMANDS } from "../constants/commands";
 import { STORAGE_KEYS } from "../constants/storageKeys";
 
 export interface EconomicMonthStatus {
@@ -70,7 +71,7 @@ export async function checkEconomicDataAvailability(
   customDir?: string
 ): Promise<EconomicDataAvailability> {
   const targetDir = customDir !== undefined ? customDir : getStoredEconomicDataDir();
-  const result = await invoke<EconomicDataAvailability>("check_economic_data_availability", {
+  const result = await invoke<EconomicDataAvailability>(COMMANDS.checkEconomicDataAvailability, {
     symbol,
     startTime,
     endTime,

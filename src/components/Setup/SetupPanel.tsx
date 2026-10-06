@@ -1,4 +1,5 @@
 import React from "react";
+import { COMMANDS } from "../../constants/commands";
 import { invoke } from "@tauri-apps/api/core";
 import { AdvancedSettingsAccordion } from "./AdvancedSettingsAccordion";
 import { SymbolItem } from "../SymbolCombobox";
@@ -1207,7 +1208,7 @@ const SetupPanelComponent: React.FC<SetupPanelProps> = ({
             <button
               type="button"
               className="btn-action-outline"
-              onClick={() => invoke("open_settings_window").catch(console.error)}
+              onClick={() => invoke(COMMANDS.openSettingsWindow).catch(console.error)}
               title="システム環境設定を開く"
             >
               <span className="material-symbols-outlined icon">settings</span>
@@ -1216,7 +1217,7 @@ const SetupPanelComponent: React.FC<SetupPanelProps> = ({
             <button
               type="button"
               className="btn-action-outline"
-              onClick={() => invoke("open_tracely_app").catch(console.error)}
+              onClick={() => invoke(COMMANDS.openTracelyApp).catch(console.error)}
               title="トレード分析アプリ Tracely を起動"
             >
               <span className="material-symbols-outlined icon text-indigo">analytics</span>
@@ -1259,7 +1260,7 @@ const SetupPanelComponent: React.FC<SetupPanelProps> = ({
                 <button
                   type="button"
                   className="btn-start-replay-spacious ready"
-                  onClick={() => invoke("open_controller_window").catch(console.error)}
+                  onClick={() => invoke(COMMANDS.openControllerWindow).catch(console.error)}
                   title="モニター2のリプレイ操作コントローラーを表示"
                 >
                   <span className="material-symbols-outlined icon">open_in_new</span>

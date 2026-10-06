@@ -1,4 +1,5 @@
 import React from "react";
+import { COMMANDS } from "../../constants/commands";
 import { invoke } from "@tauri-apps/api/core";
 import { formatYearMonthJapanese } from "../../utils/economicDataUtils";
 
@@ -31,7 +32,7 @@ export const EconomicDataMissingModal: React.FC<EconomicDataMissingModalProps> =
 
   const handleSelectFolder = async () => {
     try {
-      const selected = await invoke<string | null>("select_folder");
+      const selected = await invoke<string | null>(COMMANDS.selectFolder);
       if (selected && onFolderSelected) {
         onFolderSelected(selected);
       }

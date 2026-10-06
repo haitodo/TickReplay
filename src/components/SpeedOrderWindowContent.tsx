@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { COMMANDS } from "../constants/commands";
+import { EVENTS } from "../constants/events";
 import { STORAGE_KEYS } from "../constants/storageKeys";
 import { invoke } from "@tauri-apps/api/core";
 import { translateErrorMessage } from "../utils/i18nUtils";
@@ -367,7 +369,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
 
   useEffect(() => {
     // ホットキー・初期設定の読み込み
-    invoke<PersistedSettings>("load_settings").then((saved) => {
+    invoke<PersistedSettings>(COMMANDS.loadSettings).then((saved) => {
       if (saved) {
         if (saved.hotkeys) {
           const merged = { ...DEFAULT_HOTKEYS, ...saved.hotkeys };
@@ -381,7 +383,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
     }).catch(console.error);
 
     // キャッシュされている最後のステータスを取得して初期化
-    invoke<string>("get_last_status").then((last) => {
+    invoke<string>(COMMANDS.getLastStatus).then((last) => {
       if (last && last.trim() !== "") {
         const data = JSON.parse(last) as ReplayProgressPayload;
         if (data.status === "ACTIVE" || data.status === "READY" || data.status === "CONNECTED") {
@@ -523,7 +525,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
         statusFrame = null;
       }
     };
-    const unlistenStatus = listen<string>("mt5-status", (event) => {
+    const unlistenStatus = listen<string>(EVENTS.mt5Status, (event) => {
       // ERRORステータスは離散イベントのため、rAFスロットリングで上書き消失しないよう即座に適用する
       if (event.payload.includes('"status":"ERROR"') || event.payload.includes('"status": "ERROR"')) {
         try {
@@ -537,7 +539,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
       scheduleStatus(event.payload);
     });
 
-    const unlistenDisconnect = listen("mt5-disconnected", () => {
+    const unlistenDisconnect = listen(EVENTS.mt5Disconnected, () => {
       discardPendingStatus();
       if (bidFlashTimerRef.current) clearTimeout(bidFlashTimerRef.current);
       if (askFlashTimerRef.current) clearTimeout(askFlashTimerRef.current);
@@ -584,7 +586,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
 
       if (matchedAction) {
         e.preventDefault();
-        emit("trigger-action", { action: matchedAction }).catch(console.error);
+        emit(EVENTS.triggerAction, { action: matchedAction }).catch(console.error);
       }
     };
 
@@ -858,7 +860,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
 
   // メインウィンドウやグローバルホットキーからの注文・決済アクション呼び出しをリッスン
   useEffect(() => {
-    const unlisten = listen<{ action: string }>("trigger-action", (event) => {
+    const unlisten = listen<{ action: string }>(EVENTS.triggerAction, (event) => {
       const { action } = event.payload;
       switch (action) {
         case "order_buy":
@@ -981,7 +983,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
             className="speed-header-icon-btn"
             onClick={async () => {
               try {
-                await invoke("open_positions_window");
+                await invoke(COMMANDS.openPositionsWindow);
               } catch (err) {
                 console.error("Failed to open account & positions window:", err);
               }
@@ -1057,7 +1059,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
         <div
           className="audit-toast-banner"
           onClick={() => {
-            invoke("open_tracely_app").catch(console.error);
+            invoke(COMMANDS.openTracelyApp).catch(console.error);
           }}
           style={{
             position: "absolute",
@@ -1292,7 +1294,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
       {/* 簡易口座情報バー */}
       <div
         className="speed-account-bar"
-        onClick={() => invoke("open_positions_window").catch(console.error)}
+        onClick={() => invoke(COMMANDS.openPositionsWindow).catch(console.error)}
         style={{ cursor: "pointer", userSelect: "none" }}
         title="クリックして口座・ポジション管理を開く"
       >
@@ -1783,7 +1785,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
                     type="button"
                     onClick={() => {
                       setIsSettingsOpen(false);
-                      invoke("open_tracely_app").catch(console.error);
+                      invoke(COMMANDS.openTracelyApp).catch(console.error);
                     }}
                     style={{
                       width: "100%",

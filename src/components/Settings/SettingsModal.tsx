@@ -1,4 +1,5 @@
 import React from "react";
+import { COMMANDS } from "../../constants/commands";
 import { invoke } from "@tauri-apps/api/core";
 import { CustomSelect } from "../../CustomSelect";
 import { DEFAULT_HOTKEYS, HOTKEY_METADATA, formatShortcutForDisplay } from "../../utils/hotkeyUtils";
@@ -279,7 +280,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     style={{ display: "flex", alignItems: "center", gap: "4px", whiteSpace: "nowrap" }}
                     onClick={async () => {
                       try {
-                        const selected = await invoke<string | null>("select_folder");
+                        const selected = await invoke<string | null>(COMMANDS.selectFolder);
                         if (selected && setEconomicDataDir) {
                           setEconomicDataDir(selected);
                         }
@@ -297,7 +298,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     style={{ display: "flex", alignItems: "center", gap: "4px", whiteSpace: "nowrap" }}
                     onClick={async () => {
                       try {
-                        const def = await invoke<string>("get_default_economic_data_dir");
+                        const def = await invoke<string>(COMMANDS.getDefaultEconomicDataDir);
                         if (def && setEconomicDataDir) {
                           setEconomicDataDir(def);
                         }

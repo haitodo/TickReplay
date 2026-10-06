@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { COMMANDS } from "./constants/commands";
+import { EVENTS } from "./constants/events";
 import { STORAGE_KEYS } from "./constants/storageKeys";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, emit } from "@tauri-apps/api/event";
@@ -333,7 +335,7 @@ function MainWindow() {
 
   const handleSaveTerminalName = async (terminalPath: string, customName: string) => {
     try {
-      await invoke("save_terminal_name", { terminalPath, customName });
+      await invoke(COMMANDS.saveTerminalName, { terminalPath, customName });
       setTerminals((prev) =>
         prev.map((t) => {
           if (t.path === terminalPath) {
@@ -354,7 +356,7 @@ function MainWindow() {
 
   const handleResetTerminalName = async (terminalPath: string) => {
     try {
-      await invoke("save_terminal_name", { terminalPath, customName: "" });
+      await invoke(COMMANDS.saveTerminalName, { terminalPath, customName: "" });
       setTerminals((prev) =>
         prev.map((t) => {
           if (t.path === terminalPath) {
@@ -438,7 +440,7 @@ function MainWindow() {
 
   const loadAvailableSymbols = async (terminalPath: string) => {
     try {
-      const list = await invoke<SymbolItem[]>("get_available_symbols", { terminalPath });
+      const list = await invoke<SymbolItem[]>(COMMANDS.getAvailableSymbols, { terminalPath });
       setAvailableSymbols(list);
     } catch (err) {
       console.error("Failed to load available symbols:", err);
@@ -465,7 +467,7 @@ function MainWindow() {
           endTime,
         })
       );
-      await emit("symbol-selector-init", {
+      await emit(EVENTS.symbolSelectorInit, {
         sourceSymbol,
         subSourceSymbol,
         enableDualFeed,
@@ -474,7 +476,7 @@ function MainWindow() {
         startTime,
         endTime,
       });
-      await invoke("open_symbol_selector_window");
+      await invoke(COMMANDS.openSymbolSelectorWindow);
     } catch (err) {
       console.warn("Failed to open symbol selector window via invoke, opening modal fallback:", err);
       setIsBatchSelectorOpen(true);
@@ -483,7 +485,7 @@ function MainWindow() {
 
   // セレクターウィンドウからの選択結果適用イベントを受信
   useEffect(() => {
-    const unlisten = listen<SymbolSelectionPayload>("apply-symbol-selection", (event) => {
+    const unlisten = listen<SymbolSelectionPayload>(EVENTS.applySymbolSelection, (event) => {
       const data = event.payload;
       if (data.sourceSymbol) setSourceSymbol(data.sourceSymbol);
       if (data.subSourceSymbol !== undefined) setSubSourceSymbol(data.subSourceSymbol);
@@ -602,7 +604,7 @@ function MainWindow() {
       (prevStatusRef.current === "CONNECTED" || prevStatusRef.current === "DISCONNECTED") &&
       (status === "READY" || status === "ACTIVE")
     ) {
-      invoke("open_controller_window").catch((err) => {
+      invoke(COMMANDS.openControllerWindow).catch((err) => {
         console.warn("Open controller window failed or not applicable in browser:", err);
       });
     }
@@ -1040,7 +1042,7 @@ function MainWindow() {
     setErrorMessage("");
     try {
       // 1. 直近のステータスを取得して反映
-      const lastStatus = await invoke<string>("get_last_status");
+      const lastStatus = await invoke<string>(COMMANDS.getLastStatus);
       if (lastStatus && lastStatus.trim() !== "") {
         const parsed = JSON.parse(lastStatus);
         if (parsed.status === "CONNECTED" || parsed.status === "READY" || parsed.status === "ACTIVE") {
@@ -1054,7 +1056,7 @@ function MainWindow() {
         await sendCommand({ command: "PING" });
       } catch (_) {}
 
-      const recheck = await invoke<string>("get_last_status");
+      const recheck = await invoke<string>(COMMANDS.getLastStatus);
       if (recheck && recheck.trim() !== "") {
         const parsed = JSON.parse(recheck);
         if (parsed.status === "CONNECTED" || parsed.status === "READY" || parsed.status === "ACTIVE") {
@@ -1076,7 +1078,7 @@ function MainWindow() {
 
     const intervalId = setInterval(async () => {
       try {
-        const lastStatus = await invoke<string>("get_last_status");
+        const lastStatus = await invoke<string>(COMMANDS.getLastStatus);
         if (lastStatus && lastStatus.trim() !== "") {
           const parsed = JSON.parse(lastStatus);
           if (parsed.status === "CONNECTED" || parsed.status === "READY" || parsed.status === "ACTIVE") {
@@ -1157,17 +1159,17 @@ function MainWindow() {
   // --- 1. バックエンドからのイベント監視
   useEffect(() => {
     // ステータスファイル経由のEAステータス受信
-    const unlistenStatus = listen<string>("mt5-status", (event) => {
+    const unlistenStatus = listen<string>(EVENTS.mt5Status, (event) => {
       scheduleStatusUpdate(event.payload);
     });
 
     // EA接続時
-    const unlistenConnect = listen("mt5-connected", () => {
+    const unlistenConnect = listen(EVENTS.mt5Connected, () => {
       setStatus((prev) => prev === "DISCONNECTED" ? "CONNECTED" : prev);
     });
 
     // EA切断時
-    const unlistenDisconnect = listen("mt5-disconnected", async () => {
+    const unlistenDisconnect = listen(EVENTS.mt5Disconnected, async () => {
       setStatus("DISCONNECTED");
       setIsPlaying(false);
       setLoopActive(false);
@@ -1195,7 +1197,7 @@ function MainWindow() {
       let loadedShortcutsActive = false;
       let loadedAlwaysOnTop = false;
       try {
-        const saved = await invoke<PersistedSettings>("load_settings");
+        const saved = await invoke<PersistedSettings>(COMMANDS.loadSettings);
         if (saved) {
           savedConfig.current = saved;
           if (saved.source_symbol) {
@@ -1325,7 +1327,7 @@ function MainWindow() {
             setEconomicDataDir(saved.economic_data_dir);
             localStorage.setItem(STORAGE_KEYS.replayEconomicDataDir, saved.economic_data_dir);
           } else if (!localStorage.getItem(STORAGE_KEYS.replayEconomicDataDir)) {
-            invoke<string>("get_default_economic_data_dir")
+            invoke<string>(COMMANDS.getDefaultEconomicDataDir)
               .then((def) => {
                 if (def) {
                   setEconomicDataDir(def);
@@ -1340,27 +1342,27 @@ function MainWindow() {
       }
 
       try {
-        await invoke("set_always_on_top", { always: loadedAlwaysOnTop });
+        await invoke(COMMANDS.setAlwaysOnTop, { always: loadedAlwaysOnTop });
       } catch (e) {
         console.error("Failed to sync initial always_on_top", e);
       }
 
       try {
-        await invoke("set_shortcuts_active", { active: loadedShortcutsActive, hotkeys: loadedHotkeys });
+        await invoke(COMMANDS.setShortcutsActive, { active: loadedShortcutsActive, hotkeys: loadedHotkeys });
       } catch (e) {
         console.error("Failed to sync initial hotkeys", e);
       }
       localStorage.setItem(STORAGE_KEYS.speedOrderHotkeys, JSON.stringify(loadedHotkeys));
 
       try {
-        await invoke("sync_presets", { timePresets: loadedTimePresets, tickPresets: loadedTickPresets });
+        await invoke(COMMANDS.syncPresets, { timePresets: loadedTimePresets, tickPresets: loadedTickPresets });
       } catch (e) {
         console.error("Failed to sync initial presets", e);
       }
 
       let terminalSuccess = false;
       try {
-        const res = await invoke<TerminalInfo[]>("get_mt5_terminals");
+        const res = await invoke<TerminalInfo[]>(COMMANDS.getMt5Terminals);
         setTerminals(res);
         if (res.length > 0) {
           let targetPath = res[0].path;
@@ -1372,7 +1374,7 @@ function MainWindow() {
             savedConfig.current = null;
           }
           setSelectedTerminal(targetPath);
-          await invoke("select_terminal", { terminalPath: targetPath });
+          await invoke(COMMANDS.selectTerminal, { terminalPath: targetPath });
           terminalSuccess = true;
         }
       } catch (e) {
@@ -1385,7 +1387,7 @@ function MainWindow() {
 
       // 初期接続状況の確認
       try {
-        const lastStatus = await invoke<string>("get_last_status");
+        const lastStatus = await invoke<string>(COMMANDS.getLastStatus);
         if (lastStatus && lastStatus.trim() !== "") {
           handleStatusStringRef.current(lastStatus);
         }
@@ -1426,17 +1428,17 @@ function MainWindow() {
   useEffect(() => {
     if (selectedTerminal) {
       // RustバックエンドにファイルベースIPCのパスを通知
-      invoke("select_terminal", { terminalPath: selectedTerminal }).catch(console.error);
+      invoke(COMMANDS.selectTerminal, { terminalPath: selectedTerminal }).catch(console.error);
 
       // チャートの最大バー数設定を取得
-      invoke<MaxBarsInfo>("get_terminal_max_bars", { terminalPath: selectedTerminal })
+      invoke<MaxBarsInfo>(COMMANDS.getTerminalMaxBars, { terminalPath: selectedTerminal })
         .then((info) => setMaxBarsInfo(info))
         .catch((err) => {
           console.error("Failed to get terminal max bars:", err);
           setMaxBarsInfo(null);
         });
 
-      invoke<string[]>("get_profiles", { terminalPath: selectedTerminal })
+      invoke<string[]>(COMMANDS.getProfiles, { terminalPath: selectedTerminal })
         .then((res) => {
           setProfiles(res);
           if (res.length > 0) {
@@ -1622,8 +1624,8 @@ function MainWindow() {
       localStorage.setItem(STORAGE_KEYS.speedOrderHotkeys, JSON.stringify(customHotkeys));
       localStorage.setItem(STORAGE_KEYS.speedOrderContractSize, customContractSize.toString());
       localStorage.setItem(STORAGE_KEYS.replayEconomicDataDir, customEconomicDataDir);
-      await invoke("save_settings", { settings: settingsObj });
-      await invoke("sync_presets", { timePresets: customTimePresets, tickPresets: customTickPresets });
+      await invoke(COMMANDS.saveSettings, { settings: settingsObj });
+      await invoke(COMMANDS.syncPresets, { timePresets: customTimePresets, tickPresets: customTickPresets });
     } catch (e) {
       console.error("Failed to save/sync settings", e);
     }
@@ -1728,7 +1730,7 @@ function MainWindow() {
     setEconomicDataDir(newDir);
     localStorage.setItem(STORAGE_KEYS.replayEconomicDataDir, newDir);
     try {
-      await invoke("save_settings", {
+      await invoke(COMMANDS.saveSettings, {
         settings: {
           economic_data_dir: newDir,
         },
@@ -1782,7 +1784,7 @@ function MainWindow() {
     setIsReplayInitializing(true);
     try {
       // プロファイル転送
-      await invoke("select_profile", {
+      await invoke(COMMANDS.selectProfile, {
         terminalPath: selectedTerminal,
         profileName: selectedProfile,
       });
@@ -1794,7 +1796,7 @@ function MainWindow() {
       let economicEventsCsv = "";
       if (enablePseudoRate) {
         try {
-          economicEventsCsv = await invoke<string>("get_economic_schedule_csv", {
+          economicEventsCsv = await invoke<string>(COMMANDS.getEconomicScheduleCsv, {
             symbol: sourceSymbol,
             startTime: startTime,
             endTime: endTime,
@@ -1963,7 +1965,7 @@ function MainWindow() {
 
   const loadSavedSessions = async () => {
     try {
-      const res = await invoke<SavedSession[]>("get_saved_sessions");
+      const res = await invoke<SavedSession[]>(COMMANDS.getSavedSessions);
       setSavedSessions(res);
     } catch (e) {
       console.error("Failed to load saved sessions", e);
@@ -1980,7 +1982,7 @@ function MainWindow() {
     if (sessionsToDelete.length === 0) return;
     try {
       for (const sid of sessionsToDelete) {
-        await invoke("delete_session", { sessionId: sid });
+        await invoke(COMMANDS.deleteSession, { sessionId: sid });
       }
       await loadSavedSessions();
     } catch (e) {
@@ -1998,7 +2000,7 @@ function MainWindow() {
 
   const executeClearAllSessions = async () => {
     try {
-      await invoke("clear_all_sessions");
+      await invoke(COMMANDS.clearAllSessions);
       await loadSavedSessions();
     } catch (e) {
       console.error("Failed to clear all sessions", e);
@@ -2097,7 +2099,7 @@ function MainWindow() {
     setIsReplayInitializing(true);
     try {
       // プロファイル転送
-      await invoke("select_profile", {
+      await invoke(COMMANDS.selectProfile, {
         terminalPath: session.settings.selected_terminal,
         profileName: session.settings.selected_profile,
       });
@@ -2290,7 +2292,7 @@ function MainWindow() {
     };
 
     try {
-      await invoke("save_session", { sessionId, sessionData });
+      await invoke(COMMANDS.saveSession, { sessionId, sessionData });
       setCurrentSessionId(sessionId);
       setCurrentSessionName(saveSessionName);
       setCurrentGroupSessionId(groupSessionId);
@@ -2350,7 +2352,7 @@ function MainWindow() {
   // リモコンモード切り替え（Tauriウィンドウサイズ・枠線・位置吸着制御）
   const toggleRemoteMode = async (remote: boolean) => {
     try {
-      await invoke("set_remote_mode", { isRemote: remote, alwaysOnTop: alwaysOnTop });
+      await invoke(COMMANDS.setRemoteMode, { isRemote: remote, alwaysOnTop: alwaysOnTop });
       setIsRemoteMode(remote);
       if (remote) {
         setIsSettingsOpen(false);
@@ -2455,7 +2457,7 @@ function MainWindow() {
   const handleAlwaysOnTopToggle = async () => {
     const next = !alwaysOnTop;
     try {
-      await invoke("set_always_on_top", { always: next });
+      await invoke(COMMANDS.setAlwaysOnTop, { always: next });
       setAlwaysOnTop(next);
     } catch (e) {
       console.error(e);
@@ -2492,7 +2494,7 @@ function MainWindow() {
   const handleShortcutsToggle = async () => {
     const next = !isShortcutsActive;
     try {
-      await invoke("set_shortcuts_active", { active: next, hotkeys: hotkeys });
+      await invoke(COMMANDS.setShortcutsActive, { active: next, hotkeys: hotkeys });
       setIsShortcutsActive(next);
     } catch (e) {
       console.error(e);
@@ -2630,19 +2632,19 @@ function MainWindow() {
         handleReset();
       } else if (matchesHotkey(e, hotkeys.order_buy)) {
         e.preventDefault();
-        emit("trigger-action", { action: "order_buy" }).catch(console.error);
+        emit(EVENTS.triggerAction, { action: "order_buy" }).catch(console.error);
       } else if (matchesHotkey(e, hotkeys.order_sell)) {
         e.preventDefault();
-        emit("trigger-action", { action: "order_sell" }).catch(console.error);
+        emit(EVENTS.triggerAction, { action: "order_sell" }).catch(console.error);
       } else if (matchesHotkey(e, hotkeys.order_close_buy)) {
         e.preventDefault();
-        emit("trigger-action", { action: "order_close_buy" }).catch(console.error);
+        emit(EVENTS.triggerAction, { action: "order_close_buy" }).catch(console.error);
       } else if (matchesHotkey(e, hotkeys.order_close_sell)) {
         e.preventDefault();
-        emit("trigger-action", { action: "order_close_sell" }).catch(console.error);
+        emit(EVENTS.triggerAction, { action: "order_close_sell" }).catch(console.error);
       } else if (matchesHotkey(e, hotkeys.order_close_all)) {
         e.preventDefault();
-        emit("trigger-action", { action: "order_close_all" }).catch(console.error);
+        emit(EVENTS.triggerAction, { action: "order_close_all" }).catch(console.error);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -2651,7 +2653,7 @@ function MainWindow() {
 
   // SpeedOrderウィンドウ等からのIPC経由のホットキーアクション呼び出しをリッスン
   useEffect(() => {
-    const unlisten = listen<{ action: string }>("trigger-action", (event) => {
+    const unlisten = listen<{ action: string }>(EVENTS.triggerAction, (event) => {
       const { action } = event.payload;
       const currentHandlers = handlersRef.current;
       if (!currentHandlers) return;
@@ -2790,7 +2792,7 @@ function MainWindow() {
         // 設定保存
         saveAllSettings(newHotkeys)
           .then(() => {
-            invoke("set_shortcuts_active", { active: isShortcutsActive, hotkeys: newHotkeys }).catch(console.error);
+            invoke(COMMANDS.setShortcutsActive, { active: isShortcutsActive, hotkeys: newHotkeys }).catch(console.error);
           })
           .catch(console.error);
 
@@ -2808,7 +2810,7 @@ function MainWindow() {
 
     saveAllSettings(newHotkeys)
       .then(() => {
-        invoke("set_shortcuts_active", { active: isShortcutsActive, hotkeys: newHotkeys }).catch(console.error);
+        invoke(COMMANDS.setShortcutsActive, { active: isShortcutsActive, hotkeys: newHotkeys }).catch(console.error);
       })
       .catch(console.error);
   };
@@ -2818,7 +2820,7 @@ function MainWindow() {
 
     saveAllSettings(DEFAULT_HOTKEYS)
       .then(() => {
-        invoke("set_shortcuts_active", { active: isShortcutsActive, hotkeys: DEFAULT_HOTKEYS }).catch(console.error);
+        invoke(COMMANDS.setShortcutsActive, { active: isShortcutsActive, hotkeys: DEFAULT_HOTKEYS }).catch(console.error);
       })
       .catch(console.error);
   };

@@ -1,4 +1,5 @@
 import React from "react";
+import { COMMANDS } from "../../constants/commands";
 import { invoke } from "@tauri-apps/api/core";
 import { formatJstTime, formatServerTime, getNewsTimeForDisplay } from "../../utils/timeUtils";
 
@@ -243,7 +244,7 @@ export const RemoteHudBar: React.FC<RemoteHudBarProps> = ({
       <div className="remote-utilities">
         <button
           className="remote-btn-utility"
-          onClick={() => invoke("open_tracely_app").catch(console.error)}
+          onClick={() => invoke(COMMANDS.openTracelyApp).catch(console.error)}
           title="トレード分析 (Tracely) を起動"
         >
           <span className="material-symbols-outlined text-[14px] text-indigo">analytics</span>

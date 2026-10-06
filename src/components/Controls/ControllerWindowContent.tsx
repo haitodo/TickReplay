@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { COMMANDS } from "../../constants/commands";
+import { EVENTS } from "../../constants/events";
 import { STORAGE_KEYS } from "../../constants/storageKeys";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -112,7 +114,7 @@ export const ControllerWindowContent: React.FC = () => {
   // 設定およびステータス受信リスナー
   useEffect(() => {
     // 起動時に保存された設定（銘柄・期間など）を取得
-    invoke<PersistedSettings>("load_settings")
+    invoke<PersistedSettings>(COMMANDS.loadSettings)
       .then((settings) => {
         if (settings) {
           if (settings.start_time) setStartTime(settings.start_time);
@@ -138,7 +140,7 @@ export const ControllerWindowContent: React.FC = () => {
     const setupListener = async () => {
       // 初期ステータス取得
       try {
-        const lastStatusStr = await invoke<string>("get_last_status");
+        const lastStatusStr = await invoke<string>(COMMANDS.getLastStatus);
         if (!disposed && lastStatusStr) {
           handleStatusPayload(lastStatusStr);
         }
@@ -147,7 +149,7 @@ export const ControllerWindowContent: React.FC = () => {
       }
 
       // イベント購読
-      const off = await listen<string>("mt5-status", (event) => {
+      const off = await listen<string>(EVENTS.mt5Status, (event) => {
         handleStatusPayload(event.payload);
       });
 
@@ -395,7 +397,7 @@ export const ControllerWindowContent: React.FC = () => {
     setIsExitMenuOpen(false);
     try {
       await sendCommand({ command: "TERMINATE" });
-      await invoke("show_setup_window");
+      await invoke(COMMANDS.showSetupWindow);
     } catch (e) {
       console.error("Failed to return to setup:", e);
     }
@@ -428,15 +430,15 @@ export const ControllerWindowContent: React.FC = () => {
         virtual_time_msc: virtualTimeMsc,
       };
       try {
-        await invoke("save_session", { sessionId, sessionData });
+        await invoke(COMMANDS.saveSession, { sessionId, sessionData });
       } catch (err) {
         console.warn("Session save note:", err);
       }
       await sendCommand({ command: "TERMINATE" });
-      await invoke("exit_app");
+      await invoke(COMMANDS.exitApp);
     } catch (e) {
       console.error("Failed to exit app:", e);
-      await invoke("exit_app");
+      await invoke(COMMANDS.exitApp);
     }
   };
 
@@ -449,7 +451,7 @@ export const ControllerWindowContent: React.FC = () => {
       console.warn(e);
     }
     try {
-      await invoke("exit_app");
+      await invoke(COMMANDS.exitApp);
     } catch (e) {
       console.error("Failed to exit app:", e);
     }
@@ -504,7 +506,7 @@ export const ControllerWindowContent: React.FC = () => {
           <button
             type="button"
             className="ctrl-icon-btn ctrl-speed-order-btn"
-            onClick={() => invoke("open_speed_order_window").catch(console.error)}
+            onClick={() => invoke(COMMANDS.openSpeedOrderWindow).catch(console.error)}
             title="スピード発注画面を開く"
           >
             <span className="material-symbols-outlined icon">monetization_on</span>
@@ -512,7 +514,7 @@ export const ControllerWindowContent: React.FC = () => {
           <button
             type="button"
             className="ctrl-icon-btn"
-            onClick={() => invoke("open_positions_window").catch(console.error)}
+            onClick={() => invoke(COMMANDS.openPositionsWindow).catch(console.error)}
             title="口座・ポジション管理画面を開く"
           >
             <span className="material-symbols-outlined icon text-green">account_balance_wallet</span>
@@ -520,7 +522,7 @@ export const ControllerWindowContent: React.FC = () => {
           <button
             type="button"
             className="ctrl-icon-btn"
-            onClick={() => invoke("open_tracely_app").catch(console.error)}
+            onClick={() => invoke(COMMANDS.openTracelyApp).catch(console.error)}
             title="トレード分析 (Tracely) を起動"
           >
             <span className="material-symbols-outlined icon text-indigo">analytics</span>
@@ -528,7 +530,7 @@ export const ControllerWindowContent: React.FC = () => {
           <button
             type="button"
             className="ctrl-icon-btn"
-            onClick={() => invoke("open_settings_window").catch(console.error)}
+            onClick={() => invoke(COMMANDS.openSettingsWindow).catch(console.error)}
             title="環境設定画面を開く"
           >
             <span className="material-symbols-outlined icon">settings</span>

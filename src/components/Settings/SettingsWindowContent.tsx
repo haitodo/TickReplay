@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { COMMANDS } from "../../constants/commands";
+import { EVENTS } from "../../constants/events";
 import { STORAGE_KEYS } from "../../constants/storageKeys";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -68,7 +70,7 @@ export const SettingsWindowContent: React.FC = () => {
   useEffect(() => {
     const initLoad = async () => {
       try {
-        const data = await invoke<PersistedSettings>("load_settings");
+        const data = await invoke<PersistedSettings>(COMMANDS.loadSettings);
         if (data) {
           if (data.hotkeys) setHotkeys({ ...DEFAULT_HOTKEYS, ...data.hotkeys });
           if (data.time_presets) setTimePresets(data.time_presets);
@@ -83,7 +85,7 @@ export const SettingsWindowContent: React.FC = () => {
           if (data.economic_data_dir) {
             setEconomicDataDir(data.economic_data_dir);
           } else if (!localStorage.getItem(STORAGE_KEYS.replayEconomicDataDir)) {
-            invoke<string>("get_default_economic_data_dir")
+            invoke<string>(COMMANDS.getDefaultEconomicDataDir)
               .then((def) => {
                 if (def) {
                   setEconomicDataDir(def);
@@ -116,7 +118,7 @@ export const SettingsWindowContent: React.FC = () => {
       const activeEconomicDataDir = overrideEconomicDataDir !== undefined ? overrideEconomicDataDir : economicDataDir;
 
       try {
-        await invoke("save_settings", {
+        await invoke(COMMANDS.saveSettings, {
           settings: {
             hotkeys: activeHotkeys,
             time_presets: activeTimePresets,
@@ -145,7 +147,7 @@ export const SettingsWindowContent: React.FC = () => {
         localStorage.setItem(STORAGE_KEYS.finnhubApiKey, finnhubApiKey);
         localStorage.setItem(STORAGE_KEYS.replayEconomicDataDir, activeEconomicDataDir);
 
-        emit("settings-updated", {
+        emit(EVENTS.settingsUpdated, {
           theme: activeTheme,
           plColorStyle,
           orderColorStyle,
@@ -220,7 +222,7 @@ export const SettingsWindowContent: React.FC = () => {
       console.error("Save on close error:", err);
     } finally {
       try {
-        await invoke("close_settings_window");
+        await invoke(COMMANDS.closeSettingsWindow);
       } catch (err) {
         console.error("Hide window error via invoke:", err);
         try {
@@ -372,7 +374,7 @@ export const SettingsWindowContent: React.FC = () => {
                       onChange={(e) => {
                         const val = e.target.checked;
                         setAlwaysOnTop(val);
-                        invoke("set_always_on_top", { always: val }).catch(console.error);
+                        invoke(COMMANDS.setAlwaysOnTop, { always: val }).catch(console.error);
                         saveAll();
                       }}
                     />
@@ -389,7 +391,7 @@ export const SettingsWindowContent: React.FC = () => {
                       onChange={(e) => {
                         const val = e.target.checked;
                         setIsShortcutsActive(val);
-                        invoke("set_shortcuts_active", { active: val }).catch(console.error);
+                        invoke(COMMANDS.setShortcutsActive, { active: val }).catch(console.error);
                         saveAll();
                       }}
                     />
@@ -484,7 +486,7 @@ export const SettingsWindowContent: React.FC = () => {
                       style={{ display: "flex", alignItems: "center", gap: "4px", whiteSpace: "nowrap" }}
                       onClick={async () => {
                         try {
-                          const selected = await invoke<string | null>("select_folder");
+                          const selected = await invoke<string | null>(COMMANDS.selectFolder);
                           if (selected) {
                             setEconomicDataDir(selected);
                             saveAll(undefined, undefined, undefined, undefined, selected);
@@ -503,7 +505,7 @@ export const SettingsWindowContent: React.FC = () => {
                       style={{ display: "flex", alignItems: "center", gap: "4px", whiteSpace: "nowrap" }}
                       onClick={async () => {
                         try {
-                          const def = await invoke<string>("get_default_economic_data_dir");
+                          const def = await invoke<string>(COMMANDS.getDefaultEconomicDataDir);
                           if (def) {
                             setEconomicDataDir(def);
                             saveAll(undefined, undefined, undefined, undefined, def);

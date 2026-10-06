@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { EVENTS } from "../constants/events";
 import { STORAGE_KEYS } from "../constants/storageKeys";
 import { THEME_LIST, ThemeType, ThemeConfig } from "../constants/themePresets";
 import { listen } from "@tauri-apps/api/event";
@@ -161,7 +162,7 @@ export function useTheme() {
 
     // 購読解除は「解決後」に必ず行う。登録が解決する前にこの effect が
     // 破棄されても、解決時点で解除されるためリスナーが残らない。
-    const unlistenTauri = listen<SettingsUpdatedPayload>("settings-updated", (event) => {
+    const unlistenTauri = listen<SettingsUpdatedPayload>(EVENTS.settingsUpdated, (event) => {
       if (event.payload) {
         const { theme: updatedTheme, themeMode, themeId, plColorStyle: updatedPl, orderColorStyle: updatedOrder } = event.payload;
         const candidate = updatedTheme || themeMode || themeId;

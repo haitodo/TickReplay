@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { COMMANDS } from "../../constants/commands";
 import { invoke } from "@tauri-apps/api/core";
 import { formatJstTime, formatServerTime } from "../../utils/timeUtils";
 import { THEME_LIST, ThemeType } from "../../constants/themePresets";
@@ -192,7 +193,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               className="header-btn action-speed-order"
               onClick={async () => {
                 try {
-                  await invoke("open_speed_order_window");
+                  await invoke(COMMANDS.openSpeedOrderWindow);
                 } catch (err) {
                   console.error(err);
                 }
@@ -208,7 +209,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           {(status === "ACTIVE" || status === "READY") && (
             <button
               className="header-btn"
-              onClick={() => invoke("open_positions_window").catch(console.error)}
+              onClick={() => invoke(COMMANDS.openPositionsWindow).catch(console.error)}
               title="口座残高・保有ポジション管理ウィンドウを起動"
             >
               <span className="material-symbols-outlined icon">account_balance_wallet</span>
@@ -271,7 +272,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   onClick={async () => {
                     setIsSubmenuOpen(false);
                     try {
-                      await invoke("open_settings_window");
+                      await invoke(COMMANDS.openSettingsWindow);
                     } catch (err) {
                       console.warn("Failed to open standalone settings window, falling back to modal:", err);
                       setIsSettingsOpen(true);
@@ -288,7 +289,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   onClick={async () => {
                     setIsSubmenuOpen(false);
                     try {
-                      await invoke("open_positions_window");
+                      await invoke(COMMANDS.openPositionsWindow);
                     } catch (err) {
                       console.error("Failed to open positions window:", err);
                     }
@@ -303,7 +304,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   className="popover-item"
                   onClick={async () => {
                     try {
-                      await invoke("open_tracely_app");
+                      await invoke(COMMANDS.openTracelyApp);
                       setIsSubmenuOpen(false);
                     } catch (err) {
                       console.error(err);

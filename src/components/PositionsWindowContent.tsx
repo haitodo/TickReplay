@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { EVENTS } from "../constants/events";
 import { STORAGE_KEYS } from "../constants/storageKeys";
 import { listen } from "@tauri-apps/api/event";
 import { formatRate } from "../utils/rateUtils";
@@ -66,7 +67,7 @@ export const PositionsWindowContent: React.FC = () => {
   };
 
   useEffect(() => {
-    const unlisten = listen<string>("mt5-status", (event) => {
+    const unlisten = listen<string>(EVENTS.mt5Status, (event) => {
       try {
         const data = JSON.parse(event.payload) as ReplayProgressPayload;
         if (data.status) setStatus(data.status);

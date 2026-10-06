@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { COMMANDS } from "../constants/commands";
+import { EVENTS } from "../constants/events";
 import { STORAGE_KEYS } from "../constants/storageKeys";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
@@ -105,7 +107,7 @@ export const SymbolSelectorWindowContent: React.FC = () => {
 
       // 2. MT5から直接シンボル一覧を取得（端末パスがある場合）
       const terminalPath = localStorage.getItem(STORAGE_KEYS.selectedTerminalPath) || "";
-      const list = await invoke<SymbolItem[]>("get_available_symbols", { terminalPath });
+      const list = await invoke<SymbolItem[]>(COMMANDS.getAvailableSymbols, { terminalPath });
       if (Array.isArray(list) && list.length > 0) {
         setAvailableSymbols(list);
       }
@@ -121,7 +123,7 @@ export const SymbolSelectorWindowContent: React.FC = () => {
     }
 
     // メインウィンドウからの初期化・更新イベントを受信
-    const unlistenInit = listen<SymbolSelectorInitPayload>("symbol-selector-init", (event) => {
+    const unlistenInit = listen<SymbolSelectorInitPayload>(EVENTS.symbolSelectorInit, (event) => {
       const data = event.payload;
       if (data.sourceSymbol) {
         setSelectedSource(data.sourceSymbol);
@@ -157,7 +159,7 @@ export const SymbolSelectorWindowContent: React.FC = () => {
       }
     });
 
-    const unlistenVisible = listen<boolean>("window-visible", (event) => {
+    const unlistenVisible = listen<boolean>(EVENTS.windowVisible, (event) => {
       if (event.payload) {
         loadSymbols(true);
       }
@@ -362,7 +364,7 @@ export const SymbolSelectorWindowContent: React.FC = () => {
   // ウィンドウを閉じる
   const handleClose = async () => {
     try {
-      await invoke("close_symbol_selector_window");
+      await invoke(COMMANDS.closeSymbolSelectorWindow);
     } catch {
       try {
         await getCurrentWindow().hide();
@@ -402,7 +404,7 @@ export const SymbolSelectorWindowContent: React.FC = () => {
 
     // メインウィンドウへ適用イベント送信
     try {
-      await emit("apply-symbol-selection", payload);
+      await emit(EVENTS.applySymbolSelection, payload);
     } catch (e) {
       console.error("Failed to emit apply-symbol-selection:", e);
     }
