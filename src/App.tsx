@@ -168,10 +168,13 @@ export const formatTimeStepLabel = (sec: number): string => {
   return `${(sec / 60).toFixed(1)}M`;
 };
 
-function App() {
-  // Check URL routing for child windows
-  const urlParams = new URLSearchParams(window.location.search);
-  const windowParam = urlParams.get("window");
+/**
+ * ウィンドウ種別ごとの入口。?window=... で子ウィンドウを出し分ける。
+ * URL 分岐だけを担当し、フックを持たない。
+ */
+function WindowRouter() {
+  const windowParam = new URLSearchParams(window.location.search).get("window");
+
   if (windowParam === "speed_order") {
     return (
       <ErrorBoundary fallbackTitle="スピード発注画面エラー">
@@ -208,6 +211,13 @@ function App() {
     );
   }
 
+  return <MainWindow />;
+}
+
+/**
+ * メイン画面。URL 分岐を含まないため、フックを無条件に呼べる。
+ */
+function MainWindow() {
   // --- 接続状態・EAからのステータス
   const [status, setStatus] = useState<"DISCONNECTED" | "CONNECTED" | "READY" | "ACTIVE">("DISCONNECTED");
   const [totalTicks, setTotalTicks] = useState(0);
@@ -3940,4 +3950,4 @@ function App() {
   );
 }
 
-export default App;
+export default WindowRouter;
