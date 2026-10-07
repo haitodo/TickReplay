@@ -301,27 +301,19 @@ impl CoreScheduler {
                 let cur_tick = self.store.get(self.current_index);
                 if delta_msc < 0 {
                     self.matching.rewind_to(target_msc, cur_tick);
-                    if let Some(ref pipe) = self.render_pipe {
-                        let preload_from = self.current_index.saturating_sub(300) as u64;
-                        pipe.send_reset(
-                            self.clock.seek_epoch() as u32,
-                            self.current_index as u64,
-                            preload_from,
-                            0,
-                            0,
-                            target_msc,
-                        );
-                    }
                 } else if let Some(tick) = cur_tick {
                     self.matching.on_tick_advance(tick, target_msc);
-                    if let Some(ref pipe) = self.render_pipe {
-                        pipe.send_advance(
-                            self.clock.seek_epoch() as u32,
-                            self.current_index as u64,
-                            0,
-                            target_msc,
-                        );
-                    }
+                }
+                if let Some(ref pipe) = self.render_pipe {
+                    let preload_from = self.current_index.saturating_sub(300) as u64;
+                    pipe.send_reset(
+                        self.clock.seek_epoch() as u32,
+                        self.current_index as u64,
+                        preload_from,
+                        0,
+                        0,
+                        target_msc,
+                    );
                 }
                 self.publish_status();
             }

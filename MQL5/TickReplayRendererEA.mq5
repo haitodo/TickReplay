@@ -1846,12 +1846,9 @@ void ProcessReset(const ResetPayload &rst)
                     CustomRatesUpdate(m_replay_symbol, jump_rates);
                 }
 
-                // 直近の足（最大300ティック）のみ CustomTicksAdd して現在足のティックデータと板・スプレッドを同期
-                int recent_tick_count = MathMin(count_to_add, 300);
-                int recent_from = target_idx - recent_tick_count + 1;
-                MqlTick recent_slice[];
-                ArrayResize(recent_slice, recent_tick_count);
-                ArrayCopy(recent_slice, m_all_ticks, 0, recent_from, recent_tick_count);
+                // 直近の現在値・気配値（Bid/Ask）・スプレッド同期用に最新1ティックのみ CustomTicksAdd
+                MqlTick recent_slice[1];
+                recent_slice[0] = m_all_ticks[target_idx];
                 CustomTicksAdd(m_replay_symbol, recent_slice);
             }
             else
@@ -1916,11 +1913,8 @@ void ProcessReset(const ResetPayload &rst)
                     {
                         CustomRatesUpdate(m_replay_symbol_sub, sub_jump_rates);
                     }
-                    int recent_sub_count = MathMin(count_sub, 300);
-                    int recent_sub_from = target_sub - recent_sub_count + 1;
-                    MqlTick sub_recent[];
-                    ArrayResize(sub_recent, recent_sub_count);
-                    ArrayCopy(sub_recent, m_all_ticks_sub, 0, recent_sub_from, recent_sub_count);
+                    MqlTick sub_recent[1];
+                    sub_recent[0] = m_all_ticks_sub[target_sub];
                     CustomTicksAdd(m_replay_symbol_sub, sub_recent);
                 }
                 else
