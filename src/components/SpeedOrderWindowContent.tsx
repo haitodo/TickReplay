@@ -130,7 +130,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
 
   const [showAuditToast, setShowAuditToast] = useState<boolean>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.speedOrderShowAuditToast);
-    return saved !== null ? saved === "true" : true;
+    return saved !== null ? saved === "true" : false;
   });
   const [latencyModelType, setLatencyModelType] = useState<"fixed" | "realistic" | "none">(() => {
     return (localStorage.getItem(STORAGE_KEYS.speedOrderLatencyModel) as "fixed" | "realistic" | "none") || "realistic";
@@ -172,7 +172,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
   }, [latencyModelType, slippageModelType, orderLatencyMs, updateExecutionModels]);
 
   const checkLatestAuditLog = useCallback(async () => {
-    const isToastEnabled = localStorage.getItem(STORAGE_KEYS.speedOrderShowAuditToast) !== "false";
+    const isToastEnabled = localStorage.getItem(STORAGE_KEYS.speedOrderShowAuditToast) === "true";
     if (!isToastEnabled) return;
 
     try {
@@ -347,7 +347,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
           setTimezoneMode(e.newValue);
         }
       } else if (e.key === STORAGE_KEYS.speedOrderShowAuditToast && e.newValue) {
-        const isEnabled = e.newValue !== "false";
+        const isEnabled = e.newValue === "true";
         setShowAuditToast(isEnabled);
         if (!isEnabled) {
           setRecentAuditNotification(null);
