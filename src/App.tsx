@@ -2650,6 +2650,34 @@ function MainWindow() {
       } else if (matchesHotkey(e, hotkeys.order_close_all)) {
         e.preventDefault();
         emit(EVENTS.triggerAction, { action: "order_close_all" }).catch(console.error);
+      } else if (!e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && e.code === "Space") {
+        // 直感キー: Space 単体で 再生 / 一時停止
+        e.preventDefault();
+        handlePlayPause();
+      } else if (!e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && e.code === "ArrowRight") {
+        // 直感キー: 右矢印 単体で 1ティック進む (コマ送り)
+        e.preventDefault();
+        handleStep(1);
+      } else if (!e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && e.code === "ArrowLeft") {
+        // 直感キー: 左矢印 単体で 1ティック戻る (コマ戻し)
+        e.preventDefault();
+        handleStep(-1);
+      } else if (e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && e.code === "ArrowRight") {
+        // 直感キー: Shift + 右矢印 で 10分進む (+10M)
+        e.preventDefault();
+        handleTimeJump(600);
+      } else if (e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && e.code === "ArrowLeft") {
+        // 直感キー: Shift + 左矢印 で 10分戻す (-10M)
+        e.preventDefault();
+        handleTimeJump(-600);
+      } else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.code === "ArrowRight") {
+        // 直感キー: Ctrl + 右矢印 で 1時間進む (+1H)
+        e.preventDefault();
+        handleTimeJump(3600);
+      } else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.code === "ArrowLeft") {
+        // 直感キー: Ctrl + 左矢印 で 1時間戻す (-1H)
+        e.preventDefault();
+        handleTimeJump(-3600);
       }
     };
     window.addEventListener("keydown", handleKeyDown);

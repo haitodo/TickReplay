@@ -1929,8 +1929,8 @@ void ProcessReset(const ResetPayload &rst)
         }
     }
 
-    // チャート強制リフレッシュ & 追跡スクロール設定
-    RedrawAllViewerCharts(true);
+    // チャートリフレッシュ & 追跡スクロール設定 (MT5の非同期バー構築完了後に OnTimer で末尾スクロールを確定)
+    RedrawAllViewerCharts(false);
     m_pending_reset_redraw_count = 1;
 
     // チャート左上にリプレイ状態コメントを表示
@@ -2143,7 +2143,6 @@ void OnTimer()
             return;
         }
 
-        m_current_epoch = header.epoch;
         uchar payload_buf[];
         ArrayResize(payload_buf, header.payload_len);
 
@@ -2157,6 +2156,13 @@ void OnTimer()
                 return;
             }
         }
+
+        // シーク・ジャンプ前の古い残存進行パケットを破棄して位置逆戻りを防止
+        if(header.msg_type == MSG_ADVANCE && header.epoch < m_current_epoch)
+        {
+            continue;
+        }
+        m_current_epoch = header.epoch;
 
         ulong start_us = GetMicrosecondCount();
 
