@@ -390,6 +390,45 @@ export const ControllerWindowContent: React.FC = () => {
     return `${current.getMonth() + 1}/${current.getDate()}`;
   };
 
+  // コントローラーウィンドウフォーカス時の直感キーボード操作 (Space: 再生/停止, 矢印: 1T, Shift+矢印: 10M, Ctrl+矢印: 1H)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLSelectElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        (e.target as HTMLElement).isContentEditable
+      ) {
+        return;
+      }
+
+      if (!e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && e.code === "Space") {
+        e.preventDefault();
+        handlePlayPause();
+      } else if (!e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && e.code === "ArrowRight") {
+        e.preventDefault();
+        handleStep(1);
+      } else if (!e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && e.code === "ArrowLeft") {
+        e.preventDefault();
+        handleStep(-1);
+      } else if (e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && e.code === "ArrowRight") {
+        e.preventDefault();
+        handleTimeJump(600);
+      } else if (e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && e.code === "ArrowLeft") {
+        e.preventDefault();
+        handleTimeJump(-600);
+      } else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.code === "ArrowRight") {
+        e.preventDefault();
+        handleTimeJump(3600);
+      } else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.code === "ArrowLeft") {
+        e.preventDefault();
+        handleTimeJump(-3600);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handlePlayPause, handleStep, handleTimeJump]);
+
   // --- 終了アクション ---
 
   // 1. リプレイを停止して設定画面（モニター1）へ戻る
