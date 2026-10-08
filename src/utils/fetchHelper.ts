@@ -1,5 +1,13 @@
 import { getErrorMessage } from "./getErrorMessage";
 
+function isAbortOrTimeoutError(error: unknown): boolean {
+  return (
+    (error instanceof Error &&
+      (error.name === "AbortError" || error.name === "TimeoutError")) ||
+    getErrorMessage(error).includes("aborted")
+  );
+}
+
 /**
  * CORS制限のある外部API（例: FRED API, GDELT API）向けに、直接通信失敗時にCORSプロキシ経由で自動フォールバックするfetch関数
  */
@@ -20,12 +28,7 @@ export async function fetchWithCorsFallback(
   } catch (directError: unknown) {
     clearTimeout(timeoutId);
 
-    const isAbort =
-      (directError instanceof Error &&
-        (directError.name === "AbortError" || directError.name === "TimeoutError")) ||
-      getErrorMessage(directError).includes("aborted");
-
-    if (isAbort) {
+    if (isAbortOrTimeoutError(directError)) {
       throw directError;
     }
 
@@ -44,11 +47,7 @@ export async function fetchWithCorsFallback(
         });
         return proxyResponse;
       } catch (proxyError: unknown) {
-        if (
-          (proxyError instanceof Error &&
-            (proxyError.name === "AbortError" || proxyError.name === "TimeoutError")) ||
-          getErrorMessage(proxyError).includes("aborted")
-        ) {
+        if (isAbortOrTimeoutError(proxyError)) {
           throw proxyError;
         }
         // 次のプロキシ試行へ
