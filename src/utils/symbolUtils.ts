@@ -138,6 +138,23 @@ export function parseSymbolName(symbolName: string): ParsedSymbol {
   };
 }
 
+/** Replayシンボルを除外し、入力をSymbolItem形式に正規化する */
+export function normalizeSymbolItems(symbols: (SymbolItem | string)[]): SymbolItem[] {
+  return symbols
+    .filter(symbol => !isReplaySymbol(typeof symbol === "string" ? symbol : symbol.name))
+    .map(symbol => {
+      if (typeof symbol === "string") {
+        const parsed = parseSymbolName(symbol);
+        return {
+          name: symbol,
+          source_type: parsed.suffix ? "custom" : "broker",
+          group_name: parsed.category
+        };
+      }
+      return symbol;
+    });
+}
+
 /**
  * シンボル一覧をサフィックス（年別、カスタムタグ別、通常別）に分類・グループ化する
  */
@@ -153,19 +170,7 @@ export function groupSymbolsByCategory(symbols: (SymbolItem | string)[]): {
   const tagSet = new Set<string>();
   let hasStandard = false;
 
-  const validSymbols = symbols.filter(s => !isReplaySymbol(typeof s === "string" ? s : s.name));
-
-  const normalized: SymbolItem[] = validSymbols.map(s => {
-    if (typeof s === "string") {
-      const parsed = parseSymbolName(s);
-      return {
-        name: s,
-        source_type: parsed.suffix ? "custom" : "broker",
-        group_name: parsed.category
-      };
-    }
-    return s;
-  });
+  const normalized = normalizeSymbolItems(symbols);
 
   normalized.forEach(item => {
     const parsed = parseSymbolName(item.name);
@@ -258,18 +263,7 @@ export function getAllCompanionsForSource(
   const targetCategory = parsedSource.category;
   const sourceUpper = sourceSymbol.trim().toUpperCase();
 
-  const validSymbols = allSymbols.filter(s => !isReplaySymbol(typeof s === "string" ? s : s.name));
-  const normalized: SymbolItem[] = validSymbols.map(s => {
-    if (typeof s === "string") {
-      const parsed = parseSymbolName(s);
-      return {
-        name: s,
-        source_type: parsed.suffix ? "custom" : "broker",
-        group_name: parsed.category
-      };
-    }
-    return s;
-  });
+  const normalized = normalizeSymbolItems(allSymbols);
 
   return normalized.filter(item => {
     if (item.name.toUpperCase() === sourceUpper) return false;
