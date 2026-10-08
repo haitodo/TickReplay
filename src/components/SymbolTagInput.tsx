@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { SymbolItem } from "./SymbolCombobox";
+import type { SymbolItem } from "../types/symbol";
 import { isReplaySymbol } from "../utils/symbolUtils";
 
 interface SymbolTagInputProps {

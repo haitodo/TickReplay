@@ -1,11 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { parseSymbolName, groupSymbolsByCategory, isReplaySymbol } from "../utils/symbolUtils";
-
-export interface SymbolItem {
-  name: string;
-  source_type: "custom" | "broker" | "default" | string;
-  group_name: string;
-}
+import type { SymbolItem } from "../types/symbol";
 
 interface SymbolComboboxProps {
   value: string;

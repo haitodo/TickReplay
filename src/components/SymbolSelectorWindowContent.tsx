@@ -5,7 +5,7 @@ import { STORAGE_KEYS } from "../constants/storageKeys";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { SymbolItem } from "./SymbolCombobox";
+import type { SymbolItem } from "../types/symbol";
 import {
   parseSymbolName,
   groupSymbolsByCategory,

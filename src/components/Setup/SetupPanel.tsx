@@ -2,7 +2,7 @@ import React from "react";
 import { COMMANDS } from "../../constants/commands";
 import { invoke } from "@tauri-apps/api/core";
 import { AdvancedSettingsAccordion } from "./AdvancedSettingsAccordion";
-import { SymbolItem } from "../SymbolCombobox";
+import type { SymbolItem } from "../../types/symbol";
 import { SymbolTagInput } from "../SymbolTagInput";
 import { HelpTooltip } from "../HelpTooltip";
 import {

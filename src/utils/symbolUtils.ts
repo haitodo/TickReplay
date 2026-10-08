@@ -1,4 +1,4 @@
-import { SymbolItem } from "../components/SymbolCombobox";
+import type { SymbolItem } from "../types/symbol";
 import { parseDateTimeStr } from "./dateUtils";
 
 export interface ParsedSymbol {

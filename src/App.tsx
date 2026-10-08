@@ -7,7 +7,7 @@ import { listen, emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import "./App.css";
-import { SymbolItem } from "./components/SymbolCombobox";
+import type { SymbolItem } from "./types/symbol";
 import { CustomSymbolImportModal } from "./components/CustomSymbolImportModal";
 import { SymbolBatchSelectorModal } from "./components/SymbolBatchSelectorModal";
 import { SymbolSelectorWindowContent } from "./components/SymbolSelectorWindowContent";

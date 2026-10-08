@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { SymbolItem } from "./SymbolCombobox";
+import type { SymbolItem } from "../types/symbol";
 import {
   parseSymbolName,
   groupSymbolsByCategory,
