@@ -63,6 +63,24 @@ export const getYearRange = (year: number): { start: string; end: string } => {
   };
 };
 
+const shiftYearMonth = (
+  year: number,
+  month: number,
+  deltaMonths: number
+): { year: number; month: number } => {
+  let shiftedYear = year;
+  let shiftedMonth = month + deltaMonths;
+  while (shiftedMonth > 12) {
+    shiftedMonth -= 12;
+    shiftedYear += 1;
+  }
+  while (shiftedMonth < 1) {
+    shiftedMonth += 12;
+    shiftedYear -= 1;
+  }
+  return { year: shiftedYear, month: shiftedMonth };
+};
+
 /**
  * 開始・終了日時を指定月数分前後にシフトした期間を取得する
  * （1ヶ月の期間指定であれば、翌月1日〜翌月末日へ綺麗にシフトする）
@@ -84,31 +102,17 @@ export const shiftDateRangeByMonth = (
   const isSameMonth = startParsed.year === endParsed.year && startParsed.month === endParsed.month;
 
   if (isSameMonth && isStartFirstDay && isEndLastDay) {
-    let targetYear = startParsed.year;
-    let targetMonth = startParsed.month + deltaMonths;
-    while (targetMonth > 12) {
-      targetMonth -= 12;
-      targetYear += 1;
-    }
-    while (targetMonth < 1) {
-      targetMonth += 12;
-      targetYear -= 1;
-    }
+    const { year: targetYear, month: targetMonth } = shiftYearMonth(
+      startParsed.year,
+      startParsed.month,
+      deltaMonths
+    );
     return getMonthRange(targetYear, targetMonth);
   }
 
   // 任意期間の場合: 年月をdeltaMonths分シフト
   const shiftSingle = (parsed: typeof startParsed) => {
-    let y = parsed.year;
-    let m = parsed.month + deltaMonths;
-    while (m > 12) {
-      m -= 12;
-      y += 1;
-    }
-    while (m < 1) {
-      m += 12;
-      y -= 1;
-    }
+    const { year: y, month: m } = shiftYearMonth(parsed.year, parsed.month, deltaMonths);
     const maxDays = getDaysInMonth(y, m);
     const d = Math.min(parsed.day, maxDays);
     return formatDateTimeStr(y, m, d, parsed.hour, parsed.minute, parsed.second);
