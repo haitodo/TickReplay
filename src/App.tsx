@@ -29,6 +29,12 @@ import { parseDateTimeStr, alignDateRangeToYear } from "./utils/dateUtils";
 import { checkEconomicDataAvailability } from "./utils/economicDataUtils";
 import { useTheme } from "./hooks/useTheme";
 import {
+  DEFAULT_TIME_STEPS,
+  formatSecondsToLabel,
+  PRESET_TIME_OPTIONS,
+} from "./domain/timeSteps";
+import type { TimeStepItem } from "./types/replay";
+import {
   getServerToJstOffsetHours,
   convertServerStrToJstStr as convertServerToJstStr,
   getNewsTimeForDisplay
@@ -50,7 +56,6 @@ import { TerminalInfo } from "./types/terminal";
 import {
   ReplayProgressPayload,
   SessionBoundariesData,
-  TimeStepItem,
 } from "./types";
 import { SavedSession } from "./types/session";
 import { PersistedSettings } from "./types/settings";
@@ -68,15 +73,6 @@ import {
 import { ReplayCommand, sendReplayCommand } from "./utils/command";
 
 
-
-export const DEFAULT_TIME_STEPS: TimeStepItem[] = [
-  { id: "ts-1", seconds: 10, label: "10S" },
-  { id: "ts-2", seconds: 60, label: "1M" },
-  { id: "ts-3", seconds: 600, label: "10M" },
-  { id: "ts-4", seconds: 3600, label: "1H" },
-];
-
-export type { TimeStepItem } from "./types/replay";
 
 interface SymbolSelectionPayload {
   sourceSymbol?: string;
@@ -106,36 +102,7 @@ interface AppHandlers {
   recordingAction: string | null;
 }
 
-const PRESET_TIME_OPTIONS: { seconds: number; label: string }[] = [
-  { seconds: 5, label: "5S" },
-  { seconds: 10, label: "10S" },
-  { seconds: 30, label: "30S" },
-  { seconds: 60, label: "1M" },
-  { seconds: 300, label: "5M" },
-  { seconds: 600, label: "10M" },
-  { seconds: 900, label: "15M" },
-  { seconds: 1800, label: "30M" },
-  { seconds: 3600, label: "1H" },
-  { seconds: 14400, label: "4H" },
-];
-
 import { ControllerWindowContent } from "./components/Controls/ControllerWindowContent";
-
-export const formatSecondsToLabel = (sec: number): string => {
-  if (sec < 60) return `${sec}S`;
-  if (sec < 3600 && sec % 60 === 0) return `${sec / 60}M`;
-  if (sec % 3600 === 0) return `${sec / 3600}H`;
-  if (sec >= 3600) return `${(sec / 3600).toFixed(1)}H`;
-  return `${(sec / 60).toFixed(1)}M`;
-};
-
-export const formatTimeStepLabel = (sec: number): string => {
-  if (sec < 60) return `${sec}S`;
-  if (sec >= 86400) return `${(sec / 86400).toFixed(0)}D`;
-  if (sec >= 3600) return `${(sec / 3600).toFixed(0)}H`;
-  return `${(sec / 60).toFixed(1)}M`;
-};
-
 /**
  * ウィンドウ種別ごとの入口。?window=... で子ウィンドウを出し分ける。
  * URL 分岐だけを担当し、フックを持たない。

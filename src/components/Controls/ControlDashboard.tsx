@@ -1,5 +1,5 @@
 import React from "react";
-import { TimeStepItem } from "../../App";
+import type { TimeStepItem } from "../../types/replay";
 import { formatJstTime, formatServerTime, getNewsTimeForDisplay } from "../../utils/timeUtils";
 
 interface ControlDashboardProps {
