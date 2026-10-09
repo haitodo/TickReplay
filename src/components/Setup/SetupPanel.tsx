@@ -63,12 +63,6 @@ interface SetupPanelProps {
   preloadedBars: number;
   setPreloadedBars: (val: number) => void;
   preloadDate: string;
-  limitTickHistory: boolean;
-  setLimitTickHistory: (val: boolean) => void;
-  tickHistoryTimeframe: string;
-  setTickHistoryTimeframe: (val: string) => void;
-  maxHistoryBars: number;
-  setMaxHistoryBars: (val: number) => void;
   autoScrollSync: boolean;
   setAutoScrollSync: (val: boolean) => void;
   autoSkipWeekend: boolean;
@@ -125,9 +119,6 @@ const areSetupPanelPropsEqual = (prev: SetupPanelProps, next: SetupPanelProps): 
     prev.preloadTimeframe === next.preloadTimeframe &&
     prev.preloadedBars === next.preloadedBars &&
     prev.preloadDate === next.preloadDate &&
-    prev.limitTickHistory === next.limitTickHistory &&
-    prev.tickHistoryTimeframe === next.tickHistoryTimeframe &&
-    prev.maxHistoryBars === next.maxHistoryBars &&
     prev.autoScrollSync === next.autoScrollSync &&
     prev.autoSkipWeekend === next.autoSkipWeekend &&
     prev.initialBalance === next.initialBalance &&
@@ -189,12 +180,6 @@ const SetupPanelComponent: React.FC<SetupPanelProps> = ({
   preloadedBars,
   setPreloadedBars,
   preloadDate,
-  limitTickHistory,
-  setLimitTickHistory,
-  tickHistoryTimeframe,
-  setTickHistoryTimeframe,
-  maxHistoryBars,
-  setMaxHistoryBars,
   autoScrollSync,
   setAutoScrollSync,
   autoSkipWeekend,
@@ -999,12 +984,6 @@ const SetupPanelComponent: React.FC<SetupPanelProps> = ({
               preloadDate={preloadDate}
               setActivePickerField={setActivePickerField}
               timezoneMode={timezoneMode}
-              limitTickHistory={limitTickHistory}
-              setLimitTickHistory={setLimitTickHistory}
-              tickHistoryTimeframe={tickHistoryTimeframe}
-              setTickHistoryTimeframe={setTickHistoryTimeframe}
-              maxHistoryBars={maxHistoryBars}
-              setMaxHistoryBars={setMaxHistoryBars}
               initialBalance={initialBalance}
               setInitialBalance={setInitialBalance}
               leverage={leverage}

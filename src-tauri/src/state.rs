@@ -180,12 +180,6 @@ pub struct ReplaySettings {
     #[serde(default)]
     pub is_shortcuts_active: Option<bool>,
     #[serde(default)]
-    pub limit_tick_history: Option<bool>,
-    #[serde(default)]
-    pub tick_history_timeframe: Option<String>,
-    #[serde(default)]
-    pub max_history_bars: Option<i32>,
-    #[serde(default)]
     pub timezone_mode: Option<String>,
     #[serde(default)]
     pub auto_skip_weekend: Option<bool>,

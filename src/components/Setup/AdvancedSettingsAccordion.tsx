@@ -24,12 +24,6 @@ interface AdvancedSettingsAccordionProps {
   preloadDate: string;
   setActivePickerField: (val: "preload" | "start" | "end" | null) => void;
   timezoneMode: "JST" | "SERVER";
-  limitTickHistory: boolean;
-  setLimitTickHistory: (val: boolean) => void;
-  tickHistoryTimeframe: string;
-  setTickHistoryTimeframe: (val: string) => void;
-  maxHistoryBars: number;
-  setMaxHistoryBars: (val: number) => void;
   initialBalance: number;
   setInitialBalance: (val: number) => void;
   leverage: number;
@@ -78,12 +72,6 @@ export const AdvancedSettingsAccordion: React.FC<AdvancedSettingsAccordionProps>
   preloadDate,
   setActivePickerField,
   timezoneMode,
-  limitTickHistory,
-  setLimitTickHistory,
-  tickHistoryTimeframe,
-  setTickHistoryTimeframe,
-  maxHistoryBars,
-  setMaxHistoryBars,
   initialBalance,
   setInitialBalance,
   leverage,
@@ -381,42 +369,6 @@ export const AdvancedSettingsAccordion: React.FC<AdvancedSettingsAccordionProps>
                           />
                           <span className="material-symbols-outlined icon">calendar_today</span>
                         </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* 高速シーク（履歴制限） */}
-                  <div className="fast-seek-box">
-                    <label className="toggle-switch-label">
-                      <input
-                        type="checkbox"
-                        checked={limitTickHistory}
-                        onChange={(e) => setLimitTickHistory(e.target.checked)}
-                      />
-                      <span className="switch-text">直近ティック履歴制限（高速シーク・メモリ軽量化）</span>
-                    </label>
-                    {limitTickHistory && (
-                      <div className="fast-seek-params">
-                        <span className="params-label">保持範囲:</span>
-                        <CustomSelect
-                          value={tickHistoryTimeframe}
-                          onChange={setTickHistoryTimeframe}
-                          options={[
-                            { value: "M1", label: "1分足" },
-                            { value: "M5", label: "5分足" },
-                            { value: "M15", label: "15分足" },
-                            { value: "H1", label: "1時間足" },
-                          ]}
-                        />
-                        <span className="params-label">×</span>
-                        <input
-                          type="number"
-                          className="input-compact font-data"
-                          style={{ width: "65px" }}
-                          value={maxHistoryBars}
-                          onChange={(e) => setMaxHistoryBars(parseInt(e.target.value) || 0)}
-                        />
-                        <span className="params-label">本</span>
                       </div>
                     )}
                   </div>

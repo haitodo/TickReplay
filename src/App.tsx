@@ -475,9 +475,6 @@ function MainWindow() {
   const [endTime, setEndTime] = useState("2026-05-02 00:00:00");
 
   const [preloadedBars, setPreloadedBars] = useState(300);
-  const [limitTickHistory, setLimitTickHistory] = useState(true);
-  const [tickHistoryTimeframe, setTickHistoryTimeframe] = useState("M5");
-  const [maxHistoryBars, setMaxHistoryBars] = useState(300);
   const [autoScrollSync, setAutoScrollSync] = useState(true);
   const [autoSkipWeekend, setAutoSkipWeekend] = useState(true);
   const [preloadMode, setPreloadMode] = useState<"BARS" | "DATE">("BARS");
@@ -1190,15 +1187,6 @@ function MainWindow() {
 
           if (saved.preloaded_bars !== undefined) setPreloadedBars(saved.preloaded_bars);
           if (saved.auto_scroll_sync !== undefined) setAutoScrollSync(saved.auto_scroll_sync);
-          if (saved.limit_tick_history !== undefined && saved.limit_tick_history !== null) {
-            setLimitTickHistory(saved.limit_tick_history);
-          }
-          if (saved.tick_history_timeframe) {
-            setTickHistoryTimeframe(saved.tick_history_timeframe);
-          }
-          if (saved.max_history_bars !== undefined && saved.max_history_bars !== null) {
-            setMaxHistoryBars(saved.max_history_bars);
-          }
           if (saved.preload_mode) setPreloadMode(saved.preload_mode as "BARS" | "DATE");
           if (saved.preload_date) setPreloadDate(saved.preload_date);
           if (saved.preload_timeframe) setPreloadTimeframe(saved.preload_timeframe);
@@ -1471,9 +1459,6 @@ function MainWindow() {
     theme,
     alwaysOnTop,
     isShortcutsActive,
-    limitTickHistory,
-    tickHistoryTimeframe,
-    maxHistoryBars,
     timezoneMode,
     plColorStyle,
     orderColorStyle,
@@ -1552,9 +1537,6 @@ function MainWindow() {
       preload_mode: preloadMode,
       preload_date: preloadDate,
       preload_timeframe: customPreloadTimeframe,
-      limit_tick_history: limitTickHistory,
-      tick_history_timeframe: tickHistoryTimeframe,
-      max_history_bars: maxHistoryBars,
       hotkeys: customHotkeys,
       time_presets: customTimePresets,
       tick_presets: customTickPresets,
@@ -1799,9 +1781,6 @@ function MainWindow() {
         preload_mode: preloadMode,
         preload_date: preloadDate,
         preload_timeframe: preloadTimeframe,
-        limit_tick_history: limitTickHistory,
-        tick_history_timeframe: tickHistoryTimeframe,
-        max_history_bars: maxHistoryBars,
         auto_skip_weekend: autoSkipWeekend,
         enable_pseudo_rate: enablePseudoRate,
         pseudo_base_spread: pipsToPriceDiff(sourceSymbol, pseudoBaseSpread),
@@ -1843,9 +1822,6 @@ function MainWindow() {
     setTimezoneMode("JST");
     setPreloadedBars(300);
     setPreloadTimeframe("AUTO");
-    setLimitTickHistory(true);
-    setTickHistoryTimeframe("M5");
-    setMaxHistoryBars(300);
     setStartTime("2026-05-01 00:00:00");
     setEndTime("2026-05-02 00:00:00");
     setAutoScrollSync(true);
@@ -2011,15 +1987,6 @@ function MainWindow() {
     setPreloadDate(session.settings.preload_date || "2026-01-01 00:00:00");
     setPreloadTimeframe(session.settings.preload_timeframe || "AUTO");
 
-    if (session.settings.limit_tick_history !== undefined) {
-      setLimitTickHistory(session.settings.limit_tick_history);
-    }
-    if (session.settings.tick_history_timeframe) {
-      setTickHistoryTimeframe(session.settings.tick_history_timeframe);
-    }
-    if (session.settings.max_history_bars !== undefined) {
-      setMaxHistoryBars(session.settings.max_history_bars);
-    }
     if (session.settings.timezone_mode) {
       setTimezoneMode(session.settings.timezone_mode as "JST" | "SERVER");
     }
@@ -2100,9 +2067,6 @@ function MainWindow() {
         preload_mode: session.settings.preload_mode || "BARS",
         preload_date: session.settings.preload_date || "2026-01-01 00:00:00",
         preload_timeframe: session.settings.preload_timeframe || "AUTO",
-        limit_tick_history: session.settings.limit_tick_history !== undefined ? session.settings.limit_tick_history : true,
-        tick_history_timeframe: session.settings.tick_history_timeframe || "M5",
-        max_history_bars: session.settings.max_history_bars !== undefined ? session.settings.max_history_bars : 300,
         auto_skip_weekend: session.settings.auto_skip_weekend !== undefined ? session.settings.auto_skip_weekend : true,
         enable_pseudo_rate: session.settings.enable_pseudo_rate !== undefined ? session.settings.enable_pseudo_rate : true,
         pseudo_base_spread: pipsToPriceDiff(
@@ -2163,9 +2127,6 @@ function MainWindow() {
         preload_mode: preloadMode,
         preload_date: preloadDate,
         preload_timeframe: preloadTimeframe,
-        limit_tick_history: limitTickHistory,
-        tick_history_timeframe: tickHistoryTimeframe,
-        max_history_bars: maxHistoryBars,
         timezone_mode: timezoneMode,
         enable_virtual_trading: enableVirtualTrading,
         initial_balance: initialBalance,
@@ -3103,12 +3064,6 @@ function MainWindow() {
           preloadedBars={preloadedBars}
           setPreloadedBars={setPreloadedBars}
           preloadDate={preloadDate}
-          limitTickHistory={limitTickHistory}
-          setLimitTickHistory={setLimitTickHistory}
-          tickHistoryTimeframe={tickHistoryTimeframe}
-          setTickHistoryTimeframe={setTickHistoryTimeframe}
-          maxHistoryBars={maxHistoryBars}
-          setMaxHistoryBars={setMaxHistoryBars}
           autoScrollSync={autoScrollSync}
           setAutoScrollSync={setAutoScrollSync}
           autoSkipWeekend={autoSkipWeekend}
@@ -3160,12 +3115,6 @@ function MainWindow() {
         hotkeys={hotkeys}
         handleResetAllHotkeys={handleResetAllHotkeys}
         handleClearHotkey={handleClearHotkey}
-        limitTickHistory={limitTickHistory}
-        setLimitTickHistory={setLimitTickHistory}
-        tickHistoryTimeframe={tickHistoryTimeframe}
-        setTickHistoryTimeframe={setTickHistoryTimeframe}
-        maxHistoryBars={maxHistoryBars}
-        setMaxHistoryBars={setMaxHistoryBars}
         autoScrollSync={autoScrollSync}
         setAutoScrollSync={setAutoScrollSync}
         autoSkipWeekend={autoSkipWeekend}

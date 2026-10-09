@@ -40,9 +40,6 @@ export interface AppSettings {
   shortcuts_active?: boolean;
   auto_scroll_sync?: boolean;
   auto_skip_weekend?: boolean;
-  limit_tick_history?: boolean;
-  tick_history_timeframe?: string;
-  max_history_bars?: number;
   openrouter_api_key?: string;
   openrouter_model?: string;
   fred_api_key?: string;

@@ -22,9 +22,6 @@ export interface SessionReplaySettings {
   preload_mode?: "BARS" | "DATE";
   preload_date?: string;
   preload_timeframe?: string;
-  limit_tick_history?: boolean;
-  tick_history_timeframe?: string;
-  max_history_bars?: number;
   timezone_mode?: "JST" | "SERVER";
   enable_virtual_trading?: boolean;
   initial_balance?: number;

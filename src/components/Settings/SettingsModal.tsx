@@ -16,12 +16,6 @@ interface SettingsModalProps {
   hotkeys: Record<string, string>;
   handleResetAllHotkeys: () => void;
   handleClearHotkey: (actionKey: string) => void;
-  limitTickHistory: boolean;
-  setLimitTickHistory: (val: boolean) => void;
-  tickHistoryTimeframe: string;
-  setTickHistoryTimeframe: (val: string) => void;
-  maxHistoryBars: number;
-  setMaxHistoryBars: (val: number) => void;
   autoScrollSync: boolean;
   setAutoScrollSync: (val: boolean) => void;
   autoSkipWeekend: boolean;
@@ -77,12 +71,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   hotkeys,
   handleResetAllHotkeys,
   handleClearHotkey,
-  limitTickHistory,
-  setLimitTickHistory,
-  tickHistoryTimeframe,
-  setTickHistoryTimeframe,
-  maxHistoryBars,
-  setMaxHistoryBars,
   autoScrollSync,
   setAutoScrollSync,
   autoSkipWeekend,
@@ -221,41 +209,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <span className="switch-text">グローバルショートカットキーを有効化</span>
                   </label>
                 </div>
-              </div>
-
-              <div className="settings-group">
-                <h4 className="settings-group-title">高速シーク・履歴制限デフォルト</h4>
-                <label className="toggle-switch-label">
-                  <input
-                    type="checkbox"
-                    checked={limitTickHistory}
-                    onChange={(e) => setLimitTickHistory(e.target.checked)}
-                  />
-                  <span className="switch-text">直近ティック履歴の制限 (高速シーク)</span>
-                </label>
-                {limitTickHistory && (
-                  <div className="fast-seek-params" style={{ marginTop: "8px" }}>
-                    <span className="params-label">基準足:</span>
-                    <CustomSelect
-                      value={tickHistoryTimeframe}
-                      onChange={setTickHistoryTimeframe}
-                      options={[
-                        { value: "M1", label: "1分足 (M1)" },
-                        { value: "M5", label: "5分足 (M5)" },
-                        { value: "M15", label: "15分足 (M15)" },
-                        { value: "H1", label: "1時間足 (H1)" },
-                      ]}
-                    />
-                    <span className="params-label">保持本数:</span>
-                    <input
-                      type="number"
-                      className="input-compact font-data"
-                      style={{ width: "70px" }}
-                      value={maxHistoryBars}
-                      onChange={(e) => setMaxHistoryBars(parseInt(e.target.value) || 0)}
-                    />
-                  </div>
-                )}
               </div>
 
               <div className="settings-group">

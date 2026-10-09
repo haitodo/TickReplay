@@ -40,9 +40,6 @@ export const SettingsWindowContent: React.FC = () => {
   const [autoSkipWeekend, setAutoSkipWeekend] = useState(true);
   const [alwaysOnTop, setAlwaysOnTop] = useState(false);
   const [isShortcutsActive, setIsShortcutsActive] = useState(false);
-  const [limitTickHistory, setLimitTickHistory] = useState(true);
-  const [tickHistoryTimeframe, setTickHistoryTimeframe] = useState("M5");
-  const [maxHistoryBars, setMaxHistoryBars] = useState(300);
   const [economicDataDir, setEconomicDataDir] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.replayEconomicDataDir) || "");
 
   // ホットキー
@@ -79,9 +76,6 @@ export const SettingsWindowContent: React.FC = () => {
           if (data.shortcuts_active !== undefined) setIsShortcutsActive(data.shortcuts_active);
           if (data.auto_scroll_sync !== undefined) setAutoScrollSync(data.auto_scroll_sync);
           if (data.auto_skip_weekend !== undefined) setAutoSkipWeekend(data.auto_skip_weekend);
-          if (data.limit_tick_history !== undefined) setLimitTickHistory(data.limit_tick_history);
-          if (data.tick_history_timeframe) setTickHistoryTimeframe(data.tick_history_timeframe);
-          if (data.max_history_bars !== undefined) setMaxHistoryBars(data.max_history_bars);
           if (data.economic_data_dir) {
             setEconomicDataDir(data.economic_data_dir);
           } else if (!localStorage.getItem(STORAGE_KEYS.replayEconomicDataDir)) {
@@ -130,9 +124,6 @@ export const SettingsWindowContent: React.FC = () => {
             is_shortcuts_active: isShortcutsActive,
             auto_scroll_sync: autoScrollSync,
             auto_skip_weekend: autoSkipWeekend,
-            limit_tick_history: limitTickHistory,
-            tick_history_timeframe: tickHistoryTimeframe,
-            max_history_bars: maxHistoryBars,
             economic_data_dir: activeEconomicDataDir,
           },
         });
@@ -167,9 +158,6 @@ export const SettingsWindowContent: React.FC = () => {
       isShortcutsActive,
       autoScrollSync,
       autoSkipWeekend,
-      limitTickHistory,
-      tickHistoryTimeframe,
-      maxHistoryBars,
       economicDataDir,
       openRouterApiKey,
       openRouterModel,
@@ -400,62 +388,6 @@ export const SettingsWindowContent: React.FC = () => {
                       <span className="option-desc">MT5チャート操作中でもキーボードショートカットでリプレイ操作を可能にします</span>
                     </div>
                   </label>
-                </div>
-              </div>
-
-              <div className="settings-section-card">
-                <h3 className="section-title">
-                  <span className="material-symbols-outlined icon">speed</span>
-                  高速シーク・履歴制限デフォルト
-                </h3>
-                <div className="settings-options-list">
-                  <label className="settings-checkbox-row">
-                    <input
-                      type="checkbox"
-                      checked={limitTickHistory}
-                      onChange={(e) => {
-                        setLimitTickHistory(e.target.checked);
-                        saveAll();
-                      }}
-                    />
-                    <div className="option-text">
-                      <span className="option-label">直近ティック履歴の制限 (高速シーク・軽量化)</span>
-                      <span className="option-desc">過去ティックの保持量を制限し、シーク速度を飛躍的に高速化します</span>
-                    </div>
-                  </label>
-
-                  {limitTickHistory && (
-                    <div className="fast-seek-setting-box">
-                      <div className="form-item">
-                        <label className="form-label">基準タイムフレーム</label>
-                        <CustomSelect
-                          value={tickHistoryTimeframe}
-                          onChange={(val) => {
-                            setTickHistoryTimeframe(val);
-                            saveAll();
-                          }}
-                          options={[
-                            { value: "M1", label: "1分足 (M1)" },
-                            { value: "M5", label: "5分足 (M5)" },
-                            { value: "M15", label: "15分足 (M15)" },
-                            { value: "H1", label: "1時間足 (H1)" },
-                          ]}
-                        />
-                      </div>
-                      <div className="form-item">
-                        <label className="form-label">保持バー本数</label>
-                        <input
-                          type="number"
-                          className="input-compact font-data"
-                          value={maxHistoryBars}
-                          onChange={(e) => {
-                            setMaxHistoryBars(parseInt(e.target.value) || 0);
-                            saveAll();
-                          }}
-                        />
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
 

@@ -171,15 +171,6 @@ pub async fn save_settings(
         if settings.is_shortcuts_active.is_none() {
             settings.is_shortcuts_active = existing_settings.is_shortcuts_active;
         }
-        if settings.limit_tick_history.is_none() {
-            settings.limit_tick_history = existing_settings.limit_tick_history;
-        }
-        if settings.tick_history_timeframe.is_none() {
-            settings.tick_history_timeframe = existing_settings.tick_history_timeframe.clone();
-        }
-        if settings.max_history_bars.is_none() {
-            settings.max_history_bars = existing_settings.max_history_bars;
-        }
         if settings.timezone_mode.is_none() {
             settings.timezone_mode = existing_settings.timezone_mode.clone();
         }
