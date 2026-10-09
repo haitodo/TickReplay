@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { DEFAULT_OPENROUTER_MODEL } from "../../constants/ai";
 import { COMMANDS } from "../../constants/commands";
 import { EVENTS } from "../../constants/events";
 import { STORAGE_KEYS } from "../../constants/storageKeys";
@@ -52,7 +53,7 @@ export const SettingsWindowContent: React.FC = () => {
 
   // AI設定
   const [openRouterApiKey, setOpenRouterApiKey] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.openRouterApiKey) || "");
-  const [openRouterModel, setOpenRouterModel] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.openRouterModel) || "google/gemini-2.5-flash");
+  const [openRouterModel, setOpenRouterModel] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.openRouterModel) || DEFAULT_OPENROUTER_MODEL);
   const [fredApiKey, setFredApiKey] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.fredApiKey) || "");
   const [finnhubApiKey, setFinnhubApiKey] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.finnhubApiKey) || "");
 
@@ -732,7 +733,7 @@ export const SettingsWindowContent: React.FC = () => {
                       saveAll();
                     }}
                     options={[
-                      { value: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash (推奨・超高速)" },
+                      { value: DEFAULT_OPENROUTER_MODEL, label: "Gemini 2.5 Flash (推奨・超高速)" },
                       { value: "anthropic/claude-3.5-sonnet", label: "Claude 3.5 Sonnet (高精度)" },
                       { value: "openai/gpt-4o-mini", label: "GPT-4o Mini (軽量)" },
                       { value: "deepseek/deepseek-chat", label: "DeepSeek V3" },

@@ -1,4 +1,5 @@
 import React from "react";
+import { DEFAULT_OPENROUTER_MODEL } from "../../constants/ai";
 import { COMMANDS } from "../../constants/commands";
 import { invoke } from "@tauri-apps/api/core";
 import { CustomSelect } from "../../CustomSelect";
@@ -473,7 +474,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     value={openRouterModel}
                     onChange={setOpenRouterModel}
                     options={[
-                      { value: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash (推奨)" },
+                      { value: DEFAULT_OPENROUTER_MODEL, label: "Gemini 2.5 Flash (推奨)" },
                       { value: "anthropic/claude-3.5-sonnet", label: "Claude 3.5 Sonnet" },
                       { value: "openai/gpt-4o-mini", label: "GPT-4o Mini" },
                       { value: "deepseek/deepseek-chat", label: "DeepSeek V3" },

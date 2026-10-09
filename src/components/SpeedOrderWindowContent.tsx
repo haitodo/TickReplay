@@ -785,28 +785,14 @@ export const SpeedOrderWindowContent: React.FC = () => {
 
   const getPriceParts = (p: number) => {
     if (p <= 0) return { base: "--", big: "--", fraction: "-" };
-    if (isCrypto || isIndex) {
-      const str = p.toFixed(2);
-      const len = str.length;
-      const fraction = str.substring(len - 1);
-      const big = str.substring(len - 3, len - 1);
-      const base = str.substring(0, len - 3);
-      return { base, big, fraction };
-    } else if (isGold || isJpy) {
-      const str = p.toFixed(3);
-      const len = str.length;
-      const fraction = str.substring(len - 1);
-      const big = str.substring(len - 3, len - 1);
-      const base = str.substring(0, len - 3);
-      return { base, big, fraction };
-    } else {
-      const str = p.toFixed(5);
-      const len = str.length;
-      const fraction = str.substring(len - 1);
-      const big = str.substring(len - 3, len - 1);
-      const base = str.substring(0, len - 3);
-      return { base, big, fraction };
-    }
+    const decimalPlaces = isCrypto || isIndex ? 2 : isGold || isJpy ? 3 : 5;
+    const str = p.toFixed(decimalPlaces);
+    const len = str.length;
+    return {
+      base: str.substring(0, len - 3),
+      big: str.substring(len - 3, len - 1),
+      fraction: str.substring(len - 1),
+    };
   };
 
   const bidParts = getPriceParts(bid);

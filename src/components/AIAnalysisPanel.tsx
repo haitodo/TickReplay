@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { DEFAULT_OPENROUTER_MODEL } from "../constants/ai";
 import { STORAGE_KEYS } from "../constants/storageKeys";
 import { useDataSources } from "../hooks/useDataSources";
 import { getErrorMessage } from "../utils/getErrorMessage";
@@ -154,7 +155,7 @@ ${contextData.summaryText}`;
           "X-Title": "TickReplay AI Analyzer"
         },
         body: JSON.stringify({
-          model: openRouterModel || "google/gemini-2.5-flash",
+          model: openRouterModel || DEFAULT_OPENROUTER_MODEL,
           messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt }

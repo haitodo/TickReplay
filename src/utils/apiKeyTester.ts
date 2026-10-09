@@ -1,5 +1,6 @@
 import { fetchWithCorsFallback } from "./fetchHelper";
 import { getErrorMessage } from "./getErrorMessage";
+import { DEFAULT_OPENROUTER_MODEL } from "../constants/ai";
 
 export interface ApiTestResult {
   success: boolean;
@@ -7,6 +8,20 @@ export interface ApiTestResult {
   message: string;
   latency?: number;
 }
+
+const createSuccessResult = (message: string, latency?: number): ApiTestResult => ({
+  success: true,
+  status: "success",
+  message,
+  ...(latency === undefined ? {} : { latency }),
+});
+
+const createErrorResult = (message: string, latency?: number): ApiTestResult => ({
+  success: false,
+  status: "error",
+  message,
+  ...(latency === undefined ? {} : { latency }),
+});
 
 /**
  * タイムアウト付き fetch ヘルパー
@@ -31,15 +46,11 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutM
 export async function testOpenRouterKey(apiKey: string, model: string): Promise<ApiTestResult> {
   const trimmedKey = apiKey.trim();
   if (!trimmedKey) {
-    return {
-      success: false,
-      status: "error",
-      message: "OpenRouter API Keyが入力されていません。"
-    };
+    return createErrorResult("OpenRouter API Keyが入力されていません。");
   }
 
   const startTime = performance.now();
-  const targetModel = model.trim() || "google/gemini-2.5-flash";
+  const targetModel = model.trim() || DEFAULT_OPENROUTER_MODEL;
 
   try {
     const response = await fetchWithTimeout("https://openrouter.ai/api/v1/chat/completions", {
@@ -58,76 +69,36 @@ export async function testOpenRouterKey(apiKey: string, model: string): Promise<
     const latency = Math.round(performance.now() - startTime);
 
     if (response.ok) {
-      return {
-        success: true,
-        status: "success",
-        message: `接続成功 (${targetModel} の応答を確認)`,
-        latency
-      };
+      return createSuccessResult(`接続成功 (${targetModel} の応答を確認)`, latency);
     }
 
     const errorData = await response.json().catch(() => ({}));
     const rawMsg = errorData?.error?.message || response.statusText || "";
 
     if (response.status === 401) {
-      return {
-        success: false,
-        status: "error",
-        message: "認証エラー (401): OpenRouter API Keyが無効か誤っています。",
-        latency
-      };
+      return createErrorResult("認証エラー (401): OpenRouter API Keyが無効か誤っています。", latency);
     }
 
     if (response.status === 402) {
-      return {
-        success: false,
-        status: "error",
-        message: "残高不足エラー (402): OpenRouterアカウントのクレジット残高が不足しています。",
-        latency
-      };
+      return createErrorResult("残高不足エラー (402): OpenRouterアカウントのクレジット残高が不足しています。", latency);
     }
 
     if (response.status === 404) {
-      return {
-        success: false,
-        status: "error",
-        message: `モデルエラー (404): 指定モデル "${targetModel}" が見つかりません。`,
-        latency
-      };
+      return createErrorResult(`モデルエラー (404): 指定モデル "${targetModel}" が見つかりません。`, latency);
     }
 
     if (response.status === 429) {
-      return {
-        success: false,
-        status: "error",
-        message: "レート制限エラー (429): APIリクエスト上限に達しました。",
-        latency
-      };
+      return createErrorResult("レート制限エラー (429): APIリクエスト上限に達しました。", latency);
     }
 
-    return {
-      success: false,
-      status: "error",
-      message: `エラー (${response.status}): ${rawMsg || "接続リクエスト失敗"}`,
-      latency
-    };
+    return createErrorResult(`エラー (${response.status}): ${rawMsg || "接続リクエスト失敗"}`, latency);
   } catch (error: unknown) {
     const latency = Math.round(performance.now() - startTime);
     const errorMessage = getErrorMessage(error);
     if (error instanceof Error && error.name === "AbortError") {
-      return {
-        success: false,
-        status: "error",
-        message: "タイムアウトエラー: OpenRouterサーバーからの応答が制限時間(10秒)を超過しました。",
-        latency
-      };
+      return createErrorResult("タイムアウトエラー: OpenRouterサーバーからの応答が制限時間(10秒)を超過しました。", latency);
     }
-    return {
-      success: false,
-      status: "error",
-      message: `通信エラー: ${errorMessage || "ネットワーク接続に失敗しました"}`,
-      latency
-    };
+    return createErrorResult(`通信エラー: ${errorMessage || "ネットワーク接続に失敗しました"}`, latency);
   }
 }
 
@@ -137,11 +108,7 @@ export async function testOpenRouterKey(apiKey: string, model: string): Promise<
 export async function testFredKey(apiKey: string): Promise<ApiTestResult> {
   const trimmedKey = apiKey.trim();
   if (!trimmedKey) {
-    return {
-      success: false,
-      status: "error",
-      message: "FRED API Keyが入力されていません。"
-    };
+    return createErrorResult("FRED API Keyが入力されていません。");
   }
 
   const startTime = performance.now();
@@ -156,47 +123,22 @@ export async function testFredKey(apiKey: string): Promise<ApiTestResult> {
     if (response.ok) {
       const data = await response.json();
       if (data && Array.isArray(data.observations)) {
-        return {
-          success: true,
-          status: "success",
-          message: "接続成功 (FRB政策金利データの正常取得を確認)",
-          latency
-        };
+        return createSuccessResult("接続成功 (FRB政策金利データの正常取得を確認)", latency);
       }
       if (data && data.error_message) {
-        return {
-          success: false,
-          status: "error",
-          message: `認証エラー: ${data.error_message}`,
-          latency
-        };
+        return createErrorResult(`認証エラー: ${data.error_message}`, latency);
       }
     }
 
     const errData = await response.json().catch(() => ({}));
-    return {
-      success: false,
-      status: "error",
-      message: `認証エラー (${response.status}): ${errData?.error_message || "FRED API Keyが無効です。"}`,
-      latency
-    };
+    return createErrorResult(`認証エラー (${response.status}): ${errData?.error_message || "FRED API Keyが無効です。"}`, latency);
   } catch (error: unknown) {
     const latency = Math.round(performance.now() - startTime);
     const errorMessage = getErrorMessage(error);
     if (error instanceof Error && error.name === "AbortError") {
-      return {
-        success: false,
-        status: "error",
-        message: "タイムアウトエラー: FREDサーバーへの接続がタイムアウトしました。",
-        latency
-      };
+      return createErrorResult("タイムアウトエラー: FREDサーバーへの接続がタイムアウトしました。", latency);
     }
-    return {
-      success: false,
-      status: "error",
-      message: `通信エラー: ${errorMessage || "FRED APIへの接続に失敗しました"}`,
-      latency
-    };
+    return createErrorResult(`通信エラー: ${errorMessage || "FRED APIへの接続に失敗しました"}`, latency);
   }
 }
 
@@ -206,11 +148,7 @@ export async function testFredKey(apiKey: string): Promise<ApiTestResult> {
 export async function testFinnhubKey(apiKey: string): Promise<ApiTestResult> {
   const trimmedKey = apiKey.trim();
   if (!trimmedKey) {
-    return {
-      success: false,
-      status: "error",
-      message: "Finnhub API Keyが入力されていません。"
-    };
+    return createErrorResult("Finnhub API Keyが入力されていません。");
   }
 
   const startTime = performance.now();
@@ -223,53 +161,23 @@ export async function testFinnhubKey(apiKey: string): Promise<ApiTestResult> {
     if (response.ok) {
       const data = await response.json();
       if (Array.isArray(data)) {
-        return {
-          success: true,
-          status: "success",
-          message: `接続成功 (Finnhub FXニュース取得完了: ${data.length}件)`,
-          latency
-        };
+        return createSuccessResult(`接続成功 (Finnhub FXニュース取得完了: ${data.length}件)`, latency);
       }
-      return {
-        success: false,
-        status: "error",
-        message: "レスポンス形式が不正です。",
-        latency
-      };
+      return createErrorResult("レスポンス形式が不正です。", latency);
     }
 
     if (response.status === 401) {
-      return {
-        success: false,
-        status: "error",
-        message: "認証エラー (401): Finnhub API Keyが無効です。",
-        latency
-      };
+      return createErrorResult("認証エラー (401): Finnhub API Keyが無効です。", latency);
     }
 
-    return {
-      success: false,
-      status: "error",
-      message: `エラー (${response.status}): Finnhub APIキーを確認してください。`,
-      latency
-    };
+    return createErrorResult(`エラー (${response.status}): Finnhub APIキーを確認してください。`, latency);
   } catch (error: unknown) {
     const latency = Math.round(performance.now() - startTime);
     const errorMessage = getErrorMessage(error);
     if (error instanceof Error && error.name === "AbortError") {
-      return {
-        success: false,
-        status: "error",
-        message: "タイムアウトエラー: Finnhubサーバーへの接続がタイムアウトしました。",
-        latency
-      };
+      return createErrorResult("タイムアウトエラー: Finnhubサーバーへの接続がタイムアウトしました。", latency);
     }
-    return {
-      success: false,
-      status: "error",
-      message: `通信エラー: ${errorMessage || "Finnhub APIへの接続に失敗しました"}`,
-      latency
-    };
+    return createErrorResult(`通信エラー: ${errorMessage || "Finnhub APIへの接続に失敗しました"}`, latency);
   }
 }
 
@@ -284,47 +192,22 @@ export async function testGdeltApi(): Promise<ApiTestResult> {
     const latency = Math.round(performance.now() - startTime);
 
     if (response.ok) {
-      return {
-        success: true,
-        status: "success",
-        message: "接続成功 (GDELT パブリックニュースAPIは正常に稼働中)",
-        latency
-      };
+      return createSuccessResult("接続成功 (GDELT パブリックニュースAPIは正常に稼働中)", latency);
     }
 
     if (response.status === 408 || response.status === 504) {
-      return {
-        success: false,
-        status: "error",
-        message: `タイムアウトエラー (${response.status}): GDELTサーバーの応答が時間内に完了しませんでした。現在GDELT APIが混雑している可能性があります。`,
-        latency
-      };
+      return createErrorResult(`タイムアウトエラー (${response.status}): GDELTサーバーの応答が時間内に完了しませんでした。現在GDELT APIが混雑している可能性があります。`, latency);
     }
 
     if (response.status === 429) {
-      return {
-        success: false,
-        status: "error",
-        message: `レート制限エラー (429): GDELT APIへのリクエスト数が一時的な制限を超過しました。時間をおいて再試行してください。`,
-        latency
-      };
+      return createErrorResult(`レート制限エラー (429): GDELT APIへのリクエスト数が一時的な制限を超過しました。時間をおいて再試行してください。`, latency);
     }
 
     if (response.status >= 500) {
-      return {
-        success: false,
-        status: "error",
-        message: `サーバーエラー (${response.status}): GDELT APIサーバーでエラーが発生しているかメンテナンス中です。`,
-        latency
-      };
+      return createErrorResult(`サーバーエラー (${response.status}): GDELT APIサーバーでエラーが発生しているかメンテナンス中です。`, latency);
     }
 
-    return {
-      success: false,
-      status: "error",
-      message: `通信エラー (${response.status}): GDELT APIへの接続に失敗しました。`,
-      latency
-    };
+    return createErrorResult(`通信エラー (${response.status}): GDELT APIへの接続に失敗しました。`, latency);
   } catch (error: unknown) {
     const latency = Math.round(performance.now() - startTime);
     const errorMessage = getErrorMessage(error);
@@ -334,18 +217,8 @@ export async function testGdeltApi(): Promise<ApiTestResult> {
       errorMessage.includes("aborted") ||
       errorMessage.includes("timeout")
     ) {
-      return {
-        success: false,
-        status: "error",
-        message: "タイムアウトエラー: GDELTサーバーからの応答が制限時間(15秒)を超過しました。現在GDELT APIサーバーが負荷集中により遅延または停止しています。",
-        latency
-      };
+      return createErrorResult("タイムアウトエラー: GDELTサーバーからの応答が制限時間(15秒)を超過しました。現在GDELT APIサーバーが負荷集中により遅延または停止しています。", latency);
     }
-    return {
-      success: false,
-      status: "error",
-      message: `通信エラー: ${errorMessage || "GDELT APIへの接続に失敗しました"}`,
-      latency
-    };
+    return createErrorResult(`通信エラー: ${errorMessage || "GDELT APIへの接続に失敗しました"}`, latency);
   }
 }

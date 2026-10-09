@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { COMMANDS } from "./constants/commands";
 import { EVENTS } from "./constants/events";
+import { DEFAULT_OPENROUTER_MODEL } from "./constants/ai";
 import { STORAGE_KEYS } from "./constants/storageKeys";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, emit } from "@tauri-apps/api/event";
@@ -614,7 +615,7 @@ function MainWindow() {
   
   // AI急変動・トレンド解析用 State
   const [openRouterApiKey, setOpenRouterApiKey] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.openRouterApiKey) || "");
-  const [openRouterModel, setOpenRouterModel] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.openRouterModel) || "google/gemini-2.5-flash");
+  const [openRouterModel, setOpenRouterModel] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.openRouterModel) || DEFAULT_OPENROUTER_MODEL);
   const [fredApiKey, setFredApiKey] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.fredApiKey) || "");
   const [finnhubApiKey, setFinnhubApiKey] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.finnhubApiKey) || "");
   const [isAIPanelOpen, setIsAIPanelOpen] = useState<boolean>(false);
