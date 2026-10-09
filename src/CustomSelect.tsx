@@ -1,22 +1,22 @@
 import React, { useState, useRef, useEffect } from "react";
 
-export interface CustomSelectOption {
-  value: any;
+export interface CustomSelectOption<T = string | number> {
+  value: T;
   label: React.ReactNode;
   triggerLabel?: React.ReactNode;
 }
 
-interface CustomSelectProps {
-  value: any;
-  onChange: (value: any) => void;
-  options: CustomSelectOption[];
+interface CustomSelectProps<T = string | number> {
+  value: T;
+  onChange: (value: T) => void;
+  options: CustomSelectOption<T>[];
   placeholder?: string;
   className?: string;
   style?: React.CSSProperties;
   disabled?: boolean;
 }
 
-export const CustomSelect: React.FC<CustomSelectProps> = ({
+export function CustomSelect<T = string | number>({
   value,
   onChange,
   options,
@@ -24,7 +24,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
   className = "",
   style,
   disabled = false
-}) => {
+}: CustomSelectProps<T>): React.ReactElement {
   const [isOpen, setIsOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);

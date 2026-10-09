@@ -155,7 +155,7 @@ impl VirtualTradingEngine {
                 // target_time_msc より未来に発注された建玉 -> 残高から確定損益を差し引いて完全消去
                 self.account.balance -= pos.profit;
                 self.account.total_profit -= pos.profit;
-            } else if pos.close_time_msc.map_or(false, |ct| ct > target_time_msc) {
+            } else if pos.close_time_msc.is_some_and(|ct| ct > target_time_msc) {
                 // target_time_msc 以前にオープンされたが決済は未来 -> 未決済建玉としてポジションに復元
                 self.account.balance -= pos.profit;
                 self.account.total_profit -= pos.profit;
@@ -201,6 +201,7 @@ impl VirtualTradingEngine {
     }
 
     /// 成行注文の発注 (BUY / SELL)
+    #[allow(clippy::too_many_arguments)]
     pub fn open_order(
         &mut self,
         symbol: &str,
@@ -236,6 +237,7 @@ impl VirtualTradingEngine {
         self.execute_open(symbol, &order_type, volume, sl_points, tp_points, current_tick, virtual_time_msc)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn execute_open(
         &mut self,
         symbol: &str,

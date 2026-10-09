@@ -52,7 +52,7 @@ pub fn read_file_string_lossy(path: &Path) -> Option<String> {
     if bytes.len() >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE {
         // UTF-16LE with BOM
         let u16s: Vec<u16> = bytes[2..]
-            .chunks_exact(2)
+            .as_chunks::<2>().0.iter()
             .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
             .collect();
         let s = String::from_utf16_lossy(&u16s);
@@ -61,7 +61,7 @@ pub fn read_file_string_lossy(path: &Path) -> Option<String> {
     } else if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
         // UTF-16BE with BOM
         let u16s: Vec<u16> = bytes[2..]
-            .chunks_exact(2)
+            .as_chunks::<2>().0.iter()
             .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]]))
             .collect();
         let s = String::from_utf16_lossy(&u16s);
@@ -76,7 +76,7 @@ pub fn read_file_string_lossy(path: &Path) -> Option<String> {
         // UTF-16LE BOMなし（byte 1 != 0, byte 2 == 0）の判定
         if bytes.len() >= 4 && bytes[1] == 0 && bytes[3] == 0 {
             let u16s: Vec<u16> = bytes
-                .chunks_exact(2)
+                .as_chunks::<2>().0.iter()
                 .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
                 .collect();
             let s = String::from_utf16_lossy(&u16s);
@@ -519,21 +519,21 @@ pub async fn get_terminal_max_bars(terminal_path: String) -> Result<MaxBarsInfo,
         let content = if bytes.starts_with(&[0xFF, 0xFE]) {
             // UTF-16LE
             let u16_vec: Vec<u16> = bytes[2..]
-                .chunks_exact(2)
+                .as_chunks::<2>().0.iter()
                 .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
                 .collect();
             String::from_utf16(&u16_vec).unwrap_or_default()
         } else if bytes.starts_with(&[0xFE, 0xFF]) {
             // UTF-16BE
             let u16_vec: Vec<u16> = bytes[2..]
-                .chunks_exact(2)
+                .as_chunks::<2>().0.iter()
                 .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]]))
                 .collect();
             String::from_utf16(&u16_vec).unwrap_or_default()
         } else {
             String::from_utf8(bytes.clone()).unwrap_or_else(|_| {
                 let u16_vec: Vec<u16> = bytes
-                    .chunks_exact(2)
+                    .as_chunks::<2>().0.iter()
                     .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
                     .collect();
                 String::from_utf16(&u16_vec).unwrap_or_default()

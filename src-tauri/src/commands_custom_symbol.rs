@@ -50,6 +50,7 @@ pub fn validate_import_symbol_and_ym(symbol_name: &str, year_month: &str) -> Res
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn import_custom_symbol_chunk(
     symbol_name: String,
     group_path: String,

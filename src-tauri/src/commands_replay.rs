@@ -51,7 +51,7 @@ pub fn emit_trading_status_update(
 
 pub fn jst_to_server_time_msc(s: &str) -> Option<i64> {
     use chrono::{Datelike, Timelike};
-    let s = s.trim().replace('T', " ").replace('.', "-").replace('/', "-");
+    let s = s.trim().replace('T', " ").replace(['.', '/'], "-");
     if s.is_empty() {
         return None;
     }
@@ -853,7 +853,7 @@ pub async fn send_command(
                             let pd = val.get("preload_date").and_then(|s| s.as_str()).map(|s| s.to_string());
                             
                             let ym_list = crate::pseudo_dmm::get_year_months_between(
-                                if pm.as_deref() == Some("DATE") && pd.as_ref().map_or(false, |s| !s.is_empty()) {
+                                if pm.as_deref() == Some("DATE") && pd.as_ref().is_some_and(|s| !s.is_empty()) {
                                     pd.as_deref().unwrap()
                                 } else {
                                     &st

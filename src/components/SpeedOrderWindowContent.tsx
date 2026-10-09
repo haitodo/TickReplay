@@ -602,11 +602,12 @@ export const SpeedOrderWindowContent: React.FC = () => {
   }
 
   const stopwatchStateRef = useRef<Record<number, StopwatchState>>({});
+  const virtualTimeMscRef = useRef(virtualTimeMsc);
+  virtualTimeMscRef.current = virtualTimeMsc;
 
   const syncStopwatchState = (
     currentPositions: VirtualPosition[],
-    playing: boolean, 
-    virtualTime: number
+    playing: boolean
   ) => {
     const activeTickets = new Set(currentPositions.map(p => p.ticket));
 
@@ -655,7 +656,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
         if (storedTimes[p.ticket] !== undefined) {
           initialAccumulated = storedTimes[p.ticket];
         } else {
-          const virtualElapsed = virtualTime - p.open_time_msc;
+          const virtualElapsed = virtualTimeMscRef.current - p.open_time_msc;
           if (virtualElapsed > 0) {
             initialAccumulated = virtualElapsed;
           }
@@ -698,7 +699,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
   };
 
   useEffect(() => {
-    syncStopwatchState(positions, isPlaying, virtualTimeMsc);
+    syncStopwatchState(positions, isPlaying);
   }, [positions, isPlaying]);
 
   const [timerTrigger, setTimerTrigger] = useState(0);
@@ -847,44 +848,48 @@ export const SpeedOrderWindowContent: React.FC = () => {
   };
 
   // メインウィンドウやグローバルホットキーからの注文・決済アクション呼び出しをリッスン
+  const handleTriggerActionRef = useRef<(action: string) => void>(() => {});
+  handleTriggerActionRef.current = (action: string) => {
+    switch (action) {
+      case "order_buy":
+        if (lots > 0 && (status === "READY" || status === "ACTIVE")) {
+          handleOrderOpen("BUY");
+        }
+        break;
+      case "order_sell":
+        if (lots > 0 && (status === "READY" || status === "ACTIVE")) {
+          handleOrderOpen("SELL");
+        }
+        break;
+      case "order_close_buy":
+        if (totalBuyLots > 0) {
+          handleCloseBuy();
+        }
+        break;
+      case "order_close_sell":
+        if (totalSellLots > 0) {
+          handleCloseSell();
+        }
+        break;
+      case "order_close_all":
+        if (positions.length > 0) {
+          handleCloseAll();
+        }
+        break;
+      default:
+        break;
+    }
+  };
+
   useEffect(() => {
     const unlisten = listen<{ action: string }>(EVENTS.triggerAction, (event) => {
-      const { action } = event.payload;
-      switch (action) {
-        case "order_buy":
-          if (lots > 0 && (status === "READY" || status === "ACTIVE")) {
-            handleOrderOpen("BUY");
-          }
-          break;
-        case "order_sell":
-          if (lots > 0 && (status === "READY" || status === "ACTIVE")) {
-            handleOrderOpen("SELL");
-          }
-          break;
-        case "order_close_buy":
-          if (totalBuyLots > 0) {
-            handleCloseBuy();
-          }
-          break;
-        case "order_close_sell":
-          if (totalSellLots > 0) {
-            handleCloseSell();
-          }
-          break;
-        case "order_close_all":
-          if (positions.length > 0) {
-            handleCloseAll();
-          }
-          break;
-        default:
-          break;
-      }
+      handleTriggerActionRef.current(event.payload.action);
     });
 
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, [lots, status, totalBuyLots, totalSellLots, positions, slPoints, tpPoints, slEnabled, tpEnabled, maxSpreadPips, maxSpreadEnabled, ask, bid, isJpy]);
+  }, []);
 
   const isEconomicMode = isEconomicSpreadActive(virtualTimeMsc, economicMap);
 

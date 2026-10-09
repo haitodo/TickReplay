@@ -29,14 +29,14 @@ export default tseslint.config(
     },
     rules: {
       "react-hooks/rules-of-hooks": "error",
-      "react-hooks/exhaustive-deps": "warn", // 既存14件
+      "react-hooks/exhaustive-deps": "error", // 違反解消済み (0件)
 
       // TypeScript が同等の検査を行うため基底ルールは無効化する
       // (無効化しないと同じ問題が二重に報告される)
       "no-unused-vars": "off",
       "no-undef": "off",
 
-      "@typescript-eslint/no-explicit-any": "warn", // 既存16件
+      "@typescript-eslint/no-explicit-any": "error", // 違反解消済み (0件)
       "@typescript-eslint/no-unused-vars": ["warn", {
         varsIgnorePattern: "^_",
         argsIgnorePattern: "^_",

@@ -1005,6 +1005,16 @@ function MainWindow() {
     };
   }, []);
 
+  const sendCommand = useCallback(async (cmd: ReplayCommand) => {
+    try {
+      await sendReplayCommand(cmd);
+    } catch (e) {
+      console.error("Failed to send command", e);
+      setErrorMessage(translateErrorMessage("Command error: " + e));
+      throw e;
+    }
+  }, []);
+
   const handleCheckConnection = async () => {
     setErrorMessage("");
     try {
@@ -1097,6 +1107,7 @@ function MainWindow() {
     pseudoRolloverSpread,
     pseudoRolloverRecoveryMin,
     sourceSymbol,
+    sendCommand,
   ]);
 
   // --- 複数ウィンドウ間での設定同期用エフェクト
@@ -1116,7 +1127,7 @@ function MainWindow() {
     };
     window.addEventListener("storage", handleStorage);
     return () => window.removeEventListener("storage", handleStorage);
-  }, [hedging]);
+  }, [setOrderColorStyle, setPlColorStyle]);
 
   // リプレイ初期化完了または切断時にローディングを終了する
   useEffect(() => {
@@ -1368,7 +1379,7 @@ function MainWindow() {
       unlistenDisconnect.then((fn) => fn());
       unlistenConnect.then((fn) => fn());
     };
-  }, []);
+  }, [scheduleStatusUpdate, setOrderColorStyle, setPlColorStyle, setTheme]);
 
   // Start Timeが変更されたら、デフォルトのプリロード開始日を年初に自動更新
   useEffect(() => {
@@ -1429,69 +1440,6 @@ function MainWindow() {
         });
     }
   }, [selectedTerminal]);
-
-  // 設定変更時の自動保存処理
-  useEffect(() => {
-    if (!isInitialized) return;
-
-    const timer = setTimeout(() => {
-      saveAllSettings();
-    }, 500); // 500msのデバウンスで頻繁なファイル書き込みを防止
-
-    return () => clearTimeout(timer);
-  }, [
-    isInitialized,
-    selectedTerminal,
-    selectedProfile,
-    sourceSymbol,
-    enableDualFeed,
-    subSourceSymbol,
-    additionalSymbols,
-    startTime,
-    endTime,
-    preloadedBars,
-    autoScrollSync,
-    autoSkipWeekend,
-    preloadMode,
-    preloadDate,
-    preloadTimeframe,
-    hotkeys,
-    timePresets,
-    tickPresets,
-    theme,
-    alwaysOnTop,
-    isShortcutsActive,
-    timezoneMode,
-    plColorStyle,
-    orderColorStyle,
-    hedging,
-    enableVirtualTrading,
-    initialBalance,
-    leverage,
-    contractSize,
-    enablePseudoRate,
-    pseudoBaseSpread,
-    pseudoThreshold,
-    pseudoSensitivity,
-    pseudoMode,
-    pseudoRolloverEnabled,
-    pseudoRolloverSpread,
-    pseudoRolloverRecoveryMin,
-    showHoldingTime,
-    holdingTimeMode
-  ]);
-
-  // --- 2. 各種制御関数
-
-  const sendCommand = async (cmd: ReplayCommand) => {
-    try {
-      await sendReplayCommand(cmd);
-    } catch (e) {
-      console.error("Failed to send command", e);
-      setErrorMessage(translateErrorMessage("Command error: " + e));
-      throw e;
-    }
-  };
 
   // すべての設定をまとめて保存・同期するヘルパー関数
   const saveAllSettings = async (
@@ -1586,6 +1534,66 @@ function MainWindow() {
       console.error("Failed to save/sync settings", e);
     }
   };
+
+  const saveAllSettingsRef = useRef(saveAllSettings);
+  useEffect(() => {
+    saveAllSettingsRef.current = saveAllSettings;
+  });
+
+  // 設定変更時の自動保存処理
+  useEffect(() => {
+    if (!isInitialized) return;
+
+    const timer = setTimeout(() => {
+      saveAllSettingsRef.current();
+    }, 500); // 500msのデバウンスで頻繁なファイル書き込みを防止
+
+    return () => clearTimeout(timer);
+  }, [
+    isInitialized,
+    selectedTerminal,
+    selectedProfile,
+    sourceSymbol,
+    enableDualFeed,
+    subSourceSymbol,
+    additionalSymbols,
+    startTime,
+    endTime,
+    preloadedBars,
+    autoScrollSync,
+    autoSkipWeekend,
+    preloadMode,
+    preloadDate,
+    preloadTimeframe,
+    hotkeys,
+    timePresets,
+    tickPresets,
+    theme,
+    alwaysOnTop,
+    isShortcutsActive,
+    timezoneMode,
+    plColorStyle,
+    orderColorStyle,
+    hedging,
+    enableVirtualTrading,
+    initialBalance,
+    leverage,
+    contractSize,
+    enablePseudoRate,
+    pseudoBaseSpread,
+    pseudoThreshold,
+    pseudoSensitivity,
+    pseudoMode,
+    pseudoRolloverEnabled,
+    pseudoRolloverSpread,
+    pseudoRolloverRecoveryMin,
+    showHoldingTime,
+    holdingTimeMode
+  ]);
+
+  // --- 2. 各種制御関数
+
+
 
   // リプレイ初期化
   const handleInit = async () => {
@@ -2753,7 +2761,7 @@ function MainWindow() {
         setHotkeys(newHotkeys);
 
         // 設定保存
-        saveAllSettings(newHotkeys)
+        saveAllSettingsRef.current(newHotkeys)
           .then(() => {
             invoke(COMMANDS.setShortcutsActive, { active: isShortcutsActive, hotkeys: newHotkeys }).catch(console.error);
           })
@@ -2765,7 +2773,7 @@ function MainWindow() {
 
     window.addEventListener("keydown", handleRecordKeyDown, true);
     return () => window.removeEventListener("keydown", handleRecordKeyDown, true);
-  }, [recordingAction, hotkeys, selectedTerminal, selectedProfile, sourceSymbol, startTime, endTime, preloadedBars, autoScrollSync, preloadMode, preloadDate, preloadTimeframe, isShortcutsActive, timePresets, tickPresets, autoSkipWeekend]);
+  }, [recordingAction, hotkeys, isShortcutsActive]);
 
   const handleClearHotkey = (actionKey: string) => {
     const newHotkeys = { ...hotkeys, [actionKey]: "" };

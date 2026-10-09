@@ -347,7 +347,7 @@ fn load_oanda_pseudo_parquet(
 /// 開始日時・終了日時文字列から (年, 月) のリストを生成
 pub fn get_year_months_between(start_str: &str, end_str: &str) -> Vec<(i32, u32)> {
     let parse_dt = |s: &str| -> Option<NaiveDate> {
-        let clean = s.trim().replace('T', " ").replace('.', "-").replace('/', "-");
+        let clean = s.trim().replace('T', " ").replace(['.', '/'], "-");
         let parts: Vec<&str> = clean.split(' ').collect();
         let date_part = parts.first()?;
         let d_parts: Vec<&str> = date_part.split('-').collect();

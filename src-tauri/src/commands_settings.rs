@@ -46,7 +46,7 @@ pub async fn set_shortcuts_active(
                 continue;
             }
             if let Ok(shortcut) = key.parse::<Shortcut>() {
-                let _ = shortcut_manager.unregister(shortcut.clone());
+                let _ = shortcut_manager.unregister(shortcut);
                 if let Err(e) = shortcut_manager.register(shortcut) {
                     eprintln!("Failed to register global shortcut {}: {}", key, e);
                 }
@@ -65,22 +65,17 @@ pub fn queue_window_position_save(app_handle: AppHandle, label: String, x: i32, 
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<(AppHandle, String, i32, i32)>();
         tauri::async_runtime::spawn(async move {
             let mut pending: std::collections::HashMap<String, (AppHandle, i32, i32)> = std::collections::HashMap::new();
-            loop {
-                match rx.recv().await {
-                    Some((handle, lbl, pos_x, pos_y)) => {
-                        pending.insert(lbl, (handle, pos_x, pos_y));
-                        while let Ok((h, l, px, py)) = rx.try_recv() {
-                            pending.insert(l, (h, px, py));
-                        }
-                        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-                        while let Ok((h, l, px, py)) = rx.try_recv() {
-                            pending.insert(l, (h, px, py));
-                        }
-                        for (l, (h, px, py)) in pending.drain() {
-                            let _ = save_window_position_to_disk(&h, &l, px, py).await;
-                        }
-                    }
-                    None => break,
+            while let Some((handle, lbl, pos_x, pos_y)) = rx.recv().await {
+                pending.insert(lbl, (handle, pos_x, pos_y));
+                while let Ok((h, l, px, py)) = rx.try_recv() {
+                    pending.insert(l, (h, px, py));
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                while let Ok((h, l, px, py)) = rx.try_recv() {
+                    pending.insert(l, (h, px, py));
+                }
+                for (l, (h, px, py)) in pending.drain() {
+                    let _ = save_window_position_to_disk(&h, &l, px, py).await;
                 }
             }
         });

@@ -82,7 +82,7 @@ impl ImportManifest {
     pub fn mark_imported(&mut self, symbol: &str, year_month: &str) {
         self.imported_months
             .entry(symbol.to_string())
-            .or_insert_with(HashSet::new)
+            .or_default()
             .insert(year_month.to_string());
 
         if !self.custom_symbols.iter().any(|s| s == symbol) {
@@ -673,7 +673,7 @@ pub fn convert_zip_to_mql_bin(
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|e| AppError::Config(format!("ZIPアーカイブの開閉失敗: {}", e)))?;
 
-    if archive.len() == 0 {
+    if archive.is_empty() {
         return Err(AppError::Config("空のZIPファイルです".to_string()));
     }
 
@@ -815,7 +815,7 @@ fn parse_digits(b: &[u8]) -> Option<i64> {
     let mut val: i64 = 0;
     if b.is_empty() { return None; }
     for &c in b {
-        if c >= b'0' && c <= b'9' {
+        if c.is_ascii_digit() {
             val = val * 10 + (c - b'0') as i64;
         } else {
             return None;

@@ -151,7 +151,7 @@ pub async fn open_speed_order_window(app_handle: AppHandle) -> Result<(), AppErr
             (Ok(outer), Ok(inner)) => {
                 let dw = (outer.width.saturating_sub(inner.width)) as f64 / scale_factor;
                 let dh = (outer.height.saturating_sub(inner.height)) as f64 / scale_factor;
-                if dw >= 0.0 && dw <= 50.0 && dh >= 0.0 && dh <= 100.0 {
+                if (0.0..=50.0).contains(&dw) && (0.0..=100.0).contains(&dh) {
                     (dw, dh)
                 } else {
                     (16.0, 39.0)
@@ -195,7 +195,7 @@ pub async fn open_speed_order_window(app_handle: AppHandle) -> Result<(), AppErr
             (Ok(outer), Ok(inner)) => {
                 let dw = (outer.width.saturating_sub(inner.width)) as f64 / scale_factor;
                 let dh = (outer.height.saturating_sub(inner.height)) as f64 / scale_factor;
-                if dw >= 0.0 && dw <= 50.0 && dh >= 0.0 && dh <= 100.0 {
+                if (0.0..=50.0).contains(&dw) && (0.0..=100.0).contains(&dh) {
                     (dw, dh)
                 } else {
                     (16.0, 39.0)

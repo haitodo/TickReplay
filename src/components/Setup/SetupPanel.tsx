@@ -287,8 +287,8 @@ const SetupPanelComponent: React.FC<SetupPanelProps> = ({
   const [viewYear, setViewYear] = React.useState<number>(() => parsedStart.year || 2024);
 
   React.useEffect(() => {
-    if (parsedStart.year && parsedStart.year !== viewYear) {
-      setViewYear(parsedStart.year);
+    if (parsedStart.year) {
+      setViewYear((prev) => (prev !== parsedStart.year ? parsedStart.year : prev));
     }
   }, [parsedStart.year]);
 

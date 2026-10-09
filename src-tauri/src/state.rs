@@ -3,16 +3,13 @@ use std::sync::{Mutex, RwLock};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Default)]
 pub enum SpeedMode {
+    #[default]
     Temporal,
     Tick,
 }
 
-impl Default for SpeedMode {
-    fn default() -> Self {
-        Self::Temporal
-    }
-}
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PlaybackState {

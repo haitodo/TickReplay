@@ -76,7 +76,7 @@ pub async fn check_month_economic_availability(
     let (exists, events_opt) = tokio::task::spawn_blocking(move || {
         let pair = crate::pseudo_dmm::extract_base_pair(&sym);
         let parts: Vec<&str> = ym.split('-').collect();
-        let year: i32 = parts.get(0).and_then(|s| s.parse().ok()).unwrap_or(2026);
+        let year: i32 = parts.first().and_then(|s| s.parse().ok()).unwrap_or(2026);
         let month: u32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(5);
         let profiles = crate::pseudo_dmm::PseudoDmmEngine::load_profile_matrix();
         let events = crate::pseudo_dmm::PseudoDmmEngine::load_events_for_month(&pair, year, month, &profiles, cd.as_deref());
@@ -113,7 +113,7 @@ pub async fn get_economic_schedule_csv(
 
     // 1. 必要年月を計算
     let ym_list = crate::pseudo_dmm::get_year_months_between(
-        if pm.as_deref() == Some("DATE") && pd.as_ref().map_or(false, |s| !s.is_empty()) {
+        if pm.as_deref() == Some("DATE") && pd.as_ref().is_some_and(|s| !s.is_empty()) {
             pd.as_deref().unwrap()
         } else {
             &st

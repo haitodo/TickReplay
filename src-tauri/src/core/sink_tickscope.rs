@@ -61,9 +61,7 @@ impl TickScopeBridge {
         }
 
         if self.stream.is_none() {
-            if let Err(e) = self.connect() {
-                return Err(e);
-            }
+            self.connect()?;
         }
 
         let tick_count = ticks.len() as u32;
@@ -117,9 +115,7 @@ impl TickScopeBridge {
     /// ハートビート送信
     pub fn send_heartbeat(&mut self, last_tick_msc: i64) -> io::Result<()> {
         if self.stream.is_none() {
-            if let Err(e) = self.connect() {
-                return Err(e);
-            }
+            self.connect()?;
         }
 
         let total_len = HEADER_LENGTH as usize + HEARTBEAT_PAYLOAD_LENGTH;

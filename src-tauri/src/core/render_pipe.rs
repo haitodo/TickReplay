@@ -165,6 +165,7 @@ impl RenderPacketCodec {
         buf
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn encode_init(
         epoch: u32,
         start_time_msc: i64,
@@ -415,6 +416,7 @@ impl RenderPipeHandle {
         });
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn send_init(
         &self,
         epoch: u32,
@@ -539,7 +541,7 @@ impl RenderPipeServer {
                         let header: RenderHeader = *bytemuck::from_bytes(&header_buf);
                         if header.is_valid() && header.msg_type == MSG_HELLO && header.payload_len > 0 {
                             let mut hello_buf = vec![0u8; header.payload_len as usize];
-                            if let Ok(_) = reader.read_exact(&mut hello_buf).await {
+                            if reader.read_exact(&mut hello_buf).await.is_ok() {
                                 if hello_buf.len() >= 72 {
                                     let hello: &HelloPayload = bytemuck::from_bytes(&hello_buf[0..72]);
                                     let s = String::from_utf8_lossy(&hello.symbol).trim_matches('\0').trim().to_string();

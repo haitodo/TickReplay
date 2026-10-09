@@ -187,8 +187,8 @@ export const SymbolSelectorWindowContent: React.FC = () => {
       const parsed = parseSymbolName(selectedSource);
       if (parsed.category && categoryInfo.allCategories.includes(parsed.category)) {
         setActiveCategory(parsed.category);
-      } else if (categoryInfo.allCategories.length > 0 && !categoryInfo.allCategories.includes(activeCategory)) {
-        setActiveCategory(categoryInfo.allCategories[0]);
+      } else if (categoryInfo.allCategories.length > 0) {
+        setActiveCategory((prev) => (!categoryInfo.allCategories.includes(prev) ? categoryInfo.allCategories[0] : prev));
       }
     }
   }, [selectedSource, categoryInfo]);

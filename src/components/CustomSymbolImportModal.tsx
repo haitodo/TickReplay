@@ -75,6 +75,9 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
   const [importCompletedSuccessfully, setImportCompletedSuccessfully] = useState(false);
 
   const cancelImportRef = useRef(false);
+  const rootDirRef = useRef(rootDir);
+  rootDirRef.current = rootDir;
+  const handleScanWithDirRef = useRef<((dir: string) => Promise<void>) | null>(null);
 
   // モーダル表示時に MT5 EA 接続状態を確認 ＆ デフォルトパス取得 ＆ 自動スキャン
   useEffect(() => {
@@ -93,14 +96,14 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
               setRootDir(defDir);
               localStorage.setItem(STORAGE_KEY, defDir);
             }
-            handleScanWithDir(targetDir);
-          } else if (rootDir && rootDir.trim()) {
-            handleScanWithDir(rootDir.trim());
+            handleScanWithDirRef.current?.(targetDir);
+          } else if (rootDirRef.current && rootDirRef.current.trim()) {
+            handleScanWithDirRef.current?.(rootDirRef.current.trim());
           }
         })
         .catch(() => {
-          if (rootDir && rootDir.trim()) {
-            handleScanWithDir(rootDir.trim());
+          if (rootDirRef.current && rootDirRef.current.trim()) {
+            handleScanWithDirRef.current?.(rootDirRef.current.trim());
           }
         });
     }
@@ -211,6 +214,7 @@ export const CustomSymbolImportModal: React.FC<CustomSymbolImportModalProps> = (
       setIsScanning(false);
     }
   };
+  handleScanWithDirRef.current = handleScanWithDir;
 
   const handleScan = () => {
     handleScanWithDir(rootDir);

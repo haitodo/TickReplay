@@ -24,6 +24,12 @@ pub struct ProcessJobGuard {
 unsafe impl Send for ProcessJobGuard {}
 unsafe impl Sync for ProcessJobGuard {}
 
+impl Default for ProcessJobGuard {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProcessJobGuard {
     pub fn new() -> Self {
         #[cfg(windows)]

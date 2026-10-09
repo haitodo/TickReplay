@@ -116,21 +116,20 @@ pub fn run() {
                     } else if window.label() == "main" {
                         // メインウィンドウが閉じられた場合はアプリ全体をクリーンに終了
                         if let Some(state) = window.app_handle().try_state::<Arc<state::ReplayState>>() {
-                            let _ = crate::commands_replay::dispatch_replay_command(&state, "{\"command\":\"TERMINATE\"}", Some(&window.app_handle()));
+                            let _ = crate::commands_replay::dispatch_replay_command(&state, "{\"command\":\"TERMINATE\"}", Some(window.app_handle()));
                         }
                         std::thread::sleep(std::time::Duration::from_millis(80));
                         window.app_handle().exit(0);
                     }
                 }
-                tauri::WindowEvent::Destroyed => {
-                    if window.label() == "main" {
+                tauri::WindowEvent::Destroyed
+                    if window.label() == "main" => {
                         if let Some(state) = window.app_handle().try_state::<Arc<state::ReplayState>>() {
-                            let _ = crate::commands_replay::dispatch_replay_command(&state, "{\"command\":\"TERMINATE\"}", Some(&window.app_handle()));
+                            let _ = crate::commands_replay::dispatch_replay_command(&state, "{\"command\":\"TERMINATE\"}", Some(window.app_handle()));
                         }
                         std::thread::sleep(std::time::Duration::from_millis(80));
                         window.app_handle().exit(0);
                     }
-                }
                 _ => {}
             }
         })

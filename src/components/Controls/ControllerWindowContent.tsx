@@ -236,32 +236,34 @@ export const ControllerWindowContent: React.FC = () => {
   };
 
   // --- IPC 送信コマンド ---
-  const sendCommand = async (cmd: ReplayCommand) => {
+  const sendCommand = useCallback(async (cmd: ReplayCommand) => {
     try {
       await sendReplayCommand(cmd);
     } catch (e) {
       console.error("Failed to send command:", cmd, e);
     }
-  };
+  }, []);
 
-  const handlePlayPause = () => {
-    const nextPlaying = !isPlaying;
-    setIsPlaying(nextPlaying);
-    sendCommand({
-      command: "CONTROL",
-      is_playing: nextPlaying,
-      speed_mode: speedMode,
-      multiplier: multiplier,
-      tick_step: tickStep,
+  const handlePlayPause = useCallback(() => {
+    setIsPlaying((prevPlaying) => {
+      const nextPlaying = !prevPlaying;
+      sendCommand({
+        command: "CONTROL",
+        is_playing: nextPlaying,
+        speed_mode: speedMode,
+        multiplier: multiplier,
+        tick_step: tickStep,
+      });
+      return nextPlaying;
     });
-  };
+  }, [sendCommand, speedMode, multiplier, tickStep]);
 
-  const handleStep = (step: number) => {
+  const handleStep = useCallback((step: number) => {
     sendCommand({
       command: "SEEK_RELATIVE",
       delta: step,
     });
-  };
+  }, [sendCommand]);
 
   const updateSpeed = (mode: "TEMPORAL" | "COUNT", mult: number, step: number) => {
     setSpeedMode(mode);
@@ -379,12 +381,12 @@ export const ControllerWindowContent: React.FC = () => {
     });
   };
 
-  const handleTimeJump = (seconds: number) => {
+  const handleTimeJump = useCallback((seconds: number) => {
     sendCommand({
       command: "TIME_JUMP",
       delta_seconds: seconds,
     });
-  };
+  }, [sendCommand]);
 
   const getDayOffset = (): string => {
     if (virtualTimeMsc <= 0) return "";

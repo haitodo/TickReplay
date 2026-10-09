@@ -192,7 +192,7 @@ impl CoreMatchingEngine {
                 // target_time_msc より未来に発注された建玉 -> 残高から確定損益を差し引いて完全消去
                 self.account.balance -= pos.profit;
                 self.account.total_profit -= pos.profit;
-            } else if pos.close_time_msc.map_or(false, |ct| ct > target_time_msc) {
+            } else if pos.close_time_msc.is_some_and(|ct| ct > target_time_msc) {
                 // target_time_msc 以前にオープンされたが決済は未来 -> 未決済建玉として復元
                 self.account.balance -= pos.profit;
                 self.account.total_profit -= pos.profit;
@@ -241,6 +241,7 @@ impl CoreMatchingEngine {
     }
 
     /// 注文の受付 (クリック時即刻印)
+    #[allow(clippy::too_many_arguments)]
     pub fn submit_order(
         &mut self,
         symbol: String,
@@ -301,6 +302,7 @@ impl CoreMatchingEngine {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn execute_fill(
         &mut self,
         order_id: u64,

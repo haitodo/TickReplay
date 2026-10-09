@@ -44,9 +44,7 @@ export const DateTimePickerModal: React.FC<DateTimePickerModalProps> = ({
 
   useEffect(() => {
     const maxDays = getDaysInMonth(tempYear, tempMonth);
-    if (tempDay > maxDays) {
-      setTempDay(maxDays);
-    }
+    setTempDay((prev) => (prev > maxDays ? maxDays : prev));
   }, [tempYear, tempMonth]);
 
   const handleApply = () => {

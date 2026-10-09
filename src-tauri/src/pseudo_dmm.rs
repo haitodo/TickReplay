@@ -83,7 +83,7 @@ impl PseudoDmmEngine {
     /// 経済指標フォルダーを明示指定して新しいエンジンインスタンスを生成
     pub fn new_with_custom_dir(symbol: &str, year_month: &str, custom_dir: Option<&str>) -> Self {
         let parts: Vec<&str> = year_month.split('-').collect();
-        let year: i32 = parts.get(0).and_then(|s| s.parse().ok()).unwrap_or(2026);
+        let year: i32 = parts.first().and_then(|s| s.parse().ok()).unwrap_or(2026);
         let month: u32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(8);
 
         let profiles = Self::load_profile_matrix();
@@ -350,7 +350,7 @@ impl PseudoDmmEngine {
     /// 米国夏時間 (US DST) 判定 (3月第2日曜日 02:00 〜 11月第1日曜日 02:00)
     #[inline]
     pub fn is_us_dst(year: i32, month: u32, day: u32, hour: u32) -> bool {
-        if month < 3 || month > 11 {
+        if !(3..=11).contains(&month) {
             return false;
         }
         if month > 3 && month < 11 {
@@ -395,7 +395,7 @@ impl PseudoDmmEngine {
     /// 実質ゴトー日判定（平日5の倍数、週末前倒し金曜日、月末営業日）
     pub fn is_effective_gotobi(year: i32, month: u32, day: u32, wday: Weekday) -> bool {
         // 1. 平日の 5, 10, 15, 20, 25, 30日
-        if day % 5 == 0 && wday != Weekday::Sat && wday != Weekday::Sun {
+        if day.is_multiple_of(5) && wday != Weekday::Sat && wday != Weekday::Sun {
             return true;
         }
 
@@ -403,7 +403,7 @@ impl PseudoDmmEngine {
         if wday == Weekday::Fri {
             let sat_day = day + 1;
             let sun_day = day + 2;
-            if sat_day % 5 == 0 || sun_day % 5 == 0 {
+            if sat_day.is_multiple_of(5) || sun_day.is_multiple_of(5) {
                 return true;
             }
             // 月末金曜日（土日が月末跨ぎ）
@@ -501,8 +501,8 @@ impl PseudoDmmEngine {
         let mut target_spread = 0.002;
 
         // --- Layer 1: 仲値制御 (平日 9:53〜09:55:30 JST / 2026年最新実測データ準拠) ---
-        if jst_wday != Weekday::Sat && jst_wday != Weekday::Sun {
-            if jst_hour == 9 {
+        if jst_wday != Weekday::Sat && jst_wday != Weekday::Sun
+            && jst_hour == 9 {
                 let is_gotobi = Self::is_effective_gotobi(y, m, jst_day, jst_wday);
                 let jst_sec_of_min = jst_dt.second();
 
@@ -520,7 +520,7 @@ impl PseudoDmmEngine {
                 } else if jst_min == 53 {
                     // 09:53:00〜09:53:59 (事前動意帯 / 実測平均0.0085): 0.8銭
                     0.008
-                } else if jst_min >= 50 && jst_min < 53 {
+                } else if (50..53).contains(&jst_min) {
                     0.004
                 } else {
                     0.002
@@ -530,7 +530,6 @@ impl PseudoDmmEngine {
                     target_spread = fixing_spread;
                 }
             }
-        }
 
         // --- Layer 2: 早朝ロールオーバー制御 (2026年9月最新実測分単位統計準拠) ---
         // 夏時間: 05:50〜07:15 JST (06:00ロールオーバー) / 冬時間: 06:50〜08:15 JST (07:00ロールオーバー)
@@ -779,15 +778,9 @@ pub fn load_and_check_economic_data_range(
     custom_dir: Option<&str>,
 ) -> (EconomicDataAvailability, HashMap<String, Vec<EconomicEvent>>) {
     let pair = extract_base_pair(symbol);
-    let effective_start = if preload_mode == Some("DATE") && preload_date_str.is_some() {
-        let p_date = preload_date_str.unwrap();
-        if !p_date.is_empty() && p_date < start_dt_str {
-            p_date
-        } else {
-            start_dt_str
-        }
-    } else {
-        start_dt_str
+    let effective_start = match (preload_mode, preload_date_str) {
+        (Some("DATE"), Some(p_date)) if !p_date.is_empty() && p_date < start_dt_str => p_date,
+        _ => start_dt_str,
     };
 
     let ym_list = get_year_months_between(effective_start, end_dt_str);

@@ -146,7 +146,7 @@ export const SymbolBatchSelectorModal: React.FC<SymbolBatchSelectorModalProps> =
         setActiveCategory(categoryInfo.allCategories[0]);
       }
     }
-  }, [isOpen, currentSourceSymbol, currentSubSourceSymbol, currentEnableDualFeed, currentAdditionalSymbols, allYears, allBrokers, categoryInfo, availableSymbols]);
+  }, [isOpen, currentSourceSymbol, currentSubSourceSymbol, currentEnableDualFeed, currentAdditionalSymbols, currentStartTime, currentEndTime, allYears, allBrokers, categoryInfo, availableSymbols]);
 
   if (!isOpen) return null;
 

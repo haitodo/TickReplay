@@ -5,30 +5,24 @@ pub type VirtualTimeMsc = i64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Default)]
 pub enum PlaybackMode {
+    #[default]
     Temporal,
     Count,
 }
 
-impl Default for PlaybackMode {
-    fn default() -> Self {
-        Self::Temporal
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Default)]
 pub enum PlaybackState {
+    #[default]
     Stopped,
     Playing,
     Paused,
 }
 
-impl Default for PlaybackState {
-    fn default() -> Self {
-        Self::Stopped
-    }
-}
 
 /// A-B ループ設定
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,22 +57,21 @@ impl Default for WeekendSkipConfig {
 /// 実戦遅延シミュレーションモデル
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "params")]
+#[derive(Default)]
 pub enum LatencyModel {
+    #[default]
     Zero,
     Fixed { latency_ms: u32 },
     Normal { mean_ms: f64, std_dev_ms: f64 },
 }
 
-impl Default for LatencyModel {
-    fn default() -> Self {
-        Self::Zero
-    }
-}
 
 /// スリッページモデル
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "params")]
+#[derive(Default)]
 pub enum SlippageModel {
+    #[default]
     None,
     /// ボラティリティ・ティック差分に応じたスリッページ
     Realistic {
@@ -87,11 +80,6 @@ pub enum SlippageModel {
     },
 }
 
-impl Default for SlippageModel {
-    fn default() -> Self {
-        Self::None
-    }
-}
 
 /// Core 内で統一的に扱う高精度ティック表現
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
