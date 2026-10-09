@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { DEFAULT_OPENROUTER_MODEL } from "../../constants/ai";
 import { DEFAULT_SPEED_TIME_PRESETS, DEFAULT_SPEED_TICK_PRESETS } from "../../constants/speedPresets";
 import { COMMANDS } from "../../constants/commands";
 import { EVENTS } from "../../constants/events";
@@ -7,7 +6,6 @@ import { STORAGE_KEYS } from "../../constants/storageKeys";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { emit } from "@tauri-apps/api/event";
-import { CustomSelect } from "../../CustomSelect";
 import {
   DEFAULT_HOTKEYS,
   HOTKEY_METADATA,
@@ -15,13 +13,6 @@ import {
   getTauriShortcutFromEvent,
 } from "../../utils/hotkeyUtils";
 import { THEME_LIST } from "../../constants/themePresets";
-import {
-  testOpenRouterKey,
-  testFredKey,
-  testFinnhubKey,
-  testGdeltApi,
-  ApiTestResult,
-} from "../../utils/apiKeyTester";
 import { useTheme } from "../../hooks/useTheme";
 import { PersistedSettings } from "../../types/settings";
 
@@ -37,10 +28,6 @@ type SettingsSaveOverrides = {
   autoScrollSync?: boolean;
   autoSkipWeekend?: boolean;
   economicDataDir?: string;
-  openRouterApiKey?: string;
-  openRouterModel?: string;
-  fredApiKey?: string;
-  finnhubApiKey?: string;
 };
 
 export const SettingsWindowContent: React.FC = () => {
@@ -53,7 +40,7 @@ export const SettingsWindowContent: React.FC = () => {
     setOrderColorStyle,
   } = useTheme();
 
-  const [activeTab, setActiveTab] = useState<"general" | "hotkeys" | "theme" | "ai">("general");
+  const [activeTab, setActiveTab] = useState<"general" | "hotkeys" | "theme">("general");
 
   // 一般設定
   const [autoScrollSync, setAutoScrollSync] = useState(true);
@@ -69,19 +56,6 @@ export const SettingsWindowContent: React.FC = () => {
   // プリセット
   const [timePresets, setTimePresets] = useState<number[]>(() => [...DEFAULT_SPEED_TIME_PRESETS]);
   const [tickPresets, setTickPresets] = useState<number[]>(() => [...DEFAULT_SPEED_TICK_PRESETS]);
-
-  // AI設定
-  const [openRouterApiKey, setOpenRouterApiKey] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.openRouterApiKey) || "");
-  const [openRouterModel, setOpenRouterModel] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.openRouterModel) || DEFAULT_OPENROUTER_MODEL);
-  const [fredApiKey, setFredApiKey] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.fredApiKey) || "");
-  const [finnhubApiKey, setFinnhubApiKey] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.finnhubApiKey) || "");
-
-  // APIテスト
-  const [openRouterTestResult, setOpenRouterTestResult] = useState<ApiTestResult>({ success: false, status: "idle", message: "" });
-  const [fredTestResult, setFredTestResult] = useState<ApiTestResult>({ success: false, status: "idle", message: "" });
-  const [finnhubTestResult, setFinnhubTestResult] = useState<ApiTestResult>({ success: false, status: "idle", message: "" });
-  const [gdeltTestResult, setGdeltTestResult] = useState<ApiTestResult>({ success: false, status: "idle", message: "" });
-  const [isTestingAllApis, setIsTestingAllApis] = useState(false);
 
   // 初期ロード
   useEffect(() => {
@@ -130,10 +104,6 @@ export const SettingsWindowContent: React.FC = () => {
       const activeAutoScrollSync = overrides.autoScrollSync ?? autoScrollSync;
       const activeAutoSkipWeekend = overrides.autoSkipWeekend ?? autoSkipWeekend;
       const activeEconomicDataDir = overrides.economicDataDir ?? economicDataDir;
-      const activeOpenRouterApiKey = overrides.openRouterApiKey ?? openRouterApiKey;
-      const activeOpenRouterModel = overrides.openRouterModel ?? openRouterModel;
-      const activeFredApiKey = overrides.fredApiKey ?? fredApiKey;
-      const activeFinnhubApiKey = overrides.finnhubApiKey ?? finnhubApiKey;
 
       try {
         await invoke(COMMANDS.saveSettings, {
@@ -156,10 +126,6 @@ export const SettingsWindowContent: React.FC = () => {
         localStorage.setItem(STORAGE_KEYS.themeMode, activeTheme);
         localStorage.setItem(STORAGE_KEYS.plColorStyle, activePlColorStyle);
         localStorage.setItem(STORAGE_KEYS.speedOrderColorStyle, activeOrderColorStyle);
-        localStorage.setItem(STORAGE_KEYS.openRouterApiKey, activeOpenRouterApiKey);
-        localStorage.setItem(STORAGE_KEYS.openRouterModel, activeOpenRouterModel);
-        localStorage.setItem(STORAGE_KEYS.fredApiKey, activeFredApiKey);
-        localStorage.setItem(STORAGE_KEYS.finnhubApiKey, activeFinnhubApiKey);
         localStorage.setItem(STORAGE_KEYS.replayEconomicDataDir, activeEconomicDataDir);
 
         emit(EVENTS.settingsUpdated, {
@@ -183,10 +149,6 @@ export const SettingsWindowContent: React.FC = () => {
       autoScrollSync,
       autoSkipWeekend,
       economicDataDir,
-      openRouterApiKey,
-      openRouterModel,
-      fredApiKey,
-      finnhubApiKey,
     ]
   );
 
@@ -247,51 +209,6 @@ export const SettingsWindowContent: React.FC = () => {
     }
   };
 
-  // APIテスト
-  const handleTestOpenRouter = async () => {
-    setOpenRouterTestResult({ success: false, status: "testing", message: "接続確認中..." });
-    const result = await testOpenRouterKey(openRouterApiKey, openRouterModel);
-    setOpenRouterTestResult(result);
-  };
-
-  const handleTestFred = async () => {
-    setFredTestResult({ success: false, status: "testing", message: "接続確認中..." });
-    const result = await testFredKey(fredApiKey);
-    setFredTestResult(result);
-  };
-
-  const handleTestFinnhub = async () => {
-    setFinnhubTestResult({ success: false, status: "testing", message: "接続確認中..." });
-    const result = await testFinnhubKey(finnhubApiKey);
-    setFinnhubTestResult(result);
-  };
-
-  const handleTestGdelt = async () => {
-    setGdeltTestResult({ success: false, status: "testing", message: "接続確認中..." });
-    const result = await testGdeltApi();
-    setGdeltTestResult(result);
-  };
-
-  const handleTestAllApis = async () => {
-    setIsTestingAllApis(true);
-    setOpenRouterTestResult({ success: false, status: "testing", message: "接続確認中..." });
-    setFredTestResult({ success: false, status: "testing", message: "接続確認中..." });
-    setFinnhubTestResult({ success: false, status: "testing", message: "接続確認中..." });
-    setGdeltTestResult({ success: false, status: "testing", message: "接続確認中..." });
-
-    const [openRouterRes, fredRes, finnhubRes, gdeltRes] = await Promise.all([
-      testOpenRouterKey(openRouterApiKey, openRouterModel),
-      testFredKey(fredApiKey),
-      testFinnhubKey(finnhubApiKey),
-      testGdeltApi(),
-    ]);
-
-    setOpenRouterTestResult(openRouterRes);
-    setFredTestResult(fredRes);
-    setFinnhubTestResult(finnhubRes);
-    setGdeltTestResult(gdeltRes);
-    setIsTestingAllApis(false);
-  };
 
   return (
     <div className="settings-window-root">
@@ -328,13 +245,6 @@ export const SettingsWindowContent: React.FC = () => {
           >
             <span className="material-symbols-outlined icon">palette</span>
             <span>テーマ・外観</span>
-          </button>
-          <button
-            className={`settings-nav-btn ${activeTab === "ai" ? "active" : ""}`}
-            onClick={() => setActiveTab("ai")}
-          >
-            <span className="material-symbols-outlined icon">auto_awesome</span>
-            <span>AI連携設定</span>
           </button>
         </nav>
 
@@ -684,204 +594,6 @@ export const SettingsWindowContent: React.FC = () => {
                     </div>
                   </button>
                 </div>
-              </div>
-            </div>
-          )}
-
-          {/* 4. AI連携設定 */}
-          {activeTab === "ai" && (
-            <div className="settings-tab-pane">
-              <div className="ai-status-card">
-                <div className="ai-status-header">
-                  <div>
-                    <h3 className="section-title">
-                      <span className="material-symbols-outlined icon ai-sparkle">auto_awesome</span>
-                      API疎通確認 &amp; ステータス
-                    </h3>
-                    <p className="section-desc">急変動解析・経済指標連動に必要なAPIキーの通信状態をテストします</p>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn-test-all-spacious"
-                    onClick={handleTestAllApis}
-                    disabled={isTestingAllApis}
-                  >
-                    <span className={`material-symbols-outlined icon ${isTestingAllApis ? "spin" : ""}`}>
-                      {isTestingAllApis ? "sync" : "checklist"}
-                    </span>
-                    <span>{isTestingAllApis ? "接続テスト中..." : "全API一括テスト"}</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* OpenRouter */}
-              <div className="settings-section-card">
-                <div className="api-card-header">
-                  <div className="api-title-row">
-                    <span className="api-name">OpenRouter API (LLM急変動解析)</span>
-                    <span className="api-badge required">必須</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn-test-single-card"
-                    onClick={handleTestOpenRouter}
-                    disabled={openRouterTestResult.status === "testing" || isTestingAllApis}
-                  >
-                    テスト実行
-                  </button>
-                </div>
-                <input
-                  type="password"
-                  className="input-compact font-data"
-                  value={openRouterApiKey}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setOpenRouterApiKey(value);
-                    saveAll({ openRouterApiKey: value });
-                  }}
-                  placeholder="sk-or-v1-..."
-                />
-                {openRouterTestResult.status !== "idle" && (
-                  <div className={`api-result-badge-spacious ${openRouterTestResult.status}`}>
-                    <span className="material-symbols-outlined icon">
-                      {openRouterTestResult.status === "testing"
-                        ? "sync"
-                        : openRouterTestResult.success
-                        ? "check_circle"
-                        : "error"}
-                    </span>
-                    <span>{openRouterTestResult.message}</span>
-                  </div>
-                )}
-
-                <div className="model-select-row">
-                  <label className="form-label">解析モデル選択</label>
-                  <CustomSelect
-                    value={openRouterModel}
-                    onChange={(val) => {
-                      setOpenRouterModel(val);
-                      saveAll({ openRouterModel: val });
-                    }}
-                    options={[
-                      { value: DEFAULT_OPENROUTER_MODEL, label: "Gemini 2.5 Flash (推奨・超高速)" },
-                      { value: "anthropic/claude-3.5-sonnet", label: "Claude 3.5 Sonnet (高精度)" },
-                      { value: "openai/gpt-4o-mini", label: "GPT-4o Mini (軽量)" },
-                      { value: "deepseek/deepseek-chat", label: "DeepSeek V3" },
-                    ]}
-                  />
-                </div>
-              </div>
-
-              {/* FRED API */}
-              <div className="settings-section-card">
-                <div className="api-card-header">
-                  <div className="api-title-row">
-                    <span className="api-name">FRED API (米国連邦準備銀行 金利・経済データ)</span>
-                    <span className="api-badge optional">任意</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn-test-single-card"
-                    onClick={handleTestFred}
-                    disabled={fredTestResult.status === "testing" || isTestingAllApis}
-                  >
-                    テスト実行
-                  </button>
-                </div>
-                <input
-                  type="text"
-                  className="input-compact font-data"
-                  value={fredApiKey}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setFredApiKey(value);
-                    saveAll({ fredApiKey: value });
-                  }}
-                  placeholder="FRED API Key"
-                />
-                {fredTestResult.status !== "idle" && (
-                  <div className={`api-result-badge-spacious ${fredTestResult.status}`}>
-                    <span className="material-symbols-outlined icon">
-                      {fredTestResult.status === "testing"
-                        ? "sync"
-                        : fredTestResult.success
-                        ? "check_circle"
-                        : "error"}
-                    </span>
-                    <span>{fredTestResult.message}</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Finnhub API */}
-              <div className="settings-section-card">
-                <div className="api-card-header">
-                  <div className="api-title-row">
-                    <span className="api-name">Finnhub API (FX経済指標・速報ニュース)</span>
-                    <span className="api-badge optional">任意</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn-test-single-card"
-                    onClick={handleTestFinnhub}
-                    disabled={finnhubTestResult.status === "testing" || isTestingAllApis}
-                  >
-                    テスト実行
-                  </button>
-                </div>
-                <input
-                  type="text"
-                  className="input-compact font-data"
-                  value={finnhubApiKey}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setFinnhubApiKey(value);
-                    saveAll({ finnhubApiKey: value });
-                  }}
-                  placeholder="Finnhub API Key"
-                />
-                {finnhubTestResult.status !== "idle" && (
-                  <div className={`api-result-badge-spacious ${finnhubTestResult.status}`}>
-                    <span className="material-symbols-outlined icon">
-                      {finnhubTestResult.status === "testing"
-                        ? "sync"
-                        : finnhubTestResult.success
-                        ? "check_circle"
-                        : "error"}
-                    </span>
-                    <span>{finnhubTestResult.message}</span>
-                  </div>
-                )}
-              </div>
-
-              {/* GDELT */}
-              <div className="settings-section-card">
-                <div className="api-card-header">
-                  <div className="api-title-row">
-                    <span className="api-name">GDELT Global News (キー不要・無料)</span>
-                    <span className="api-badge free">無料</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn-test-single-card"
-                    onClick={handleTestGdelt}
-                    disabled={gdeltTestResult.status === "testing" || isTestingAllApis}
-                  >
-                    接続確認
-                  </button>
-                </div>
-                {gdeltTestResult.status !== "idle" && (
-                  <div className={`api-result-badge-spacious ${gdeltTestResult.status}`}>
-                    <span className="material-symbols-outlined icon">
-                      {gdeltTestResult.status === "testing"
-                        ? "sync"
-                        : gdeltTestResult.success
-                        ? "check_circle"
-                        : "error"}
-                    </span>
-                    <span>{gdeltTestResult.message}</span>
-                  </div>
-                )}
               </div>
             </div>
           )}

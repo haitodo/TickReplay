@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { COMMANDS } from "./constants/commands";
 import { EVENTS } from "./constants/events";
-import { DEFAULT_OPENROUTER_MODEL } from "./constants/ai";
 import { DEFAULT_SPEED_TIME_PRESETS, DEFAULT_SPEED_TICK_PRESETS } from "./constants/speedPresets";
 import { STORAGE_KEYS } from "./constants/storageKeys";
 import { invoke } from "@tauri-apps/api/core";
@@ -13,7 +12,6 @@ import type { SymbolItem } from "./types/symbol";
 import { CustomSymbolImportModal } from "./components/CustomSymbolImportModal";
 import { SymbolBatchSelectorModal } from "./components/SymbolBatchSelectorModal";
 import { SymbolSelectorWindowContent } from "./components/SymbolSelectorWindowContent";
-import { AIAnalysisPanel } from "./components/AIAnalysisPanel";
 import { DateTimePickerModal } from "./components/DateTimePickerModal";
 import { SpeedOrderWindowContent } from "./components/SpeedOrderWindowContent";
 import { PositionsWindowContent } from "./components/PositionsWindowContent";
@@ -41,13 +39,6 @@ import {
   convertServerStrToJstStr as convertServerToJstStr,
   getNewsTimeForDisplay
 } from "./utils/timeUtils";
-import {
-  testOpenRouterKey,
-  testFredKey,
-  testFinnhubKey,
-  testGdeltApi,
-  ApiTestResult
-} from "./utils/apiKeyTester";
 import {
   DEFAULT_HOTKEYS,
   getTauriShortcutFromEvent,
@@ -582,7 +573,7 @@ function MainWindow() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isResetReplayConfirmOpen, setIsResetReplayConfirmOpen] = useState(false);
   const [isResetTradingConfirmOpen, setIsResetTradingConfirmOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"general" | "hotkeys" | "theme" | "ai">("general");
+  const [activeTab, setActiveTab] = useState<"general" | "hotkeys" | "theme">("general");
 
   // タイムステップカスタマイズ State
   const [timeSteps, setTimeSteps] = useState<TimeStepItem[]>(() => {
@@ -613,74 +604,7 @@ function MainWindow() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.customTimeSteps, JSON.stringify(timeSteps));
   }, [timeSteps]);
-  
-  // AI急変動・トレンド解析用 State
-  const [openRouterApiKey, setOpenRouterApiKey] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.openRouterApiKey) || "");
-  const [openRouterModel, setOpenRouterModel] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.openRouterModel) || DEFAULT_OPENROUTER_MODEL);
-  const [fredApiKey, setFredApiKey] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.fredApiKey) || "");
-  const [finnhubApiKey, setFinnhubApiKey] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.finnhubApiKey) || "");
-  const [isAIPanelOpen, setIsAIPanelOpen] = useState<boolean>(false);
-  const [aiTargetTimeMsc, setAiTargetTimeMsc] = useState<number>(0);
 
-  // AI設定のlocalStorage保存同期
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.openRouterApiKey, openRouterApiKey);
-    localStorage.setItem(STORAGE_KEYS.openRouterModel, openRouterModel);
-    localStorage.setItem(STORAGE_KEYS.fredApiKey, fredApiKey);
-    localStorage.setItem(STORAGE_KEYS.finnhubApiKey, finnhubApiKey);
-  }, [openRouterApiKey, openRouterModel, fredApiKey, finnhubApiKey]);
-
-  // API Key 接続テスト用 State
-  const [openRouterTestResult, setOpenRouterTestResult] = useState<ApiTestResult>({ success: false, status: "idle", message: "" });
-  const [fredTestResult, setFredTestResult] = useState<ApiTestResult>({ success: false, status: "idle", message: "" });
-  const [finnhubTestResult, setFinnhubTestResult] = useState<ApiTestResult>({ success: false, status: "idle", message: "" });
-  const [gdeltTestResult, setGdeltTestResult] = useState<ApiTestResult>({ success: false, status: "idle", message: "" });
-  const [isTestingAllApis, setIsTestingAllApis] = useState<boolean>(false);
-
-  const handleTestOpenRouter = async () => {
-    setOpenRouterTestResult({ success: false, status: "testing", message: "接続確認中..." });
-    const result = await testOpenRouterKey(openRouterApiKey, openRouterModel);
-    setOpenRouterTestResult(result);
-  };
-
-  const handleTestFred = async () => {
-    setFredTestResult({ success: false, status: "testing", message: "接続確認中..." });
-    const result = await testFredKey(fredApiKey);
-    setFredTestResult(result);
-  };
-
-  const handleTestFinnhub = async () => {
-    setFinnhubTestResult({ success: false, status: "testing", message: "接続確認中..." });
-    const result = await testFinnhubKey(finnhubApiKey);
-    setFinnhubTestResult(result);
-  };
-
-  const handleTestGdelt = async () => {
-    setGdeltTestResult({ success: false, status: "testing", message: "接続確認中..." });
-    const result = await testGdeltApi();
-    setGdeltTestResult(result);
-  };
-
-  const handleTestAllApis = async () => {
-    setIsTestingAllApis(true);
-    setOpenRouterTestResult({ success: false, status: "testing", message: "接続確認中..." });
-    setFredTestResult({ success: false, status: "testing", message: "接続確認中..." });
-    setFinnhubTestResult({ success: false, status: "testing", message: "接続確認中..." });
-    setGdeltTestResult({ success: false, status: "testing", message: "接続確認中..." });
-
-    const [openRouterRes, fredRes, finnhubRes, gdeltRes] = await Promise.all([
-      testOpenRouterKey(openRouterApiKey, openRouterModel),
-      testFredKey(fredApiKey),
-      testFinnhubKey(finnhubApiKey),
-      testGdeltApi()
-    ]);
-
-    setOpenRouterTestResult(openRouterRes);
-    setFredTestResult(fredRes);
-    setFinnhubTestResult(finnhubRes);
-    setGdeltTestResult(gdeltRes);
-    setIsTestingAllApis(false);
-  };
 
 
 
@@ -2992,8 +2916,6 @@ function MainWindow() {
         toggleRemoteMode={toggleRemoteMode}
         handleTerminate={handleTerminate}
         setIsSettingsOpen={setIsSettingsOpen}
-        setIsAIPanelOpen={setIsAIPanelOpen}
-        setAiTargetTimeMsc={setAiTargetTimeMsc}
         setIsSaveSessionOpen={setIsSaveSessionOpen}
         setSaveSessionName={setSaveSessionName}
         setSaveAsNewSnapshot={setSaveAsNewSnapshot}
@@ -3137,43 +3059,11 @@ function MainWindow() {
         setTheme={setTheme}
         plColorStyle={plColorStyle}
         setPlColorStyle={setPlColorStyle}
-        openRouterApiKey={openRouterApiKey}
-        setOpenRouterApiKey={setOpenRouterApiKey}
-        openRouterModel={openRouterModel}
-        setOpenRouterModel={setOpenRouterModel}
-        fredApiKey={fredApiKey}
-        setFredApiKey={setFredApiKey}
-        finnhubApiKey={finnhubApiKey}
-        setFinnhubApiKey={setFinnhubApiKey}
-        openRouterTestResult={openRouterTestResult}
-        fredTestResult={fredTestResult}
-        finnhubTestResult={finnhubTestResult}
-        gdeltTestResult={gdeltTestResult}
-        isTestingAllApis={isTestingAllApis}
-        handleTestOpenRouter={handleTestOpenRouter}
-        handleTestFred={handleTestFred}
-        handleTestFinnhub={handleTestFinnhub}
-        handleTestGdelt={handleTestGdelt}
-        handleTestAllApis={handleTestAllApis}
         saveAllSettings={saveAllSettings}
         timePresets={timePresets}
         tickPresets={tickPresets}
         economicDataDir={economicDataDir}
         setEconomicDataDir={saveEconomicDataDir}
-      />
-
-      {/* AI Analysis Panel */}
-      <AIAnalysisPanel
-        isOpen={isAIPanelOpen}
-        onClose={() => setIsAIPanelOpen(false)}
-        virtualTimeMsc={aiTargetTimeMsc || virtualTimeMsc}
-        symbol={sourceSymbol}
-        newsItems={[]}
-        openRouterApiKey={openRouterApiKey}
-        openRouterModel={openRouterModel}
-        fredApiKey={fredApiKey}
-        finnhubApiKey={finnhubApiKey}
-        timezoneMode={timezoneMode}
       />
 
       {/* Custom Symbol Import Modal */}

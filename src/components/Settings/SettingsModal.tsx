@@ -1,17 +1,14 @@
 import React from "react";
-import { DEFAULT_OPENROUTER_MODEL } from "../../constants/ai";
 import { COMMANDS } from "../../constants/commands";
 import { invoke } from "@tauri-apps/api/core";
-import { CustomSelect } from "../../CustomSelect";
 import { DEFAULT_HOTKEYS, HOTKEY_METADATA, formatShortcutForDisplay } from "../../utils/hotkeyUtils";
 import { THEME_LIST, ThemeType } from "../../constants/themePresets";
-import { ApiTestResult } from "../../utils/apiKeyTester";
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  activeTab: "general" | "hotkeys" | "theme" | "ai";
-  setActiveTab: (tab: "general" | "hotkeys" | "theme" | "ai") => void;
+  activeTab: "general" | "hotkeys" | "theme";
+  setActiveTab: (tab: "general" | "hotkeys" | "theme") => void;
   recordingAction: string | null;
   setRecordingAction: (action: string | null) => void;
   hotkeys: Record<string, string>;
@@ -34,24 +31,6 @@ interface SettingsModalProps {
   themeMode?: "dark" | "light";
   plColorStyle: "red-blue" | "green-red";
   setPlColorStyle: (val: "red-blue" | "green-red") => void;
-  openRouterApiKey: string;
-  setOpenRouterApiKey: (val: string) => void;
-  openRouterModel: string;
-  setOpenRouterModel: (val: string) => void;
-  fredApiKey: string;
-  setFredApiKey: (val: string) => void;
-  finnhubApiKey: string;
-  setFinnhubApiKey: (val: string) => void;
-  openRouterTestResult: ApiTestResult;
-  fredTestResult: ApiTestResult;
-  finnhubTestResult: ApiTestResult;
-  gdeltTestResult: ApiTestResult;
-  isTestingAllApis: boolean;
-  handleTestOpenRouter: () => void;
-  handleTestFred: () => void;
-  handleTestFinnhub: () => void;
-  handleTestGdelt: () => void;
-  handleTestAllApis: () => void;
   saveAllSettings: (
     nextHotkeys?: Record<string, string>,
     nextTimePresets?: number[],
@@ -88,24 +67,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   setThemeId,
   plColorStyle,
   setPlColorStyle,
-  openRouterApiKey,
-  setOpenRouterApiKey,
-  openRouterModel,
-  setOpenRouterModel,
-  fredApiKey,
-  setFredApiKey,
-  finnhubApiKey,
-  setFinnhubApiKey,
-  openRouterTestResult,
-  fredTestResult,
-  finnhubTestResult,
-  gdeltTestResult,
-  isTestingAllApis,
-  handleTestOpenRouter,
-  handleTestFred,
-  handleTestFinnhub,
-  handleTestGdelt,
-  handleTestAllApis,
   saveAllSettings,
   timePresets,
   tickPresets,
@@ -159,13 +120,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           >
             <span className="material-symbols-outlined tab-icon">palette</span>
             テーマ
-          </button>
-          <button
-            className={`modal-tab-btn ${activeTab === "ai" ? "active" : ""}`}
-            onClick={() => setActiveTab("ai")}
-          >
-            <span className="material-symbols-outlined tab-icon">auto_awesome</span>
-            AI連携
           </button>
         </div>
 
@@ -416,129 +370,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <span className="material-symbols-outlined icon text-green">trending_up</span>
                     <span>利益: 緑 / 損失: 赤 (グローバル標準)</span>
                   </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* 4. AI連携設定 */}
-          {activeTab === "ai" && (
-            <div className="settings-section-stack">
-              <div className="api-test-banner">
-                <div className="api-test-info">
-                  <span className="api-test-title">API接続疎通テスト</span>
-                  <span className="api-test-subtitle">設定された各APIキーの通信状態を確認します</span>
-                </div>
-                <button
-                  type="button"
-                  className="btn-test-all"
-                  onClick={handleTestAllApis}
-                  disabled={isTestingAllApis}
-                >
-                  <span className={`material-symbols-outlined icon ${isTestingAllApis ? "spin" : ""}`}>
-                    {isTestingAllApis ? "sync" : "checklist"}
-                  </span>
-                  <span>{isTestingAllApis ? "テスト中..." : "一括テスト"}</span>
-                </button>
-              </div>
-
-              {/* OpenRouter */}
-              <div className="api-key-block">
-                <div className="api-key-header">
-                  <label className="api-key-label">OpenRouter API Key (LLM解析)</label>
-                  <button
-                    type="button"
-                    className="btn-test-single"
-                    onClick={handleTestOpenRouter}
-                    disabled={openRouterTestResult.status === "testing" || isTestingAllApis}
-                  >
-                    確認
-                  </button>
-                </div>
-                <input
-                  type="password"
-                  className="input-compact font-data"
-                  value={openRouterApiKey}
-                  onChange={(e) => setOpenRouterApiKey(e.target.value)}
-                  placeholder="sk-or-v1-..."
-                />
-                {openRouterTestResult.status !== "idle" && (
-                  <div className={`api-result-badge ${openRouterTestResult.status}`}>
-                    {openRouterTestResult.message}
-                  </div>
-                )}
-
-                <div style={{ marginTop: "6px" }}>
-                  <label className="form-label-compact">モデル選択</label>
-                  <CustomSelect
-                    value={openRouterModel}
-                    onChange={setOpenRouterModel}
-                    options={[
-                      { value: DEFAULT_OPENROUTER_MODEL, label: "Gemini 2.5 Flash (推奨)" },
-                      { value: "anthropic/claude-3.5-sonnet", label: "Claude 3.5 Sonnet" },
-                      { value: "openai/gpt-4o-mini", label: "GPT-4o Mini" },
-                      { value: "deepseek/deepseek-chat", label: "DeepSeek V3" },
-                    ]}
-                  />
-                </div>
-              </div>
-
-              {/* FRED API */}
-              <div className="api-key-block">
-                <div className="api-key-header">
-                  <label className="api-key-label">FRED API Key (FRB金利データ)</label>
-                  <button
-                    type="button"
-                    className="btn-test-single"
-                    onClick={handleTestFred}
-                    disabled={fredTestResult.status === "testing" || isTestingAllApis}
-                  >
-                    確認
-                  </button>
-                </div>
-                <input
-                  type="text"
-                  className="input-compact font-data"
-                  value={fredApiKey}
-                  onChange={(e) => setFredApiKey(e.target.value)}
-                  placeholder="FRED API Key (任意)"
-                />
-              </div>
-
-              {/* Finnhub API */}
-              <div className="api-key-block">
-                <div className="api-key-header">
-                  <label className="api-key-label">Finnhub API Key (FX経済指標ニュース)</label>
-                  <button
-                    type="button"
-                    className="btn-test-single"
-                    onClick={handleTestFinnhub}
-                    disabled={finnhubTestResult.status === "testing" || isTestingAllApis}
-                  >
-                    確認
-                  </button>
-                </div>
-                <input
-                  type="text"
-                  className="input-compact font-data"
-                  value={finnhubApiKey}
-                  onChange={(e) => setFinnhubApiKey(e.target.value)}
-                  placeholder="Finnhub API Key (任意)"
-                />
-              </div>
-
-              {/* GDELT */}
-              <div className="api-key-block">
-                <div className="api-key-header">
-                  <label className="api-key-label">GDELT ニュース API (キー不要・無料)</label>
-                  <button
-                    type="button"
-                    className="btn-test-single"
-                    onClick={handleTestGdelt}
-                    disabled={gdeltTestResult.status === "testing" || isTestingAllApis}
-                  >
-                    確認
-                  </button>
                 </div>
               </div>
             </div>

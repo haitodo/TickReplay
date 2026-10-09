@@ -1,9 +1,5 @@
 export const STORAGE_KEYS = {
   customTimeSteps: "custom-time-steps",
-  finnhubApiKey: "finnhub-api-key",
-  fredApiKey: "fred-api-key",
-  openRouterApiKey: "openrouter-api-key",
-  openRouterModel: "openrouter-model",
   plColorStyle: "pl-color-style",
   replayEconomicDataDir: "replay_economic_data_dir",
   replayTimezoneMode: "replay-timezone-mode",
@@ -34,7 +30,6 @@ export const STORAGE_KEYS = {
   theme: "theme",
   themeMode: "theme-mode",
   tickPresets: "tick-presets",
-  tickreplayAiNotes: "tickreplay_ai_notes",
   tickreplaySetupAdvancedOpen: "tickreplay_setup_advanced_open",
   tickreplayTheme: "tickreplay_theme",
   timePresets: "time-presets",

@@ -36,8 +36,6 @@ interface AppHeaderProps {
   toggleRemoteMode: (val: boolean) => void;
   handleTerminate: () => void;
   setIsSettingsOpen: (val: boolean) => void;
-  setIsAIPanelOpen: (val: boolean) => void;
-  setAiTargetTimeMsc: (val: number) => void;
   setIsSaveSessionOpen: (val: boolean) => void;
   setSaveSessionName: (val: string) => void;
   setSaveAsNewSnapshot: (val: boolean) => void;
@@ -70,8 +68,6 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   toggleRemoteMode,
   handleTerminate,
   setIsSettingsOpen,
-  setIsAIPanelOpen,
-  setAiTargetTimeMsc,
   setIsSaveSessionOpen,
   setSaveSessionName,
   setSaveAsNewSnapshot,
@@ -216,19 +212,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             </button>
           )}
 
-          {/* 3. AI急変動・ファンダメンタルズ解析 */}
-          <button
-            className="header-btn"
-            onClick={() => {
-              setAiTargetTimeMsc(virtualTimeMsc);
-              setIsAIPanelOpen(true);
-            }}
-            title="急変動・トレンドAI解析を開く"
-          >
-            <span className="material-symbols-outlined icon ai-sparkle">auto_awesome</span>
-          </button>
-
-          {/* 4. セッション保存 (検証時のみ) */}
+          {/* 3. セッション保存 (検証時のみ) */}
           {(status === "READY" || status === "ACTIVE") && (
             <button
               className="header-btn"
@@ -249,7 +233,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             </button>
           )}
 
-          {/* 5. 統合サブメニュー (設定・補助ツール) */}
+          {/* 4. 統合サブメニュー (設定・補助ツール) */}
           <div className="header-submenu-anchor" ref={submenuRef}>
             <button
               className={`header-btn ${isSubmenuOpen ? "active" : ""}`}
@@ -280,7 +264,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   }}
                 >
                   <span className="material-symbols-outlined popover-icon">settings</span>
-                  <span className="popover-label">環境設定 (Hotkeys/AI/Theme)</span>
+                  <span className="popover-label">環境設定 (Hotkeys/Theme)</span>
                 </button>
 
                 {/* 口座・ポジション管理 */}
@@ -390,7 +374,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             )}
           </div>
 
-          {/* 6. リプレイ終了ボタン (Dangerカラー) */}
+          {/* 5. リプレイ終了ボタン (Dangerカラー) */}
           {(status === "READY" || status === "ACTIVE") && (
             <button
               className="header-btn btn-danger"
