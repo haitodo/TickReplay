@@ -53,7 +53,7 @@ bool ShowWindow(long hWnd, int nCmdShow);
 #define HEADER_SIZE                16
 #define HELLO_PAYLOAD_SIZE         72
 #define ADVANCE_PAYLOAD_SIZE       24
-#define RESET_PAYLOAD_SIZE         48
+#define RESET_PAYLOAD_SIZE         32
 #define ACK_PAYLOAD_SIZE           24
 #define APPLY_PROFILE_PAYLOAD_SIZE 128
 #define INIT_PAYLOAD_SIZE          192
@@ -90,9 +90,7 @@ struct AdvancePayload
 struct ResetPayload
 {
     ulong main_target_idx;   // 8 bytes: シーク先インデックス
-    ulong main_preload_from; // 8 bytes: プリロード開始インデックス
-    ulong sub_target_idx;    // 8 bytes
-    ulong sub_preload_from;  // 8 bytes
+    ulong sub_target_idx;    // 8 bytes: サブシンボルシーク先インデックス
     long  virtual_time_msc;  // 8 bytes: シーク先仮想時刻 (ミリ秒)
     long  reserved;          // 8 bytes: 予約
 };
@@ -158,18 +156,19 @@ input int    InpTimerMs  = 2;                                // パイプ監視�
 long     m_hPipe = INVALID_HANDLE_VALUE;
 string   m_replay_symbol = "";
 string   m_source_symbol = "";
-MqlTick  m_all_ticks[];
 int      m_total_ticks = 0;
 int      m_current_idx = -1;
 uint     m_current_epoch = 1;
+long     m_current_v_time_msc = 0;
+long     m_start_time_msc = 0;
 
 // サブ比較銘柄
 bool     m_enable_dual_feed = false;
 string   m_replay_symbol_sub = "";
 string   m_source_symbol_sub = "";
-MqlTick  m_all_ticks_sub[];
 int      m_total_ticks_sub = 0;
 int      m_current_idx_sub = -1;
+long     m_current_v_time_msc_sub = 0;
 
 ulong    m_last_redraw_us = 0;
 const ulong REDRAW_INTERVAL_US = 16666; // 最大 60FPS にチャート再描画を間引き
@@ -183,7 +182,7 @@ bool ConnectPipe();
 void SendHello();
 void SendAck(ulong main_applied, ulong sub_applied, uint duration_us);
 void SendReady();
-int  BuildM1RatesFromTicks(const MqlTick &ticks[], int from_idx, int to_idx, string symbol_for_point, MqlRates &rates_out[]);
+bool GetLatestTickAtOrBefore(string symbol, long target_msc, MqlTick &out_tick);
 void ProcessInit(const InitPayload &p);
 void ProcessAdvance(const AdvancePayload &adv, ulong start_us);
 void ProcessReset(const ResetPayload &rst);
@@ -387,12 +386,13 @@ void CloseAllReplayCharts()
     // 4. メモリ・再生状態・シンボルのリセット
     m_current_idx = -1;
     m_current_idx_sub = -1;
+    m_current_v_time_msc = 0;
+    m_current_v_time_msc_sub = 0;
+    m_start_time_msc = 0;
     m_total_ticks = 0;
     m_total_ticks_sub = 0;
     m_replay_symbol = "";
     m_replay_symbol_sub = "";
-    ArrayFree(m_all_ticks);
-    ArrayFree(m_all_ticks_sub);
 
     if(closed_count > 0)
     {
@@ -401,219 +401,99 @@ void CloseAllReplayCharts()
 }
 
 //+------------------------------------------------------------------+
-//| 仮想ミリ秒時刻に対応するティック配列内の最大インデックスを二分探索  |
+//| 指定時刻時点の最新1ティックを取得する高速ヘルパー関数           |
 //+------------------------------------------------------------------+
-int FindTickIndexByMsc(const MqlTick &ticks[], int total, long target_msc)
+bool GetLatestTickAtOrBefore(string symbol, long target_msc, MqlTick &out_tick)
 {
-    if (total <= 0) return -1;
-    if (target_msc <= ticks[0].time_msc) return 0;
-    if (target_msc >= ticks[total - 1].time_msc) return total - 1;
+    if(symbol == "") return false;
+    SymbolSelect(symbol, true);
 
-    int left = 0;
-    int right = total - 1;
-    int ans = 0;
+    MqlTick ticks[];
+    ArrayFree(ticks);
 
-    while (left <= right)
+    if(target_msc > 0)
     {
-        int mid = left + (right - left) / 2;
-        if (ticks[mid].time_msc <= target_msc)
+        // 1. 直近1分間 (60000ms) のティック取得を試行
+        ulong from_msc = (target_msc > 60000) ? (ulong)(target_msc - 60000) : 0;
+        ulong to_msc   = (ulong)target_msc;
+        int n = CopyTicksRange(symbol, ticks, COPY_TICKS_ALL, from_msc, to_msc);
+        if(n > 0)
         {
-            ans = mid;
-            left = mid + 1;
-        }
-        else
-        {
-            right = mid - 1;
-        }
-    }
-    return ans;
-}
-
-//+------------------------------------------------------------------+
-//| ティック配列からM1バー配列を高速生成するヘルパー関数                   |
-//+------------------------------------------------------------------+
-int BuildM1RatesFromTicks(const MqlTick &ticks[], int from_idx, int to_idx, string symbol_for_point, MqlRates &rates_out[])
-{
-    if(from_idx > to_idx || from_idx < 0 || to_idx >= ArraySize(ticks))
-        return 0;
-
-    int tick_count = to_idx - from_idx + 1;
-    if(tick_count <= 0) return 0;
-
-    datetime t_first = (datetime)(ticks[from_idx].time_msc / 1000);
-    datetime t_last  = (datetime)(ticks[to_idx].time_msc / 1000);
-    int estimated_bars = (int)((t_last - t_first) / 60) + 10;
-    if(estimated_bars < 1) estimated_bars = 1;
-
-    ArrayResize(rates_out, estimated_bars);
-    int bar_count = 0;
-    datetime current_bar_time = 0;
-    double pt = SymbolInfoDouble(symbol_for_point, SYMBOL_POINT);
-    if(pt <= 0.0) pt = 0.001;
-
-    for(int i = from_idx; i <= to_idx; i++)
-    {
-        datetime t = (datetime)(ticks[i].time_msc / 1000);
-        datetime bar_time = t - (t % 60); // 1分足の境界 (秒)
-        double price = ticks[i].bid;
-        if(price <= 0.0) price = ticks[i].last;
-        if(price <= 0.0) price = ticks[i].ask;
-        if(price <= 0.0) continue;
-
-        if(bar_count == 0 || bar_time != current_bar_time)
-        {
-            if(bar_count >= ArraySize(rates_out))
+            out_tick = ticks[n - 1];
+            if(out_tick.time_msc > target_msc)
             {
-                ArrayResize(rates_out, bar_count + 500);
+                out_tick.time_msc = target_msc;
+                out_tick.time = (datetime)(target_msc / 1000);
             }
-            bar_count++;
-            rates_out[bar_count - 1].time = bar_time;
-            rates_out[bar_count - 1].open = price;
-            rates_out[bar_count - 1].high = price;
-            rates_out[bar_count - 1].low = price;
-            rates_out[bar_count - 1].close = price;
-            rates_out[bar_count - 1].tick_volume = 1;
-            rates_out[bar_count - 1].spread = (ticks[i].ask > ticks[i].bid) ? (int)MathRound((ticks[i].ask - ticks[i].bid) / pt) : 20;
-            rates_out[bar_count - 1].real_volume = 0;
-            current_bar_time = bar_time;
+            return true;
         }
-        else
+
+        // 2. 週末や流動性ギャップ時は直近7日間 (604800000ms) に拡大して再試行
+        from_msc = (target_msc > 604800000) ? (ulong)(target_msc - 604800000) : 0;
+        n = CopyTicksRange(symbol, ticks, COPY_TICKS_ALL, from_msc, to_msc);
+        if(n > 0)
         {
-            if(price > rates_out[bar_count - 1].high) rates_out[bar_count - 1].high = price;
-            if(price < rates_out[bar_count - 1].low)  rates_out[bar_count - 1].low = price;
-            rates_out[bar_count - 1].close = price;
-            rates_out[bar_count - 1].tick_volume++;
+            out_tick = ticks[n - 1];
+            if(out_tick.time_msc > target_msc)
+            {
+                out_tick.time_msc = target_msc;
+                out_tick.time = (datetime)(target_msc / 1000);
+            }
+            return true;
         }
-    }
 
-    ArrayResize(rates_out, bar_count);
-    return bar_count;
-}
-
-//+------------------------------------------------------------------+
-//| M1バーから4つのティック (Open, Low/High, High/Low, Close) を生成 |
-//+------------------------------------------------------------------+
-int GenerateTicksFromRates(string symbol, const MqlRates &rates[], MqlTick &out_ticks[])
-{
-    int rates_count = ArraySize(rates);
-    if(rates_count <= 0) return 0;
-
-    int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
-    if(digits <= 0) digits = 5;
-
-    ArrayResize(out_ticks, rates_count * 30);
-    int tick_idx = 0;
-
-    double point_val = SymbolInfoDouble(symbol, SYMBOL_POINT);
-    if(point_val <= 0) point_val = 0.001;
-
-    for(int i = 0; i < rates_count; i++)
-    {
-        MqlRates r = rates[i];
-        long base_msc = (long)r.time * 1000;
-        double spread_val = (r.spread > 0) ? (r.spread * point_val) : (20.0 * point_val);
-        int ticks_in_bar = (int)MathMax(12, MathMin((int)r.tick_volume, 30));
-
-        double p0 = r.open;
-        double p1 = (r.close >= r.open) ? r.low  : r.high;
-        double p2 = (r.close >= r.open) ? r.high : r.low;
-        double p3 = r.close;
-
-        for(int k = 0; k < ticks_in_bar; k++)
-        {
-            double ratio = (ticks_in_bar > 1) ? ((double)k / (double)(ticks_in_bar - 1)) : 0.0;
-            long offset_msc = (long)(ratio * 58000.0);
-
-            double current_price = p0;
-            if(ratio < 0.333)
-            {
-                double local_t = ratio / 0.333;
-                current_price = p0 + (p1 - p0) * local_t;
-            }
-            else if(ratio < 0.666)
-            {
-                double local_t = (ratio - 0.333) / 0.333;
-                current_price = p1 + (p2 - p1) * local_t;
-            }
-            else
-            {
-                double local_t = (ratio - 0.666) / 0.334;
-                current_price = p2 + (p3 - p2) * local_t;
-            }
-
-            out_ticks[tick_idx].time = r.time + (datetime)(offset_msc / 1000);
-            out_ticks[tick_idx].time_msc = base_msc + offset_msc;
-            out_ticks[tick_idx].bid = RoundHalfUp(current_price, digits);
-            out_ticks[tick_idx].ask = RoundHalfUp(current_price + spread_val, digits);
-            out_ticks[tick_idx].last = 0;
-            out_ticks[tick_idx].volume = 1;
-            out_ticks[tick_idx].flags = 6;
-            tick_idx++;
-        }
-    }
-
-    ArrayResize(out_ticks, tick_idx);
-    return tick_idx;
-}
-
-//+------------------------------------------------------------------+
-//| 過去ティックデータの汎用読み込み関数                             |
-//+------------------------------------------------------------------+
-bool LoadHistoricalTicksEx(string source_symbol, datetime start, datetime end, MqlTick &out_ticks[], int &out_total)
-{
-    ulong from_msc = (start > 0) ? ((ulong)start * 1000) : 0;
-    ulong to_msc   = (end > start && end > 0) ? ((ulong)end * 1000) : 0;
-
-    SymbolSelect(source_symbol, true);
-    ArrayFree(out_ticks);
-    out_total = 0;
-
-    int retries = 0;
-    while(retries < 10)
-    {
-        ResetLastError();
-        out_total = CopyTicksRange(source_symbol, out_ticks, COPY_TICKS_ALL, from_msc, to_msc);
-        if(out_total > 0) break;
-        Sleep(250);
-        retries++;
-    }
-
-    // 指定範囲で0件だった場合、全期間コピーをフォールバック試行
-    if(out_total <= 0 && from_msc > 0)
-    {
-        PrintFormat("[RendererEA] [Info] 指定範囲でのティック0件のため、全期間コピーをフォールバック試行: %s", source_symbol);
-        out_total = CopyTicksRange(source_symbol, out_ticks, COPY_TICKS_ALL, 0, 0);
-    }
-
-    if(out_total <= 0)
-    {
-        PrintFormat("[RendererEA] [Info] 生ティック0件のため、M1バーからの疑似ティック生成を試行: %s", source_symbol);
+        // 3. 過去M1レートからの気配値特定試行（ティック欠損時のフォールバック）
+        datetime target_dt = (datetime)(target_msc / 1000);
         MqlRates rates[];
-        ArrayFree(rates);
-        datetime stop_dt = (end > start && end > 0) ? end : D'3000.01.01 00:00:00';
-        int copied_rates = CopyRates(source_symbol, PERIOD_M1, start, stop_dt, rates);
-        if(copied_rates <= 0)
+        int r = CopyRates(symbol, PERIOD_M1, target_dt, 1, rates);
+        if(r > 0)
         {
-            copied_rates = CopyRates(source_symbol, PERIOD_M1, 0, 50000, rates);
-        }
-        if(copied_rates > 0)
-        {
-            out_total = GenerateTicksFromRates(source_symbol, rates, out_ticks);
-            PrintFormat("[RendererEA] M1バー %d 件から %d 件の疑似ティックを生成しました", copied_rates, out_total);
-        }
-        else
-        {
-            PrintFormat("[RendererEA] [Warning] M1バーの取得にも失敗しました: Code=%d", GetLastError());
+            ZeroMemory(out_tick);
+            double pt = SymbolInfoDouble(symbol, SYMBOL_POINT);
+            if(pt <= 0.0) pt = 0.001;
+            out_tick.bid = rates[0].close;
+            out_tick.ask = rates[0].close + rates[0].spread * pt;
+            out_tick.last = rates[0].close;
+            out_tick.time_msc = target_msc;
+            out_tick.time = target_dt;
+            return true;
         }
     }
 
-    if(out_total <= 0)
+    // 4. フォールバック: 指定時刻以降または先頭1件（時刻は target_msc でクランプ）
+    int n = CopyTicks(symbol, ticks, COPY_TICKS_ALL, (target_msc > 0) ? (ulong)target_msc : 0, 1);
+    if(n > 0)
     {
-        PrintFormat("[RendererEA] [Error] ティックデータが0件です: %s (Code: %d)", source_symbol, GetLastError());
-        return false;
+        out_tick = ticks[0];
+        if(target_msc > 0 && out_tick.time_msc > target_msc)
+        {
+            out_tick.time_msc = target_msc;
+            out_tick.time = (datetime)(target_msc / 1000);
+        }
+        return true;
     }
 
-    PrintFormat("[RendererEA] %s から %d 件のティックデータをロード完了", source_symbol, out_total);
+    // 5. 最終フォールバック: SymbolInfoTick（現在値取得時も時刻は target_msc を厳守）
+    if(SymbolInfoTick(symbol, out_tick))
+    {
+        if(target_msc > 0)
+        {
+            out_tick.time_msc = target_msc;
+            out_tick.time = (datetime)(target_msc / 1000);
+        }
+        return true;
+    }
+
+    // デフォルト気配値を構築
+    ZeroMemory(out_tick);
+    double bid = SymbolInfoDouble(symbol, SYMBOL_BID);
+    double ask = SymbolInfoDouble(symbol, SYMBOL_ASK);
+    if(bid <= 0) bid = 1.0;
+    if(ask <= 0) ask = bid;
+    out_tick.bid = bid;
+    out_tick.ask = ask;
+    out_tick.time_msc = (target_msc > 0) ? target_msc : (long)TimeCurrent() * 1000;
+    out_tick.time = (datetime)(out_tick.time_msc / 1000);
     return true;
 }
 
@@ -711,7 +591,8 @@ bool PreloadHistoricalRatesEx(string source_symbol, string replay_symbol, dateti
 {
     SymbolSelect(source_symbol, true);
     datetime preload_start = 0;
-    datetime preload_end = start_time - 1;
+    datetime start_minute = start_time - (start_time % 60);
+    datetime preload_end = start_minute - 1;
 
     if(preload_mode == 1) // DATE モード
     {
@@ -744,50 +625,14 @@ bool PreloadHistoricalRatesEx(string source_symbol, string replay_symbol, dateti
     int copied = CopyRates(source_symbol, PERIOD_M1, preload_start, preload_end, preload_rates);
     if(copied <= 0)
     {
-        PrintFormat("[RendererEA] [Warning] CopyRatesでのM1バー取得失敗 (Code: %d)。メモリ内ティックからの生成を試行。", GetLastError());
-        bool is_sub = (m_enable_dual_feed && source_symbol == m_source_symbol_sub);
-        int src_tick_count = is_sub ? m_total_ticks_sub : m_total_ticks;
-        if(src_tick_count > 0)
+        PrintFormat("[RendererEA] [Warning] CopyRatesでのM1バー取得失敗 (Code: %d)。直近バーでのフォールバック試行。", GetLastError());
+        int fallback_bars = (preloaded_bars > 0) ? (int)preloaded_bars : 300;
+        copied = CopyRates(source_symbol, PERIOD_M1, preload_end, fallback_bars, preload_rates);
+        if(copied <= 0)
         {
-            int sample_count = MathMin(src_tick_count, 100000);
-            MqlRates generated[];
-            ArrayResize(generated, sample_count);
-            int gen_count = 0;
-            datetime last_bar_time = 0;
-            for(int i = 0; i < sample_count; i++)
-            {
-                datetime t = is_sub ? (datetime)(m_all_ticks_sub[i].time_msc / 1000) : (datetime)(m_all_ticks[i].time_msc / 1000);
-                datetime bar_time = t - (t % 60);
-                double bid = is_sub ? m_all_ticks_sub[i].bid : m_all_ticks[i].bid;
-                if(gen_count == 0 || bar_time != last_bar_time)
-                {
-                    if(gen_count >= 3000) break;
-                    gen_count++;
-                    generated[gen_count - 1].time = bar_time;
-                    generated[gen_count - 1].open = bid;
-                    generated[gen_count - 1].high = bid;
-                    generated[gen_count - 1].low = bid;
-                    generated[gen_count - 1].close = bid;
-                    generated[gen_count - 1].tick_volume = 1;
-                    generated[gen_count - 1].spread = 20;
-                    last_bar_time = bar_time;
-                }
-                else
-                {
-                    if(bid > generated[gen_count - 1].high) generated[gen_count - 1].high = bid;
-                    if(bid < generated[gen_count - 1].low) generated[gen_count - 1].low = bid;
-                    generated[gen_count - 1].close = bid;
-                    generated[gen_count - 1].tick_volume++;
-                }
-            }
-            if(gen_count > 0)
-            {
-                ArrayResize(generated, gen_count);
-                CustomRatesUpdate(replay_symbol, generated);
-                PrintFormat("[RendererEA] メモリ内ティックから %d 件のM1バーを代替プリロードしました: %s", gen_count, replay_symbol);
-            }
+            PrintFormat("[RendererEA] [Warning] フォールバックでもM1バー取得失敗 (Code: %d)", GetLastError());
+            return true;
         }
-        return true;
     }
 
     int updated = CustomRatesUpdate(replay_symbol, preload_rates);
@@ -1546,19 +1391,8 @@ void ProcessInit(const InitPayload &p)
         InitializeReplaySymbol(m_replay_symbol_sub, m_source_symbol_sub);
     }
 
-    // 2. 過去ティックデータのロード
+    // 2. 過去足の事前描画 (プリロード) - M1バーを source_symbol から CopyRates で一括反映
     datetime start_dt = (datetime)(start_msc / 1000);
-    datetime end_dt = (end_msc > start_msc) ? (datetime)(end_msc / 1000) : 0;
-    if(!LoadHistoricalTicksEx(m_source_symbol, start_dt, end_dt, m_all_ticks, m_total_ticks))
-    {
-        PrintFormat("[RendererEA] [Warning] メインティックデータ読込で警告: %s (チャート作成を続行します)", m_source_symbol);
-    }
-    if(m_enable_dual_feed && m_source_symbol_sub != "")
-    {
-        LoadHistoricalTicksEx(m_source_symbol_sub, start_dt, end_dt, m_all_ticks_sub, m_total_ticks_sub);
-    }
-
-    // 3. 過去足の事前描画 (プリロード)
     int max_period_sec = GetMaxPeriodSeconds(profile_name);
     PreloadHistoricalRatesEx(m_source_symbol, m_replay_symbol, start_dt, max_period_sec, preload_mode, preload_date_msc, preloaded_bars);
     if(m_enable_dual_feed && m_source_symbol_sub != "" && m_replay_symbol_sub != "")
@@ -1566,86 +1400,41 @@ void ProcessInit(const InitPayload &p)
         PreloadHistoricalRatesEx(m_source_symbol_sub, m_replay_symbol_sub, start_dt, max_period_sec, preload_mode, preload_date_msc, preloaded_bars);
     }
 
-    // 4. 初回描画（開始時刻までのローソク足を先行反映してチャート起動時に即座に表示）
-    int init_target_idx = 0;
-    if(start_msc > 0 && m_total_ticks > 0)
+    // 3. 初回気配値・クォート反映 (開始時刻時点の最新1ティックのみを CustomTicksAdd)
+    m_start_time_msc = start_msc;
+    MqlTick first_quote;
+    if(GetLatestTickAtOrBefore(m_source_symbol, start_msc, first_quote))
     {
-        init_target_idx = FindTickIndexByMsc(m_all_ticks, m_total_ticks, start_msc);
-        if(init_target_idx < 0) init_target_idx = 0;
+        MqlTick quote_slice[1];
+        quote_slice[0] = first_quote;
+        CustomTicksAdd(m_replay_symbol, quote_slice);
     }
+    m_current_v_time_msc = start_msc;
+    m_current_idx = 0;
 
-    if(init_target_idx > 0)
+    if(m_enable_dual_feed && m_replay_symbol_sub != "")
     {
-        MqlRates init_rates[];
-        if(BuildM1RatesFromTicks(m_all_ticks, 0, init_target_idx, m_replay_symbol, init_rates) > 0)
+        MqlTick first_quote_sub;
+        if(GetLatestTickAtOrBefore(m_source_symbol_sub, start_msc, first_quote_sub))
         {
-            CustomRatesUpdate(m_replay_symbol, init_rates);
-        }
-        int recent_cnt = MathMin(init_target_idx + 1, 300);
-        int recent_start = init_target_idx - recent_cnt + 1;
-        MqlTick init_slice[];
-        ArrayResize(init_slice, recent_cnt);
-        ArrayCopy(init_slice, m_all_ticks, 0, recent_start, recent_cnt);
-        CustomTicksAdd(m_replay_symbol, init_slice);
-        m_current_idx = init_target_idx;
-    }
-    else if(m_total_ticks > 0)
-    {
-        MqlTick first_slice[1];
-        first_slice[0] = m_all_ticks[0];
-        CustomTicksAdd(m_replay_symbol, first_slice);
-        m_current_idx = 0;
-    }
-    else
-    {
-        m_current_idx = -1;
-    }
-
-    if(m_enable_dual_feed && m_total_ticks_sub > 0)
-    {
-        int init_sub_idx = 0;
-        if(start_msc > 0)
-        {
-            init_sub_idx = FindTickIndexByMsc(m_all_ticks_sub, m_total_ticks_sub, start_msc);
-            if(init_sub_idx < 0) init_sub_idx = 0;
-        }
-        if(init_sub_idx > 0)
-        {
-            MqlRates sub_init_rates[];
-            if(BuildM1RatesFromTicks(m_all_ticks_sub, 0, init_sub_idx, m_replay_symbol_sub, sub_init_rates) > 0)
-            {
-                CustomRatesUpdate(m_replay_symbol_sub, sub_init_rates);
-            }
-            int recent_sub_cnt = MathMin(init_sub_idx + 1, 300);
-            int recent_sub_start = init_sub_idx - recent_sub_cnt + 1;
-            MqlTick sub_slice[];
-            ArrayResize(sub_slice, recent_sub_cnt);
-            ArrayCopy(sub_slice, m_all_ticks_sub, 0, recent_sub_start, recent_sub_cnt);
+            MqlTick sub_slice[1];
+            sub_slice[0] = first_quote_sub;
             CustomTicksAdd(m_replay_symbol_sub, sub_slice);
-            m_current_idx_sub = init_sub_idx;
         }
-        else
-        {
-            MqlTick first_sub[1];
-            first_sub[0] = m_all_ticks_sub[0];
-            CustomTicksAdd(m_replay_symbol_sub, first_sub);
-            m_current_idx_sub = 0;
-        }
-    }
-    else
-    {
-        m_current_idx_sub = -1;
+        m_current_v_time_msc_sub = start_msc;
+        m_current_idx_sub = 0;
     }
 
-    // 5. ビューアーチャートのオープン & プロファイル適用
+    // 4. ビューアーチャートのオープン & プロファイル適用
     CreateMTFCharts(profile_name, m_replay_symbol, m_replay_symbol_sub, m_enable_dual_feed);
 
     RedrawAllViewerCharts(true);
 
-    // 6. ロード済み総ティック数を HELLO で再通知 & READY 発行
+    // 5. ロード完了 HELLO & READY 発行
     SendHello();
     SendReady();
-    PrintFormat("[RendererEA] MSG_INIT 完了: main_ticks=%d, sub_ticks=%d", m_total_ticks, m_total_ticks_sub);
+    PrintFormat("[RendererEA] MSG_INIT 完了: source=%s, replay=%s, start_time=%s",
+        m_source_symbol, m_replay_symbol, TimeToString(start_dt, TIME_DATE | TIME_SECONDS));
 }
 
 //+------------------------------------------------------------------+
@@ -1653,85 +1442,112 @@ void ProcessInit(const InitPayload &p)
 //+------------------------------------------------------------------+
 void ProcessAdvance(const AdvancePayload &adv, ulong start_us)
 {
-    if(m_replay_symbol == "" || m_total_ticks <= 0)
+    if(m_replay_symbol == "")
     {
         SendAck(0, 0, 0);
         return;
     }
 
-    // 仮想ミリ秒時刻に基づく厳密インデックス特定 (配列長が異なるため main_idx との比較・Max取得は禁止)
-    int target_idx = -1;
-    if(adv.virtual_time_msc > 0 && m_total_ticks > 0)
+    long adv_msc = adv.virtual_time_msc;
+    if(adv_msc <= 0)
     {
-        target_idx = FindTickIndexByMsc(m_all_ticks, m_total_ticks, adv.virtual_time_msc);
-    }
-    if(target_idx < 0)
-    {
-        target_idx = (int)adv.main_idx;
+        SendAck(adv.main_idx, adv.sub_idx, 0);
+        return;
     }
 
-    if(m_total_ticks > 0 && target_idx > m_total_ticks - 1)
-        target_idx = m_total_ticks - 1;
-    if(target_idx < 0)
-        target_idx = 0;
+    // メインシンボルへの差分反映
+    ulong from_msc = (m_current_v_time_msc > 0) ? (ulong)(m_current_v_time_msc + 1) : (ulong)adv_msc;
+    ulong to_msc   = (ulong)adv_msc;
 
-    // メインシンボルへの差分ティック追加
-    if(target_idx > m_current_idx && m_total_ticks > 0)
+    if(to_msc >= from_msc)
     {
-        int from_idx = (m_current_idx < 0) ? 0 : (m_current_idx + 1);
-        int count_to_add = target_idx - from_idx + 1;
+        MqlTick ticks_slice[];
+        ArrayFree(ticks_slice);
+        int count_to_add = CopyTicksRange(m_source_symbol, ticks_slice, COPY_TICKS_ALL, from_msc, to_msc);
+
         if(count_to_add > 0)
         {
-            MqlTick ticks_slice[];
-            ArrayResize(ticks_slice, count_to_add);
-            ArrayCopy(ticks_slice, m_all_ticks, 0, from_idx, count_to_add);
-            CustomTicksAdd(m_replay_symbol, ticks_slice);
-            m_current_idx = target_idx;
+            if(count_to_add <= 100)
+            {
+                // 通常再生 (100ティック以下): 実ティックを CustomTicksAdd して滑らかな足形成と気配値更新
+                CustomTicksAdd(m_replay_symbol, ticks_slice);
+            }
+            else
+            {
+                // 高速再生 (100ティック超): M1バーを一括反映し、最新1ティックのみ気配値同期
+                datetime f_dt = (datetime)(from_msc / 1000);
+                datetime t_dt = (datetime)(to_msc / 1000);
+                MqlRates jump_rates[];
+                int r_cnt = CopyRates(m_source_symbol, PERIOD_M1, f_dt, t_dt, jump_rates);
+                if(r_cnt > 0)
+                {
+                    CustomRatesUpdate(m_replay_symbol, jump_rates);
+                    MqlTick latest_slice[1];
+                    latest_slice[0] = ticks_slice[count_to_add - 1];
+                    CustomTicksAdd(m_replay_symbol, latest_slice);
+                }
+                else
+                {
+                    // CopyRates 取得不可時は全ティック追加フォールバック
+                    CustomTicksAdd(m_replay_symbol, ticks_slice);
+                }
+            }
         }
     }
 
-    // サブシンボルへの差分ティック追加
-    if(m_enable_dual_feed && m_replay_symbol_sub != "" && m_total_ticks_sub > 0)
-    {
-        int target_sub = -1;
-        if(adv.virtual_time_msc > 0 && m_total_ticks_sub > 0)
-        {
-            target_sub = FindTickIndexByMsc(m_all_ticks_sub, m_total_ticks_sub, adv.virtual_time_msc);
-        }
-        if(target_sub < 0)
-        {
-            target_sub = (int)adv.sub_idx;
-        }
-        if(m_total_ticks_sub > 0 && target_sub > m_total_ticks_sub - 1)
-            target_sub = m_total_ticks_sub - 1;
-        if(target_sub < 0)
-            target_sub = 0;
+    m_current_v_time_msc = adv_msc;
+    m_current_idx = (int)adv.main_idx;
 
-        if(target_sub > m_current_idx_sub)
+    // サブシンボルへの差分反映
+    if(m_enable_dual_feed && m_replay_symbol_sub != "")
+    {
+        ulong sub_from_msc = (m_current_v_time_msc_sub > 0) ? (ulong)(m_current_v_time_msc_sub + 1) : (ulong)adv_msc;
+        ulong sub_to_msc   = (ulong)adv_msc;
+
+        if(sub_to_msc >= sub_from_msc)
         {
-            int from_sub = (m_current_idx_sub < 0) ? 0 : (m_current_idx_sub + 1);
-            int count_sub = target_sub - from_sub + 1;
-            if(count_sub > 0)
+            MqlTick sub_slice[];
+            ArrayFree(sub_slice);
+            int sub_count = CopyTicksRange(m_source_symbol_sub, sub_slice, COPY_TICKS_ALL, sub_from_msc, sub_to_msc);
+            if(sub_count > 0)
             {
-                MqlTick sub_slice[];
-                ArrayResize(sub_slice, count_sub);
-                ArrayCopy(sub_slice, m_all_ticks_sub, 0, from_sub, count_sub);
-                CustomTicksAdd(m_replay_symbol_sub, sub_slice);
-                m_current_idx_sub = target_sub;
+                if(sub_count <= 100)
+                {
+                    CustomTicksAdd(m_replay_symbol_sub, sub_slice);
+                }
+                else
+                {
+                    datetime f_dt = (datetime)(sub_from_msc / 1000);
+                    datetime t_dt = (datetime)(sub_to_msc / 1000);
+                    MqlRates sub_rates[];
+                    int r_cnt = CopyRates(m_source_symbol_sub, PERIOD_M1, f_dt, t_dt, sub_rates);
+                    if(r_cnt > 0)
+                    {
+                        CustomRatesUpdate(m_replay_symbol_sub, sub_rates);
+                        MqlTick sub_latest[1];
+                        sub_latest[0] = sub_slice[sub_count - 1];
+                        CustomTicksAdd(m_replay_symbol_sub, sub_latest);
+                    }
+                    else
+                    {
+                        CustomTicksAdd(m_replay_symbol_sub, sub_slice);
+                    }
+                }
             }
         }
+
+        m_current_v_time_msc_sub = adv_msc;
+        m_current_idx_sub = (int)adv.sub_idx;
     }
 
     // 全ビューアーチャートの更新
     RedrawAllViewerCharts();
 
     // チャート左上にリプレイ状態コメントを表示
-    long disp_msc = (m_current_idx >= 0 && m_current_idx < m_total_ticks) ? (long)m_all_ticks[m_current_idx].time_msc : adv.virtual_time_msc;
-    datetime disp_dt = (datetime)(disp_msc / 1000);
-    Comment(StringFormat("=== TickReplay Core v2 ===\nSymbol: %s\nVirtual Time (Server): %s\nRendered Ticks: %d / %d (%.1f%%)",
+    datetime disp_dt = (datetime)(adv_msc / 1000);
+    Comment(StringFormat("=== TickReplay Core v2 ===\nSymbol: %s\nVirtual Time (Server): %s\nRendered Ticks: %d",
         m_replay_symbol, TimeToString(disp_dt, TIME_DATE | TIME_SECONDS),
-        m_current_idx + 1, m_total_ticks,
-        (m_total_ticks > 0) ? ((double)(m_current_idx + 1) / (double)m_total_ticks * 100.0) : 0.0));
+        m_current_idx + 1));
 
     ulong duration_us = (ulong)(GetMicrosecondCount() - start_us);
     SendAck((ulong)MathMax(0, m_current_idx), (ulong)MathMax(0, m_current_idx_sub), (uint)duration_us);
@@ -1742,7 +1558,7 @@ void ProcessAdvance(const AdvancePayload &adv, ulong start_us)
 //+------------------------------------------------------------------+
 void ProcessReset(const ResetPayload &rst)
 {
-    if(m_replay_symbol == "" || m_total_ticks <= 0)
+    if(m_replay_symbol == "")
     {
         SendReady();
         return;
@@ -1750,200 +1566,91 @@ void ProcessReset(const ResetPayload &rst)
 
     ulong reset_start_us = GetMicrosecondCount();
 
-    int target_idx = -1;
-    if(rst.virtual_time_msc > 0 && m_total_ticks > 0)
+    long target_msc = rst.virtual_time_msc;
+    if(target_msc <= 0)
     {
-        target_idx = FindTickIndexByMsc(m_all_ticks, m_total_ticks, rst.virtual_time_msc);
-    }
-    if(target_idx < 0)
-    {
-        target_idx = (int)rst.main_target_idx;
+        target_msc = m_start_time_msc;
     }
 
-    if(target_idx < 0) target_idx = 0;
-    if(target_idx >= m_total_ticks) target_idx = m_total_ticks - 1;
+    datetime target_dt = (datetime)(target_msc / 1000);
+    datetime cur_dt    = (m_current_v_time_msc > 0) ? (datetime)(m_current_v_time_msc / 1000) : target_dt;
 
-    // 同一タイムスタンプを持つティック群の境界を跨がないよう末尾に調整
-    while(target_idx + 1 < m_total_ticks &&
-          m_all_ticks[target_idx + 1].time_msc == m_all_ticks[target_idx].time_msc)
+    // --- メインシンボルの高速シーク・リセット ---
+    if(target_msc < m_current_v_time_msc || m_current_v_time_msc == 0)
     {
-        target_idx++;
-    }
-
-    long target_msc = (long)m_all_ticks[target_idx].time_msc;
-
-    // Subシンボルのインデックス算出
-    int target_sub = -1;
-    if(m_enable_dual_feed && m_total_ticks_sub > 0)
-    {
-        if(rst.virtual_time_msc > 0)
-        {
-            target_sub = FindTickIndexByMsc(m_all_ticks_sub, m_total_ticks_sub, rst.virtual_time_msc);
-        }
-        else
-        {
-            target_sub = FindTickIndexByMsc(m_all_ticks_sub, m_total_ticks_sub, target_msc);
-        }
-        if(target_sub < 0)
-        {
-            target_sub = (int)rst.sub_target_idx;
-        }
-        if(target_sub < 0) target_sub = 0;
-        if(target_sub >= m_total_ticks_sub) target_sub = m_total_ticks_sub - 1;
-    }
-
-    // --- メインシンボルの差分シーク・リセット ---
-    if(target_idx == 0)
-    {
-        long del_msc = (long)m_all_ticks[0].time_msc + 1;
-        CustomTicksDelete(m_replay_symbol, del_msc, LONG_MAX);
-        datetime del_time = (datetime)(m_all_ticks[0].time_msc / 1000) + 1;
+        // 巻き戻し: target_dt より後の未来バーおよび未来ティックを削除してゴースト足を一掃
+        datetime del_time = target_dt + 1;
         CustomRatesDelete(m_replay_symbol, del_time, D'3000.01.01 00:00:00');
-
-        MqlTick first_slice[1];
-        first_slice[0] = m_all_ticks[0];
-        CustomTicksAdd(m_replay_symbol, first_slice);
-        m_current_idx = 0;
+        CustomTicksDelete(m_replay_symbol, (ulong)(target_msc + 1), LONG_MAX);
     }
-    else if(target_idx < m_current_idx)
+    else if(target_msc > m_current_v_time_msc)
     {
-        // 巻き戻し: target_idx 以降の未来ティックおよびバーのみを差分削除
-        long del_msc = (long)m_all_ticks[target_idx].time_msc + 1;
-        CustomTicksDelete(m_replay_symbol, del_msc, LONG_MAX);
-        datetime del_time = (datetime)(m_all_ticks[target_idx].time_msc / 1000) + 1;
-        CustomRatesDelete(m_replay_symbol, del_time, D'3000.01.01 00:00:00');
-
-        // 現在足（target_idxの足）のM1バーを正確に反映
-        datetime current_bar_sec = (datetime)(m_all_ticks[target_idx].time_msc / 1000);
-        current_bar_sec -= (current_bar_sec % 60);
-        int bar_start_idx = target_idx;
-        while(bar_start_idx > 0 && (datetime)(m_all_ticks[bar_start_idx - 1].time_msc / 1000) >= current_bar_sec)
+        // 前方ジャンプ: cur_dt から target_dt までのM1バーを source_symbol から取得して CustomRatesUpdate
+        MqlRates jump_rates[];
+        ArrayFree(jump_rates);
+        int copied = CopyRates(m_source_symbol, PERIOD_M1, cur_dt, target_dt, jump_rates);
+        if(copied > 0)
         {
-            bar_start_idx--;
+            CustomRatesUpdate(m_replay_symbol, jump_rates);
         }
-        MqlRates cur_bar_rates[];
-        if(BuildM1RatesFromTicks(m_all_ticks, bar_start_idx, target_idx, m_replay_symbol, cur_bar_rates) > 0)
-        {
-            CustomRatesUpdate(m_replay_symbol, cur_bar_rates);
-        }
-
-        m_current_idx = target_idx;
     }
-    else if(target_idx > m_current_idx)
+
+    // 気配値（Bid/Ask）・スプレッド・現在値同期用に最新1ティックのみ CustomTicksAdd
+    MqlTick cur_tick;
+    if(GetLatestTickAtOrBefore(m_source_symbol, target_msc, cur_tick))
     {
-        int from_idx = (m_current_idx < 0) ? 0 : (m_current_idx + 1);
-        int count_to_add = target_idx - from_idx + 1;
-
-        if(count_to_add > 0)
-        {
-            // 差分が大量（100ティック以上）の場合、メモリ内ティックからM1バーを高速生成して CustomRatesUpdate で一括適用
-            if(count_to_add >= 100)
-            {
-                MqlRates jump_rates[];
-                int bars = BuildM1RatesFromTicks(m_all_ticks, from_idx, target_idx, m_replay_symbol, jump_rates);
-                if(bars > 0)
-                {
-                    CustomRatesUpdate(m_replay_symbol, jump_rates);
-                }
-
-                // 直近の現在値・気配値（Bid/Ask）・スプレッド同期用に最新1ティックのみ CustomTicksAdd
-                MqlTick recent_slice[1];
-                recent_slice[0] = m_all_ticks[target_idx];
-                CustomTicksAdd(m_replay_symbol, recent_slice);
-            }
-            else
-            {
-                // 小規模差分（100ティック未満）は従来の CustomTicksAdd で直接追加
-                MqlTick slice[];
-                ArrayResize(slice, count_to_add);
-                ArrayCopy(slice, m_all_ticks, 0, from_idx, count_to_add);
-                CustomTicksAdd(m_replay_symbol, slice);
-            }
-            m_current_idx = target_idx;
-        }
+        MqlTick quote[1];
+        quote[0] = cur_tick;
+        CustomTicksAdd(m_replay_symbol, quote);
     }
 
-    // --- Subシンボルの差分シーク・リセット ---
-    if(m_enable_dual_feed && m_replay_symbol_sub != "" && m_total_ticks_sub > 0)
+    m_current_v_time_msc = target_msc;
+    m_current_idx = (int)rst.main_target_idx;
+
+    // --- サブシンボルの高速シーク・リセット ---
+    if(m_enable_dual_feed && m_replay_symbol_sub != "")
     {
-        if(target_sub == 0)
+        if(target_msc < m_current_v_time_msc_sub || m_current_v_time_msc_sub == 0)
         {
-            long del_sub_msc = (long)m_all_ticks_sub[0].time_msc + 1;
-            CustomTicksDelete(m_replay_symbol_sub, del_sub_msc, LONG_MAX);
-            datetime del_sub_time = (datetime)(m_all_ticks_sub[0].time_msc / 1000) + 1;
-            CustomRatesDelete(m_replay_symbol_sub, del_sub_time, D'3000.01.01 00:00:00');
-            MqlTick sub_first[1];
-            sub_first[0] = m_all_ticks_sub[0];
-            CustomTicksAdd(m_replay_symbol_sub, sub_first);
-            m_current_idx_sub = 0;
+            CustomRatesDelete(m_replay_symbol_sub, target_dt + 1, D'3000.01.01 00:00:00');
+            CustomTicksDelete(m_replay_symbol_sub, (ulong)(target_msc + 1), LONG_MAX);
         }
-        else if(target_sub < m_current_idx_sub)
+        else if(target_msc > m_current_v_time_msc_sub)
         {
-            long del_sub_msc = (long)m_all_ticks_sub[target_sub].time_msc + 1;
-            CustomTicksDelete(m_replay_symbol_sub, del_sub_msc, LONG_MAX);
-            datetime del_sub_time = (datetime)(m_all_ticks_sub[target_sub].time_msc / 1000) + 1;
-            CustomRatesDelete(m_replay_symbol_sub, del_sub_time, D'3000.01.01 00:00:00');
+            MqlRates sub_jump_rates[];
+            ArrayFree(sub_jump_rates);
+            datetime cur_sub_dt = (m_current_v_time_msc_sub > 0) ? (datetime)(m_current_v_time_msc_sub / 1000) : target_dt;
+            int sub_copied = CopyRates(m_source_symbol_sub, PERIOD_M1, cur_sub_dt, target_dt, sub_jump_rates);
+            if(sub_copied > 0)
+            {
+                CustomRatesUpdate(m_replay_symbol_sub, sub_jump_rates);
+            }
+        }
 
-            datetime sub_bar_sec = (datetime)(m_all_ticks_sub[target_sub].time_msc / 1000);
-            sub_bar_sec -= (sub_bar_sec % 60);
-            int sub_bar_start = target_sub;
-            while(sub_bar_start > 0 && (datetime)(m_all_ticks_sub[sub_bar_start - 1].time_msc / 1000) >= sub_bar_sec)
-            {
-                sub_bar_start--;
-            }
-            MqlRates cur_sub_rates[];
-            if(BuildM1RatesFromTicks(m_all_ticks_sub, sub_bar_start, target_sub, m_replay_symbol_sub, cur_sub_rates) > 0)
-            {
-                CustomRatesUpdate(m_replay_symbol_sub, cur_sub_rates);
-            }
-
-            m_current_idx_sub = target_sub;
-        }
-        else if(target_sub > m_current_idx_sub)
+        MqlTick sub_cur_tick;
+        if(GetLatestTickAtOrBefore(m_source_symbol_sub, target_msc, sub_cur_tick))
         {
-            int from_sub = (m_current_idx_sub < 0) ? 0 : (m_current_idx_sub + 1);
-            int count_sub = target_sub - from_sub + 1;
-            if(count_sub > 0)
-            {
-                if(count_sub >= 100)
-                {
-                    MqlRates sub_jump_rates[];
-                    int sub_bars = BuildM1RatesFromTicks(m_all_ticks_sub, from_sub, target_sub, m_replay_symbol_sub, sub_jump_rates);
-                    if(sub_bars > 0)
-                    {
-                        CustomRatesUpdate(m_replay_symbol_sub, sub_jump_rates);
-                    }
-                    MqlTick sub_recent[1];
-                    sub_recent[0] = m_all_ticks_sub[target_sub];
-                    CustomTicksAdd(m_replay_symbol_sub, sub_recent);
-                }
-                else
-                {
-                    MqlTick sub_slice[];
-                    ArrayResize(sub_slice, count_sub);
-                    ArrayCopy(sub_slice, m_all_ticks_sub, 0, from_sub, count_sub);
-                    CustomTicksAdd(m_replay_symbol_sub, sub_slice);
-                }
-                m_current_idx_sub = target_sub;
-            }
+            MqlTick sub_quote[1];
+            sub_quote[0] = sub_cur_tick;
+            CustomTicksAdd(m_replay_symbol_sub, sub_quote);
         }
+
+        m_current_v_time_msc_sub = target_msc;
+        m_current_idx_sub = (int)rst.sub_target_idx;
     }
 
-    // チャートリフレッシュ & 追跡スクロール設定 (MT5の非同期バー構築完了後に OnTimer で末尾スクロールを確定)
+    // チャートリフレッシュ & 追跡スクロール設定
     RedrawAllViewerCharts(false);
     m_pending_reset_redraw_count = 1;
 
     // チャート左上にリプレイ状態コメントを表示
-    long disp_msc = (m_current_idx >= 0 && m_current_idx < m_total_ticks) ? (long)m_all_ticks[m_current_idx].time_msc : rst.virtual_time_msc;
-    datetime disp_dt = (datetime)(disp_msc / 1000);
     ulong dur_ms = (ulong)((GetMicrosecondCount() - reset_start_us) / 1000);
     PrintFormat("[RendererEA] ProcessReset 完了: 遷移所要時間=%d ms, target_idx=%d, virtual_time=%s",
-        dur_ms, m_current_idx, TimeToString(disp_dt, TIME_DATE | TIME_SECONDS));
+        dur_ms, m_current_idx, TimeToString(target_dt, TIME_DATE | TIME_SECONDS));
 
-    Comment(StringFormat("=== TickReplay Core v2 ===\nSymbol: %s\nVirtual Time (Server): %s\nRendered Ticks: %d / %d (%.1f%%)",
-        m_replay_symbol, TimeToString(disp_dt, TIME_DATE | TIME_SECONDS),
-        m_current_idx + 1, m_total_ticks,
-        (m_total_ticks > 0) ? ((double)(m_current_idx + 1) / (double)m_total_ticks * 100.0) : 0.0));
+    Comment(StringFormat("=== TickReplay Core v2 ===\nSymbol: %s\nVirtual Time (Server): %s\nRendered Ticks: %d",
+        m_replay_symbol, TimeToString(target_dt, TIME_DATE | TIME_SECONDS),
+        m_current_idx + 1));
 
     SendReady();
 }

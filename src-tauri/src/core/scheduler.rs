@@ -164,12 +164,9 @@ impl CoreScheduler {
                 self.matching.rewind_to(to_msc, cur_tick);
 
                 if let Some(ref pipe) = self.render_pipe {
-                    let preload_from = self.current_index.saturating_sub(300) as u64;
                     pipe.send_reset(
                         self.clock.seek_epoch() as u32,
                         self.current_index as u64,
-                        preload_from,
-                        0,
                         0,
                         to_msc,
                     );
@@ -223,12 +220,9 @@ impl CoreScheduler {
                 self.matching.rewind_to(target_msc, cur_tick);
 
                 if let Some(ref pipe) = self.render_pipe {
-                    let preload_from = self.current_index.saturating_sub(300) as u64;
                     pipe.send_reset(
                         self.clock.seek_epoch() as u32,
                         self.current_index as u64,
-                        preload_from,
-                        0,
                         0,
                         target_msc,
                     );
@@ -245,12 +239,9 @@ impl CoreScheduler {
                     self.matching.rewind_to(tick_msc, Some(tick));
 
                     if let Some(ref pipe) = self.render_pipe {
-                        let preload_from = self.current_index.saturating_sub(300) as u64;
                         pipe.send_reset(
                             self.clock.seek_epoch() as u32,
                             self.current_index as u64,
-                            preload_from,
-                            0,
                             0,
                             tick_msc,
                         );
@@ -269,12 +260,9 @@ impl CoreScheduler {
                     if delta_ticks < 0 {
                         self.matching.rewind_to(tick_msc, Some(tick));
                         if let Some(ref pipe) = self.render_pipe {
-                            let preload_from = self.current_index.saturating_sub(300) as u64;
                             pipe.send_reset(
                                 self.clock.seek_epoch() as u32,
                                 self.current_index as u64,
-                                preload_from,
-                                0,
                                 0,
                                 tick_msc,
                             );
@@ -305,12 +293,9 @@ impl CoreScheduler {
                     self.matching.on_tick_advance(tick, target_msc);
                 }
                 if let Some(ref pipe) = self.render_pipe {
-                    let preload_from = self.current_index.saturating_sub(300) as u64;
                     pipe.send_reset(
                         self.clock.seek_epoch() as u32,
                         self.current_index as u64,
-                        preload_from,
-                        0,
                         0,
                         target_msc,
                     );

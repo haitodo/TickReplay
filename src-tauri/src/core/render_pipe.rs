@@ -63,14 +63,12 @@ pub struct AdvancePayload {
     pub virtual_time_msc: i64,
 }
 
-/// 0x0003 RESET ペイロード (Core -> EA, 48 bytes)
+/// 0x0003 RESET ペイロード (Core -> EA, 32 bytes)
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ResetPayload {
     pub main_target_idx: u64,
-    pub main_preload_from: u64,
     pub sub_target_idx: u64,
-    pub sub_preload_from: u64,
     pub virtual_time_msc: i64,
     pub reserved: i64,
 }
@@ -145,16 +143,12 @@ impl RenderPacketCodec {
     pub fn encode_reset(
         epoch: u32,
         main_target_idx: u64,
-        main_preload_from: u64,
         sub_target_idx: u64,
-        sub_preload_from: u64,
         virtual_time_msc: i64,
     ) -> Vec<u8> {
         let payload = ResetPayload {
             main_target_idx,
-            main_preload_from,
             sub_target_idx,
-            sub_preload_from,
             virtual_time_msc,
             reserved: 0,
         };
@@ -336,9 +330,7 @@ pub enum RenderPipeCommand {
     Reset {
         epoch: u32,
         main_target_idx: u64,
-        main_preload_from: u64,
         sub_target_idx: u64,
-        sub_preload_from: u64,
         virtual_time_msc: i64,
     },
     ApplyProfile {
@@ -395,17 +387,13 @@ impl RenderPipeHandle {
         &self,
         epoch: u32,
         main_target_idx: u64,
-        main_preload_from: u64,
         sub_target_idx: u64,
-        sub_preload_from: u64,
         virtual_time_msc: i64,
     ) {
         let cmd = RenderPipeCommand::Reset {
             epoch,
             main_target_idx,
-            main_preload_from,
             sub_target_idx,
-            sub_preload_from,
             virtual_time_msc,
         };
         *self.last_reset.lock().unwrap() = Some(cmd.clone());
@@ -593,8 +581,8 @@ impl RenderPipeServer {
                                         break;
                                     }
                                 }
-                                RenderPipeCommand::Reset { epoch, main_target_idx, main_preload_from, sub_target_idx, sub_preload_from, virtual_time_msc } => {
-                                    let packet = RenderPacketCodec::encode_reset(epoch, main_target_idx, main_preload_from, sub_target_idx, sub_preload_from, virtual_time_msc);
+                                RenderPipeCommand::Reset { epoch, main_target_idx, sub_target_idx, virtual_time_msc } => {
+                                    let packet = RenderPacketCodec::encode_reset(epoch, main_target_idx, sub_target_idx, virtual_time_msc);
                                     if let Err(e) = writer.write_all(&packet).await {
                                         eprintln!("[RenderPipe] RESET 送信エラー: {}", e);
                                         break;
@@ -752,7 +740,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<RenderHeader>(), 16);
         assert_eq!(std::mem::size_of::<HelloPayload>(), 72);
         assert_eq!(std::mem::size_of::<AdvancePayload>(), 24);
-        assert_eq!(std::mem::size_of::<ResetPayload>(), 48);
+        assert_eq!(std::mem::size_of::<ResetPayload>(), 32);
         assert_eq!(std::mem::size_of::<AckPayload>(), 24);
         assert_eq!(std::mem::size_of::<ApplyProfilePayload>(), 128);
         assert_eq!(std::mem::size_of::<InitPayload>(), 192);
@@ -777,7 +765,7 @@ mod tests {
 
     #[test]
     fn test_encode_and_read_reset() {
-        let bytes = RenderPacketCodec::encode_reset(5, 2000, 1700, 0, 0, 1720005000);
+        let bytes = RenderPacketCodec::encode_reset(5, 2000, 0, 1720005000);
         let mut cursor = std::io::Cursor::new(bytes);
         let (header, payload) = RenderPacketCodec::read_packet(&mut cursor).unwrap();
 
@@ -788,7 +776,7 @@ mod tests {
 
         let rst: &ResetPayload = bytemuck::from_bytes(&payload);
         assert_eq!(rst.main_target_idx, 2000);
-        assert_eq!(rst.main_preload_from, 1700);
+        assert_eq!(rst.sub_target_idx, 0);
         assert_eq!(rst.virtual_time_msc, 1720005000);
     }
 
