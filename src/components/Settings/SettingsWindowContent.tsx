@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { DEFAULT_OPENROUTER_MODEL } from "../../constants/ai";
+import { DEFAULT_SPEED_TIME_PRESETS, DEFAULT_SPEED_TICK_PRESETS } from "../../constants/speedPresets";
 import { COMMANDS } from "../../constants/commands";
 import { EVENTS } from "../../constants/events";
 import { STORAGE_KEYS } from "../../constants/storageKeys";
@@ -48,8 +49,8 @@ export const SettingsWindowContent: React.FC = () => {
   const [recordingAction, setRecordingAction] = useState<string | null>(null);
 
   // プリセット
-  const [timePresets, setTimePresets] = useState<number[]>([0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0]);
-  const [tickPresets, setTickPresets] = useState<number[]>([1, 2, 5, 10, 30, 60]);
+  const [timePresets, setTimePresets] = useState<number[]>(() => [...DEFAULT_SPEED_TIME_PRESETS]);
+  const [tickPresets, setTickPresets] = useState<number[]>(() => [...DEFAULT_SPEED_TICK_PRESETS]);
 
   // AI設定
   const [openRouterApiKey, setOpenRouterApiKey] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.openRouterApiKey) || "");

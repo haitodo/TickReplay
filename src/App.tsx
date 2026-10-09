@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { COMMANDS } from "./constants/commands";
 import { EVENTS } from "./constants/events";
 import { DEFAULT_OPENROUTER_MODEL } from "./constants/ai";
+import { DEFAULT_SPEED_TIME_PRESETS, DEFAULT_SPEED_TICK_PRESETS } from "./constants/speedPresets";
 import { STORAGE_KEYS } from "./constants/storageKeys";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, emit } from "@tauri-apps/api/event";
@@ -690,8 +691,8 @@ function MainWindow() {
   } = useTheme();
   const [recordingAction, setRecordingAction] = useState<string | null>(null);
   const [hotkeys, setHotkeys] = useState<Record<string, string>>(DEFAULT_HOTKEYS);
-  const [timePresets, setTimePresets] = useState<number[]>([0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0]);
-  const [tickPresets, setTickPresets] = useState<number[]>([1, 2, 5, 10, 30, 60]);
+  const [timePresets, setTimePresets] = useState<number[]>(() => [...DEFAULT_SPEED_TIME_PRESETS]);
+  const [tickPresets, setTickPresets] = useState<number[]>(() => [...DEFAULT_SPEED_TICK_PRESETS]);
 
   const [timezoneMode, setTimezoneMode] = useState<"JST" | "SERVER">("JST");
   

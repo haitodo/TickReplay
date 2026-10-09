@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { DEFAULT_SPEED_TIME_PRESETS, DEFAULT_SPEED_TICK_PRESETS } from "../../constants/speedPresets";
 import { COMMANDS } from "../../constants/commands";
 import { EVENTS } from "../../constants/events";
 import { STORAGE_KEYS } from "../../constants/storageKeys";
@@ -66,8 +67,8 @@ export const ControllerWindowContent: React.FC = () => {
   const [loopBIdx, setLoopBIdx] = useState(-1);
 
   // プリセット
-  const [timePresets, setTimePresets] = useState<number[]>([0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0]);
-  const [tickPresets, setTickPresets] = useState<number[]>([1, 2, 5, 10, 30, 60]);
+  const [timePresets, setTimePresets] = useState<number[]>(() => [...DEFAULT_SPEED_TIME_PRESETS]);
+  const [tickPresets, setTickPresets] = useState<number[]>(() => [...DEFAULT_SPEED_TICK_PRESETS]);
   const [isSpeedPresetsModalOpen, setIsSpeedPresetsModalOpen] = useState(false);
   const [editingTimePresets, setEditingTimePresets] = useState<number[]>([]);
   const [editingTickPresets, setEditingTickPresets] = useState<number[]>([]);
