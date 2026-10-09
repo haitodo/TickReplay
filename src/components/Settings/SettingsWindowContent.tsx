@@ -25,6 +25,24 @@ import {
 import { useTheme } from "../../hooks/useTheme";
 import { PersistedSettings } from "../../types/settings";
 
+type SettingsSaveOverrides = {
+  hotkeys?: Record<string, string>;
+  timePresets?: number[];
+  tickPresets?: number[];
+  theme?: ReturnType<typeof useTheme>["theme"];
+  plColorStyle?: ReturnType<typeof useTheme>["plColorStyle"];
+  orderColorStyle?: ReturnType<typeof useTheme>["orderColorStyle"];
+  alwaysOnTop?: boolean;
+  isShortcutsActive?: boolean;
+  autoScrollSync?: boolean;
+  autoSkipWeekend?: boolean;
+  economicDataDir?: string;
+  openRouterApiKey?: string;
+  openRouterModel?: string;
+  fredApiKey?: string;
+  finnhubApiKey?: string;
+};
+
 export const SettingsWindowContent: React.FC = () => {
   const {
     theme,
@@ -100,18 +118,22 @@ export const SettingsWindowContent: React.FC = () => {
 
   // 設定保存関数
   const saveAll = useCallback(
-    async (
-      overrideHotkeys?: Record<string, string>,
-      overrideTimePresets?: number[],
-      overrideTickPresets?: number[],
-      overrideTheme?: string,
-      overrideEconomicDataDir?: string
-    ) => {
-      const activeHotkeys = overrideHotkeys || hotkeys;
-      const activeTimePresets = overrideTimePresets || timePresets;
-      const activeTickPresets = overrideTickPresets || tickPresets;
-      const activeTheme = overrideTheme || theme;
-      const activeEconomicDataDir = overrideEconomicDataDir !== undefined ? overrideEconomicDataDir : economicDataDir;
+    async (overrides: SettingsSaveOverrides = {}) => {
+      const activeHotkeys = overrides.hotkeys ?? hotkeys;
+      const activeTimePresets = overrides.timePresets ?? timePresets;
+      const activeTickPresets = overrides.tickPresets ?? tickPresets;
+      const activeTheme = overrides.theme ?? theme;
+      const activePlColorStyle = overrides.plColorStyle ?? plColorStyle;
+      const activeOrderColorStyle = overrides.orderColorStyle ?? orderColorStyle;
+      const activeAlwaysOnTop = overrides.alwaysOnTop ?? alwaysOnTop;
+      const activeIsShortcutsActive = overrides.isShortcutsActive ?? isShortcutsActive;
+      const activeAutoScrollSync = overrides.autoScrollSync ?? autoScrollSync;
+      const activeAutoSkipWeekend = overrides.autoSkipWeekend ?? autoSkipWeekend;
+      const activeEconomicDataDir = overrides.economicDataDir ?? economicDataDir;
+      const activeOpenRouterApiKey = overrides.openRouterApiKey ?? openRouterApiKey;
+      const activeOpenRouterModel = overrides.openRouterModel ?? openRouterModel;
+      const activeFredApiKey = overrides.fredApiKey ?? fredApiKey;
+      const activeFinnhubApiKey = overrides.finnhubApiKey ?? finnhubApiKey;
 
       try {
         await invoke(COMMANDS.saveSettings, {
@@ -120,30 +142,30 @@ export const SettingsWindowContent: React.FC = () => {
             time_presets: activeTimePresets,
             tick_presets: activeTickPresets,
             theme_mode: activeTheme,
-            pl_color_style: plColorStyle,
-            order_color_style: orderColorStyle,
-            always_on_top: alwaysOnTop,
-            is_shortcuts_active: isShortcutsActive,
-            auto_scroll_sync: autoScrollSync,
-            auto_skip_weekend: autoSkipWeekend,
+            pl_color_style: activePlColorStyle,
+            order_color_style: activeOrderColorStyle,
+            always_on_top: activeAlwaysOnTop,
+            is_shortcuts_active: activeIsShortcutsActive,
+            auto_scroll_sync: activeAutoScrollSync,
+            auto_skip_weekend: activeAutoSkipWeekend,
             economic_data_dir: activeEconomicDataDir,
           },
         });
         localStorage.setItem(STORAGE_KEYS.tickreplayTheme, activeTheme);
         localStorage.setItem(STORAGE_KEYS.theme, activeTheme);
         localStorage.setItem(STORAGE_KEYS.themeMode, activeTheme);
-        localStorage.setItem(STORAGE_KEYS.plColorStyle, plColorStyle);
-        localStorage.setItem(STORAGE_KEYS.speedOrderColorStyle, orderColorStyle);
-        localStorage.setItem(STORAGE_KEYS.openRouterApiKey, openRouterApiKey);
-        localStorage.setItem(STORAGE_KEYS.openRouterModel, openRouterModel);
-        localStorage.setItem(STORAGE_KEYS.fredApiKey, fredApiKey);
-        localStorage.setItem(STORAGE_KEYS.finnhubApiKey, finnhubApiKey);
+        localStorage.setItem(STORAGE_KEYS.plColorStyle, activePlColorStyle);
+        localStorage.setItem(STORAGE_KEYS.speedOrderColorStyle, activeOrderColorStyle);
+        localStorage.setItem(STORAGE_KEYS.openRouterApiKey, activeOpenRouterApiKey);
+        localStorage.setItem(STORAGE_KEYS.openRouterModel, activeOpenRouterModel);
+        localStorage.setItem(STORAGE_KEYS.fredApiKey, activeFredApiKey);
+        localStorage.setItem(STORAGE_KEYS.finnhubApiKey, activeFinnhubApiKey);
         localStorage.setItem(STORAGE_KEYS.replayEconomicDataDir, activeEconomicDataDir);
 
         emit(EVENTS.settingsUpdated, {
           theme: activeTheme,
-          plColorStyle,
-          orderColorStyle,
+          plColorStyle: activePlColorStyle,
+          orderColorStyle: activeOrderColorStyle,
         }).catch(console.error);
       } catch (err) {
         console.error("Failed to save settings:", err);
@@ -186,7 +208,7 @@ export const SettingsWindowContent: React.FC = () => {
         const nextHotkeys = { ...hotkeys, [recordingAction]: shortcut };
         setHotkeys(nextHotkeys);
         setRecordingAction(null);
-        saveAll(nextHotkeys);
+        saveAll({ hotkeys: nextHotkeys });
       }
     };
 
@@ -197,12 +219,12 @@ export const SettingsWindowContent: React.FC = () => {
   const handleClearHotkey = (actionKey: string) => {
     const nextHotkeys = { ...hotkeys, [actionKey]: "" };
     setHotkeys(nextHotkeys);
-    saveAll(nextHotkeys);
+    saveAll({ hotkeys: nextHotkeys });
   };
 
   const handleResetAllHotkeys = () => {
     setHotkeys(DEFAULT_HOTKEYS);
-    saveAll(DEFAULT_HOTKEYS);
+    saveAll({ hotkeys: DEFAULT_HOTKEYS });
   };
 
   const handleCloseWindow = async () => {
@@ -332,8 +354,9 @@ export const SettingsWindowContent: React.FC = () => {
                       type="checkbox"
                       checked={autoScrollSync}
                       onChange={(e) => {
-                        setAutoScrollSync(e.target.checked);
-                        saveAll();
+                        const value = e.target.checked;
+                        setAutoScrollSync(value);
+                        saveAll({ autoScrollSync: value });
                       }}
                     />
                     <div className="option-text">
@@ -347,8 +370,9 @@ export const SettingsWindowContent: React.FC = () => {
                       type="checkbox"
                       checked={autoSkipWeekend}
                       onChange={(e) => {
-                        setAutoSkipWeekend(e.target.checked);
-                        saveAll();
+                        const value = e.target.checked;
+                        setAutoSkipWeekend(value);
+                        saveAll({ autoSkipWeekend: value });
                       }}
                     />
                     <div className="option-text">
@@ -365,7 +389,7 @@ export const SettingsWindowContent: React.FC = () => {
                         const val = e.target.checked;
                         setAlwaysOnTop(val);
                         invoke(COMMANDS.setAlwaysOnTop, { always: val }).catch(console.error);
-                        saveAll();
+                        saveAll({ alwaysOnTop: val });
                       }}
                     />
                     <div className="option-text">
@@ -382,7 +406,7 @@ export const SettingsWindowContent: React.FC = () => {
                         const val = e.target.checked;
                         setIsShortcutsActive(val);
                         invoke(COMMANDS.setShortcutsActive, { active: val }).catch(console.error);
-                        saveAll();
+                        saveAll({ isShortcutsActive: val });
                       }}
                     />
                     <div className="option-text">
@@ -411,7 +435,7 @@ export const SettingsWindowContent: React.FC = () => {
                       onChange={(e) => {
                         const val = e.target.value;
                         setEconomicDataDir(val);
-                        saveAll(undefined, undefined, undefined, undefined, val);
+                        saveAll({ economicDataDir: val });
                       }}
                       placeholder="D:\Drehis\economic"
                     />
@@ -423,7 +447,7 @@ export const SettingsWindowContent: React.FC = () => {
                           const selected = await invoke<string | null>(COMMANDS.selectFolder);
                           if (selected) {
                             setEconomicDataDir(selected);
-                            saveAll(undefined, undefined, undefined, undefined, selected);
+                            saveAll({ economicDataDir: selected });
                           }
                         } catch (err) {
                           console.error("Failed to select folder", err);
@@ -442,7 +466,7 @@ export const SettingsWindowContent: React.FC = () => {
                           const def = await invoke<string>(COMMANDS.getDefaultEconomicDataDir);
                           if (def) {
                             setEconomicDataDir(def);
-                            saveAll(undefined, undefined, undefined, undefined, def);
+                            saveAll({ economicDataDir: def });
                           }
                         } catch (err) {
                           console.error("Failed to reset economic data dir", err);
@@ -538,7 +562,7 @@ export const SettingsWindowContent: React.FC = () => {
                         className={`theme-card ${isActive ? "active" : ""}`}
                         onClick={() => {
                           setTheme(themeItem.id);
-                          saveAll(undefined, undefined, undefined, themeItem.id);
+                          saveAll({ theme: themeItem.id });
                         }}
                       >
                         <div className="theme-card-header">
@@ -597,8 +621,9 @@ export const SettingsWindowContent: React.FC = () => {
                   <button
                     className={`pl-style-card ${plColorStyle === "red-blue" ? "active" : ""}`}
                     onClick={() => {
-                      setPlColorStyle("red-blue");
-                      saveAll();
+                      const value = "red-blue";
+                      setPlColorStyle(value);
+                      saveAll({ plColorStyle: value });
                     }}
                   >
                     <span className="material-symbols-outlined icon text-red">trending_up</span>
@@ -610,8 +635,9 @@ export const SettingsWindowContent: React.FC = () => {
                   <button
                     className={`pl-style-card ${plColorStyle === "green-red" ? "active" : ""}`}
                     onClick={() => {
-                      setPlColorStyle("green-red");
-                      saveAll();
+                      const value = "green-red";
+                      setPlColorStyle(value);
+                      saveAll({ plColorStyle: value });
                     }}
                   >
                     <span className="material-symbols-outlined icon text-green">trending_up</span>
@@ -632,8 +658,9 @@ export const SettingsWindowContent: React.FC = () => {
                   <button
                     className={`pl-style-card ${orderColorStyle === "red-green" ? "active" : ""}`}
                     onClick={() => {
-                      setOrderColorStyle("red-green");
-                      saveAll();
+                      const value = "red-green";
+                      setOrderColorStyle(value);
+                      saveAll({ orderColorStyle: value });
                     }}
                   >
                     <span className="material-symbols-outlined icon text-red">attach_money</span>
@@ -645,8 +672,9 @@ export const SettingsWindowContent: React.FC = () => {
                   <button
                     className={`pl-style-card ${orderColorStyle === "blue-red" ? "active" : ""}`}
                     onClick={() => {
-                      setOrderColorStyle("blue-red");
-                      saveAll();
+                      const value = "blue-red";
+                      setOrderColorStyle(value);
+                      saveAll({ orderColorStyle: value });
                     }}
                   >
                     <span className="material-symbols-outlined icon text-cyan">attach_money</span>
@@ -707,8 +735,9 @@ export const SettingsWindowContent: React.FC = () => {
                   className="input-compact font-data"
                   value={openRouterApiKey}
                   onChange={(e) => {
-                    setOpenRouterApiKey(e.target.value);
-                    saveAll();
+                    const value = e.target.value;
+                    setOpenRouterApiKey(value);
+                    saveAll({ openRouterApiKey: value });
                   }}
                   placeholder="sk-or-v1-..."
                 />
@@ -731,7 +760,7 @@ export const SettingsWindowContent: React.FC = () => {
                     value={openRouterModel}
                     onChange={(val) => {
                       setOpenRouterModel(val);
-                      saveAll();
+                      saveAll({ openRouterModel: val });
                     }}
                     options={[
                       { value: DEFAULT_OPENROUTER_MODEL, label: "Gemini 2.5 Flash (推奨・超高速)" },
@@ -764,8 +793,9 @@ export const SettingsWindowContent: React.FC = () => {
                   className="input-compact font-data"
                   value={fredApiKey}
                   onChange={(e) => {
-                    setFredApiKey(e.target.value);
-                    saveAll();
+                    const value = e.target.value;
+                    setFredApiKey(value);
+                    saveAll({ fredApiKey: value });
                   }}
                   placeholder="FRED API Key"
                 />
@@ -804,8 +834,9 @@ export const SettingsWindowContent: React.FC = () => {
                   className="input-compact font-data"
                   value={finnhubApiKey}
                   onChange={(e) => {
-                    setFinnhubApiKey(e.target.value);
-                    saveAll();
+                    const value = e.target.value;
+                    setFinnhubApiKey(value);
+                    saveAll({ finnhubApiKey: value });
                   }}
                   placeholder="Finnhub API Key"
                 />

@@ -8,27 +8,68 @@ function isAbortOrTimeoutError(error: unknown): boolean {
   );
 }
 
-/**
- * CORS制限のある外部API（例: FRED API, GDELT API）向けに、直接通信失敗時にCORSプロキシ経由で自動フォールバックするfetch関数
- */
-export async function fetchWithCorsFallback(
+function forwardAbortSignal(signal: AbortSignal | null | undefined, controller: AbortController): () => void {
+  if (!signal) return () => undefined;
+
+  const abort = () => controller.abort(signal.reason);
+  if (signal.aborted) {
+    abort();
+  } else {
+    signal.addEventListener("abort", abort, { once: true });
+  }
+
+  return () => signal.removeEventListener("abort", abort);
+}
+
+async function withTimedFetch<T>(
   url: string,
   options: RequestInit = {},
-  timeoutMs = 15000
-): Promise<Response> {
+  timeoutMs: number,
+  consumeResponse: (response: Response) => Promise<T>
+): Promise<T> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort("TimeoutError"), timeoutMs);
+  const removeAbortListener = forwardAbortSignal(options.signal, controller);
+  const timeoutId = setTimeout(
+    () => controller.abort(new DOMException("The request timed out.", "TimeoutError")),
+    timeoutMs
+  );
 
   try {
     const response = await fetch(url, {
       ...options,
       signal: controller.signal
     });
-    return response;
-  } catch (directError: unknown) {
+    return await consumeResponse(response);
+  } finally {
     clearTimeout(timeoutId);
+    removeAbortListener();
+  }
+}
 
-    if (isAbortOrTimeoutError(directError)) {
+/** JSON本文の読み込みまでタイムアウトと呼び出し元のAbortSignalで制御する。 */
+export function fetchJsonWithTimeout<T>(
+  url: string,
+  options: RequestInit = {},
+  timeoutMs = 15000
+): Promise<T> {
+  return withTimedFetch(url, options, timeoutMs, async (response) => {
+    if (!response.ok) {
+      throw new Error(`Request failed with HTTP ${response.status}`);
+    }
+    return await response.json() as T;
+  });
+}
+
+async function fetchWithCorsFallbackUsing<T>(
+  url: string,
+  options: RequestInit,
+  timeoutMs: number,
+  consumeResponse: (response: Response) => Promise<T>
+): Promise<T> {
+  try {
+    return await withTimedFetch(url, options, timeoutMs, consumeResponse);
+  } catch (directError: unknown) {
+    if (options.signal?.aborted || isAbortOrTimeoutError(directError)) {
       throw directError;
     }
 
@@ -38,28 +79,45 @@ export async function fetchWithCorsFallback(
     ];
 
     for (const proxyUrl of corsProxies) {
-      const proxyController = new AbortController();
-      const proxyTimeoutId = setTimeout(() => proxyController.abort("TimeoutError"), timeoutMs);
       try {
-        const proxyResponse = await fetch(proxyUrl, {
-          ...options,
-          signal: proxyController.signal
-        });
-        return proxyResponse;
+        return await withTimedFetch(proxyUrl, options, timeoutMs, consumeResponse);
       } catch (proxyError: unknown) {
-        if (isAbortOrTimeoutError(proxyError)) {
+        if (options.signal?.aborted || isAbortOrTimeoutError(proxyError)) {
           throw proxyError;
         }
         // 次のプロキシ試行へ
-      } finally {
-        clearTimeout(proxyTimeoutId);
       }
     }
 
     // 全プロキシも失敗した場合は元のエラーを投げる
     throw directError;
-  } finally {
-    clearTimeout(timeoutId);
   }
+}
+
+/**
+ * CORS制限のある外部API（例: FRED API, GDELT API）向けに、直接通信失敗時にCORSプロキシ経由で自動フォールバックするfetch関数
+ */
+export function fetchWithCorsFallback(
+  url: string,
+  options: RequestInit = {},
+  timeoutMs = 15000
+): Promise<Response> {
+  return fetchWithCorsFallbackUsing(url, options, timeoutMs, async (response) => response);
+}
+
+/** JSON本文の読み込みまでタイムアウトとキャンセルを適用して取得する。 */
+export function fetchJsonWithCorsFallback<T>(
+  url: string,
+  options: RequestInit = {},
+  timeoutMs = 15000
+): Promise<{ response: Response; data?: T }> {
+  return fetchWithCorsFallbackUsing(url, options, timeoutMs, async (response) => {
+    if (!response.ok) return { response };
+
+    return {
+      response,
+      data: await response.json() as T,
+    };
+  });
 }
 

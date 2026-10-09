@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { DEFAULT_OPENROUTER_MODEL } from "../constants/ai";
 import { STORAGE_KEYS } from "../constants/storageKeys";
 import { useDataSources } from "../hooks/useDataSources";
 import { getErrorMessage } from "../utils/getErrorMessage";
+import { consumeOpenRouterStream } from "../utils/openRouterStream";
 import {
   formatJstTime,
   formatServerTime,
@@ -57,9 +58,11 @@ export const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
 
   const { progress, fetchContextData } = useDataSources();
   const abortControllerRef = useRef<AbortController | null>(null);
+  const autoStartKeyRef = useRef<string | null>(null);
+  const handleStartAnalysisRef = useRef<(() => Promise<void>) | null>(null);
 
   // 日時文字列フォーマット
-  const formatTime = (msc: number) => {
+  const formatTime = useCallback((msc: number) => {
     if (!msc) return "N/A";
     if (timezoneMode === "JST") {
       return `${formatJstTime(msc)} JST`;
@@ -67,9 +70,9 @@ export const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
     const serverUtcOffset = getServerToUtcOffsetHours(msc);
     const sign = serverUtcOffset >= 0 ? "+" : "";
     return `${formatServerTime(msc)} SRV (GMT${sign}${serverUtcOffset})`;
-  };
+  }, [timezoneMode]);
 
-  const handleStartAnalysis = async () => {
+  const handleStartAnalysis = useCallback(async () => {
     if (!openRouterApiKey) {
       setErrorMessage("OpenRouter API Keyが設定されていません。システム設定 → AIタブでAPI Keyを入力してください。");
       return;
@@ -111,7 +114,8 @@ export const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
       const contextData = await fetchContextData(virtualTimeMsc, symbol, {
         rangeHours,
         fredApiKey,
-        finnhubApiKey
+        finnhubApiKey,
+        signal: abortController.signal
       });
 
       // 3. LLMプロンプトの作成
@@ -171,51 +175,63 @@ ${contextData.summaryText}`;
       }
 
       const reader = response.body?.getReader();
-      const decoder = new TextDecoder("utf-8");
 
       if (!reader) {
         throw new Error("レスポンスストリームの取得に失敗しました。");
       }
 
-      let accumulated = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n");
-
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const dataStr = line.replace(/^data:\s*/, "").trim();
-            if (dataStr === "[DONE]") break;
-
-            try {
-              const parsed = JSON.parse(dataStr);
-              const content = parsed.choices?.[0]?.delta?.content || "";
-              accumulated += content;
-              setAnalysisText(accumulated);
-            } catch {
-              // Parse error for partial chunk ignored
-            }
-          }
-        }
-      }
+      await consumeOpenRouterStream(reader, setAnalysisText);
     } catch (e: unknown) {
       if (!(e instanceof Error && e.name === "AbortError")) {
         setErrorMessage(getErrorMessage(e) || "AI解析中にエラーが発生しました。");
       }
     } finally {
-      setIsAnalyzing(false);
+      if (abortControllerRef.current === abortController) {
+        abortControllerRef.current = null;
+        setIsAnalyzing(false);
+      }
     }
-  };
+  }, [
+    fetchContextData,
+    finnhubApiKey,
+    formatTime,
+    fredApiKey,
+    newsItems,
+    openRouterApiKey,
+    openRouterModel,
+    rangeHours,
+    symbol,
+    timezoneMode,
+    virtualTimeMsc,
+  ]);
 
-  // モーダルオープン時に自動解析発火
   useEffect(() => {
-    if (isOpen && virtualTimeMsc && openRouterApiKey && !analysisText && !isAnalyzing) {
-      handleStartAnalysis();
+    handleStartAnalysisRef.current = handleStartAnalysis;
+  }, [handleStartAnalysis]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      abortControllerRef.current?.abort();
+      autoStartKeyRef.current = null;
+      return;
     }
-  }, [isOpen, virtualTimeMsc]);
+
+    return () => {
+      abortControllerRef.current?.abort();
+      autoStartKeyRef.current = null;
+    };
+  }, [isOpen]);
+
+  // モーダルを開いたとき、または対象日時・APIキーが変わったときに一度だけ自動解析する。
+  useEffect(() => {
+    if (!isOpen || !virtualTimeMsc || !openRouterApiKey) return;
+
+    const autoStartKey = `${virtualTimeMsc}:${openRouterApiKey}`;
+    if (autoStartKeyRef.current === autoStartKey) return;
+
+    autoStartKeyRef.current = autoStartKey;
+    void handleStartAnalysisRef.current?.();
+  }, [isOpen, virtualTimeMsc, openRouterApiKey]);
 
   const handleCopy = () => {
     if (!analysisText) return;

@@ -1,14 +1,11 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
+import { parseFinnhubNews, parseFredRateData, parseGdeltArticles } from "../domain/marketData";
+import type { GdeltArticle } from "../domain/marketData";
 import { getTrueUtcMs, formatUtcMsToDateTimeStr } from "../utils/timeUtils";
-import { fetchWithCorsFallback } from "../utils/fetchHelper";
-
-export interface GdeltArticle {
-  title: string;
-  url: string;
-  seendate: string; // YYYYMMDDTHHMMSSZ
-  domain: string;
-  language: string;
-}
+import {
+  fetchJsonWithCorsFallback,
+  fetchJsonWithTimeout
+} from "../utils/fetchHelper";
 
 export interface MarketContextData {
   gdeltArticles: GdeltArticle[];
@@ -97,6 +94,7 @@ function toGdeltDateStr(msc: number): string {
 }
 
 export function useDataSources() {
+  const requestIdRef = useRef(0);
   const [progress, setProgress] = useState<FetchProgress>({
     gdeltStatus: "idle",
     fredStatus: "idle",
@@ -111,8 +109,15 @@ export function useDataSources() {
         rangeHours?: number;
         fredApiKey?: string;
         finnhubApiKey?: string;
+        signal?: AbortSignal;
       } = {}
     ): Promise<MarketContextData> => {
+      const requestId = ++requestIdRef.current;
+      const updateProgress = (update: Partial<FetchProgress>) => {
+        if (requestId === requestIdRef.current) {
+          setProgress((current) => ({ ...current, ...update }));
+        }
+      };
       const rangeHours = options.rangeHours || 3;
       const trueUtcMsc = getTrueUtcMs(virtualTimeMsc);
       const startMsc = trueUtcMsc - rangeHours * 3600 * 1000;
@@ -127,6 +132,9 @@ export function useDataSources() {
       let gdeltArticles: GdeltArticle[] = [];
       let fredRateData: string | null = null;
       let finnhubNews: string[] = [];
+      let gdeltFetchFailed = false;
+      let fredFetchFailed = false;
+      let finnhubFetchFailed = false;
 
       // 1. GDELT DOC 2.0 API リクエスト
       const gdeltPromise = (async () => {
@@ -138,23 +146,24 @@ export function useDataSources() {
             keywords
           )}&mode=ArtList&maxrecords=12&format=json&startdatetime=${startStr}&enddatetime=${endStr}`;
 
-          const res = await fetchWithCorsFallback(url, {}, 15000);
-          if (res.ok) {
-            const data = await res.json();
-            if (data && Array.isArray(data.articles)) {
-              gdeltArticles = data.articles.map((a: any) => ({
-                title: a.title || "No Title",
-                url: a.url || "",
-                seendate: a.seendate || "",
-                domain: a.domain || "",
-                language: a.language || "English"
-              }));
-            }
+          const { response: res, data } = await fetchJsonWithCorsFallback<unknown>(
+            url,
+            { signal: options.signal },
+            15000
+          );
+          if (!res.ok) {
+            throw new Error(`GDELT request failed with HTTP ${res.status}`);
           }
-          setProgress(p => ({ ...p, gdeltStatus: "success" }));
+          gdeltArticles = parseGdeltArticles(data);
+          updateProgress({ gdeltStatus: "success" });
         } catch (e) {
+          if (options.signal?.aborted) {
+            updateProgress({ gdeltStatus: "idle" });
+            return;
+          }
+          gdeltFetchFailed = true;
           console.warn("GDELT API error:", e);
-          setProgress(p => ({ ...p, gdeltStatus: "error" }));
+          updateProgress({ gdeltStatus: "error" });
         }
       })();
 
@@ -166,18 +175,23 @@ export function useDataSources() {
           const endDate = formatUtcMsToDateTimeStr(trueUtcMsc).substring(0, 10);
           const url = `https://api.stlouisfed.org/fred/series/observations?series_id=FEDFUNDS&observation_start=${startDate}&observation_end=${endDate}&api_key=${options.fredApiKey}&file_type=json`;
 
-          const res = await fetchWithCorsFallback(url);
-          if (res.ok) {
-            const data = await res.json();
-            if (data && Array.isArray(data.observations)) {
-              const lastObs = data.observations.slice(-3);
-              fredRateData = lastObs.map((o: any) => `${o.date}: FF Rate ${o.value}%`).join(" | ");
-            }
+          const { response: res, data } = await fetchJsonWithCorsFallback<unknown>(
+            url,
+            { signal: options.signal }
+          );
+          if (!res.ok) {
+            throw new Error(`FRED request failed with HTTP ${res.status}`);
           }
-          setProgress(p => ({ ...p, fredStatus: "success" }));
+          fredRateData = parseFredRateData(data);
+          updateProgress({ fredStatus: "success" });
         } catch (e) {
+          if (options.signal?.aborted) {
+            updateProgress({ fredStatus: "idle" });
+            return;
+          }
+          fredFetchFailed = true;
           console.warn("FRED API error:", e);
-          setProgress(p => ({ ...p, fredStatus: "error" }));
+          updateProgress({ fredStatus: "error" });
         }
       })();
 
@@ -186,17 +200,20 @@ export function useDataSources() {
         if (!options.finnhubApiKey) return;
         try {
           const url = `https://finnhub.io/api/v1/news?category=forex&token=${options.finnhubApiKey}`;
-          const res = await fetch(url);
-          if (res.ok) {
-            const data = await res.json();
-            if (Array.isArray(data)) {
-              finnhubNews = data.slice(0, 5).map((item: any) => `${item.headline} (${item.source})`);
-            }
-          }
-          setProgress(p => ({ ...p, finnhubStatus: "success" }));
+          finnhubNews = parseFinnhubNews(await fetchJsonWithTimeout<unknown>(
+            url,
+            { signal: options.signal },
+            15000
+          ));
+          updateProgress({ finnhubStatus: "success" });
         } catch (e) {
+          if (options.signal?.aborted) {
+            updateProgress({ finnhubStatus: "idle" });
+            return;
+          }
+          finnhubFetchFailed = true;
           console.warn("Finnhub API error:", e);
-          setProgress(p => ({ ...p, finnhubStatus: "error" }));
+          updateProgress({ finnhubStatus: "error" });
         }
       })();
 
@@ -209,16 +226,30 @@ export function useDataSources() {
           `【GDELT要人発言・地政学ニュース (${gdeltArticles.length}件)】\n` +
             gdeltArticles.map(a => `- ${a.title} (${a.domain})`).join("\n")
         );
+      } else if (gdeltFetchFailed) {
+        summaryParts.push("【GDELT要人発言・地政学ニュース】データを取得できませんでした");
       } else {
         summaryParts.push("【GDELT要人発言・地政学ニュース】該当期間内の特定ニュースデータなし");
       }
 
-      if (fredRateData) {
-        summaryParts.push(`【FRED政策金利データ】 ${fredRateData}`);
+      if (options.fredApiKey) {
+        if (fredRateData) {
+          summaryParts.push(`【FRED政策金利データ】 ${fredRateData}`);
+        } else if (fredFetchFailed) {
+          summaryParts.push("【FRED政策金利データ】取得に失敗しました");
+        } else {
+          summaryParts.push("【FRED政策金利データ】対象期間に有効な観測値なし");
+        }
       }
 
-      if (finnhubNews.length > 0) {
-        summaryParts.push(`【Finnhub FXニュース】\n` + finnhubNews.map(n => `- ${n}`).join("\n"));
+      if (options.finnhubApiKey) {
+        if (finnhubNews.length > 0) {
+          summaryParts.push(`【Finnhub FXニュース】\n` + finnhubNews.map(n => `- ${n}`).join("\n"));
+        } else if (finnhubFetchFailed) {
+          summaryParts.push("【Finnhub FXニュース】取得に失敗しました");
+        } else {
+          summaryParts.push("【Finnhub FXニュース】該当するニュースなし");
+        }
       }
 
       return {
