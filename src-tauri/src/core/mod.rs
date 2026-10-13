@@ -6,6 +6,7 @@ pub mod store;
 pub mod scheduler;
 pub mod render_pipe;
 pub mod sink_tickscope;
+pub mod volatility;
 
 use tokio::sync::{mpsc, watch};
 use crate::core::scheduler::{CoreScheduler, SchedulerConfig};

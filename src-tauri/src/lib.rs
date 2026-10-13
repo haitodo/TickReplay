@@ -302,6 +302,7 @@ pub fn run() {
             commands::is_use_core_v2,
             commands::get_execution_audit_log,
             commands::set_execution_models,
+            commands::get_day_timeline_activity,
             commands::exit_app
         ])
         .run(tauri::generate_context!())

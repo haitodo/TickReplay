@@ -1,6 +1,7 @@
-import React from "react";
-import type { TimeStepItem } from "../../types/replay";
-import { formatJstTime, formatServerTime, getNewsTimeForDisplay } from "../../utils/timeUtils";
+import React, { useState } from "react";
+import type { TimeStepItem, DayTimelineActivity } from "../../types/replay";
+import { formatJstTime, formatServerTime } from "../../utils/timeUtils";
+import { MiniWaveformTrack } from "./MiniWaveformTrack";
 
 interface ControlDashboardProps {
   speedMode: "TEMPORAL" | "COUNT";
@@ -44,6 +45,10 @@ interface ControlDashboardProps {
   endTime: string;
   virtualTimeMsc: number;
   timezoneMode: "JST" | "SERVER";
+  timelineActivity?: DayTimelineActivity | null;
+  sendSeekTimeCommand?: (targetMsc: number, immediate?: boolean) => void;
+  autoSkipFlat?: boolean;
+  setAutoSkipFlat?: (val: boolean) => void;
 }
 
 interface TransportControlsProps {
@@ -60,6 +65,8 @@ interface TransportControlsProps {
   handleMediumSpeed: (up: boolean) => void;
   handleFineSpeed: (up: boolean) => void;
   onOpenSpeedPresets: () => void;
+  autoSkipFlat?: boolean;
+  setAutoSkipFlat?: (val: boolean) => void;
 }
 
 const TransportControls: React.FC<TransportControlsProps> = React.memo(({
@@ -76,6 +83,8 @@ const TransportControls: React.FC<TransportControlsProps> = React.memo(({
   handleMediumSpeed,
   handleFineSpeed,
   onOpenSpeedPresets,
+  autoSkipFlat,
+  setAutoSkipFlat,
 }) => {
   return (
     <>
@@ -127,6 +136,16 @@ const TransportControls: React.FC<TransportControlsProps> = React.memo(({
           >
             {speedMode === "TEMPORAL" ? "TIME" : "TICK"}
           </button>
+          {setAutoSkipFlat && (
+            <button
+              className={`mode-badge-btn auto-skip-badge-btn ${autoSkipFlat ? "active" : ""}`}
+              onClick={() => setAutoSkipFlat(!autoSkipFlat)}
+              title={autoSkipFlat ? "無風時間の自動早送り: ON (クリックでOFF)" : "無風時間の自動早送り: OFF (クリックでON)"}
+            >
+              <span className="material-symbols-outlined icon" style={{ fontSize: "13px", marginRight: "1px" }}>bolt</span>
+              SKIP
+            </button>
+          )}
         </div>
       </div>
 
@@ -470,12 +489,17 @@ const ControlDashboardComponent: React.FC<ControlDashboardProps> = ({
   handleSessionJump,
   handleTimeJump,
   getDayOffset,
-  startTime,
-  endTime,
+  startTime: _startTime,
+  endTime: _endTime,
   virtualTimeMsc,
   timezoneMode,
+  timelineActivity,
+  sendSeekTimeCommand,
+  autoSkipFlat,
+  setAutoSkipFlat,
 }) => {
   const safeMultiplier = typeof multiplier === "number" ? multiplier : parseFloat(String(multiplier)) || 1.0;
+  const [dragSec, setDragSec] = useState<number | null>(null);
 
   const handleOpenSpeedPresets = React.useCallback(() => {
     setEditingTimePresets([...timePresets]);
@@ -489,6 +513,12 @@ const ControlDashboardComponent: React.FC<ControlDashboardProps> = ({
     setEditingTimeSteps([...timeSteps]);
     setIsTimeStepsModalOpen(true);
   }, [timeSteps, setEditingTimeSteps, setIsTimeStepsModalOpen]);
+
+  // サーバー日の当日秒数 (0..86400)
+  const isServerDayMode = Boolean(timelineActivity && timelineActivity.day_start_msc > 0);
+  const currentSecInDay = isServerDayMode
+    ? Math.max(0, Math.min(86400, Math.floor((virtualTimeMsc - timelineActivity!.day_start_msc) / 1000)))
+    : 0;
 
   return (
     <div className="controls-container-compact">
@@ -508,16 +538,24 @@ const ControlDashboardComponent: React.FC<ControlDashboardProps> = ({
           handleMediumSpeed={handleMediumSpeed}
           handleFineSpeed={handleFineSpeed}
           onOpenSpeedPresets={handleOpenSpeedPresets}
+          autoSkipFlat={autoSkipFlat}
+          setAutoSkipFlat={setAutoSkipFlat}
         />
 
         {/* タイムラインシーカー */}
         <div className="timeline-seeker-block">
-          <div className="seeker-track-wrapper">
+          <div className="seeker-track-wrapper" style={{ position: "relative" }}>
+            {isServerDayMode && (
+              <MiniWaveformTrack
+                activity={timelineActivity || null}
+                currentSecInDay={dragSec !== null ? dragSec : currentSecInDay}
+              />
+            )}
             <input
               type="range"
               min={0}
-              max={totalTicks > 0 ? totalTicks : 100}
-              value={currentIdx}
+              max={isServerDayMode ? 86400 : (totalTicks > 0 ? totalTicks : 100)}
+              value={isServerDayMode ? (dragSec !== null ? dragSec : currentSecInDay) : currentIdx}
               onMouseDown={() => {
                 isDraggingRef.current = true;
               }}
@@ -528,33 +566,62 @@ const ControlDashboardComponent: React.FC<ControlDashboardProps> = ({
                 isDraggingRef.current = false;
                 const val = parseInt((e.target as HTMLInputElement).value);
                 if (!isNaN(val)) {
-                  sendSeekCommand(val, true);
+                  if (isServerDayMode && sendSeekTimeCommand && timelineActivity) {
+                    setDragSec(null);
+                    sendSeekTimeCommand(timelineActivity.day_start_msc + val * 1000, true);
+                  } else {
+                    sendSeekCommand(val, true);
+                  }
                 }
               }}
               onTouchEnd={(e) => {
                 isDraggingRef.current = false;
                 const val = parseInt((e.target as HTMLInputElement).value);
                 if (!isNaN(val)) {
-                  sendSeekCommand(val, true);
+                  if (isServerDayMode && sendSeekTimeCommand && timelineActivity) {
+                    setDragSec(null);
+                    sendSeekTimeCommand(timelineActivity.day_start_msc + val * 1000, true);
+                  } else {
+                    sendSeekCommand(val, true);
+                  }
                 }
               }}
               onChange={(e) => {
                 const val = parseInt(e.target.value);
-                setCurrentIdx(val);
-                sendSeekCommand(val);
+                if (isServerDayMode && sendSeekTimeCommand && timelineActivity) {
+                  setDragSec(val);
+                  sendSeekTimeCommand(timelineActivity.day_start_msc + val * 1000, false);
+                } else {
+                  setCurrentIdx(val);
+                  sendSeekCommand(val);
+                }
               }}
               className="seeker-slider-compact"
-              title={`進捗: ${currentIdx.toLocaleString()} / ${totalTicks.toLocaleString()} (${progressPercent.toFixed(1)}%)`}
+              title={
+                isServerDayMode
+                  ? `サーバー日: ${timelineActivity?.date_str || ""} (${Math.floor((dragSec !== null ? dragSec : currentSecInDay) / 3600).toString().padStart(2, "0")}:${Math.floor(((dragSec !== null ? dragSec : currentSecInDay) % 3600) / 60).toString().padStart(2, "0")}) 進捗: ${progressPercent.toFixed(1)}%`
+                  : `進捗: ${currentIdx.toLocaleString()} / ${totalTicks.toLocaleString()} (${progressPercent.toFixed(1)}%)`
+              }
             />
           </div>
 
           <div className="seeker-labels-row font-data">
-            <span className="seeker-time-start">
-              {startTime
-                ? (timezoneMode === "JST" ? startTime : getNewsTimeForDisplay(startTime, "SERVER")).substring(11, 16)
-                : "00:00"}
-            </span>
+            <div className="seeker-label-side-group">
+              <button
+                type="button"
+                className="btn-seeker-day-step"
+                onClick={() => handleSessionJump("ANY", "PREV")}
+                title="前日へジャンプ"
+              >
+                <span className="material-symbols-outlined icon">chevron_left</span>
+              </button>
+              <span className="seeker-time-start">00:00</span>
+            </div>
+
             <div className="seeker-current-info">
+              {timelineActivity?.date_str ? (
+                <span className="seeker-current-date-badge">{timelineActivity.date_str}</span>
+              ) : null}
               <span className="current-time-accent">
                 {timezoneMode === "JST"
                   ? formatJstTime(virtualTimeMsc).substring(11, 19)
@@ -562,11 +629,18 @@ const ControlDashboardComponent: React.FC<ControlDashboardProps> = ({
               </span>
               <span className="current-percent">({progressPercent.toFixed(1)}%)</span>
             </div>
-            <span className="seeker-time-end">
-              {endTime
-                ? (timezoneMode === "JST" ? endTime : getNewsTimeForDisplay(endTime, "SERVER")).substring(11, 16)
-                : "24:00"}
-            </span>
+
+            <div className="seeker-label-side-group">
+              <span className="seeker-time-end">24:00</span>
+              <button
+                type="button"
+                className="btn-seeker-day-step"
+                onClick={() => handleSessionJump("ANY", "NEXT")}
+                title="翌日へジャンプ"
+              >
+                <span className="material-symbols-outlined icon">chevron_right</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>

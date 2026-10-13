@@ -49,6 +49,18 @@ export interface SessionBlock {
   dateStr: string;
 }
 
+export interface DayTimelineActivity {
+  date_str: string;
+  day_start_msc: number;
+  day_end_msc: number;
+  total_ticks_in_day: number;
+  slots_15m: number[];
+  slots_1h: number[];
+  tyo_start_sec: number;
+  ldn_start_sec: number;
+  ny_start_sec: number;
+}
+
 export interface ReplayPlaybackState {
   isPlaying: boolean;
   speedMode: SpeedMode;

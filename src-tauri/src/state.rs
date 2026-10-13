@@ -64,6 +64,8 @@ pub struct ReplayState {
     pub core_join_handle: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
     // MT5 Renderer EA 向けバイナリ Named Pipe ハンドル
     pub render_pipe_handle: Mutex<Option<crate::core::render_pipe::RenderPipeHandle>>,
+    // タイムライン活動度計算・シーク参照用 TickStore
+    pub tick_store: Mutex<Option<crate::core::store::TickStore>>,
 }
 
 impl ReplayState {
@@ -128,6 +130,7 @@ impl ReplayState {
             core_handle: Mutex::new(None),
             core_join_handle: Mutex::new(None),
             render_pipe_handle: Mutex::new(None),
+            tick_store: Mutex::new(None),
         }
     }
 }

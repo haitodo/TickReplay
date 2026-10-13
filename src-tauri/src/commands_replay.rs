@@ -624,6 +624,8 @@ pub async fn send_command(
                         old_join.abort();
                     }
 
+                    *state.tick_store.lock().unwrap() = Some(store.clone());
+
                     // 3. Replay Core の起動
                     let (core_handle, core_join) = crate::core::ReplayCore::start_with_sinks(
                         store,
@@ -1027,4 +1029,27 @@ pub async fn set_execution_models(
         }
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn get_day_timeline_activity(
+    virtual_time_msc: Option<i64>,
+    state: State<'_, Arc<ReplayState>>,
+) -> Result<crate::core::volatility::DayTimelineActivity, AppError> {
+    let v_time = virtual_time_msc.unwrap_or_else(|| {
+        *state.current_virtual_time_msc.lock().unwrap()
+    });
+
+    let store_guard = state.tick_store.lock().unwrap();
+    if let Some(ref store) = *store_guard {
+        Ok(crate::core::volatility::compute_day_timeline_activity(store, v_time))
+    } else {
+        let feed_guard = state.execution_feed.lock().unwrap();
+        if let Some(ref feed) = *feed_guard {
+            let temp_store = crate::core::store::TickStore::from_execution_ticks(&feed.ticks);
+            Ok(crate::core::volatility::compute_day_timeline_activity(&temp_store, v_time))
+        } else {
+            Ok(crate::core::volatility::DayTimelineActivity::default())
+        }
+    }
 }

@@ -7335,15 +7335,29 @@ html[data-theme="sepia"] .mode-badge-btn.tick-mode {
 .seeker-track-wrapper {
   position: relative;
   width: 100%;
+  height: 12px;
   display: flex;
   align-items: center;
 }
 
-.seeker-slider-compact {
+.seeker-waveform-canvas {
+  position: absolute;
+  top: 1px;
+  left: 0;
   width: 100%;
-  height: 6px;
+  height: 10px;
+  pointer-events: none;
+  border-radius: 3px;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.seeker-slider-compact {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  height: 10px;
   -webkit-appearance: none;
-  background-color: var(--surface-variant);
+  background-color: transparent;
   border-radius: 3px;
   outline: none;
   cursor: pointer;
@@ -7354,9 +7368,9 @@ html[data-theme="sepia"] .mode-badge-btn.tick-mode {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background-color: var(--primary-color);
-  border: 2px solid var(--surface-charcoal);
-  box-shadow: 0 0 6px rgba(var(--primary-rgb), 0.8);
+  background-color: var(--timeline-playhead, #ffffff);
+  border: 2px solid var(--primary-color);
+  box-shadow: 0 0 8px rgba(var(--primary-rgb), 0.9);
   cursor: grab;
 }
 
@@ -7366,6 +7380,72 @@ html[data-theme="sepia"] .mode-badge-btn.tick-mode {
   justify-content: space-between;
   font-size: 9.5px;
   color: var(--on-surface-variant);
+}
+
+.seeker-label-side-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.btn-seeker-day-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--on-surface-variant);
+  cursor: pointer;
+  padding: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  transition: var(--transition-fast);
+}
+
+.btn-seeker-day-step:hover {
+  color: var(--on-surface);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.btn-seeker-day-step .icon {
+  font-size: 13px;
+}
+
+.seeker-current-date-badge {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--on-surface);
+  font-family: var(--font-data);
+}
+
+.auto-skip-badge-btn {
+  color: var(--on-surface-variant);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 2px 6px;
+  font-size: 9.5px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.auto-skip-badge-btn:hover {
+  color: var(--on-surface);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.auto-skip-badge-btn.active {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.4);
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.3);
+  font-weight: 700;
 }
 
 .seeker-current-info {

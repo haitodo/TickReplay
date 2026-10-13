@@ -10,7 +10,7 @@ import { ControlDashboard } from "./ControlDashboard";
 import { useTheme } from "../../hooks/useTheme";
 import { formatJstTime, formatServerTime, splitShortDateTime } from "../../utils/timeUtils";
 import { DEFAULT_TIME_STEPS, formatSecondsToLabel } from "../../domain/timeSteps";
-import type { TimeStepItem } from "../../types/replay";
+import type { TimeStepItem, DayTimelineActivity } from "../../types/replay";
 import { ReplayCommand, sendReplayCommand } from "../../utils/command";
 import { PersistedSettings } from "../../types/settings";
 import { ReplayProgressPayload } from "../../types/replay";
@@ -34,6 +34,17 @@ export const ControllerWindowContent: React.FC = () => {
     const saved = localStorage.getItem(STORAGE_KEYS.replayTimezoneMode);
     return saved === "SERVER" ? "SERVER" : "JST";
   });
+
+  // サーバー日タイムライン活動度 (1日単位波形)
+  const [timelineActivity, setTimelineActivity] = useState<DayTimelineActivity | null>(null);
+  const lastActivityDateRef = useRef<string>("");
+
+  // 無風・低活動時間の自動早送り State
+  const [autoSkipFlat, setAutoSkipFlat] = useState<boolean>(() => {
+    return localStorage.getItem("replay-auto-skip-flat") === "true";
+  });
+  const normalMultiplierRef = useRef<number>(1.0);
+  const isAutoSpeedBoostedRef = useRef<boolean>(false);
 
   // ウィンドウ間でのタイムゾーンモード変更の同期
   useEffect(() => {
@@ -373,6 +384,98 @@ export const ControllerWindowContent: React.FC = () => {
     }
   }, [sendCommand]);
 
+  const sendSeekTimeCommand = useCallback((targetMsc: number, _immediate: boolean = false) => {
+    sendCommand({
+      command: "SEEK_TIME",
+      target_time_msc: targetMsc,
+    }).catch(console.error);
+  }, [sendCommand]);
+
+  // タイムライン活動度 (波形) の取得
+  useEffect(() => {
+    if (virtualTimeMsc <= 0) return;
+    const dateStr = formatServerTime(virtualTimeMsc).substring(0, 10);
+    if (dateStr && dateStr !== lastActivityDateRef.current) {
+      lastActivityDateRef.current = dateStr;
+      invoke<DayTimelineActivity>(COMMANDS.getDayTimelineActivity, {
+        virtualTimeMsc,
+      })
+        .then((res) => {
+          if (res && res.date_str) {
+            setTimelineActivity(res);
+          }
+        })
+        .catch((err) => {
+          console.warn("Failed to fetch day timeline activity:", err);
+        });
+    }
+  }, [virtualTimeMsc]);
+
+  // 無風・閑散時間の自動早送り (Auto-Skip Flat) ロジック
+  const handleSetAutoSkipFlat = useCallback((val: boolean) => {
+    setAutoSkipFlat(val);
+    localStorage.setItem("replay-auto-skip-flat", String(val));
+    if (!val && isAutoSpeedBoostedRef.current) {
+      isAutoSpeedBoostedRef.current = false;
+      sendCommand({
+        command: "CONTROL",
+        is_playing: isPlaying,
+        speed_mode: speedMode,
+        multiplier: normalMultiplierRef.current || 1.0,
+        tick_step: tickStep,
+      }).catch(console.error);
+    }
+  }, [sendCommand, isPlaying, speedMode, tickStep]);
+
+  useEffect(() => {
+    if (!autoSkipFlat || !isPlaying || !timelineActivity || speedMode !== "TEMPORAL") {
+      if (isAutoSpeedBoostedRef.current) {
+        isAutoSpeedBoostedRef.current = false;
+        sendCommand({
+          command: "CONTROL",
+          is_playing: isPlaying,
+          speed_mode: speedMode,
+          multiplier: normalMultiplierRef.current || 1.0,
+          tick_step: tickStep,
+        }).catch(console.error);
+      }
+      return;
+    }
+
+    const secInDay = Math.floor((virtualTimeMsc - timelineActivity.day_start_msc) / 1000);
+    if (secInDay < 0 || secInDay >= 86400) return;
+
+    const slotIdx = Math.max(0, Math.min(95, Math.floor(secInDay / 900)));
+    const intensity = timelineActivity.slots_15m[slotIdx] || 0;
+
+    if (intensity < 0.15) {
+      // 閑散状態: 自動早送り (150x)
+      if (!isAutoSpeedBoostedRef.current) {
+        isAutoSpeedBoostedRef.current = true;
+        normalMultiplierRef.current = multiplier >= 50.0 ? 1.0 : multiplier;
+        sendCommand({
+          command: "CONTROL",
+          is_playing: true,
+          speed_mode: "TEMPORAL",
+          multiplier: 150.0,
+          tick_step: tickStep,
+        }).catch(console.error);
+      }
+    } else if (intensity >= 0.25) {
+      // 活動再開: 通常速度へ復帰
+      if (isAutoSpeedBoostedRef.current) {
+        isAutoSpeedBoostedRef.current = false;
+        sendCommand({
+          command: "CONTROL",
+          is_playing: true,
+          speed_mode: "TEMPORAL",
+          multiplier: normalMultiplierRef.current || 1.0,
+          tick_step: tickStep,
+        }).catch(console.error);
+      }
+    }
+  }, [autoSkipFlat, isPlaying, virtualTimeMsc, timelineActivity, speedMode, multiplier, tickStep, sendCommand]);
+
   const handleSessionJump = (session: string, dir: "PREV" | "NEXT") => {
     sendCommand({
       command: "SESSION_JUMP",
@@ -677,6 +780,10 @@ export const ControllerWindowContent: React.FC = () => {
           endTime={endTime}
           virtualTimeMsc={virtualTimeMsc}
           timezoneMode={timezoneMode}
+          timelineActivity={timelineActivity}
+          sendSeekTimeCommand={sendSeekTimeCommand}
+          autoSkipFlat={autoSkipFlat}
+          setAutoSkipFlat={handleSetAutoSkipFlat}
         />
       </main>
 

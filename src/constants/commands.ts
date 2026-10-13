@@ -7,6 +7,7 @@ export const COMMANDS = {
   exitApp: "exit_app",
   getAvailableSymbols: "get_available_symbols",
   getCoreV2Status: "get_core_v2_status",
+  getDayTimelineActivity: "get_day_timeline_activity",
   getDefaultCustomSymbolDir: "get_default_custom_symbol_dir",
   getDefaultEconomicDataDir: "get_default_economic_data_dir",
   getEconomicScheduleCsv: "get_economic_schedule_csv",
