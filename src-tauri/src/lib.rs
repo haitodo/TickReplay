@@ -86,21 +86,6 @@ pub fn run() {
                         commands_settings::queue_window_position_save(app_handle, label, x, y);
                     }
                 }
-                tauri::WindowEvent::ScaleFactorChanged { .. } => {
-                    let label = window.label();
-                    let (w, h) = match label {
-                        "controller" => (Some(430.0), Some(325.0)),
-                        "positions" => (Some(760.0), Some(520.0)),
-                        "settings" => (Some(640.0), Some(540.0)),
-                        _ => (None, None),
-                    };
-                    if let (Some(target_w), Some(target_h)) = (w, h) {
-                        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
-                            width: target_w,
-                            height: target_h,
-                        }));
-                    }
-                }
                 tauri::WindowEvent::CloseRequested { api, .. } => {
                     if window.label() == "speed_order" || window.label() == "positions" || window.label() == "settings" || window.label() == "controller" || window.label() == "symbol_selector" {
                         // 完全に破棄せず非表示にすることで、次回起動を瞬時に行う（チラつき防止）

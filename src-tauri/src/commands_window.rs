@@ -42,19 +42,35 @@ pub fn is_position_valid_on_monitors(
     false
 }
 
-pub fn apply_window_position_and_logical_size(
+pub fn apply_window_position_and_inner_size(
     app_handle: &AppHandle,
     window: &tauri::WebviewWindow,
     saved_x: Option<i32>,
     saved_y: Option<i32>,
-    logical_w: f64,
-    logical_h: f64,
+    target_inner_w: f64,
+    target_inner_h: f64,
 ) {
+    let scale_factor = window.scale_factor().unwrap_or(1.0);
+    let (dec_w, dec_h) = match (window.outer_size(), window.inner_size()) {
+        (Ok(outer), Ok(inner)) => {
+            let dw = (outer.width.saturating_sub(inner.width)) as f64 / scale_factor;
+            let dh = (outer.height.saturating_sub(inner.height)) as f64 / scale_factor;
+            if (0.0..=60.0).contains(&dw) && (0.0..=120.0).contains(&dh) {
+                (dw, dh)
+            } else {
+                (16.0, 39.0)
+            }
+        }
+        _ => (16.0, 39.0),
+    };
+
+    let outer_w = target_inner_w + dec_w;
+    let outer_h = target_inner_h + dec_h;
+
     let mut positioned = false;
     if let (Some(x), Some(y)) = (saved_x, saved_y) {
-        let scale_factor = window.scale_factor().unwrap_or(1.0);
-        let phys_w = (logical_w * scale_factor) as u32;
-        let phys_h = (logical_h * scale_factor) as u32;
+        let phys_w = (outer_w * scale_factor) as u32;
+        let phys_h = (outer_h * scale_factor) as u32;
         if is_position_valid_on_monitors(app_handle, x, y, phys_w, phys_h) {
             let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
             positioned = true;
@@ -64,12 +80,24 @@ pub fn apply_window_position_and_logical_size(
         let _ = window.center();
     }
 
-    // 重要: 対象モニターの物理座標へ配置後、明示的に論理サイズを再適用することで
-    // マルチモニター環境（4K 150% と 2K 100%など）でのDPI不整合によるウィンドウ縮小・歪みを防止する
+    // Tauri の window.set_size() は内部的に window.set_inner_size() を呼び出し、
+    // クライアント描画領域(inner)の論理サイズを設定するため、target_inner_w / h を直接適用する。
+    // （デコレーション分を加算するとinner_sizeがその分巨大化して下部に不要な余白が生じるため）
     let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
-        width: logical_w,
-        height: logical_h,
+        width: target_inner_w,
+        height: target_inner_h,
     }));
+}
+
+pub fn apply_window_position_and_logical_size(
+    app_handle: &AppHandle,
+    window: &tauri::WebviewWindow,
+    saved_x: Option<i32>,
+    saved_y: Option<i32>,
+    logical_w: f64,
+    logical_h: f64,
+) {
+    apply_window_position_and_inner_size(app_handle, window, saved_x, saved_y, logical_w, logical_h);
 }
 
 #[tauri::command]
@@ -146,30 +174,13 @@ pub async fn open_speed_order_window(app_handle: AppHandle) -> Result<(), AppErr
     let settings = crate::commands_settings::load_settings(app_handle.clone()).await.ok().flatten();
 
     if let Some(window) = app_handle.get_webview_window("speed_order") {
-        let scale_factor = window.scale_factor().unwrap_or(1.0);
-        let (dec_w, dec_h) = match (window.outer_size(), window.inner_size()) {
-            (Ok(outer), Ok(inner)) => {
-                let dw = (outer.width.saturating_sub(inner.width)) as f64 / scale_factor;
-                let dh = (outer.height.saturating_sub(inner.height)) as f64 / scale_factor;
-                if (0.0..=50.0).contains(&dw) && (0.0..=100.0).contains(&dh) {
-                    (dw, dh)
-                } else {
-                    (16.0, 39.0)
-                }
-            }
-            _ => (16.0, 39.0),
-        };
-
-        let outer_w = target_inner_w + dec_w;
-        let outer_h = target_inner_h + dec_h;
-
-        apply_window_position_and_logical_size(
+        apply_window_position_and_inner_size(
             &app_handle,
             &window,
             settings.as_ref().and_then(|s| s.speed_order_window_x),
             settings.as_ref().and_then(|s| s.speed_order_window_y),
-            outer_w,
-            outer_h,
+            target_inner_w,
+            target_inner_h,
         );
 
         window.show()?;
@@ -190,30 +201,13 @@ pub async fn open_speed_order_window(app_handle: AppHandle) -> Result<(), AppErr
 
         let window = win_builder.build()?;
 
-        let scale_factor = window.scale_factor().unwrap_or(1.0);
-        let (dec_w, dec_h) = match (window.outer_size(), window.inner_size()) {
-            (Ok(outer), Ok(inner)) => {
-                let dw = (outer.width.saturating_sub(inner.width)) as f64 / scale_factor;
-                let dh = (outer.height.saturating_sub(inner.height)) as f64 / scale_factor;
-                if (0.0..=50.0).contains(&dw) && (0.0..=100.0).contains(&dh) {
-                    (dw, dh)
-                } else {
-                    (16.0, 39.0)
-                }
-            }
-            _ => (16.0, 39.0),
-        };
-
-        let outer_w = target_inner_w + dec_w;
-        let outer_h = target_inner_h + dec_h;
-
-        apply_window_position_and_logical_size(
+        apply_window_position_and_inner_size(
             &app_handle,
             &window,
             settings.as_ref().and_then(|s| s.speed_order_window_x),
             settings.as_ref().and_then(|s| s.speed_order_window_y),
-            outer_w,
-            outer_h,
+            target_inner_w,
+            target_inner_h,
         );
 
         window.show()?;
@@ -230,7 +224,7 @@ pub async fn open_positions_window(app_handle: AppHandle) -> Result<(), AppError
     let settings = crate::commands_settings::load_settings(app_handle.clone()).await.ok().flatten();
 
     if let Some(window) = app_handle.get_webview_window("positions") {
-        apply_window_position_and_logical_size(
+        apply_window_position_and_inner_size(
             &app_handle,
             &window,
             settings.as_ref().and_then(|s| s.positions_window_x),
@@ -257,7 +251,7 @@ pub async fn open_positions_window(app_handle: AppHandle) -> Result<(), AppError
         .visible(false);
 
         let window = win_builder.build()?;
-        apply_window_position_and_logical_size(
+        apply_window_position_and_inner_size(
             &app_handle,
             &window,
             settings.as_ref().and_then(|s| s.positions_window_x),
@@ -305,7 +299,7 @@ pub async fn open_controller_window(app_handle: AppHandle) -> Result<(), AppErro
     let settings = crate::commands_settings::load_settings(app_handle.clone()).await.ok().flatten();
 
     if let Some(window) = app_handle.get_webview_window("controller") {
-        apply_window_position_and_logical_size(
+        apply_window_position_and_inner_size(
             &app_handle,
             &window,
             settings.as_ref().and_then(|s| s.controller_window_x),
@@ -331,7 +325,7 @@ pub async fn open_controller_window(app_handle: AppHandle) -> Result<(), AppErro
         .visible(false);
 
         let window = win_builder.build()?;
-        apply_window_position_and_logical_size(
+        apply_window_position_and_inner_size(
             &app_handle,
             &window,
             settings.as_ref().and_then(|s| s.controller_window_x),
@@ -379,7 +373,7 @@ pub async fn open_settings_window(app_handle: AppHandle) -> Result<(), AppError>
     let settings = crate::commands_settings::load_settings(app_handle.clone()).await.ok().flatten();
 
     if let Some(window) = app_handle.get_webview_window("settings") {
-        apply_window_position_and_logical_size(
+        apply_window_position_and_inner_size(
             &app_handle,
             &window,
             settings.as_ref().and_then(|s| s.settings_window_x),
@@ -406,7 +400,7 @@ pub async fn open_settings_window(app_handle: AppHandle) -> Result<(), AppError>
         .visible(false);
 
         let window = win_builder.build()?;
-        apply_window_position_and_logical_size(
+        apply_window_position_and_inner_size(
             &app_handle,
             &window,
             settings.as_ref().and_then(|s| s.settings_window_x),
@@ -436,7 +430,7 @@ pub async fn open_symbol_selector_window(app_handle: AppHandle) -> Result<(), Ap
     let target_inner_h = 580.0;
 
     if let Some(window) = app_handle.get_webview_window("symbol_selector") {
-        apply_window_position_and_logical_size(
+        apply_window_position_and_inner_size(
             &app_handle,
             &window,
             None,
@@ -462,7 +456,7 @@ pub async fn open_symbol_selector_window(app_handle: AppHandle) -> Result<(), Ap
         .visible(false);
 
         let window = win_builder.build()?;
-        apply_window_position_and_logical_size(
+        apply_window_position_and_inner_size(
             &app_handle,
             &window,
             None,
