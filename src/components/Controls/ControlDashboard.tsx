@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import type { TimeStepItem, DayTimelineActivity } from "../../types/replay";
 import { formatJstTime, formatServerTime } from "../../utils/timeUtils";
 import { MiniWaveformTrack } from "./MiniWaveformTrack";
+import { TimelineInspectorTooltip } from "./TimelineInspectorTooltip";
 
 interface ControlDashboardProps {
   speedMode: "TEMPORAL" | "COUNT";
@@ -500,6 +501,11 @@ const ControlDashboardComponent: React.FC<ControlDashboardProps> = ({
 }) => {
   const safeMultiplier = typeof multiplier === "number" ? multiplier : parseFloat(String(multiplier)) || 1.0;
   const [dragSec, setDragSec] = useState<number | null>(null);
+  const [hoverInfo, setHoverInfo] = useState<{
+    sec: number;
+    clientX: number;
+    trackWidth: number;
+  } | null>(null);
 
   const handleOpenSpeedPresets = React.useCallback(() => {
     setEditingTimePresets([...timePresets]);
@@ -519,6 +525,22 @@ const ControlDashboardComponent: React.FC<ControlDashboardProps> = ({
   const currentSecInDay = isServerDayMode
     ? Math.max(0, Math.min(86400, Math.floor((virtualTimeMsc - timelineActivity!.day_start_msc) / 1000)))
     : 0;
+
+  const handleTrackMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isServerDayMode || !timelineActivity) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const relX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+    const sec = Math.floor((relX / rect.width) * 86400);
+    setHoverInfo({
+      sec,
+      clientX: relX,
+      trackWidth: rect.width,
+    });
+  };
+
+  const handleTrackMouseLeave = () => {
+    setHoverInfo(null);
+  };
 
   return (
     <div className="controls-container-compact">
@@ -544,7 +566,22 @@ const ControlDashboardComponent: React.FC<ControlDashboardProps> = ({
 
         {/* タイムラインシーカー */}
         <div className="timeline-seeker-block">
-          <div className="seeker-track-wrapper" style={{ position: "relative" }}>
+          <div
+            className="seeker-track-wrapper"
+            style={{ position: "relative" }}
+            onMouseMove={handleTrackMouseMove}
+            onMouseLeave={handleTrackMouseLeave}
+          >
+            {isServerDayMode && hoverInfo && timelineActivity && (
+              <TimelineInspectorTooltip
+                sec={hoverInfo.sec}
+                clientX={hoverInfo.clientX}
+                trackWidth={hoverInfo.trackWidth}
+                activity={timelineActivity}
+                currentSecInDay={dragSec !== null ? dragSec : currentSecInDay}
+                timezoneMode={timezoneMode}
+              />
+            )}
             {isServerDayMode && (
               <MiniWaveformTrack
                 activity={timelineActivity || null}
@@ -597,11 +634,6 @@ const ControlDashboardComponent: React.FC<ControlDashboardProps> = ({
                 }
               }}
               className="seeker-slider-compact"
-              title={
-                isServerDayMode
-                  ? `サーバー日: ${timelineActivity?.date_str || ""} (${Math.floor((dragSec !== null ? dragSec : currentSecInDay) / 3600).toString().padStart(2, "0")}:${Math.floor(((dragSec !== null ? dragSec : currentSecInDay) % 3600) / 60).toString().padStart(2, "0")}) 進捗: ${progressPercent.toFixed(1)}%`
-                  : `進捗: ${currentIdx.toLocaleString()} / ${totalTicks.toLocaleString()} (${progressPercent.toFixed(1)}%)`
-              }
             />
           </div>
 
