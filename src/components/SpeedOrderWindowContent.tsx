@@ -23,6 +23,11 @@ import {
 import type { LatencyModel, SlippageModel, ExecutionAuditRecord } from "../types/replay";
 import { getCachedEconomicAvailabilityMap, isEconomicSpreadActive } from "../utils/economicDataUtils";
 import { formatJstTime, formatServerTime, splitShortDateTime } from "../utils/timeUtils";
+import {
+  calculatePositionElapsedTime,
+  formatElapsedTime,
+  type StopwatchItem,
+} from "../domain/holdingTime";
 
 export const SpeedOrderWindowContent: React.FC = () => {
   useTheme();
@@ -621,48 +626,23 @@ export const SpeedOrderWindowContent: React.FC = () => {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [hotkeys]);
 
-  interface StopwatchState {
-    accumulatedMs: number;
-    lastActiveTime: number | null;
-  }
-
-  const stopwatchStateRef = useRef<Record<number, StopwatchState>>({});
+  const stopwatchStateRef = useRef<Record<string, StopwatchItem>>({});
 
   const syncStopwatchState = (
     currentPositions: VirtualPosition[],
     playing: boolean
   ) => {
-    const activeTickets = new Set(currentPositions.map(p => p.ticket));
+    const activeKeys = new Set(currentPositions.map(p => `${p.ticket}_${p.open_time_msc}`));
 
     // 1. Clean up closed positions
-    Object.keys(stopwatchStateRef.current).forEach(ticketStr => {
-      const ticket = Number(ticketStr);
-      if (!activeTickets.has(ticket)) {
-        const state = stopwatchStateRef.current[ticket];
-        if (state) {
-          const finalDuration = state.accumulatedMs + 
-            (state.lastActiveTime ? (Date.now() - state.lastActiveTime) : 0);
-          
-          try {
-            const storedTimesStr = localStorage.getItem(STORAGE_KEYS.speedOrderPositionRealTimes);
-            const storedTimes = storedTimesStr ? JSON.parse(storedTimesStr) : {};
-            storedTimes[ticket] = finalDuration;
-            localStorage.setItem(STORAGE_KEYS.speedOrderPositionRealTimes, JSON.stringify(storedTimes));
-            
-            window.dispatchEvent(new StorageEvent("storage", {
-              key: STORAGE_KEYS.speedOrderPositionRealTimes,
-              newValue: JSON.stringify(storedTimes)
-            }));
-          } catch (e) {
-            console.error("Failed to update final duration in localStorage", e);
-          }
-        }
-        delete stopwatchStateRef.current[ticket];
+    Object.keys(stopwatchStateRef.current).forEach(posKey => {
+      if (!activeKeys.has(posKey)) {
+        delete stopwatchStateRef.current[posKey];
       }
     });
 
     // 2. Initialize new positions
-    let storedTimes: Record<number, number> = {};
+    let storedTimes: Record<string, number> = {};
     try {
       const storedTimesStr = localStorage.getItem(STORAGE_KEYS.speedOrderPositionRealTimes);
       if (storedTimesStr) {
@@ -673,20 +653,18 @@ export const SpeedOrderWindowContent: React.FC = () => {
     }
 
     currentPositions.forEach(p => {
-      const state = stopwatchStateRef.current[p.ticket];
+      const posKey = `${p.ticket}_${p.open_time_msc}`;
+      const state = stopwatchStateRef.current[posKey];
       if (state === undefined) {
         let initialAccumulated = 0;
-        if (storedTimes[p.ticket] !== undefined) {
-          initialAccumulated = storedTimes[p.ticket];
-        } else {
-          const virtualElapsed = virtualTimeMscRef.current - p.open_time_msc;
-          if (virtualElapsed > 0) {
-            initialAccumulated = virtualElapsed;
-          }
+        if (storedTimes[posKey] !== undefined) {
+          initialAccumulated = storedTimes[posKey];
+        } else if (p.accumulated_real_time && p.accumulated_real_time > 0) {
+          initialAccumulated = p.accumulated_real_time;
         }
 
-        stopwatchStateRef.current[p.ticket] = {
-          accumulatedMs: initialAccumulated,
+        stopwatchStateRef.current[posKey] = {
+          accumulatedMs: Math.max(0, initialAccumulated),
           lastActiveTime: playing ? Date.now() : null
         };
       } else {
@@ -704,19 +682,17 @@ export const SpeedOrderWindowContent: React.FC = () => {
       }
     });
 
-    // 3. Update localStorage with current times
-    const currentTimesToStore: Record<number, number> = {};
-    Object.keys(storedTimes).forEach(tkStr => {
-      const tk = Number(tkStr);
-      if (!activeTickets.has(tk)) {
-        currentTimesToStore[tk] = storedTimes[tk];
+    // 3. Update localStorage with active positions only
+    const currentTimesToStore: Record<string, number> = {};
+    currentPositions.forEach(p => {
+      const posKey = `${p.ticket}_${p.open_time_msc}`;
+      const state = stopwatchStateRef.current[posKey];
+      if (state) {
+        const total = state.accumulatedMs + 
+          (state.lastActiveTime ? (Date.now() - state.lastActiveTime) : 0);
+        currentTimesToStore[posKey] = total;
+        currentTimesToStore[p.ticket] = total;
       }
-    });
-    Object.keys(stopwatchStateRef.current).forEach(tkStr => {
-      const tk = Number(tkStr);
-      const state = stopwatchStateRef.current[tk];
-      currentTimesToStore[tk] = state.accumulatedMs + 
-        (state.lastActiveTime ? (Date.now() - state.lastActiveTime) : 0);
     });
     localStorage.setItem(STORAGE_KEYS.speedOrderPositionRealTimes, JSON.stringify(currentTimesToStore));
   };
@@ -741,36 +717,14 @@ export const SpeedOrderWindowContent: React.FC = () => {
   }, [showHoldingTime, positions.length, isPlaying]);
 
   const getOldestPositionElapsedTime = (_trigger: number) => {
-    if (positions.length === 0) return 0;
-    const oldest = positions.reduce((old, p) => p.open_time_msc < old.open_time_msc ? p : old, positions[0]);
-    
-    if (holdingTimeMode === "server") {
-      const elapsed = virtualTimeMsc - oldest.open_time_msc;
-      return Math.max(0, elapsed);
-    } else {
-      const stopwatch = stopwatchStateRef.current[oldest.ticket];
-      if (!stopwatch) return 0;
-      const elapsed = stopwatch.accumulatedMs + 
-        (stopwatch.lastActiveTime ? (Date.now() - stopwatch.lastActiveTime) : 0);
-      return Math.max(0, elapsed);
-    }
-  };
-
-  const formatElapsedTime = (ms: number) => {
-    if (ms < 0) ms = 0;
-    const totalSeconds = Math.floor(ms / 1000);
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
-    
-    if (hours > 0) {
-      return `${hours}時間${minutes}分${seconds}秒`;
-    }
-    if (minutes > 0) {
-      return `${minutes}分${seconds}秒`;
-    }
-    const tenths = Math.floor((ms % 1000) / 100);
-    return `${seconds}.${tenths}秒`;
+    const curVirtualTime = virtualTimeMscRef.current || virtualTimeMsc;
+    return calculatePositionElapsedTime(
+      positions,
+      holdingTimeMode,
+      curVirtualTime,
+      stopwatchStateRef.current,
+      Date.now()
+    );
   };
 
   const handleOrderOpen = (type: "BUY" | "SELL") => {

@@ -520,7 +520,7 @@ pub async fn send_command(
                         spread_entry: val.get("spread_entry").and_then(|v| v.as_f64()).unwrap_or(0.0),
                         volatility: val.get("volatility").and_then(|v| v.as_f64()).unwrap_or(0.0),
                         volume_60s: val.get("volume_60s").and_then(|v| v.as_u64()).unwrap_or(0),
-                        accumulated_real_time: 0.0,
+                        accumulated_real_time: val.get("accumulated_real_time").and_then(|v| v.as_f64()).unwrap_or(0.0),
                     };
                     let core_opt = state.core_handle.lock().unwrap().clone();
                     if let Some(core) = core_opt {
@@ -559,7 +559,7 @@ pub async fn send_command(
                         spread_entry: val.get("spread_entry").and_then(|v| v.as_f64()).unwrap_or(0.0),
                         volatility: val.get("volatility").and_then(|v| v.as_f64()).unwrap_or(0.0),
                         volume_60s: val.get("volume_60s").and_then(|v| v.as_u64()).unwrap_or(0),
-                        accumulated_real_time: 0.0,
+                        accumulated_real_time: val.get("accumulated_real_time").and_then(|v| v.as_f64()).unwrap_or(0.0),
                     };
                     let core_opt = state.core_handle.lock().unwrap().clone();
                     if let Some(core) = core_opt {

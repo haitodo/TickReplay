@@ -704,12 +704,14 @@ function MainWindow() {
 
           // Restore position & history real times to localStorage
           try {
-            const restoredTimes: Record<number, number> = {};
+            const restoredTimes: Record<string, number> = {};
             if (session.virtual_trade) {
               const vt = session.virtual_trade;
               if (vt.positions) {
                 vt.positions.forEach((p) => {
                   if (p.accumulated_real_time !== undefined) {
+                    const posKey = `${p.ticket}_${p.open_time_msc}`;
+                    restoredTimes[posKey] = p.accumulated_real_time;
                     restoredTimes[p.ticket] = p.accumulated_real_time;
                   }
                 });
@@ -717,6 +719,8 @@ function MainWindow() {
               if (vt.history) {
                 vt.history.forEach((h) => {
                   if (h.accumulated_real_time !== undefined) {
+                    const histKey = `${h.ticket}_${h.open_time_msc}`;
+                    restoredTimes[histKey] = h.accumulated_real_time;
                     restoredTimes[h.ticket] = h.accumulated_real_time;
                   }
                 });
@@ -781,6 +785,7 @@ function MainWindow() {
                       mfe_pips: pos.mfe_pips,
                       mae_pips: pos.mae_pips,
                       spread_entry: pos.spread_entry,
+                      accumulated_real_time: pos.accumulated_real_time,
                       volatility: pos.volatility,
                       volume_60s: pos.volume_60s
                     });
@@ -803,6 +808,7 @@ function MainWindow() {
                       tp: hist.tp,
                       profit: hist.profit,
                       close_reason: hist.close_reason,
+                      accumulated_real_time: hist.accumulated_real_time,
                       mfe_pips: hist.mfe_pips,
                       mae_pips: hist.mae_pips,
                       spread_entry: hist.spread_entry,
@@ -824,6 +830,7 @@ function MainWindow() {
 
           restoreSeq().catch(console.error);
         } else if (isReplayInitializingRef.current && enableVirtualTradingRef.current) {
+          localStorage.removeItem(STORAGE_KEYS.speedOrderPositionRealTimes);
           sendCommand({
             command: "ACCOUNT_RESET",
             initial_balance: initialBalanceRef.current,
@@ -1842,6 +1849,7 @@ function MainWindow() {
     setLeverage(25);
     setContractSize(10000);
     localStorage.setItem(STORAGE_KEYS.speedOrderContractSize, "10000");
+    localStorage.removeItem(STORAGE_KEYS.speedOrderPositionRealTimes);
     setHedging(false);
     setEnablePseudoRate(true);
 
@@ -1902,7 +1910,10 @@ function MainWindow() {
   const handleClearLoop = () => sendCommand({ command: "LOOP_CLEAR" });
 
   // リセット
-  const handleReset = () => sendCommand({ command: "RESET" });
+  const handleReset = () => {
+    localStorage.removeItem(STORAGE_KEYS.speedOrderPositionRealTimes);
+    sendCommand({ command: "RESET" });
+  };
 
   // 初期化のキャンセル
   const handleCancelInit = async () => {
@@ -2170,7 +2181,10 @@ function MainWindow() {
             const storedTimesStr = localStorage.getItem(STORAGE_KEYS.speedOrderPositionRealTimes);
             if (storedTimesStr) {
               const storedTimes = JSON.parse(storedTimesStr);
-              if (storedTimes[p.ticket] !== undefined) {
+              const posKey = `${p.ticket}_${p.open_time_msc}`;
+              if (storedTimes[posKey] !== undefined) {
+                pcAccumulated = storedTimes[posKey];
+              } else if (storedTimes[p.ticket] !== undefined) {
                 pcAccumulated = storedTimes[p.ticket];
               }
             }
@@ -2201,7 +2215,10 @@ function MainWindow() {
             const storedTimesStr = localStorage.getItem(STORAGE_KEYS.speedOrderPositionRealTimes);
             if (storedTimesStr) {
               const storedTimes = JSON.parse(storedTimesStr);
-              if (storedTimes[h.ticket] !== undefined) {
+              const histKey = `${h.ticket}_${h.open_time_msc}`;
+              if (storedTimes[histKey] !== undefined) {
+                pcAccumulated = storedTimes[histKey];
+              } else if (storedTimes[h.ticket] !== undefined) {
                 pcAccumulated = storedTimes[h.ticket];
               }
             }
