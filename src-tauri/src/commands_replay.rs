@@ -591,14 +591,13 @@ pub async fn send_command(
                 let is_renderer_connected = render_pipe_opt.as_ref().map(|p| p.is_connected()).unwrap_or(false);
                 println!("[commands_replay] Replay Core v2 自律駆動モードで初期化を開始します (RendererEA接続={})", is_renderer_connected);
 
-                // 1. 単一 TickStore の直接構築 (JfxExecutionFeed の重複 Vec<ExecutionTick> は即座に解放)
-                *state.execution_feed.lock().unwrap() = None;
+                // 1. 単一 TickStore の直接構築
                 let (store, is_real_jfx) = match crate::jfx_feed::JfxExecutionFeed::load(source_sym, st, et, None) {
                     Ok(feed) => {
                         let is_real = feed.is_real_jfx;
                         let count = feed.ticks.len();
                         let ts = crate::core::store::TickStore::from_execution_ticks(&feed.ticks);
-                        println!("[commands_replay] 単一TickStore構築完了 (重複フィード解放): real={}, ticks={}", is_real, count);
+                        println!("[commands_replay] 単一TickStore構築完了: real={}, ticks={}", is_real, count);
                         (ts, is_real)
                     }
                     Err(e) => {
@@ -606,7 +605,6 @@ pub async fn send_command(
                         (crate::core::store::TickStore::empty(), false)
                     }
                 };
-                *state.last_eval_msc.lock().unwrap() = 0;
 
                 let total_ticks = store.len() as u64;
                 let first_msc = store.min_time_msc().unwrap_or(0);
@@ -674,7 +672,6 @@ pub async fn send_command(
                     core_handle.seek_time(initial_v_time);
                 }
                 *state.current_virtual_time_msc.lock().unwrap() = initial_v_time;
-                *state.last_eval_msc.lock().unwrap() = initial_v_time;
 
                 // 5. Core ステータスを フロントエンド & WebSocket へ継続ストリーミングする UI Streamer タスクを起動
                 let mut rx = core_handle.subscribe();
@@ -1096,12 +1093,6 @@ pub async fn get_day_timeline_activity(
     if let Some(ref store) = *store_guard {
         Ok(crate::core::volatility::compute_day_timeline_activity(store, v_time))
     } else {
-        let feed_guard = state.execution_feed.lock().unwrap();
-        if let Some(ref feed) = *feed_guard {
-            let temp_store = crate::core::store::TickStore::from_execution_ticks(&feed.ticks);
-            Ok(crate::core::volatility::compute_day_timeline_activity(&temp_store, v_time))
-        } else {
-            Ok(crate::core::volatility::DayTimelineActivity::default())
-        }
+        Ok(crate::core::volatility::DayTimelineActivity::default())
     }
 }

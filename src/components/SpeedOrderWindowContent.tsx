@@ -6,6 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { translateErrorMessage } from "../utils/i18nUtils";
 import { DEFAULT_HOTKEYS, matchesHotkey } from "../utils/hotkeyUtils";
 import { listen, emit } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import { CustomSelect } from "../CustomSelect";
 import { useTheme } from "../hooks/useTheme";
@@ -499,8 +500,12 @@ export const SpeedOrderWindowContent: React.FC = () => {
         console.error(e);
       }
     };
+    let isVisible = true;
+    getCurrentWindow().isVisible().then((v: boolean) => { isVisible = v; }).catch(() => {});
+
     const scheduleStatus = (payload: string) => {
       pendingStatus = payload;
+      if (!isVisible || document.hidden) return; // 非表示中はrAF・再描画を休眠
       if (statusFrame !== null) return;
       statusFrame = requestAnimationFrame(() => {
         statusFrame = null;
@@ -532,6 +537,20 @@ export const SpeedOrderWindowContent: React.FC = () => {
       scheduleStatus(event.payload);
     });
 
+    const unlistenVisible = listen<boolean>(EVENTS.windowVisible, (event) => {
+      isVisible = Boolean(event.payload);
+      if (isVisible && pendingStatus !== null) {
+        scheduleStatus(pendingStatus);
+      }
+    });
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden && pendingStatus !== null) {
+        scheduleStatus(pendingStatus);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     const unlistenDisconnect = listen(EVENTS.mt5Disconnected, () => {
       discardPendingStatus();
       if (bidFlashTimerRef.current) clearTimeout(bidFlashTimerRef.current);
@@ -552,7 +571,9 @@ export const SpeedOrderWindowContent: React.FC = () => {
       if (askFlashTimerRef.current) clearTimeout(askFlashTimerRef.current);
       pendingStatus = null;
       unlistenStatus.then((fn) => fn());
+      unlistenVisible.then((fn) => fn());
       unlistenDisconnect.then((fn) => fn());
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
 

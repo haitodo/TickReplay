@@ -4,6 +4,7 @@ import { COMMANDS } from "../constants/commands";
 import { STORAGE_KEYS } from "../constants/storageKeys";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { formatRate } from "../utils/rateUtils";
 import { useTheme } from "../hooks/useTheme";
 import { VirtualAccount, VirtualPosition } from "../types/trading";
@@ -72,6 +73,9 @@ export const PositionsWindowContent: React.FC = () => {
   useEffect(() => {
     let pendingStatus: string | null = null;
     let statusFrame: number | null = null;
+    let isVisible = true;
+
+    getCurrentWindow().isVisible().then((v: boolean) => { isVisible = v; }).catch(() => {});
 
     const applyStatus = (payload: string) => {
       try {
@@ -94,6 +98,7 @@ export const PositionsWindowContent: React.FC = () => {
 
     const scheduleStatus = (payload: string) => {
       pendingStatus = payload;
+      if (!isVisible || document.hidden) return; // 非表示中はrAF・再描画を休眠
       if (statusFrame !== null) return;
       statusFrame = requestAnimationFrame(() => {
         statusFrame = null;
@@ -111,14 +116,30 @@ export const PositionsWindowContent: React.FC = () => {
       })
       .catch(console.warn);
 
-    const unlisten = listen<string>(EVENTS.mt5Status, (event) => {
+    const unlistenStatus = listen<string>(EVENTS.mt5Status, (event) => {
       scheduleStatus(event.payload);
     });
+
+    const unlistenVisible = listen<boolean>(EVENTS.windowVisible, (event) => {
+      isVisible = Boolean(event.payload);
+      if (isVisible && pendingStatus !== null) {
+        scheduleStatus(pendingStatus);
+      }
+    });
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden && pendingStatus !== null) {
+        scheduleStatus(pendingStatus);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       if (statusFrame !== null) cancelAnimationFrame(statusFrame);
       pendingStatus = null;
-      unlisten.then((fn) => fn());
+      unlistenStatus.then((fn) => fn());
+      unlistenVisible.then((fn) => fn());
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
 

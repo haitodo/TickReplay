@@ -58,6 +58,9 @@ impl JfxExecutionFeed {
             return Ok(Self::empty(&pair));
         }
 
+        let start_msc = crate::commands_replay::jst_to_server_time_msc(start_time_str).unwrap_or(0);
+        let end_msc = crate::commands_replay::jst_to_server_time_msc(end_time_str).unwrap_or(0);
+
         let mut all_ticks: Vec<ExecutionTick> = Vec::new();
         let mut any_real_jfx = false;
 
@@ -70,8 +73,8 @@ impl JfxExecutionFeed {
                 .join("data.parquet");
 
             if jfx_parquet.exists() {
-                // JFX実データのロード
-                match load_jfx_parquet(&jfx_parquet) {
+                // JFX実データのロード (期間プッシュダウン)
+                match load_jfx_parquet(&jfx_parquet, start_msc, end_msc) {
                     Ok(ticks) => {
                         println!("[JfxExecutionFeed] JFX実データロード成功: {} ({} ティック)", jfx_parquet.display(), ticks.len());
                         all_ticks.extend(ticks);
@@ -82,7 +85,7 @@ impl JfxExecutionFeed {
                     }
                 }
             } else {
-                // JFXデータが存在しない過去期間 -> OANDA Parquet から疑似JFX (原則固定0.2銭) 生成
+                // JFXデータが存在しない過去期間 -> OANDA Parquet から疑似JFX (原則固定0.2銭) 生成 (期間プッシュダウン)
                 let ym_str = format!("{:04}-{:02}", year, month);
                 let oanda_parquet = root_dir
                     .join("broker=oanda_zip")
@@ -92,7 +95,7 @@ impl JfxExecutionFeed {
                     .join("data.parquet");
 
                 if oanda_parquet.exists() {
-                    match load_oanda_pseudo_parquet(&oanda_parquet, &pair, &ym_str) {
+                    match load_oanda_pseudo_parquet(&oanda_parquet, &pair, &ym_str, start_msc, end_msc) {
                         Ok(ticks) => {
                             println!("[JfxExecutionFeed] 疑似JFX (OANDAフォールバック) ロード成功: {} ({} ティック)", oanda_parquet.display(), ticks.len());
                             all_ticks.extend(ticks);
@@ -109,22 +112,7 @@ impl JfxExecutionFeed {
 
         all_ticks.sort_by_key(|t| t.time_msc);
 
-        // 指定期間 [start_time, end_time] による絞り込み (MT5 の CopyTicksRange と一致させる)
-        let start_msc = crate::commands_replay::jst_to_server_time_msc(start_time_str).unwrap_or(0);
-        let end_msc = crate::commands_replay::jst_to_server_time_msc(end_time_str).unwrap_or(0);
-
-        if start_msc > 0 || end_msc > 0 {
-            all_ticks.retain(|t| {
-                if start_msc > 0 && t.time_msc < start_msc {
-                    return false;
-                }
-                if end_msc > 0 && t.time_msc > end_msc {
-                    return false;
-                }
-                true
-            });
-            println!("[JfxExecutionFeed] 期間絞り込み完了: start_msc={}, end_msc={}, 残ティック数={}", start_msc, end_msc, all_ticks.len());
-        }
+        println!("[JfxExecutionFeed] 期間絞り込み完了 (プッシュダウン適用): start_msc={}, end_msc={}, 有効ティック数={}", start_msc, end_msc, all_ticks.len());
 
         Ok(Self {
             ticks: all_ticks,
@@ -188,8 +176,8 @@ impl JfxExecutionFeed {
     }
 }
 
-/// JFX実測Parquetの読み込み
-fn load_jfx_parquet(parquet_path: &Path) -> Result<Vec<ExecutionTick>, AppError> {
+/// JFX実測Parquetの読み込み (期間プッシュダウン対応)
+fn load_jfx_parquet(parquet_path: &Path, start_msc: i64, end_msc: i64) -> Result<Vec<ExecutionTick>, AppError> {
     let file = File::open(parquet_path)?;
     let builder = ParquetRecordBatchReaderBuilder::try_new(file)
         .map_err(|e| AppError::Config(format!("JFX Parquetオープン失敗 '{}': {}", parquet_path.display(), e)))?;
@@ -231,10 +219,6 @@ fn load_jfx_parquet(parquet_path: &Path) -> Result<Vec<ExecutionTick>, AppError>
         let (Some(b_arr), Some(a_arr)) = (bid_col, ask_col) else { continue; };
 
         for row in 0..batch.num_rows() {
-            let bid = b_arr.value(row);
-            let ask = a_arr.value(row);
-            let spread = ((ask - bid) * 1000.0).round() / 1000.0;
-
             let time_msc = if let Some(m_arr) = mt5_col {
                 m_arr.value(row)
             } else if let Some(u_arr) = utc_col {
@@ -250,6 +234,15 @@ fn load_jfx_parquet(parquet_path: &Path) -> Result<Vec<ExecutionTick>, AppError>
                 continue;
             };
 
+            // 期間プッシュダウン判定
+            if (start_msc > 0 && time_msc < start_msc) || (end_msc > 0 && time_msc > end_msc) {
+                continue;
+            }
+
+            let bid = b_arr.value(row);
+            let ask = a_arr.value(row);
+            let spread = ((ask - bid) * 1000.0).round() / 1000.0;
+
             ticks.push(ExecutionTick {
                 time_msc,
                 bid,
@@ -263,11 +256,13 @@ fn load_jfx_parquet(parquet_path: &Path) -> Result<Vec<ExecutionTick>, AppError>
     Ok(ticks)
 }
 
-/// OANDA Parquet から疑似JFX (0.2銭原則固定) を生成して読み込み
+/// OANDA Parquet から疑似JFX (0.2銭原則固定) を生成して読み込み (期間プッシュダウン対応)
 fn load_oanda_pseudo_parquet(
     parquet_path: &Path,
     pair: &str,
     year_month: &str,
+    start_msc: i64,
+    end_msc: i64,
 ) -> Result<Vec<ExecutionTick>, AppError> {
     let file = File::open(parquet_path)?;
     let builder = ParquetRecordBatchReaderBuilder::try_new(file)
@@ -294,6 +289,7 @@ fn load_oanda_pseudo_parquet(
 
     let mut pseudo_engine = crate::pseudo_dmm::PseudoDmmEngine::new(pair, year_month);
     let mut ticks = Vec::new();
+    let warmup_start = if start_msc > 0 { start_msc.saturating_sub(30_000) } else { 0 };
 
     while let Some(Ok(batch)) = reader.next() {
         let schema = batch.schema();
@@ -311,9 +307,6 @@ fn load_oanda_pseudo_parquet(
         let (Some(b_arr), Some(a_arr)) = (bid_col, ask_col) else { continue; };
 
         for row in 0..batch.num_rows() {
-            let raw_bid = b_arr.value(row);
-            let raw_ask = a_arr.value(row);
-
             let time_msc = if let Some(m_arr) = mt5_col {
                 m_arr.value(row)
             } else if let Some(u_arr) = utc_col {
@@ -329,14 +322,25 @@ fn load_oanda_pseudo_parquet(
                 continue;
             };
 
+            // 疑似スプレッド計算用ウォームアップ期間(30秒前)より前、または終了時刻以降はスキップ
+            if (warmup_start > 0 && time_msc < warmup_start) || (end_msc > 0 && time_msc > end_msc) {
+                continue;
+            }
+
+            let raw_bid = b_arr.value(row);
+            let raw_ask = a_arr.value(row);
+
             if let Some((p_bid, p_ask, p_spread)) = pseudo_engine.process_tick(time_msc, raw_bid, raw_ask) {
-                ticks.push(ExecutionTick {
-                    time_msc,
-                    bid: p_bid,
-                    ask: p_ask,
-                    spread: p_spread,
-                    is_real: false,
-                });
+                // 開始時刻以降のみ結果ベクタに格納
+                if start_msc <= 0 || time_msc >= start_msc {
+                    ticks.push(ExecutionTick {
+                        time_msc,
+                        bid: p_bid,
+                        ask: p_ask,
+                        spread: p_spread,
+                        is_real: false,
+                    });
+                }
             }
         }
     }

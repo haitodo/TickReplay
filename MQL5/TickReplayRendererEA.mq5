@@ -1187,27 +1187,19 @@ void CreateMTFCharts(string profile_name, string main_symbol, string sub_symbol 
 }
 
 //+------------------------------------------------------------------+
-//| 構造体バイトコピー補助関数                                       |
+//+------------------------------------------------------------------+
+//| 構造体バイトコピー補助関数 (ゼロアロケーション直接変換)           |
 //+------------------------------------------------------------------+
 template<typename T>
 void StructToBytes(const T &s, uchar &buf[], int offset)
 {
-    uchar src[];
-    int size = (int)sizeof(T);
-    ArrayResize(src, size);
-    StringToCharArray("", src);
-    StructToCharArray(s, src);
-    ArrayCopy(buf, src, offset, 0, size);
+    StructToCharArray(s, buf, offset);
 }
 
 template<typename T>
 void BytesToStruct(const uchar &buf[], int offset, T &s)
 {
-    uchar src[];
-    int size = (int)sizeof(T);
-    ArrayResize(src, size);
-    ArrayCopy(src, buf, 0, offset, size);
-    CharArrayToStruct(s, src);
+    CharArrayToStruct(s, buf, offset);
 }
 
 //+------------------------------------------------------------------+
@@ -1263,17 +1255,16 @@ void SendHello()
     string sym = (m_replay_symbol != "") ? m_replay_symbol : Symbol();
     StringToCharArray(sym, payload.symbol);
 
-    uchar buf[];
-    ArrayResize(buf, HEADER_SIZE + HELLO_PAYLOAD_SIZE);
-    StructToBytes(header, buf, 0);
-    StructToBytes(payload, buf, HEADER_SIZE);
+    uchar buf[88]; // 16 + 72 (ゼロヒープ確保)
+    StructToCharArray(header, buf, 0);
+    StructToCharArray(payload, buf, HEADER_SIZE);
 
     uint written = 0;
-    WriteFile(m_hPipe, buf, HEADER_SIZE + HELLO_PAYLOAD_SIZE, written, 0);
+    WriteFile(m_hPipe, buf, 88, written, 0);
 }
 
 //+------------------------------------------------------------------+
-//| ACK 送信                                                         |
+//| ACK 送信 (ゼロアロケーション高速送信)                            |
 //+------------------------------------------------------------------+
 void SendAck(ulong main_applied, ulong sub_applied, uint duration_us)
 {
@@ -1292,13 +1283,12 @@ void SendAck(ulong main_applied, ulong sub_applied, uint duration_us)
     payload.render_duration_us = duration_us;
     payload.reserved = 0;
 
-    uchar buf[];
-    ArrayResize(buf, HEADER_SIZE + ACK_PAYLOAD_SIZE);
-    StructToBytes(header, buf, 0);
-    StructToBytes(payload, buf, HEADER_SIZE);
+    uchar buf[40]; // 16 + 24 (ゼロヒープ確保)
+    StructToCharArray(header, buf, 0);
+    StructToCharArray(payload, buf, HEADER_SIZE);
 
     uint written = 0;
-    WriteFile(m_hPipe, buf, HEADER_SIZE + ACK_PAYLOAD_SIZE, written, 0);
+    WriteFile(m_hPipe, buf, 40, written, 0);
 }
 
 //+------------------------------------------------------------------+
@@ -1315,12 +1305,11 @@ void SendReady()
     header.epoch = m_current_epoch;
     header.payload_len = 0;
 
-    uchar buf[];
-    ArrayResize(buf, HEADER_SIZE);
-    StructToBytes(header, buf, 0);
+    uchar buf[16]; // ゼロヒープ確保
+    StructToCharArray(header, buf, 0);
 
     uint written = 0;
-    WriteFile(m_hPipe, buf, HEADER_SIZE, written, 0);
+    WriteFile(m_hPipe, buf, 16, written, 0);
 }
 
 //+------------------------------------------------------------------+
@@ -1456,41 +1445,44 @@ void ProcessAdvance(const AdvancePayload &adv, ulong start_us)
         return;
     }
 
-    // メインシンボルへの差分反映
-    ulong from_msc = (m_current_v_time_msc > 0) ? (ulong)(m_current_v_time_msc + 1) : (ulong)adv_msc;
-    ulong to_msc   = (ulong)adv_msc;
-
-    if(to_msc >= from_msc)
+    // メインシンボルへの差分反映: 新規ティックが存在する場合のみ CopyTicksRange を発行
+    if((long)adv.main_idx > m_current_idx && m_source_symbol != "")
     {
-        MqlTick ticks_slice[];
-        ArrayFree(ticks_slice);
-        int count_to_add = CopyTicksRange(m_source_symbol, ticks_slice, COPY_TICKS_ALL, from_msc, to_msc);
+        ulong from_msc = (m_current_v_time_msc > 0) ? (ulong)(m_current_v_time_msc + 1) : (ulong)adv_msc;
+        ulong to_msc   = (ulong)adv_msc;
 
-        if(count_to_add > 0)
+        if(to_msc >= from_msc)
         {
-            if(count_to_add <= 100)
+            MqlTick ticks_slice[];
+            ArrayFree(ticks_slice);
+            int count_to_add = CopyTicksRange(m_source_symbol, ticks_slice, COPY_TICKS_ALL, from_msc, to_msc);
+
+            if(count_to_add > 0)
             {
-                // 通常再生 (100ティック以下): 実ティックを CustomTicksAdd して滑らかな足形成と気配値更新
-                CustomTicksAdd(m_replay_symbol, ticks_slice);
-            }
-            else
-            {
-                // 高速再生 (100ティック超): M1バーを一括反映し、最新1ティックのみ気配値同期
-                datetime f_dt = (datetime)(from_msc / 1000);
-                datetime t_dt = (datetime)(to_msc / 1000);
-                MqlRates jump_rates[];
-                int r_cnt = CopyRates(m_source_symbol, PERIOD_M1, f_dt, t_dt, jump_rates);
-                if(r_cnt > 0)
+                if(count_to_add <= 100)
                 {
-                    CustomRatesUpdate(m_replay_symbol, jump_rates);
-                    MqlTick latest_slice[1];
-                    latest_slice[0] = ticks_slice[count_to_add - 1];
-                    CustomTicksAdd(m_replay_symbol, latest_slice);
+                    // 通常再生 (100ティック以下): 実ティックを CustomTicksAdd して滑らかな足形成と気配値更新
+                    CustomTicksAdd(m_replay_symbol, ticks_slice);
                 }
                 else
                 {
-                    // CopyRates 取得不可時は全ティック追加フォールバック
-                    CustomTicksAdd(m_replay_symbol, ticks_slice);
+                    // 高速再生 (100ティック超): M1バーを一括反映し、最新1ティックのみ気配値同期
+                    datetime f_dt = (datetime)(from_msc / 1000);
+                    datetime t_dt = (datetime)(to_msc / 1000);
+                    MqlRates jump_rates[];
+                    int r_cnt = CopyRates(m_source_symbol, PERIOD_M1, f_dt, t_dt, jump_rates);
+                    if(r_cnt > 0)
+                    {
+                        CustomRatesUpdate(m_replay_symbol, jump_rates);
+                        MqlTick latest_slice[1];
+                        latest_slice[0] = ticks_slice[count_to_add - 1];
+                        CustomTicksAdd(m_replay_symbol, latest_slice);
+                    }
+                    else
+                    {
+                        // CopyRates 取得不可時は全ティック追加フォールバック
+                        CustomTicksAdd(m_replay_symbol, ticks_slice);
+                    }
                 }
             }
         }
@@ -1499,39 +1491,42 @@ void ProcessAdvance(const AdvancePayload &adv, ulong start_us)
     m_current_v_time_msc = adv_msc;
     m_current_idx = (int)adv.main_idx;
 
-    // サブシンボルへの差分反映
+    // サブシンボルへの差分反映: 新規サブティックが存在する場合のみ CopyTicksRange を発行
     if(m_enable_dual_feed && m_replay_symbol_sub != "")
     {
-        ulong sub_from_msc = (m_current_v_time_msc_sub > 0) ? (ulong)(m_current_v_time_msc_sub + 1) : (ulong)adv_msc;
-        ulong sub_to_msc   = (ulong)adv_msc;
-
-        if(sub_to_msc >= sub_from_msc)
+        if((long)adv.sub_idx > m_current_idx_sub && m_source_symbol_sub != "")
         {
-            MqlTick sub_slice[];
-            ArrayFree(sub_slice);
-            int sub_count = CopyTicksRange(m_source_symbol_sub, sub_slice, COPY_TICKS_ALL, sub_from_msc, sub_to_msc);
-            if(sub_count > 0)
+            ulong sub_from_msc = (m_current_v_time_msc_sub > 0) ? (ulong)(m_current_v_time_msc_sub + 1) : (ulong)adv_msc;
+            ulong sub_to_msc   = (ulong)adv_msc;
+
+            if(sub_to_msc >= sub_from_msc)
             {
-                if(sub_count <= 100)
+                MqlTick sub_slice[];
+                ArrayFree(sub_slice);
+                int sub_count = CopyTicksRange(m_source_symbol_sub, sub_slice, COPY_TICKS_ALL, sub_from_msc, sub_to_msc);
+                if(sub_count > 0)
                 {
-                    CustomTicksAdd(m_replay_symbol_sub, sub_slice);
-                }
-                else
-                {
-                    datetime f_dt = (datetime)(sub_from_msc / 1000);
-                    datetime t_dt = (datetime)(sub_to_msc / 1000);
-                    MqlRates sub_rates[];
-                    int r_cnt = CopyRates(m_source_symbol_sub, PERIOD_M1, f_dt, t_dt, sub_rates);
-                    if(r_cnt > 0)
+                    if(sub_count <= 100)
                     {
-                        CustomRatesUpdate(m_replay_symbol_sub, sub_rates);
-                        MqlTick sub_latest[1];
-                        sub_latest[0] = sub_slice[sub_count - 1];
-                        CustomTicksAdd(m_replay_symbol_sub, sub_latest);
+                        CustomTicksAdd(m_replay_symbol_sub, sub_slice);
                     }
                     else
                     {
-                        CustomTicksAdd(m_replay_symbol_sub, sub_slice);
+                        datetime f_dt = (datetime)(sub_from_msc / 1000);
+                        datetime t_dt = (datetime)(sub_to_msc / 1000);
+                        MqlRates sub_rates[];
+                        int r_cnt = CopyRates(m_source_symbol_sub, PERIOD_M1, f_dt, t_dt, sub_rates);
+                        if(r_cnt > 0)
+                        {
+                            CustomRatesUpdate(m_replay_symbol_sub, sub_rates);
+                            MqlTick sub_latest[1];
+                            sub_latest[0] = sub_slice[sub_count - 1];
+                            CustomTicksAdd(m_replay_symbol_sub, sub_latest);
+                        }
+                        else
+                        {
+                            CustomTicksAdd(m_replay_symbol_sub, sub_slice);
+                        }
                     }
                 }
             }
@@ -1833,8 +1828,7 @@ void OnTimer()
 
     while(bytes_avail >= HEADER_SIZE)
     {
-        uchar header_buf[];
-        ArrayResize(header_buf, HEADER_SIZE);
+        uchar header_buf[HEADER_SIZE];
         uint read_bytes = 0;
         if(!ReadFile(m_hPipe, header_buf, HEADER_SIZE, read_bytes, 0) || read_bytes < HEADER_SIZE)
         {
@@ -1856,12 +1850,12 @@ void OnTimer()
             return;
         }
 
-        uchar payload_buf[];
-        ArrayResize(payload_buf, header.payload_len);
+        uchar payload_buf[512]; // プロトコル最大長(224B)を余裕で収容する固定バッファ (ヒープ確保0)
+        uint to_read = (header.payload_len <= 512) ? header.payload_len : 512;
 
         if(header.payload_len > 0)
         {
-            if(!ReadFile(m_hPipe, payload_buf, header.payload_len, read_bytes, 0) || read_bytes < header.payload_len)
+            if(!ReadFile(m_hPipe, payload_buf, to_read, read_bytes, 0) || read_bytes < to_read)
             {
                 CloseHandle(m_hPipe);
                 m_hPipe = INVALID_HANDLE_VALUE;

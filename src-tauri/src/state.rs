@@ -42,12 +42,6 @@ pub struct ReplayState {
     pub economic_events: Mutex<std::collections::HashMap<String, Vec<crate::pseudo_dmm::EconomicEvent>>>,
     // 外部ツール（Drenhisなど）へステータスを配信するためのwatchチャネル
     pub sync_tx: tokio::sync::watch::Sender<String>,
-    // JFX実データまたは疑似JFX実行フィード
-    pub execution_feed: Mutex<Option<crate::jfx_feed::JfxExecutionFeed>>,
-    // Rust ネイティブ仮想取引エンジン
-    pub trading_engine: Mutex<crate::virtual_trading::VirtualTradingEngine>,
-    // 前回仮想時間評価タイムスタンプ
-    pub last_eval_msc: Mutex<i64>,
     // 最新の仮想現在時刻 (ミリ秒)
     pub current_virtual_time_msc: Mutex<i64>,
     // 自動連動起動された TickScope Replay プロセス
@@ -119,9 +113,6 @@ impl ReplayState {
             last_history: Mutex::new(None),
             economic_events: Mutex::new(std::collections::HashMap::new()),
             sync_tx,
-            execution_feed: Mutex::new(None),
-            trading_engine: Mutex::new(crate::virtual_trading::VirtualTradingEngine::default()),
-            last_eval_msc: Mutex::new(0),
             current_virtual_time_msc: Mutex::new(0),
             tick_scope_child: Mutex::new(None),
             job_guard: crate::process_guard::ProcessJobGuard::new(),

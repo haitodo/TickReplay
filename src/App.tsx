@@ -897,12 +897,48 @@ function MainWindow() {
   const pendingStatusPayloadRef = useRef<string | null>(null);
   const rafIdRef = useRef<number | null>(null);
   const skippedCountRef = useRef<number>(0);
+  const isWindowVisibleRef = useRef<boolean>(true);
+
+  useEffect(() => {
+    getCurrentWindow().isVisible().then((v) => {
+      isWindowVisibleRef.current = v;
+    }).catch(() => {});
+
+    const unlistenVisible = listen<boolean>(EVENTS.windowVisible, (event) => {
+      const visible = Boolean(event.payload);
+      isWindowVisibleRef.current = visible;
+      if (visible && pendingStatusPayloadRef.current !== null) {
+        const latest = pendingStatusPayloadRef.current;
+        pendingStatusPayloadRef.current = null;
+        handleStatusStringRef.current(latest);
+      }
+    });
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden && pendingStatusPayloadRef.current !== null) {
+        const latest = pendingStatusPayloadRef.current;
+        pendingStatusPayloadRef.current = null;
+        handleStatusStringRef.current(latest);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      unlistenVisible.then((fn) => fn());
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
 
   const scheduleStatusUpdate = useCallback((payload: string) => {
     if (pendingStatusPayloadRef.current !== null) {
       skippedCountRef.current++;
     }
     pendingStatusPayloadRef.current = payload;
+
+    // メインウィンドウ非表示中（コントローラー操作中や最小化時）は rAF と React 再描画をスキップ
+    if (!isWindowVisibleRef.current || document.hidden) {
+      return;
+    }
 
     if (rafIdRef.current === null) {
       rafIdRef.current = requestAnimationFrame(() => {
