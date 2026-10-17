@@ -102,6 +102,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
   const [sourceSymbol, setSourceSymbol] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.speedOrderSymbol) || "");
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [virtualTimeMsc, setVirtualTimeMsc] = useState<number>(0);
+  const virtualTimeMscRef = useRef<number>(0);
   const [timezoneMode, setTimezoneMode] = useState<"JST" | "SERVER">(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.replayTimezoneMode);
     return saved === "SERVER" ? "SERVER" : "JST";
@@ -392,7 +393,10 @@ export const SpeedOrderWindowContent: React.FC = () => {
           if (data.account) setAccount(data.account);
           if (data.positions) setPositions(data.positions);
           if (data.is_playing !== undefined) setIsPlaying(data.is_playing);
-          if (data.virtual_time_msc !== undefined) setVirtualTimeMsc(data.virtual_time_msc);
+          if (data.virtual_time_msc !== undefined) {
+            virtualTimeMscRef.current = data.virtual_time_msc;
+            setVirtualTimeMsc(data.virtual_time_msc);
+          }
         }
       }
     }).catch(console.error);
@@ -485,7 +489,16 @@ export const SpeedOrderWindowContent: React.FC = () => {
             });
           }
           if (data.is_playing !== undefined) setIsPlaying((prev) => prev !== (data.is_playing ?? prev) ? (data.is_playing ?? prev) : prev);
-          if (data.virtual_time_msc !== undefined) setVirtualTimeMsc((prev) => prev !== (data.virtual_time_msc ?? prev) ? (data.virtual_time_msc ?? prev) : prev);
+          if (data.virtual_time_msc !== undefined) {
+            const vtime = data.virtual_time_msc;
+            virtualTimeMscRef.current = vtime;
+            setVirtualTimeMsc((prev) => {
+              if (prev === 0 || Math.floor(vtime / 1000) !== Math.floor(prev / 1000) || Math.abs(vtime - prev) >= 1000) {
+                return vtime;
+              }
+              return prev;
+            });
+          }
         } else if (data.status === "ERROR") {
           setErrorMessage(translateErrorMessage(data.message || ""));
         } else if (data.status === "DISCONNECTED") {
@@ -614,8 +627,6 @@ export const SpeedOrderWindowContent: React.FC = () => {
   }
 
   const stopwatchStateRef = useRef<Record<number, StopwatchState>>({});
-  const virtualTimeMscRef = useRef(virtualTimeMsc);
-  virtualTimeMscRef.current = virtualTimeMsc;
 
   const syncStopwatchState = (
     currentPositions: VirtualPosition[],

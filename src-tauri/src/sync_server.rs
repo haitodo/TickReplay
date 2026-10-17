@@ -120,7 +120,7 @@ async fn handle_connection(
             val["history_revision"] = serde_json::json!(hist_rev);
         }
 
-        let audits = snap_opt.as_ref().map(|s| s.latest_audits.clone()).unwrap_or_default();
+        let audits = state.latest_audits.lock().unwrap().clone();
         val["execution_audits"] = serde_json::to_value(&audits).unwrap_or_default();
 
         Some(val.to_string())

@@ -731,6 +731,9 @@ pub async fn send_command(
 
                             let execution_audits = if snap.trade_revision != last_trade_rev {
                                 last_trade_rev = snap.trade_revision;
+                                if !snap.latest_audits.is_empty() {
+                                    *state_c.latest_audits.lock().unwrap() = (*snap.latest_audits).clone();
+                                }
                                 Some(snap.latest_audits.as_slice())
                             } else {
                                 None
@@ -1054,12 +1057,7 @@ pub async fn is_use_core_v2(
 pub async fn get_execution_audit_log(
     state: State<'_, Arc<ReplayState>>,
 ) -> Result<Vec<crate::core::journal::ExecutionAuditRecord>, AppError> {
-    let handle_guard = state.core_handle.lock().unwrap();
-    if let Some(ref handle) = *handle_guard {
-        Ok(handle.status().latest_audits)
-    } else {
-        Ok(Vec::new())
-    }
+    Ok(state.latest_audits.lock().unwrap().clone())
 }
 
 #[tauri::command]

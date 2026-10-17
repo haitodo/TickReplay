@@ -11,6 +11,43 @@ export const MiniWaveformTrack: React.FC<MiniWaveformTrackProps> = React.memo(({
   currentSecInDay,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const sizeRef = useRef<{ w: number; h: number; dpr: number }>({ w: 0, h: 0, dpr: 1 });
+  const [sizeVersion, setSizeVersion] = React.useState(0);
+
+  // リサイズ検知: ウィンドウサイズ変更時のみ canvas.width / canvas.height を設定し、GPU テクスチャ再確保を極小化
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const updateSize = (width: number, height: number) => {
+      const dpr = window.devicePixelRatio || 1;
+      const pixelW = Math.round(width * dpr);
+      const pixelH = Math.round(height * dpr);
+      if (pixelW > 0 && pixelH > 0) {
+        if (canvas.width !== pixelW || canvas.height !== pixelH) {
+          canvas.width = pixelW;
+          canvas.height = pixelH;
+        }
+        sizeRef.current = { w: width, h: height, dpr };
+        setSizeVersion((v) => v + 1);
+      }
+    };
+
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      updateSize(rect.width, rect.height);
+    }
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        updateSize(width, height);
+      }
+    });
+
+    observer.observe(canvas);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -19,18 +56,15 @@ export const MiniWaveformTrack: React.FC<MiniWaveformTrackProps> = React.memo(({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    const w = rect.width;
-    const h = rect.height;
+    const { w, h, dpr } = sizeRef.current;
+    if (w <= 0 || h <= 0) return;
 
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
-    ctx.scale(dpr, dpr);
-
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
 
     if (!activity || !activity.slots_15m || activity.slots_15m.length === 0) {
+      ctx.restore();
       return;
     }
 
@@ -97,7 +131,9 @@ export const MiniWaveformTrack: React.FC<MiniWaveformTrackProps> = React.memo(({
     drawSessionLine(activity.tyo_start_sec, "rgba(29, 185, 84, 0.6)");  // TYO: 緑
     drawSessionLine(activity.ldn_start_sec, "rgba(49, 130, 206, 0.6)"); // LDN: 青
     drawSessionLine(activity.ny_start_sec, "rgba(229, 62, 62, 0.6)");   // NY: 赤
-  }, [activity, currentSecInDay]);
+
+    ctx.restore();
+  }, [activity, currentSecInDay, sizeVersion]);
 
   return (
     <canvas

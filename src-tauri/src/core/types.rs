@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 /// 仮想時刻 (MT5サーバー基準エポックミリ秒)
@@ -206,5 +207,5 @@ pub struct CoreStatusSnapshot {
     pub positions: Vec<crate::virtual_trading::VirtualPosition>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub history: Option<Vec<crate::virtual_trading::VirtualPosition>>,
-    pub latest_audits: Vec<crate::core::journal::ExecutionAuditRecord>,
+    pub latest_audits: Arc<Vec<crate::core::journal::ExecutionAuditRecord>>,
 }

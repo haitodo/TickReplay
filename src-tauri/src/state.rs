@@ -60,6 +60,8 @@ pub struct ReplayState {
     pub render_pipe_handle: Mutex<Option<crate::core::render_pipe::RenderPipeHandle>>,
     // タイムライン活動度計算・シーク参照用 TickStore
     pub tick_store: Mutex<Option<crate::core::store::TickStore>>,
+    // 最新の約定監査ログキャッシュ (差分配信時の最新監査ログ保持用)
+    pub latest_audits: Mutex<Vec<crate::core::journal::ExecutionAuditRecord>>,
 }
 
 impl ReplayState {
@@ -122,6 +124,7 @@ impl ReplayState {
             core_join_handle: Mutex::new(None),
             render_pipe_handle: Mutex::new(None),
             tick_store: Mutex::new(None),
+            latest_audits: Mutex::new(Vec::new()),
         }
     }
 }

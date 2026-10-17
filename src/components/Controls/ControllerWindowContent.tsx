@@ -151,9 +151,20 @@ export const ControllerWindowContent: React.FC = () => {
     let unlisten: (() => void) | undefined;
     let pendingStatus: string | null = null;
     let statusFrame: number | null = null;
+    let windowVisible = !document.hidden;
+
+    const handleVisibility = () => {
+      windowVisible = !document.hidden;
+      if (windowVisible && pendingStatus && !disposed) {
+        handleStatusPayload(pendingStatus);
+        pendingStatus = null;
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
 
     const scheduleStatus = (payload: string) => {
       pendingStatus = payload;
+      if (!windowVisible) return; // 非表示・最小化中は描画処理を休眠してCPU消費を0%化
       if (statusFrame !== null) return;
       statusFrame = requestAnimationFrame(() => {
         statusFrame = null;
@@ -192,6 +203,7 @@ export const ControllerWindowContent: React.FC = () => {
 
     return () => {
       disposed = true;
+      document.removeEventListener("visibilitychange", handleVisibility);
       if (statusFrame !== null) cancelAnimationFrame(statusFrame);
       pendingStatus = null;
       if (unlisten) unlisten();
@@ -292,7 +304,7 @@ export const ControllerWindowContent: React.FC = () => {
     });
   }, [sendCommand]);
 
-  const updateSpeed = (mode: "TEMPORAL" | "COUNT", mult: number, step: number) => {
+  const updateSpeed = useCallback((mode: "TEMPORAL" | "COUNT", mult: number, step: number) => {
     setSpeedMode(mode);
     setMultiplier(mult);
     setTickStep(step);
@@ -303,9 +315,9 @@ export const ControllerWindowContent: React.FC = () => {
       multiplier: mult,
       tick_step: step,
     });
-  };
+  }, [sendCommand, isPlaying]);
 
-  const handleCoarseSpeed = (increase: boolean) => {
+  const handleCoarseSpeed = useCallback((increase: boolean) => {
     if (speedMode === "TEMPORAL") {
       const idx = timePresets.findIndex((p) => Math.abs(p - multiplier) < 0.01);
       if (idx !== -1) {
@@ -319,9 +331,9 @@ export const ControllerWindowContent: React.FC = () => {
         updateSpeed("COUNT", multiplier, tickPresets[nextIdx]);
       }
     }
-  };
+  }, [speedMode, multiplier, tickStep, timePresets, tickPresets, updateSpeed]);
 
-  const handleMediumSpeed = (increase: boolean) => {
+  const handleMediumSpeed = useCallback((increase: boolean) => {
     if (speedMode === "TEMPORAL") {
       const delta = increase ? 1.0 : -1.0;
       const next = Math.max(0.1, parseFloat((multiplier + delta).toFixed(1)));
@@ -331,9 +343,9 @@ export const ControllerWindowContent: React.FC = () => {
       const next = Math.max(1, tickStep + delta);
       updateSpeed("COUNT", multiplier, next);
     }
-  };
+  }, [speedMode, multiplier, tickStep, updateSpeed]);
 
-  const handleFineSpeed = (increase: boolean) => {
+  const handleFineSpeed = useCallback((increase: boolean) => {
     if (speedMode === "TEMPORAL") {
       const delta = increase ? 0.1 : -0.1;
       const next = Math.max(0.1, parseFloat((multiplier + delta).toFixed(1)));
@@ -343,28 +355,33 @@ export const ControllerWindowContent: React.FC = () => {
       const next = Math.max(1, tickStep + delta);
       updateSpeed("COUNT", multiplier, next);
     }
-  };
+  }, [speedMode, multiplier, tickStep, updateSpeed]);
 
-  const handleSetLoopA = () => {
+  const handleSetLoopA = useCallback(() => {
     sendCommand({ command: "LOOP_SET_A" });
-  };
+  }, [sendCommand]);
 
-  const handleSetLoopB = () => {
+  const handleSetLoopB = useCallback(() => {
     sendCommand({ command: "LOOP_SET_B" });
-  };
+  }, [sendCommand]);
 
-  const handleClearLoop = () => {
+  const handleClearLoop = useCallback(() => {
     sendCommand({ command: "LOOP_CLEAR" });
-  };
+  }, [sendCommand]);
 
   // ドラッグ/クリックシーク (requestAnimationFrame によるスロットリングと即時確定)
   const pendingSeekTargetRef = useRef<number | null>(null);
   const seekRafRef = useRef<number | null>(null);
+  const pendingSeekTimeTargetRef = useRef<number | null>(null);
+  const seekTimeRafRef = useRef<number | null>(null);
 
   useEffect(() => {
     return () => {
       if (seekRafRef.current !== null) {
         cancelAnimationFrame(seekRafRef.current);
+      }
+      if (seekTimeRafRef.current !== null) {
+        cancelAnimationFrame(seekTimeRafRef.current);
       }
     };
   }, []);
@@ -400,16 +417,48 @@ export const ControllerWindowContent: React.FC = () => {
     }
   }, [sendCommand]);
 
-  const sendSeekTimeCommand = useCallback((targetMsc: number, _immediate: boolean = false) => {
-    sendCommand({
-      command: "SEEK_TIME",
-      target_time_msc: targetMsc,
-    }).catch(console.error);
+  const sendSeekTimeCommand = useCallback((targetMsc: number, immediate: boolean = false) => {
+    pendingSeekTimeTargetRef.current = targetMsc;
+    if (immediate) {
+      if (seekTimeRafRef.current !== null) {
+        cancelAnimationFrame(seekTimeRafRef.current);
+        seekTimeRafRef.current = null;
+      }
+      const msc = pendingSeekTimeTargetRef.current;
+      pendingSeekTimeTargetRef.current = null;
+      sendCommand({
+        command: "SEEK_TIME",
+        target_time_msc: msc,
+      }).catch(console.error);
+      return;
+    }
+
+    if (seekTimeRafRef.current === null) {
+      seekTimeRafRef.current = requestAnimationFrame(() => {
+        seekTimeRafRef.current = null;
+        if (pendingSeekTimeTargetRef.current !== null) {
+          const msc = pendingSeekTimeTargetRef.current;
+          pendingSeekTimeTargetRef.current = null;
+          sendCommand({
+            command: "SEEK_TIME",
+            target_time_msc: msc,
+          }).catch(console.error);
+        }
+      });
+    }
   }, [sendCommand]);
 
-  // タイムライン活動度 (波形) の取得
+  // タイムライン活動度 (波形) の取得 (日変更時のみ実行する O(1) 整数範囲チェック)
   useEffect(() => {
     if (virtualTimeMsc <= 0) return;
+    if (
+      timelineActivity &&
+      virtualTimeMsc >= timelineActivity.day_start_msc &&
+      virtualTimeMsc <= timelineActivity.day_end_msc
+    ) {
+      return;
+    }
+
     const dateStr = formatServerTime(virtualTimeMsc).substring(0, 10);
     if (dateStr && dateStr !== lastActivityDateRef.current) {
       lastActivityDateRef.current = dateStr;
@@ -425,7 +474,7 @@ export const ControllerWindowContent: React.FC = () => {
           console.warn("Failed to fetch day timeline activity:", err);
         });
     }
-  }, [virtualTimeMsc]);
+  }, [virtualTimeMsc, timelineActivity]);
 
   // 無風・閑散時間の自動早送り (Auto-Skip Flat) ロジック
   const handleSetAutoSkipFlat = useCallback((val: boolean) => {
@@ -492,13 +541,13 @@ export const ControllerWindowContent: React.FC = () => {
     }
   }, [autoSkipFlat, isPlaying, virtualTimeMsc, timelineActivity, speedMode, multiplier, tickStep, sendCommand]);
 
-  const handleSessionJump = (session: string, dir: "PREV" | "NEXT") => {
+  const handleSessionJump = useCallback((session: string, dir: "PREV" | "NEXT") => {
     sendCommand({
       command: "SESSION_JUMP",
       session: session,
       direction: dir,
     });
-  };
+  }, [sendCommand]);
 
   const handleTimeJump = useCallback((seconds: number) => {
     sendCommand({
@@ -507,11 +556,11 @@ export const ControllerWindowContent: React.FC = () => {
     });
   }, [sendCommand]);
 
-  const getDayOffset = (): string => {
+  const getDayOffset = useCallback((): string => {
     if (virtualTimeMsc <= 0) return "";
     const current = new Date(virtualTimeMsc);
     return `${current.getMonth() + 1}/${current.getDate()}`;
-  };
+  }, [virtualTimeMsc]);
 
   // コントローラーウィンドウフォーカス時の直感キーボード操作 (Space: 再生/停止, 矢印: 1T, Shift+矢印: 10M, Ctrl+矢印: 1H)
   useEffect(() => {

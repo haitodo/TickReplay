@@ -125,6 +125,11 @@ impl CoreMatchingEngine {
         self.journal.revision()
     }
 
+    #[inline]
+    pub fn has_pending_triggers(&self) -> bool {
+        !self.pending_orders.is_empty() || !self.pending_closes.is_empty()
+    }
+
     pub fn set_latency_model(&mut self, model: LatencyModel) {
         self.latency_model = model;
     }

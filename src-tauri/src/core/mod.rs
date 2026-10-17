@@ -8,6 +8,7 @@ pub mod render_pipe;
 pub mod sink_tickscope;
 pub mod volatility;
 
+use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
 use crate::core::scheduler::{CoreScheduler, SchedulerConfig};
 use crate::core::store::TickStore;
@@ -221,7 +222,7 @@ impl ReplayCore {
             account: initial_account,
             positions: Vec::new(),
             history: Some(Vec::new()),
-            latest_audits: Vec::new(),
+            latest_audits: Arc::new(Vec::new()),
         };
 
         let (status_tx, status_rx) = watch::channel(initial_snapshot);
@@ -503,12 +504,12 @@ mod tests {
             account: engine.account.clone(),
             positions: engine.positions.clone(),
             history: Some(engine.history.clone()),
-            latest_audits: engine.audit_log[engine.audit_log.len().saturating_sub(50)..].to_vec(),
+            latest_audits: Arc::new(engine.audit_log[engine.audit_log.len().saturating_sub(50)..].to_vec()),
         };
 
         let delta_snap = CoreStatusSnapshot {
             history: None,
-            latest_audits: Vec::new(),
+            latest_audits: Arc::new(Vec::new()),
             ..full_snap.clone()
         };
 

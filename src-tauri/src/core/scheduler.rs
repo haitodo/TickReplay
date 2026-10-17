@@ -30,6 +30,8 @@ pub struct CoreScheduler {
 
     current_index: usize,
     last_published_history_rev: u64,
+    last_published_trade_rev: u64,
+    cached_latest_audits: std::sync::Arc<Vec<crate::core::journal::ExecutionAuditRecord>>,
     cmd_rx: mpsc::UnboundedReceiver<CoreCommand>,
     status_tx: watch::Sender<CoreStatusSnapshot>,
 
@@ -55,6 +57,8 @@ impl CoreScheduler {
             config,
             current_index: 0,
             last_published_history_rev: 0,
+            last_published_trade_rev: 0,
+            cached_latest_audits: std::sync::Arc::new(Vec::new()),
             cmd_rx,
             status_tx,
             render_pipe: None,
@@ -153,6 +157,11 @@ impl CoreScheduler {
                     // 2. TickScope への TICK_BATCH ストリーミング送信
                     if let Some(ref mut bridge) = self.tickscope_bridge {
                         let _ = bridge.send_tick_batch(slice);
+                    }
+                } else if self.matching.has_pending_triggers() {
+                    // ティック区間がない静寂時間帯でも、遅延保留注文・決済を execute_after_msc に正確に評価・約定
+                    if let Some(tick) = self.store.get(self.current_index) {
+                        self.matching.on_tick_advance(tick, to_msc);
                     }
                 }
             }
@@ -425,13 +434,19 @@ impl CoreScheduler {
 
     /// スナップショット生成 & watch 送信
     fn publish_status(&mut self) {
-        let audit_len = self.matching.audit_log.len();
-        let latest_audits = if audit_len == 0 {
-            Vec::new()
-        } else {
-            let audit_start = audit_len.saturating_sub(50);
-            self.matching.audit_log[audit_start..].to_vec()
-        };
+        let trade_rev = self.matching.revision();
+        if trade_rev != self.last_published_trade_rev {
+            self.last_published_trade_rev = trade_rev;
+            let audit_len = self.matching.audit_log.len();
+            let slice = if audit_len == 0 {
+                Vec::new()
+            } else {
+                let audit_start = audit_len.saturating_sub(50);
+                self.matching.audit_log[audit_start..].to_vec()
+            };
+            self.cached_latest_audits = std::sync::Arc::new(slice);
+        }
+        let latest_audits = std::sync::Arc::clone(&self.cached_latest_audits);
 
         let hist_rev = self.matching.history_revision;
         let history = if hist_rev != self.last_published_history_rev {
