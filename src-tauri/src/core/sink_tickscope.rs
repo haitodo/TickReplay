@@ -20,6 +20,7 @@ pub struct TickScopeBridge {
     session_id: u64,
     next_sequence: u64,
     stream: Option<TcpStream>,
+    send_buf: Vec<u8>,
 }
 
 impl TickScopeBridge {
@@ -31,6 +32,7 @@ impl TickScopeBridge {
             session_id: 1,
             next_sequence: 1,
             stream: None,
+            send_buf: Vec::with_capacity(4096),
         }
     }
 
@@ -71,7 +73,9 @@ impl TickScopeBridge {
         let seq_start = self.next_sequence;
         self.next_sequence = self.next_sequence.saturating_add(ticks.len() as u64);
 
-        let mut buf = vec![0u8; total_len];
+        self.send_buf.clear();
+        self.send_buf.resize(total_len, 0);
+        let buf = &mut self.send_buf;
 
         // 1. ヘッダー (40 bytes)
         buf[0..4].copy_from_slice(&MAGIC_TICK.to_le_bytes());

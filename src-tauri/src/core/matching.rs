@@ -73,6 +73,8 @@ pub struct CoreMatchingEngine {
 
     pub contract_size: f64,
     pub leverage: f64,
+    pub hedging: bool,
+    pub history_revision: u64,
     pub latency_model: LatencyModel,
     pub slippage_model: SlippageModel,
     pub next_ticket: i32,
@@ -108,6 +110,8 @@ impl CoreMatchingEngine {
             journal: JournalStore::new(),
             contract_size,
             leverage,
+            hedging: true,
+            history_revision: 1,
             latency_model: LatencyModel::Zero,
             slippage_model: SlippageModel::None,
             next_ticket: 1,
@@ -152,6 +156,70 @@ impl CoreMatchingEngine {
         }
     }
 
+    pub fn set_hedging(&mut self, hedging: bool) {
+        self.hedging = hedging;
+    }
+
+    pub fn set_contract_size(&mut self, size: f64) {
+        self.contract_size = size;
+    }
+
+    pub fn set_leverage(&mut self, leverage: f64) {
+        if leverage > 0.0 {
+            self.leverage = leverage;
+            self.account.leverage = leverage;
+        }
+    }
+
+    pub fn restore_account(&mut self, account: VirtualAccount, next_ticket: i32) {
+        self.leverage = account.leverage.max(1.0);
+        self.account = account;
+        self.positions.clear();
+        self.history.clear();
+        self.pending_orders.clear();
+        self.pending_closes.clear();
+        self.next_ticket = next_ticket.max(1);
+        self.history_revision = self.history_revision.wrapping_add(1);
+    }
+
+    pub fn restore_position(&mut self, pos: VirtualPosition) {
+        if pos.ticket >= self.next_ticket {
+            self.next_ticket = pos.ticket + 1;
+        }
+        self.positions.push(pos);
+    }
+
+    pub fn restore_history(&mut self, hist: VirtualPosition) {
+        if hist.ticket >= self.next_ticket {
+            self.next_ticket = hist.ticket + 1;
+        }
+        self.history.push(hist);
+        self.history_revision = self.history_revision.wrapping_add(1);
+    }
+
+    pub fn account_transaction(
+        &mut self,
+        is_deposit: bool,
+        amount: f64,
+        comment: Option<String>,
+        now_msc: i64,
+    ) {
+        let delta = if is_deposit { amount } else { -amount };
+        self.account.balance += delta;
+        self.account.equity += delta;
+        self.account.free_margin += delta;
+        self.history_revision = self.history_revision.wrapping_add(1);
+        self.journal.record(
+            now_msc,
+            JournalEvent::AccountTransaction {
+                is_deposit,
+                amount,
+                comment,
+                time_msc: now_msc,
+            },
+        );
+    }
+
     pub fn reset(&mut self, initial_balance: f64, now_msc: i64) {
         self.account.balance = initial_balance;
         self.account.equity = initial_balance;
@@ -167,6 +235,7 @@ impl CoreMatchingEngine {
         self.audit_log.clear();
         self.next_ticket = 1;
         self.next_order_id = 1;
+        self.history_revision = self.history_revision.wrapping_add(1);
 
         self.journal.clear();
         self.journal.record(
@@ -207,6 +276,7 @@ impl CoreMatchingEngine {
         }
 
         self.history = kept_history;
+        self.history_revision = self.history_revision.wrapping_add(1);
 
         for restored in restored_positions {
             if let Some(existing) = self.positions.iter_mut().find(|p| p.ticket == restored.ticket) {
@@ -318,6 +388,28 @@ impl CoreMatchingEngine {
         tick: &CoreTick,
     ) -> Option<i32> {
         let is_buy = side == OrderSide::Buy;
+        let mut actual_volume = volume;
+
+        // 両建てOFF (Netting): 逆方向建玉があれば優先相殺決済
+        if !self.hedging {
+            let opposite_type = if is_buy { "SELL" } else { "BUY" };
+            let mut to_close = Vec::new();
+            for pos in &self.positions {
+                if pos.r#type == opposite_type && actual_volume > 0.0001 {
+                    let close_vol = pos.volume.min(actual_volume);
+                    to_close.push((pos.ticket, close_vol));
+                    actual_volume -= close_vol;
+                }
+            }
+            for (t_ticket, c_vol) in to_close {
+                self.execute_close(t_ticket, Some(c_vol), "SETTLEMENT".to_string(), fill_time_msc, tick);
+            }
+            if actual_volume <= 0.0001 {
+                self.evaluate_mtm(tick);
+                return None;
+            }
+        }
+
         let mut fill_price = if is_buy { tick.ask } else { tick.bid };
 
         // スリッページ適用
@@ -348,7 +440,7 @@ impl CoreMatchingEngine {
             ticket,
             symbol: symbol.clone(),
             r#type: side.as_str().to_string(),
-            volume,
+            volume: actual_volume,
             open_price: fill_price,
             open_time: fill_time_msc / 1000,
             open_time_msc: fill_time_msc,
@@ -389,7 +481,7 @@ impl CoreMatchingEngine {
             ticket,
             symbol,
             side: side.as_str().to_string(),
-            volume,
+            volume: actual_volume,
             click_time_msc: fill_time_msc - latency_ms,
             fill_time_msc,
             latency_ms,
@@ -441,6 +533,40 @@ impl CoreMatchingEngine {
         let tickets: Vec<i32> = self.positions.iter().map(|p| p.ticket).collect();
         for ticket in tickets {
             self.close_position(ticket, None, reason.clone(), now_virtual_msc, is_playing, current_tick);
+        }
+    }
+
+    pub fn close_buy_positions(
+        &mut self,
+        reason: String,
+        now_virtual_msc: i64,
+        is_playing: bool,
+        current_tick: Option<&CoreTick>,
+    ) {
+        let buy_tickets: Vec<(i32, f64)> = self.positions
+            .iter()
+            .filter(|p| p.r#type == "BUY")
+            .map(|p| (p.ticket, p.volume))
+            .collect();
+        for (ticket, vol) in buy_tickets {
+            self.close_position(ticket, Some(vol), reason.clone(), now_virtual_msc, is_playing, current_tick);
+        }
+    }
+
+    pub fn close_sell_positions(
+        &mut self,
+        reason: String,
+        now_virtual_msc: i64,
+        is_playing: bool,
+        current_tick: Option<&CoreTick>,
+    ) {
+        let sell_tickets: Vec<(i32, f64)> = self.positions
+            .iter()
+            .filter(|p| p.r#type == "SELL")
+            .map(|p| (p.ticket, p.volume))
+            .collect();
+        for (ticket, vol) in sell_tickets {
+            self.close_position(ticket, Some(vol), reason.clone(), now_virtual_msc, is_playing, current_tick);
         }
     }
 
@@ -510,115 +636,158 @@ impl CoreMatchingEngine {
         );
 
         self.history.push(pos);
+        self.history_revision = self.history_revision.wrapping_add(1);
         self.evaluate_mtm(tick);
         true
     }
 
-    /// 毎ティック / タイマー進行時の評価処理
-    pub fn on_tick_advance(&mut self, tick: &CoreTick, current_time_msc: i64) {
-        // 1. 保留中注文の評価
-        let mut executed_order_indices = Vec::new();
-        for (i, p) in self.pending_orders.iter().enumerate() {
-            if current_time_msc >= p.execute_after_msc {
-                executed_order_indices.push(i);
-            }
+    /// バッチ区間の通過ティック一括評価 (中間全ティックのSL/TP・注文約定・MFE/MAE極値を漏れなく評価し、最新ティックでMTM計算)
+    #[inline]
+    pub fn on_tick_batch(&mut self, ticks: &[CoreTick], _current_time_msc: i64) {
+        if ticks.is_empty() {
+            return;
         }
+        if self.positions.is_empty() && self.pending_orders.is_empty() && self.pending_closes.is_empty() {
+            return;
+        }
+        let first = &ticks[0];
+        let mut min_bid = first.bid;
+        let mut max_bid = first.bid;
+        let mut min_ask = first.ask;
+        let mut max_ask = first.ask;
 
-        // 逆順で実行 & 削除
-        for idx in executed_order_indices.into_iter().rev() {
-            let p = self.pending_orders.remove(idx);
-            let latency = p.execute_after_msc - p.submit_time_msc;
-            self.execute_fill(
-                p.order_id,
-                p.symbol,
-                p.side,
-                p.volume,
-                p.sl_points,
-                p.tp_points,
-                p.comment,
-                p.request_price,
-                p.execute_after_msc,
-                latency,
-                tick,
-            );
+        for tick in ticks {
+            if tick.bid < min_bid { min_bid = tick.bid; }
+            if tick.bid > max_bid { max_bid = tick.bid; }
+            if tick.ask < min_ask { min_ask = tick.ask; }
+            if tick.ask > max_ask { max_ask = tick.ask; }
+            self.on_tick_advance_triggers(tick, tick.time_msc);
         }
+        if let Some(last_tick) = ticks.last() {
+            self.evaluate_mtm_with_extremes(last_tick, min_bid, max_bid, min_ask, max_ask);
+        }
+    }
 
-        // 2. 保留中決済の評価
-        let mut executed_close_indices = Vec::new();
-        for (i, p) in self.pending_closes.iter().enumerate() {
-            if current_time_msc >= p.execute_after_msc {
-                executed_close_indices.push(i);
-            }
-        }
-        for idx in executed_close_indices.into_iter().rev() {
-            let p = self.pending_closes.remove(idx);
-            self.execute_close(p.ticket, p.volume, p.reason, p.execute_after_msc, tick);
-        }
-
-        // 3. SL / TP 自動トリガー判定
-        let mut sl_tp_to_close: Vec<(i32, String)> = Vec::new();
-        for pos in &self.positions {
-            let is_buy = pos.r#type == "BUY";
-            if is_buy {
-                if let Some(sl) = pos.sl {
-                    if tick.bid <= sl {
-                        sl_tp_to_close.push((pos.ticket, "SL".to_string()));
-                        continue;
-                    }
-                }
-                if let Some(tp) = pos.tp {
-                    if tick.bid >= tp {
-                        sl_tp_to_close.push((pos.ticket, "TP".to_string()));
-                        continue;
-                    }
-                }
+    /// 単一ティックによるトリガー評価 (保留注文、保留決済、SL/TP) - ゼロヒープアロケーション
+    #[inline]
+    pub fn on_tick_advance_triggers(&mut self, tick: &CoreTick, current_time_msc: i64) {
+        // 1. 保留中注文の評価 (インプレース FIFO 処理で Vec 確保を完全排除)
+        let mut i = 0;
+        while i < self.pending_orders.len() {
+            if current_time_msc >= self.pending_orders[i].execute_after_msc {
+                let p = self.pending_orders.remove(i);
+                let latency = p.execute_after_msc - p.submit_time_msc;
+                self.execute_fill(
+                    p.order_id,
+                    p.symbol,
+                    p.side,
+                    p.volume,
+                    p.sl_points,
+                    p.tp_points,
+                    p.comment,
+                    p.request_price,
+                    p.execute_after_msc,
+                    latency,
+                    tick,
+                );
             } else {
-                if let Some(sl) = pos.sl {
-                    if tick.ask >= sl {
-                        sl_tp_to_close.push((pos.ticket, "SL".to_string()));
-                        continue;
-                    }
-                }
-                if let Some(tp) = pos.tp {
-                    if tick.ask <= tp {
-                        sl_tp_to_close.push((pos.ticket, "TP".to_string()));
-                        continue;
-                    }
-                }
+                i += 1;
             }
         }
 
-        for (ticket, reason) in sl_tp_to_close {
-            self.execute_close(ticket, None, reason, current_time_msc, tick);
+        // 2. 保留中決済の評価 (インプレース FIFO 処理で Vec 確保を完全排除)
+        let mut i = 0;
+        while i < self.pending_closes.len() {
+            if current_time_msc >= self.pending_closes[i].execute_after_msc {
+                let p = self.pending_closes.remove(i);
+                self.execute_close(p.ticket, p.volume, p.reason, p.execute_after_msc, tick);
+            } else {
+                i += 1;
+            }
         }
 
-        // 4. 時価評価更新
+        // 3. SL / TP 自動トリガー判定 (インプレース判定で通常ティックのヒープ確保 0回)
+        let mut i = 0;
+        while i < self.positions.len() {
+            let pos = &self.positions[i];
+            let is_buy = pos.r#type.as_bytes().first() == Some(&b'B');
+            let reason_opt = if is_buy {
+                if pos.sl.is_some_and(|sl| tick.bid <= sl) {
+                    Some("SL")
+                } else if pos.tp.is_some_and(|tp| tick.bid >= tp) {
+                    Some("TP")
+                } else {
+                    None
+                }
+            } else if pos.sl.is_some_and(|sl| tick.ask >= sl) {
+                Some("SL")
+            } else if pos.tp.is_some_and(|tp| tick.ask <= tp) {
+                Some("TP")
+            } else {
+                None
+            };
+
+            if let Some(reason) = reason_opt {
+                let ticket = pos.ticket;
+                self.execute_close(ticket, None, reason.to_string(), current_time_msc, tick);
+            } else {
+                i += 1;
+            }
+        }
+    }
+
+    /// 毎ティック / タイマー進行時の評価処理
+    #[inline]
+    pub fn on_tick_advance(&mut self, tick: &CoreTick, current_time_msc: i64) {
+        if self.positions.is_empty() && self.pending_orders.is_empty() && self.pending_closes.is_empty() {
+            return;
+        }
+        self.on_tick_advance_triggers(tick, current_time_msc);
         self.evaluate_mtm(tick);
     }
 
     /// MTM (時価評価損益・証拠金計算)
+    #[inline]
     pub fn evaluate_mtm(&mut self, tick: &CoreTick) {
+        self.evaluate_mtm_with_extremes(tick, tick.bid, tick.bid, tick.ask, tick.ask);
+    }
+
+    /// バッチ極値を考慮した MTM (時価評価損益・MFE/MAE・証拠金計算)
+    #[inline]
+    pub fn evaluate_mtm_with_extremes(
+        &mut self,
+        tick: &CoreTick,
+        min_bid: f64,
+        max_bid: f64,
+        min_ask: f64,
+        max_ask: f64,
+    ) {
         let mut total_unrealized_profit = 0.0;
         let mut total_margin = 0.0;
 
         for pos in &mut self.positions {
-            let is_buy = pos.r#type == "BUY";
+            let is_buy = pos.r#type.as_bytes().first() == Some(&b'B');
             let current_price = if is_buy { tick.bid } else { tick.ask };
             pos.current_price = Some(current_price);
 
-            let diff = if is_buy {
-                current_price - pos.open_price
+            let (diff, best_diff_pips, worst_diff_pips) = if is_buy {
+                let d = current_price - pos.open_price;
+                let best = (max_bid - pos.open_price) * 100.0;
+                let worst = (min_bid - pos.open_price) * 100.0;
+                (d, best, worst)
             } else {
-                pos.open_price - current_price
+                let d = pos.open_price - current_price;
+                let best = (pos.open_price - min_ask) * 100.0;
+                let worst = (pos.open_price - max_ask) * 100.0;
+                (d, best, worst)
             };
-            let diff_pips = diff * 100.0; // JPYペア基準 (1 pip = 0.01)
 
-            // MFE / MAE
-            if diff_pips > pos.mfe_pips {
-                pos.mfe_pips = diff_pips;
+            // MFE / MAE (バッチ内の中間ティック極値も反映)
+            if best_diff_pips > pos.mfe_pips {
+                pos.mfe_pips = best_diff_pips;
             }
-            if diff_pips < pos.mae_pips {
-                pos.mae_pips = diff_pips;
+            if worst_diff_pips < pos.mae_pips {
+                pos.mae_pips = worst_diff_pips;
             }
 
             let profit = diff * pos.volume * self.contract_size;
@@ -766,5 +935,43 @@ mod tests {
         assert_eq!(audit.request_price, 150.005);
         assert_eq!(audit.fill_price, pos.open_price);
         assert!(audit.slippage_pips >= 0.5);
+    }
+
+    #[test]
+    fn test_netting_settlement() {
+        let mut engine = CoreMatchingEngine::new(1_000_000.0, 25.0, 10_000.0);
+        engine.set_hedging(false);
+
+        let t1 = sample_tick(1000, 150.000, 150.002);
+        // BUY 1.0 lot @ 150.002
+        let t1_id = engine.submit_order("USDJPY".to_string(), OrderSide::Buy, 1.0, 0.0, 0.0, None, 1000, true, Some(&t1)).unwrap();
+        assert_eq!(t1_id, 1);
+        assert_eq!(engine.positions.len(), 1);
+
+        // SELL 1.0 lot @ 150.020 (相殺決済)
+        let t2 = sample_tick(2000, 150.020, 150.022);
+        let t2_res = engine.submit_order("USDJPY".to_string(), OrderSide::Sell, 1.0, 0.0, 0.0, None, 2000, true, Some(&t2));
+        assert!(t2_res.is_none()); // Netting: completely settled, no new position
+        assert_eq!(engine.positions.len(), 0);
+        assert_eq!(engine.history.len(), 1);
+        // (150.020 - 150.002) * 1.0 * 10,000 = +180 JPY
+        assert!((engine.history[0].profit - 180.0).abs() < 1e-4);
+        assert!((engine.account.balance - 1_000_180.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_close_buy_and_sell() {
+        let mut engine = CoreMatchingEngine::new(1_000_000.0, 25.0, 10_000.0);
+        let t1 = sample_tick(1000, 150.000, 150.002);
+        engine.submit_order("USDJPY".to_string(), OrderSide::Buy, 1.0, 0.0, 0.0, None, 1000, true, Some(&t1));
+        engine.submit_order("USDJPY".to_string(), OrderSide::Sell, 2.0, 0.0, 0.0, None, 1000, true, Some(&t1));
+        assert_eq!(engine.positions.len(), 2);
+
+        // Close only BUY
+        let t2 = sample_tick(2000, 150.050, 150.052);
+        engine.close_buy_positions("MANUAL".to_string(), 2000, false, Some(&t2));
+        assert_eq!(engine.positions.len(), 1);
+        assert_eq!(engine.positions[0].r#type, "SELL");
+        assert_eq!(engine.history.len(), 1);
     }
 }

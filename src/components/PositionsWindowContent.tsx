@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useRef } from "react";
 import { EVENTS } from "../constants/events";
+import { COMMANDS } from "../constants/commands";
 import { STORAGE_KEYS } from "../constants/storageKeys";
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { formatRate } from "../utils/rateUtils";
 import { useTheme } from "../hooks/useTheme";
 import { VirtualAccount, VirtualPosition } from "../types/trading";
+import { nextAccount, nextPositions } from "../domain/tradeStateUpdate";
 import { ReplayProgressPayload } from "../types/replay";
 import { ReplayCommand, sendReplayCommand } from "../utils/command";
 
@@ -67,21 +70,18 @@ export const PositionsWindowContent: React.FC = () => {
   };
 
   useEffect(() => {
-    const unlisten = listen<string>(EVENTS.mt5Status, (event) => {
+    let pendingStatus: string | null = null;
+    let statusFrame: number | null = null;
+
+    const applyStatus = (payload: string) => {
       try {
-        const data = JSON.parse(event.payload) as ReplayProgressPayload;
+        const data = JSON.parse(payload) as ReplayProgressPayload;
         if (data.status) setStatus(data.status);
         if (data.account) {
-          setAccount((prev) => {
-            if (JSON.stringify(prev) === JSON.stringify(data.account)) return prev;
-            return data.account ?? prev;
-          });
+          setAccount((prev) => nextAccount(prev, data.account));
         }
         if (data.positions) {
-          setPositions((prev) => {
-            if (JSON.stringify(prev) === JSON.stringify(data.positions)) return prev;
-            return data.positions ?? prev;
-          });
+          setPositions((prev) => nextPositions(prev, data.positions));
         }
         if (data.status === "DISCONNECTED") {
           setPositions((prev) => (prev.length > 0 ? [] : prev));
@@ -90,9 +90,34 @@ export const PositionsWindowContent: React.FC = () => {
       } catch (e) {
         console.error("Failed to parse mt5-status in account & positions window:", e);
       }
+    };
+
+    const scheduleStatus = (payload: string) => {
+      pendingStatus = payload;
+      if (statusFrame !== null) return;
+      statusFrame = requestAnimationFrame(() => {
+        statusFrame = null;
+        const latest = pendingStatus;
+        pendingStatus = null;
+        if (latest !== null) applyStatus(latest);
+      });
+    };
+
+    invoke<string>(COMMANDS.getLastStatus)
+      .then((last) => {
+        if (last && last.trim() !== "") {
+          applyStatus(last);
+        }
+      })
+      .catch(console.warn);
+
+    const unlisten = listen<string>(EVENTS.mt5Status, (event) => {
+      scheduleStatus(event.payload);
     });
 
     return () => {
+      if (statusFrame !== null) cancelAnimationFrame(statusFrame);
+      pendingStatus = null;
       unlisten.then((fn) => fn());
     };
   }, []);

@@ -29,6 +29,7 @@ pub struct CoreScheduler {
     config: SchedulerConfig,
 
     current_index: usize,
+    last_published_history_rev: u64,
     cmd_rx: mpsc::UnboundedReceiver<CoreCommand>,
     status_tx: watch::Sender<CoreStatusSnapshot>,
 
@@ -53,6 +54,7 @@ impl CoreScheduler {
             matching: CoreMatchingEngine::default(),
             config,
             current_index: 0,
+            last_published_history_rev: 0,
             cmd_rx,
             status_tx,
             render_pipe: None,
@@ -80,38 +82,33 @@ impl CoreScheduler {
         interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         loop {
-            // 一時停止中はコマンド待ちを優先してアイドル負荷を抑制
+            // 一時停止中はイベント駆動で待機し、CPU負荷を0%に抑制
             if !self.clock.is_playing() {
-                tokio::select! {
-                    cmd_opt = self.cmd_rx.recv() => {
-                        match cmd_opt {
-                            Some(cmd) => {
-                                if !self.handle_command(cmd) {
-                                    break; // Shutdown
-                                }
-                            }
-                            None => break, // チャネル切断
+                match self.cmd_rx.recv().await {
+                    Some(cmd) => {
+                        if !self.handle_command(cmd) {
+                            break; // Shutdown
                         }
                     }
-                    _ = tokio::time::sleep(Duration::from_millis(50)) => {
-                        // 一時停止中の低頻度ポーリング (CPU負荷 < 1%)
-                    }
+                    None => break, // チャネル切断
                 }
-            } else {
-                // 再生中は高頻度タイマーで進行
-                tokio::select! {
-                    _ = interval_timer.tick() => {
-                        self.tick_advance();
-                    }
-                    cmd_opt = self.cmd_rx.recv() => {
-                        match cmd_opt {
-                            Some(cmd) => {
-                                if !self.handle_command(cmd) {
-                                    break;
-                                }
+                last_ui_emit = Instant::now();
+                continue;
+            }
+
+            // 再生中は高頻度タイマーで進行
+            tokio::select! {
+                _ = interval_timer.tick() => {
+                    self.tick_advance();
+                }
+                cmd_opt = self.cmd_rx.recv() => {
+                    match cmd_opt {
+                        Some(cmd) => {
+                            if !self.handle_command(cmd) {
+                                break;
                             }
-                            None => break,
                         }
+                        None => break,
                     }
                 }
             }
@@ -132,11 +129,16 @@ impl CoreScheduler {
 
         match res {
             ClockAdvanceResult::Advanced { from_msc, to_msc } => {
-                if let Some((start_idx, end_idx)) = self.store.range_for_time_interval(from_msc, to_msc) {
+                let range = if self.current_index < self.store.len() {
+                    self.store.advance_from_cursor(self.current_index, to_msc)
+                } else {
+                    self.store.range_for_time_interval(from_msc, to_msc)
+                };
+
+                if let Some((start_idx, end_idx)) = range {
                     self.current_index = end_idx;
-                    if let Some(tick) = self.store.get(end_idx) {
-                        self.matching.on_tick_advance(tick, to_msc);
-                    }
+                    let slice = self.store.slice(start_idx, end_idx);
+                    self.matching.on_tick_batch(slice, to_msc);
 
                     // 1. MT5 Renderer EA への ADVANCE 送信
                     if let Some(ref pipe) = self.render_pipe {
@@ -150,7 +152,6 @@ impl CoreScheduler {
 
                     // 2. TickScope への TICK_BATCH ストリーミング送信
                     if let Some(ref mut bridge) = self.tickscope_bridge {
-                        let slice = self.store.slice(start_idx, end_idx);
                         let _ = bridge.send_tick_batch(slice);
                     }
                 }
@@ -210,6 +211,9 @@ impl CoreScheduler {
             }
             CoreCommand::SetPlaybackMode(mode) => {
                 self.clock.set_playback_mode(mode);
+            }
+            CoreCommand::SetTicksPerSecond(tps) => {
+                self.clock.set_ticks_per_second(tps);
             }
             CoreCommand::SeekTime(target_msc) => {
                 self.clock.seek(target_msc);
@@ -351,6 +355,26 @@ impl CoreScheduler {
                 );
                 self.publish_status();
             }
+            CoreCommand::CloseBuyPositions { reason } => {
+                let cur_tick = self.store.get(self.current_index);
+                self.matching.close_buy_positions(
+                    reason.unwrap_or_else(|| "MANUAL".to_string()),
+                    self.clock.virtual_time_msc(),
+                    self.clock.is_playing(),
+                    cur_tick,
+                );
+                self.publish_status();
+            }
+            CoreCommand::CloseSellPositions { reason } => {
+                let cur_tick = self.store.get(self.current_index);
+                self.matching.close_sell_positions(
+                    reason.unwrap_or_else(|| "MANUAL".to_string()),
+                    self.clock.virtual_time_msc(),
+                    self.clock.is_playing(),
+                    cur_tick,
+                );
+                self.publish_status();
+            }
             CoreCommand::ModifyPosition { ticket, sl, tp } => {
                 if let Some(pos) = self.matching.positions.iter_mut().find(|p| p.ticket == ticket) {
                     if sl.is_some() { pos.sl = sl; }
@@ -358,8 +382,38 @@ impl CoreScheduler {
                 }
                 self.publish_status();
             }
+            CoreCommand::SetHedging(hedging) => {
+                self.matching.set_hedging(hedging);
+            }
+            CoreCommand::SetContractSize(size) => {
+                self.matching.set_contract_size(size);
+            }
+            CoreCommand::SetLeverage(leverage) => {
+                self.matching.set_leverage(leverage);
+                self.publish_status();
+            }
             CoreCommand::ResetTradingAccount => {
                 self.matching.reset(1_000_000.0, self.clock.virtual_time_msc());
+                self.publish_status();
+            }
+            CoreCommand::ResetAccount { initial_balance } => {
+                self.matching.reset(initial_balance, self.clock.virtual_time_msc());
+                self.publish_status();
+            }
+            CoreCommand::AccountTransaction { is_deposit, amount, comment } => {
+                self.matching.account_transaction(is_deposit, amount, comment, self.clock.virtual_time_msc());
+                self.publish_status();
+            }
+            CoreCommand::RestoreAccount { account, next_ticket } => {
+                self.matching.restore_account(account, next_ticket);
+                self.publish_status();
+            }
+            CoreCommand::RestorePosition(pos) => {
+                self.matching.restore_position(pos);
+                self.publish_status();
+            }
+            CoreCommand::RestoreHistory(hist) => {
+                self.matching.restore_history(hist);
                 self.publish_status();
             }
             CoreCommand::Shutdown => {
@@ -370,10 +424,22 @@ impl CoreScheduler {
     }
 
     /// スナップショット生成 & watch 送信
-    fn publish_status(&self) {
+    fn publish_status(&mut self) {
         let audit_len = self.matching.audit_log.len();
-        let audit_start = audit_len.saturating_sub(50);
-        let latest_audits = self.matching.audit_log[audit_start..].to_vec();
+        let latest_audits = if audit_len == 0 {
+            Vec::new()
+        } else {
+            let audit_start = audit_len.saturating_sub(50);
+            self.matching.audit_log[audit_start..].to_vec()
+        };
+
+        let hist_rev = self.matching.history_revision;
+        let history = if hist_rev != self.last_published_history_rev {
+            self.last_published_history_rev = hist_rev;
+            Some(self.matching.history.clone())
+        } else {
+            None
+        };
 
         let snapshot = CoreStatusSnapshot {
             virtual_time_msc: self.clock.virtual_time_msc(),
@@ -385,8 +451,12 @@ impl CoreScheduler {
             total_ticks: self.store.len() as u64,
             seek_epoch: self.clock.seek_epoch(),
             trade_revision: self.matching.revision(),
+            history_revision: hist_rev,
             current_tick: self.store.get(self.current_index).copied(),
             loop_config: self.clock.ab_loop(),
+            account: self.matching.account.clone(),
+            positions: self.matching.positions.clone(),
+            history,
             latest_audits,
         };
         let _ = self.status_tx.send(snapshot);

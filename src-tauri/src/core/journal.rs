@@ -49,6 +49,13 @@ pub enum JournalEvent {
         initial_balance: f64,
         time_msc: i64,
     },
+    /// 入出金トランザクション
+    AccountTransaction {
+        is_deposit: bool,
+        amount: f64,
+        comment: Option<String>,
+        time_msc: i64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

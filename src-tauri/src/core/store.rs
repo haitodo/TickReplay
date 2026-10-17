@@ -180,6 +180,56 @@ impl TickStore {
         }
     }
 
+    /// カーソルヒント付き高速区間検索 (O(1) アモルタイズド走査)
+    /// 通常の順方向再生時、from_msc は前回の cursor_idx 直後から始まるため、
+    /// 全体二分探索を行わずに cursor_idx から前方に数ステップ走査して高速特定します。
+    pub fn advance_from_cursor(&self, cursor_idx: usize, to_msc: i64) -> Option<(usize, usize)> {
+        if self.ticks.is_empty() {
+            return None;
+        }
+
+        let next_idx = cursor_idx + 1;
+        if next_idx >= self.ticks.len() {
+            return None;
+        }
+
+        // 次のティックがまだ目標時刻に達していない場合 (2ms間にティック更新なし) -> 0探索で即座に終了
+        if self.ticks[next_idx].time_msc > to_msc {
+            return None;
+        }
+
+        // 前方へ線形走査 (大半の通常再生では 1〜4 ティック以内で収まるため L1 キャッシュに完全ヒット)
+        let mut end_idx = next_idx;
+        let mut steps = 0;
+        const MAX_LINEAR_STEPS: usize = 32;
+
+        while end_idx + 1 < self.ticks.len() && self.ticks[end_idx + 1].time_msc <= to_msc {
+            end_idx += 1;
+            steps += 1;
+            if steps >= MAX_LINEAR_STEPS {
+                // 高倍速再生 (100倍速〜) でステップ数が多い場合のみ二分探索へフォールバック
+                let remaining = &self.ticks[end_idx..];
+                match remaining.binary_search_by_key(&to_msc, |t| t.time_msc) {
+                    Ok(sub_exact) => {
+                        let mut sub_idx = sub_exact;
+                        while sub_idx + 1 < remaining.len() && remaining[sub_idx + 1].time_msc == to_msc {
+                            sub_idx += 1;
+                        }
+                        end_idx += sub_idx;
+                    }
+                    Err(sub_insert) => {
+                        if sub_insert > 0 {
+                            end_idx += sub_insert - 1;
+                        }
+                    }
+                }
+                break;
+            }
+        }
+
+        Some((next_idx, end_idx))
+    }
+
     /// 指定インデックス範囲のスライスを取得
     pub fn slice(&self, start: usize, end_inclusive: usize) -> &[CoreTick] {
         if start >= self.ticks.len() || start > end_inclusive {

@@ -171,6 +171,7 @@ int      m_current_idx_sub = -1;
 long     m_current_v_time_msc_sub = 0;
 
 ulong    m_last_redraw_us = 0;
+ulong    m_last_comment_us = 0;
 const ulong REDRAW_INTERVAL_US = 16666; // 最大 60FPS にチャート再描画を間引き
 
 // ビューアーチャート管理
@@ -1543,11 +1544,16 @@ void ProcessAdvance(const AdvancePayload &adv, ulong start_us)
     // 全ビューアーチャートの更新
     RedrawAllViewerCharts();
 
-    // チャート左上にリプレイ状態コメントを表示
-    datetime disp_dt = (datetime)(adv_msc / 1000);
-    Comment(StringFormat("=== TickReplay Core v2 ===\nSymbol: %s\nVirtual Time (Server): %s\nRendered Ticks: %d",
-        m_replay_symbol, TimeToString(disp_dt, TIME_DATE | TIME_SECONDS),
-        m_current_idx + 1));
+    // チャート左上にリプレイ状態コメントを表示 (60FPSスロットル)
+    ulong now_us = GetMicrosecondCount();
+    if(now_us - m_last_comment_us >= REDRAW_INTERVAL_US)
+    {
+        m_last_comment_us = now_us;
+        datetime disp_dt = (datetime)(adv_msc / 1000);
+        Comment(StringFormat("=== TickReplay Core v2 ===\nSymbol: %s\nVirtual Time (Server): %s\nRendered Ticks: %d",
+            m_replay_symbol, TimeToString(disp_dt, TIME_DATE | TIME_SECONDS),
+            m_current_idx + 1));
+    }
 
     ulong duration_us = (ulong)(GetMicrosecondCount() - start_us);
     SendAck((ulong)MathMax(0, m_current_idx), (ulong)MathMax(0, m_current_idx_sub), (uint)duration_us);

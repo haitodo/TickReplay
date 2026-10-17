@@ -149,6 +149,20 @@ export const ControllerWindowContent: React.FC = () => {
     // 購読完了前にこの effect が破棄された場合でもリスナーを残さないためのフラグ
     let disposed = false;
     let unlisten: (() => void) | undefined;
+    let pendingStatus: string | null = null;
+    let statusFrame: number | null = null;
+
+    const scheduleStatus = (payload: string) => {
+      pendingStatus = payload;
+      if (statusFrame !== null) return;
+      statusFrame = requestAnimationFrame(() => {
+        statusFrame = null;
+        if (disposed) return;
+        const latest = pendingStatus;
+        pendingStatus = null;
+        if (latest !== null) handleStatusPayload(latest);
+      });
+    };
 
     const setupListener = async () => {
       // 初期ステータス取得
@@ -163,7 +177,7 @@ export const ControllerWindowContent: React.FC = () => {
 
       // イベント購読
       const off = await listen<string>(EVENTS.mt5Status, (event) => {
-        handleStatusPayload(event.payload);
+        scheduleStatus(event.payload);
       });
 
       // 購読が解決する前にアンマウントされていた場合は即座に解除する
@@ -178,6 +192,8 @@ export const ControllerWindowContent: React.FC = () => {
 
     return () => {
       disposed = true;
+      if (statusFrame !== null) cancelAnimationFrame(statusFrame);
+      pendingStatus = null;
       if (unlisten) unlisten();
     };
   }, []);

@@ -83,14 +83,20 @@ async fn handle_connection(
             serde_json::json!({"status": "READY"})
         };
 
-        let (eng_hist, eng_acc, eng_pos, eng_rev) = {
-            let eng = state.trading_engine.lock().unwrap();
+        let snap_opt = state.core_handle.lock().unwrap().as_ref().map(|c| c.status());
+        let (eng_hist, eng_acc, eng_pos, trade_rev, hist_rev) = if let Some(ref snap) = snap_opt {
             (
-                serde_json::to_value(&eng.history).unwrap_or_else(|_| serde_json::json!([])),
-                serde_json::to_value(&eng.account).ok(),
-                serde_json::to_value(&eng.positions).ok(),
-                eng.revision,
+                snap.history
+                    .as_ref()
+                    .and_then(|h| serde_json::to_value(h).ok())
+                    .unwrap_or_else(|| serde_json::json!([])),
+                serde_json::to_value(&snap.account).ok(),
+                serde_json::to_value(&snap.positions).ok(),
+                snap.trade_revision,
+                snap.history_revision,
             )
+        } else {
+            (serde_json::json!([]), None, None, 1, 1)
         };
 
         let history_cache = state.last_history.lock().unwrap().clone();
@@ -108,13 +114,13 @@ async fn handle_connection(
             }
         }
         if val.get("trade_revision").is_none() || val["trade_revision"].is_null() {
-            val["trade_revision"] = serde_json::json!(eng_rev);
+            val["trade_revision"] = serde_json::json!(trade_rev);
         }
         if val.get("history_revision").is_none() || val["history_revision"].is_null() {
-            val["history_revision"] = serde_json::json!(eng_rev);
+            val["history_revision"] = serde_json::json!(hist_rev);
         }
 
-        let audits = state.core_handle.lock().unwrap().as_ref().map(|c| c.status().latest_audits).unwrap_or_default();
+        let audits = snap_opt.as_ref().map(|s| s.latest_audits.clone()).unwrap_or_default();
         val["execution_audits"] = serde_json::to_value(&audits).unwrap_or_default();
 
         Some(val.to_string())
@@ -149,17 +155,23 @@ async fn handle_connection(
                         let text_str = text.to_string();
                         // 取引履歴の明示的リクエストを受信した場合、キャッシュまたは取引エンジンから即座に直接返信
                         if text_str.contains("REQUEST_HISTORY") || text_str.contains("GET_HISTORY") {
-                            let (hist, acc, pos, rev) = {
-                                let eng = state.trading_engine.lock().unwrap();
+                            let snap_opt = state.core_handle.lock().unwrap().as_ref().map(|c| c.status());
+                            let (hist, acc, pos, trade_rev, hist_rev) = if let Some(ref snap) = snap_opt {
                                 let h = state.last_history.lock().unwrap().clone().unwrap_or_else(|| {
-                                    serde_json::to_value(&eng.history).unwrap_or_else(|_| serde_json::json!([]))
+                                    snap.history
+                                        .as_ref()
+                                        .and_then(|h| serde_json::to_value(h).ok())
+                                        .unwrap_or_else(|| serde_json::json!([]))
                                 });
                                 (
                                     h,
-                                    serde_json::to_value(&eng.account).ok(),
-                                    serde_json::to_value(&eng.positions).ok(),
-                                    eng.revision,
+                                    serde_json::to_value(&snap.account).ok(),
+                                    serde_json::to_value(&snap.positions).ok(),
+                                    snap.trade_revision,
+                                    snap.history_revision,
                                 )
+                            } else {
+                                (serde_json::json!([]), None, None, 1, 1)
                             };
                             let last = state.last_status.lock().unwrap().clone();
                             let mut resp = if !last.is_empty() {
@@ -170,9 +182,9 @@ async fn handle_connection(
                             resp["history"] = hist;
                             if let Some(a) = acc { resp["account"] = a; }
                             if let Some(p) = pos { resp["positions"] = p; }
-                            resp["trade_revision"] = serde_json::json!(rev);
-                            resp["history_revision"] = serde_json::json!(rev);
-                            let audits = state.core_handle.lock().unwrap().as_ref().map(|c| c.status().latest_audits).unwrap_or_default();
+                            resp["trade_revision"] = serde_json::json!(trade_rev);
+                            resp["history_revision"] = serde_json::json!(hist_rev);
+                            let audits = snap_opt.map(|s| s.latest_audits).unwrap_or_default();
                             resp["execution_audits"] = serde_json::to_value(&audits).unwrap_or_default();
                             let _ = write.send(Message::Text(resp.to_string().into())).await;
                         }

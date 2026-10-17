@@ -115,6 +115,7 @@ pub enum CoreCommand {
     TogglePlay,
     SetMultiplier(f64),
     SetPlaybackMode(PlaybackMode),
+    SetTicksPerSecond(f64),
     SeekTime(i64),
     SeekIndex(u64),
     StepTicks(i64),
@@ -139,12 +140,35 @@ pub enum CoreCommand {
     CloseAllPositions {
         reason: Option<String>,
     },
+    CloseBuyPositions {
+        reason: Option<String>,
+    },
+    CloseSellPositions {
+        reason: Option<String>,
+    },
     ModifyPosition {
         ticket: i32,
         sl: Option<f64>,
         tp: Option<f64>,
     },
+    SetHedging(bool),
+    SetContractSize(f64),
+    SetLeverage(f64),
     ResetTradingAccount,
+    ResetAccount {
+        initial_balance: f64,
+    },
+    AccountTransaction {
+        is_deposit: bool,
+        amount: f64,
+        comment: Option<String>,
+    },
+    RestoreAccount {
+        account: crate::virtual_trading::VirtualAccount,
+        next_ticket: i32,
+    },
+    RestorePosition(crate::virtual_trading::VirtualPosition),
+    RestoreHistory(crate::virtual_trading::VirtualPosition),
     Shutdown,
 }
 
@@ -175,7 +199,12 @@ pub struct CoreStatusSnapshot {
     pub total_ticks: u64,
     pub seek_epoch: u64,
     pub trade_revision: u64,
+    pub history_revision: u64,
     pub current_tick: Option<CoreTick>,
     pub loop_config: Option<AbLoopConfig>,
+    pub account: crate::virtual_trading::VirtualAccount,
+    pub positions: Vec<crate::virtual_trading::VirtualPosition>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub history: Option<Vec<crate::virtual_trading::VirtualPosition>>,
     pub latest_audits: Vec<crate::core::journal::ExecutionAuditRecord>,
 }

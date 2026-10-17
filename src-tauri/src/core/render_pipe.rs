@@ -121,7 +121,7 @@ pub struct ImportTicksPayload {
 pub struct RenderPacketCodec;
 
 impl RenderPacketCodec {
-    pub fn encode_advance(epoch: u32, main_idx: u64, sub_idx: u64, virtual_time_msc: i64) -> Vec<u8> {
+    pub fn encode_advance(epoch: u32, main_idx: u64, sub_idx: u64, virtual_time_msc: i64) -> [u8; 40] {
         let payload = AdvancePayload {
             main_idx,
             sub_idx,
@@ -134,9 +134,9 @@ impl RenderPacketCodec {
             std::mem::size_of::<AdvancePayload>() as u32,
         );
 
-        let mut buf = Vec::with_capacity(RenderHeader::SIZE + std::mem::size_of::<AdvancePayload>());
-        buf.extend_from_slice(bytemuck::bytes_of(&header));
-        buf.extend_from_slice(bytemuck::bytes_of(&payload));
+        let mut buf = [0u8; 40];
+        buf[0..16].copy_from_slice(bytemuck::bytes_of(&header));
+        buf[16..40].copy_from_slice(bytemuck::bytes_of(&payload));
         buf
     }
 
@@ -145,7 +145,7 @@ impl RenderPacketCodec {
         main_target_idx: u64,
         sub_target_idx: u64,
         virtual_time_msc: i64,
-    ) -> Vec<u8> {
+    ) -> [u8; 48] {
         let payload = ResetPayload {
             main_target_idx,
             sub_target_idx,
@@ -159,9 +159,9 @@ impl RenderPacketCodec {
             std::mem::size_of::<ResetPayload>() as u32,
         );
 
-        let mut buf = Vec::with_capacity(RenderHeader::SIZE + std::mem::size_of::<ResetPayload>());
-        buf.extend_from_slice(bytemuck::bytes_of(&header));
-        buf.extend_from_slice(bytemuck::bytes_of(&payload));
+        let mut buf = [0u8; 48];
+        buf[0..16].copy_from_slice(bytemuck::bytes_of(&header));
+        buf[16..48].copy_from_slice(bytemuck::bytes_of(&payload));
         buf
     }
 
@@ -574,7 +574,31 @@ impl RenderPipeServer {
                     // 2. コマンド送信用 Writer タスク
                     let (tx_writer, mut rx_writer) = tokio::sync::mpsc::unbounded_channel::<RenderPipeCommand>();
                     let writer_task = tokio::spawn(async move {
-                        while let Some(cmd) = rx_writer.recv().await {
+                        while let Some(mut cmd) = rx_writer.recv().await {
+                            // 同一 epoch の連続する Advance コマンドを最新値へ統合 (Coalescing)
+                            if let RenderPipeCommand::Advance { epoch, ref mut main_idx, ref mut sub_idx, ref mut virtual_time_msc } = cmd {
+                                let cur_epoch = epoch;
+                                while let Ok(peeking) = rx_writer.try_recv() {
+                                    match peeking {
+                                        RenderPipeCommand::Advance { epoch: next_epoch, main_idx: n_m, sub_idx: n_s, virtual_time_msc: n_v } if next_epoch == cur_epoch => {
+                                            *main_idx = n_m;
+                                            *sub_idx = n_s;
+                                            *virtual_time_msc = n_v;
+                                        }
+                                        other => {
+                                            // Advance 以外のコマンドが来たら、まず直前の最新 Advance を送信
+                                            let packet = RenderPacketCodec::encode_advance(cur_epoch, *main_idx, *sub_idx, *virtual_time_msc);
+                                            if let Err(e) = writer.write_all(&packet).await {
+                                                eprintln!("[RenderPipe] ADVANCE 送信エラー: {}", e);
+                                                return;
+                                            }
+                                            cmd = other;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+
                             match cmd {
                                 RenderPipeCommand::Advance { epoch, main_idx, sub_idx, virtual_time_msc } => {
                                     let packet = RenderPacketCodec::encode_advance(epoch, main_idx, sub_idx, virtual_time_msc);

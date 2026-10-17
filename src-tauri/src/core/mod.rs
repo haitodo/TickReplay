@@ -44,6 +44,10 @@ impl ReplayCoreHandle {
         let _ = self.cmd_tx.send(CoreCommand::SetPlaybackMode(mode));
     }
 
+    pub fn set_ticks_per_second(&self, tps: f64) {
+        let _ = self.cmd_tx.send(CoreCommand::SetTicksPerSecond(tps));
+    }
+
     pub fn seek_time(&self, target_msc: i64) {
         let _ = self.cmd_tx.send(CoreCommand::SeekTime(target_msc));
     }
@@ -107,12 +111,52 @@ impl ReplayCoreHandle {
         let _ = self.cmd_tx.send(CoreCommand::CloseAllPositions { reason });
     }
 
+    pub fn close_buy_positions(&self, reason: Option<String>) {
+        let _ = self.cmd_tx.send(CoreCommand::CloseBuyPositions { reason });
+    }
+
+    pub fn close_sell_positions(&self, reason: Option<String>) {
+        let _ = self.cmd_tx.send(CoreCommand::CloseSellPositions { reason });
+    }
+
     pub fn modify_position(&self, ticket: i32, sl: Option<f64>, tp: Option<f64>) {
         let _ = self.cmd_tx.send(CoreCommand::ModifyPosition { ticket, sl, tp });
     }
 
+    pub fn set_hedging(&self, hedging: bool) {
+        let _ = self.cmd_tx.send(CoreCommand::SetHedging(hedging));
+    }
+
+    pub fn set_contract_size(&self, size: f64) {
+        let _ = self.cmd_tx.send(CoreCommand::SetContractSize(size));
+    }
+
+    pub fn set_leverage(&self, leverage: f64) {
+        let _ = self.cmd_tx.send(CoreCommand::SetLeverage(leverage));
+    }
+
     pub fn reset_account(&self) {
         let _ = self.cmd_tx.send(CoreCommand::ResetTradingAccount);
+    }
+
+    pub fn reset_account_with_balance(&self, initial_balance: f64) {
+        let _ = self.cmd_tx.send(CoreCommand::ResetAccount { initial_balance });
+    }
+
+    pub fn account_transaction(&self, is_deposit: bool, amount: f64, comment: Option<String>) {
+        let _ = self.cmd_tx.send(CoreCommand::AccountTransaction { is_deposit, amount, comment });
+    }
+
+    pub fn restore_account(&self, account: crate::virtual_trading::VirtualAccount, next_ticket: i32) {
+        let _ = self.cmd_tx.send(CoreCommand::RestoreAccount { account, next_ticket });
+    }
+
+    pub fn restore_position(&self, pos: crate::virtual_trading::VirtualPosition) {
+        let _ = self.cmd_tx.send(CoreCommand::RestorePosition(pos));
+    }
+
+    pub fn restore_history(&self, hist: crate::virtual_trading::VirtualPosition) {
+        let _ = self.cmd_tx.send(CoreCommand::RestoreHistory(hist));
     }
 
     pub fn shutdown(&self) {
@@ -149,6 +193,18 @@ impl ReplayCore {
     ) -> (ReplayCoreHandle, tauri::async_runtime::JoinHandle<()>) {
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
 
+        let initial_account = crate::virtual_trading::VirtualAccount {
+            balance: 1_000_000.0,
+            equity: 1_000_000.0,
+            margin: 0.0,
+            free_margin: 1_000_000.0,
+            margin_level: 0.0,
+            leverage: 25.0,
+            currency: "JPY".to_string(),
+            profit: 0.0,
+            total_profit: 0.0,
+        };
+
         let initial_snapshot = CoreStatusSnapshot {
             virtual_time_msc: store.min_time_msc().unwrap_or(0),
             is_playing: false,
@@ -159,8 +215,12 @@ impl ReplayCore {
             total_ticks: store.len() as u64,
             seek_epoch: 1,
             trade_revision: 1,
+            history_revision: 1,
             current_tick: store.get(0).copied(),
             loop_config: None,
+            account: initial_account,
+            positions: Vec::new(),
+            history: Some(Vec::new()),
             latest_audits: Vec::new(),
         };
 
@@ -350,6 +410,118 @@ mod tests {
 
         handle.shutdown();
         let _ = join_handle.await;
+    }
+
+    #[test]
+    fn test_low_latency_and_zero_waste_verification() {
+        use std::time::Instant;
+        use crate::core::matching::CoreMatchingEngine;
+
+        // 1. 500,000 ティックの TickStore で O(1) カーソル走査 vs 二分探索のレイテンシ実測
+        let tick_count = 500_000;
+        let ticks = generate_test_ticks(tick_count);
+        let store = TickStore::from_core_ticks(ticks);
+
+        let steps = 50_000usize;
+        let t0 = Instant::now();
+        let mut cursor = 0usize;
+        for step in 1..=steps {
+            let to_msc = 1_000_000 + (step as i64 * 100);
+            if let Some((_, end_idx)) = store.advance_from_cursor(cursor, to_msc) {
+                cursor = end_idx;
+            }
+        }
+        let cursor_elapsed = t0.elapsed();
+
+        let t1 = Instant::now();
+        let mut bsearch_idx = 0usize;
+        for step in 1..=steps {
+            let from_msc = 1_000_000 + ((step - 1) as i64 * 100);
+            let to_msc = 1_000_000 + (step as i64 * 100);
+            if let Some((_, end_idx)) = store.range_for_time_interval(from_msc, to_msc) {
+                bsearch_idx = end_idx;
+            }
+        }
+        let bsearch_elapsed = t1.elapsed();
+
+        assert_eq!(cursor, bsearch_idx);
+        let cursor_ns_per_op = cursor_elapsed.as_nanos() as f64 / steps as f64;
+        let bsearch_ns_per_op = bsearch_elapsed.as_nanos() as f64 / steps as f64;
+        println!(
+            "[BENCH] TickStore Lookup (500k ticks, {} steps): advance_from_cursor = {:.1} ns/op, binary_search = {:.1} ns/op ({:.1}x faster)",
+            steps,
+            cursor_ns_per_op,
+            bsearch_ns_per_op,
+            bsearch_ns_per_op / cursor_ns_per_op.max(0.1)
+        );
+        assert!(cursor_elapsed < bsearch_elapsed, "O(1) cursor scan must be faster than full binary search");
+
+        // 2. CoreMatchingEngine::on_tick_batch のバッチ極値 MFE/MAE 精度およびスループット実測
+        let mut engine = CoreMatchingEngine::new(1_000_000.0, 25.0, 10_000.0);
+        let entry_tick = store.get(0).unwrap();
+        engine.submit_order("USDJPY".to_string(), OrderSide::Buy, 1.0, 0.0, 0.0, None, entry_tick.time_msc, false, Some(entry_tick));
+        assert_eq!(engine.positions.len(), 1);
+
+        let batch_ticks = store.slice(1, 100_000);
+        let t_match = Instant::now();
+        // 100ティックずつのバッチ(1000回 = 計100,000ティック)を500Hz相当で評価
+        for chunk in batch_ticks.chunks(100) {
+            let last_msc = chunk.last().unwrap().time_msc;
+            engine.on_tick_batch(chunk, last_msc);
+        }
+        let match_elapsed = t_match.elapsed();
+        let match_ns_per_tick = match_elapsed.as_nanos() as f64 / 100_000.0;
+        let match_us_per_batch = match_elapsed.as_micros() as f64 / 1_000.0;
+        println!(
+            "[BENCH] CoreMatchingEngine::on_tick_batch (100k ticks in 1000 batches): {:.1} ns/tick ({:.2} us/batch of 100 ticks)",
+            match_ns_per_tick, match_us_per_batch
+        );
+        assert!(engine.positions[0].mfe_pips > 0.0, "MFE must be tracked across batches");
+
+        // 3. 差分 IPC シリアライズサイズ比較 (100件の決済履歴がある状態での通常フレーム vs 履歴更新フレーム)
+        for i in 0..100 {
+            let t = store.get(i * 2 + 1).unwrap();
+            let tk = engine.submit_order("USDJPY".to_string(), OrderSide::Buy, 0.1, 0.0, 0.0, None, t.time_msc, false, Some(t)).unwrap();
+            let t_close = store.get(i * 2 + 2).unwrap();
+            engine.close_position(tk, None, "MANUAL".to_string(), t_close.time_msc, false, Some(t_close));
+        }
+        assert_eq!(engine.history.len(), 100);
+
+        let full_snap = CoreStatusSnapshot {
+            virtual_time_msc: 2_000_000,
+            is_playing: true,
+            state: PlaybackState::Playing,
+            multiplier: 10.0,
+            speed_mode: PlaybackMode::Temporal,
+            current_index: 500,
+            total_ticks: tick_count as u64,
+            seek_epoch: 1,
+            trade_revision: engine.revision(),
+            history_revision: engine.history_revision,
+            current_tick: store.get(500).copied(),
+            loop_config: None,
+            account: engine.account.clone(),
+            positions: engine.positions.clone(),
+            history: Some(engine.history.clone()),
+            latest_audits: engine.audit_log[engine.audit_log.len().saturating_sub(50)..].to_vec(),
+        };
+
+        let delta_snap = CoreStatusSnapshot {
+            history: None,
+            latest_audits: Vec::new(),
+            ..full_snap.clone()
+        };
+
+        let full_json = serde_json::to_string(&full_snap).unwrap();
+        let delta_json = serde_json::to_string(&delta_snap).unwrap();
+        let reduction_pct = (1.0 - (delta_json.len() as f64 / full_json.len() as f64)) * 100.0;
+        println!(
+            "[BENCH] IPC Status Payload (100 closed trades): Full = {} bytes, Delta = {} bytes ({:.1}% reduction)",
+            full_json.len(),
+            delta_json.len(),
+            reduction_pct
+        );
+        assert!(reduction_pct > 90.0, "Delta IPC payload must reduce size by >90% (got {:.1}%)", reduction_pct);
     }
 }
 

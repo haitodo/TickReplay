@@ -109,6 +109,7 @@ export interface ReplayProgressPayload {
   account?: VirtualAccount;
   positions?: VirtualPosition[];
   history?: TradeHistoryItem[];
+  execution_audits?: ExecutionAuditRecord[];
   loop?: ReplayLoopPayload;
   error?: string;
   message?: string;

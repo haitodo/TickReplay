@@ -113,6 +113,10 @@ impl VirtualClock {
         self.weekend_skip.enabled = enabled;
     }
 
+    pub fn set_ticks_per_second(&mut self, tps: f64) {
+        self.ticks_per_second = tps.max(1.0);
+    }
+
     pub fn play(&mut self) {
         if self.state != PlaybackState::Playing {
             self.state = PlaybackState::Playing;
@@ -170,7 +174,12 @@ impl VirtualClock {
             };
         }
 
-        let virtual_delta_ms_f64 = elapsed_secs * 1000.0 * self.multiplier;
+        let virtual_delta_ms_f64 = match self.mode {
+            PlaybackMode::Temporal => elapsed_secs * 1000.0 * self.multiplier,
+            PlaybackMode::Count => {
+                elapsed_secs * 1000.0 * (self.ticks_per_second / 50.0) * self.multiplier
+            }
+        };
         let total_delta_ms_f64 = virtual_delta_ms_f64 + self.fractional_ms_accumulator;
         let whole_delta_ms = total_delta_ms_f64.floor() as i64;
         self.fractional_ms_accumulator = total_delta_ms_f64 - (whole_delta_ms as f64);

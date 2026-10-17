@@ -11,13 +11,13 @@ import { CustomSelect } from "../CustomSelect";
 import { useTheme } from "../hooks/useTheme";
 import { getContractSizeLabel } from "../domain/contractUtils";
 import { VirtualAccount, VirtualPosition } from "../types/trading";
+import { nextAccount, nextPositions } from "../domain/tradeStateUpdate";
 import { ReplayProgressPayload } from "../types/replay";
 import { PersistedSettings } from "../types/settings";
 import {
   ReplayCommand,
   sendReplayCommand,
   setExecutionModels,
-  getExecutionAuditLog,
 } from "../utils/command";
 import type { LatencyModel, SlippageModel, ExecutionAuditRecord } from "../types/replay";
 import { getCachedEconomicAvailabilityMap, isEconomicSpreadActive } from "../utils/economicDataUtils";
@@ -171,23 +171,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
     updateExecutionModels(latencyModelType, slippageModelType, orderLatencyMs);
   }, [latencyModelType, slippageModelType, orderLatencyMs, updateExecutionModels]);
 
-  const checkLatestAuditLog = useCallback(async () => {
-    const isToastEnabled = localStorage.getItem(STORAGE_KEYS.speedOrderShowAuditToast) === "true";
-    if (!isToastEnabled) return;
 
-    try {
-      const records = await getExecutionAuditLog();
-      if (records.length > 0) {
-        const latest = records[records.length - 1];
-        setRecentAuditNotification(latest);
-        setTimeout(() => {
-          setRecentAuditNotification((curr) => (curr?.ticket === latest.ticket ? null : curr));
-        }, 4000);
-      }
-    } catch (e) {
-      console.error("Failed to fetch latest audit log", e);
-    }
-  }, []);
 
   const [quickLots, setQuickLots] = useState<number[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.speedOrderQuickLots);
@@ -472,16 +456,23 @@ export const SpeedOrderWindowContent: React.FC = () => {
             });
           }
           if (data.account) {
-            setAccount((prev) => {
-              if (JSON.stringify(prev) === JSON.stringify(data.account)) return prev;
-              return data.account ?? prev;
-            });
+            setAccount((prev) => nextAccount(prev, data.account));
           }
           if (data.positions) {
-            setPositions((prev) => {
-              if (JSON.stringify(prev) === JSON.stringify(data.positions)) return prev;
-              return data.positions ?? prev;
-            });
+            setPositions((prev) => nextPositions(prev, data.positions));
+          }
+          if (data.execution_audits && Array.isArray(data.execution_audits) && data.execution_audits.length > 0) {
+            const isToastEnabled = localStorage.getItem(STORAGE_KEYS.speedOrderShowAuditToast) === "true";
+            if (isToastEnabled) {
+              const latest = data.execution_audits[data.execution_audits.length - 1];
+              setRecentAuditNotification((curr) => {
+                if (curr?.ticket === latest.ticket) return curr;
+                setTimeout(() => {
+                  setRecentAuditNotification((c) => (c?.ticket === latest.ticket ? null : c));
+                }, 4000);
+                return latest;
+              });
+            }
           }
           if (data.source_symbol) {
             setSourceSymbol((prev) => {
@@ -698,9 +689,13 @@ export const SpeedOrderWindowContent: React.FC = () => {
     localStorage.setItem(STORAGE_KEYS.speedOrderPositionRealTimes, JSON.stringify(currentTimesToStore));
   };
 
+  const positionTicketsKey = useMemo(() => {
+    return positions.map((p) => `${p.ticket}:${p.open_time_msc}`).join(",");
+  }, [positions]);
+
   useEffect(() => {
     syncStopwatchState(positions, isPlaying);
-  }, [positions, isPlaying]);
+  }, [positionTicketsKey, isPlaying]);
 
   const [timerTrigger, setTimerTrigger] = useState(0);
   useEffect(() => {
@@ -763,14 +758,6 @@ export const SpeedOrderWindowContent: React.FC = () => {
       sl_points: slEnabled ? slPoints : 0,
       tp_points: tpEnabled ? tpPoints : 0
     });
-    // Core v2 約定ログを直後および遅延後にチェックして通知トーストを表示
-    setTimeout(() => {
-      checkLatestAuditLog();
-    }, 80);
-    const delayCheck = Math.max(150, (orderLatencyMs || 30) + 100);
-    setTimeout(() => {
-      checkLatestAuditLog();
-    }, delayCheck);
   };
 
   const handleCloseAll = () => sendCommand({ command: "ORDER_CLOSE_ALL" });
