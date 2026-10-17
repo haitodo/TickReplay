@@ -93,6 +93,12 @@ impl CoreScheduler {
                         if !self.handle_command(cmd) {
                             break; // Shutdown
                         }
+                        while let Ok(next_cmd) = self.cmd_rx.try_recv() {
+                            if !self.handle_command(next_cmd) {
+                                return;
+                            }
+                        }
+                        self.publish_status();
                     }
                     None => break, // チャネル切断
                 }
@@ -104,6 +110,12 @@ impl CoreScheduler {
             tokio::select! {
                 _ = interval_timer.tick() => {
                     self.tick_advance();
+                    // UI スナップショットの間引き送信 (終端到達による自動停止時も即時送信)
+                    let now = Instant::now();
+                    if !self.clock.is_playing() || now.duration_since(last_ui_emit) >= ui_interval {
+                        self.publish_status();
+                        last_ui_emit = now;
+                    }
                 }
                 cmd_opt = self.cmd_rx.recv() => {
                     match cmd_opt {
@@ -111,17 +123,18 @@ impl CoreScheduler {
                             if !self.handle_command(cmd) {
                                 break;
                             }
+                            while let Ok(next_cmd) = self.cmd_rx.try_recv() {
+                                if !self.handle_command(next_cmd) {
+                                    return;
+                                }
+                            }
+                            // コマンド処理後は即座にステータスを配信 (Pause 遷移時等の取りこぼしを完全防止)
+                            self.publish_status();
+                            last_ui_emit = Instant::now();
                         }
                         None => break,
                     }
                 }
-            }
-
-            // UI スナップショットの間引き送信
-            let now = Instant::now();
-            if now.duration_since(last_ui_emit) >= ui_interval {
-                self.publish_status();
-                last_ui_emit = now;
             }
         }
     }
@@ -240,8 +253,6 @@ impl CoreScheduler {
                         target_msc,
                     );
                 }
-
-                self.publish_status();
             }
             CoreCommand::SeekIndex(target_idx) => {
                 let idx = target_idx as usize;
@@ -259,8 +270,6 @@ impl CoreScheduler {
                             tick_msc,
                         );
                     }
-
-                    self.publish_status();
                 }
             }
             CoreCommand::StepTicks(delta_ticks) => {
@@ -291,7 +300,6 @@ impl CoreScheduler {
                             );
                         }
                     }
-                    self.publish_status();
                 }
             }
             CoreCommand::StepTime(delta_msc) => {
@@ -313,7 +321,6 @@ impl CoreScheduler {
                         target_msc,
                     );
                 }
-                self.publish_status();
             }
             CoreCommand::SetAbLoop(cfg) => {
                 self.clock.set_ab_loop(cfg);
@@ -340,7 +347,6 @@ impl CoreScheduler {
                     self.clock.is_playing(),
                     cur_tick,
                 );
-                self.publish_status();
             }
             CoreCommand::ClosePosition { ticket, volume, reason } => {
                 let cur_tick = self.store.get(self.current_index);
@@ -352,7 +358,6 @@ impl CoreScheduler {
                     self.clock.is_playing(),
                     cur_tick,
                 );
-                self.publish_status();
             }
             CoreCommand::CloseAllPositions { reason } => {
                 let cur_tick = self.store.get(self.current_index);
@@ -362,7 +367,6 @@ impl CoreScheduler {
                     self.clock.is_playing(),
                     cur_tick,
                 );
-                self.publish_status();
             }
             CoreCommand::CloseBuyPositions { reason } => {
                 let cur_tick = self.store.get(self.current_index);
@@ -372,7 +376,6 @@ impl CoreScheduler {
                     self.clock.is_playing(),
                     cur_tick,
                 );
-                self.publish_status();
             }
             CoreCommand::CloseSellPositions { reason } => {
                 let cur_tick = self.store.get(self.current_index);
@@ -382,14 +385,12 @@ impl CoreScheduler {
                     self.clock.is_playing(),
                     cur_tick,
                 );
-                self.publish_status();
             }
             CoreCommand::ModifyPosition { ticket, sl, tp } => {
                 if let Some(pos) = self.matching.positions.iter_mut().find(|p| p.ticket == ticket) {
                     if sl.is_some() { pos.sl = sl; }
                     if tp.is_some() { pos.tp = tp; }
                 }
-                self.publish_status();
             }
             CoreCommand::SetHedging(hedging) => {
                 self.matching.set_hedging(hedging);
@@ -399,31 +400,24 @@ impl CoreScheduler {
             }
             CoreCommand::SetLeverage(leverage) => {
                 self.matching.set_leverage(leverage);
-                self.publish_status();
             }
             CoreCommand::ResetTradingAccount => {
                 self.matching.reset(1_000_000.0, self.clock.virtual_time_msc());
-                self.publish_status();
             }
             CoreCommand::ResetAccount { initial_balance } => {
                 self.matching.reset(initial_balance, self.clock.virtual_time_msc());
-                self.publish_status();
             }
             CoreCommand::AccountTransaction { is_deposit, amount, comment } => {
                 self.matching.account_transaction(is_deposit, amount, comment, self.clock.virtual_time_msc());
-                self.publish_status();
             }
             CoreCommand::RestoreAccount { account, next_ticket } => {
                 self.matching.restore_account(account, next_ticket);
-                self.publish_status();
             }
             CoreCommand::RestorePosition(pos) => {
                 self.matching.restore_position(pos);
-                self.publish_status();
             }
             CoreCommand::RestoreHistory(hist) => {
                 self.matching.restore_history(hist);
-                self.publish_status();
             }
             CoreCommand::Shutdown => {
                 return false;
@@ -519,6 +513,23 @@ mod tests {
         assert_eq!(status_after_order.is_playing, false);
 
         // 4. シャットダウン
+        handle.shutdown();
+        let _ = join_handle.await;
+    }
+
+    #[tokio::test]
+    async fn test_play_pause_publishes_status_immediately() {
+        let (handle, join_handle) = create_test_core();
+
+        handle.play();
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        assert!(handle.status().is_playing, "Play must immediately publish is_playing=true");
+
+        // 16ms の UI 配信間隔を待たずに即座に Pause を送信しても確実に is_playing=false が配信されること
+        handle.pause();
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        assert!(!handle.status().is_playing, "Pause must immediately publish is_playing=false");
+
         handle.shutdown();
         let _ = join_handle.await;
     }

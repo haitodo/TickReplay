@@ -107,8 +107,17 @@ fn calculate_fine_speed_down_tick(current: i32) -> i32 {
 
 // ショートカットキーの処理ロジック
 pub async fn handle_shortcut_trigger(app_handle: AppHandle, shortcut_str: &str, state: &ReplayState) {
+    let core_playing = state
+        .core_handle
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|c| c.status().is_playing);
     let (is_playing, speed_mode, mut multiplier, mut tick_step) = {
-        let p = state.playback.lock().unwrap();
+        let mut p = state.playback.lock().unwrap();
+        if let Some(cp) = core_playing {
+            p.is_playing = cp;
+        }
         (p.is_playing, p.speed_mode, p.multiplier, p.tick_step)
     };
 
@@ -202,7 +211,6 @@ pub async fn handle_shortcut_trigger(app_handle: AppHandle, shortcut_str: &str, 
             }
             cmd = Some(serde_json::json!({
                 "command": "CONTROL",
-                "is_playing": is_playing,
                 "speed_mode": speed_mode,
                 "multiplier": multiplier,
                 "tick_step": tick_step
@@ -225,7 +233,6 @@ pub async fn handle_shortcut_trigger(app_handle: AppHandle, shortcut_str: &str, 
             }
             cmd = Some(serde_json::json!({
                 "command": "CONTROL",
-                "is_playing": is_playing,
                 "speed_mode": speed_mode,
                 "multiplier": multiplier,
                 "tick_step": tick_step
@@ -244,7 +251,6 @@ pub async fn handle_shortcut_trigger(app_handle: AppHandle, shortcut_str: &str, 
             }
             cmd = Some(serde_json::json!({
                 "command": "CONTROL",
-                "is_playing": is_playing,
                 "speed_mode": speed_mode,
                 "multiplier": multiplier,
                 "tick_step": tick_step
@@ -263,7 +269,6 @@ pub async fn handle_shortcut_trigger(app_handle: AppHandle, shortcut_str: &str, 
             }
             cmd = Some(serde_json::json!({
                 "command": "CONTROL",
-                "is_playing": is_playing,
                 "speed_mode": speed_mode,
                 "multiplier": multiplier,
                 "tick_step": tick_step

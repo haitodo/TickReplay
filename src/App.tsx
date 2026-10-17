@@ -152,6 +152,8 @@ function MainWindow() {
   const [currentIdx, setCurrentIdx] = useState(0);
   const [virtualTimeMsc, setVirtualTimeMsc] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const isPlayingRef = useRef(false);
+  const playStateGuardRef = useRef<{ expected: boolean; expireAt: number } | null>(null);
   const [speedMode, setSpeedMode] = useState<"TEMPORAL" | "COUNT">("TEMPORAL");
   const [multiplier, setMultiplier] = useState(1.0);
   const [tickStep, setTickStep] = useState(1);
@@ -636,6 +638,21 @@ function MainWindow() {
 
   const handlersRef = useRef<AppHandlers | null>(null);
 
+  const applyIncomingPlayingState = (playing: boolean) => {
+    const guard = playStateGuardRef.current;
+    if (guard && performance.now() < guard.expireAt) {
+      if (playing === guard.expected) {
+        playStateGuardRef.current = null;
+        isPlayingRef.current = playing;
+        setIsPlaying((prev) => prev !== playing ? playing : prev);
+      }
+    } else {
+      playStateGuardRef.current = null;
+      isPlayingRef.current = playing;
+      setIsPlaying((prev) => prev !== playing ? playing : prev);
+    }
+  };
+
   const handleStatusString = (payload: string) => {
     try {
       const data = JSON.parse(payload) as ReplayProgressPayload;
@@ -643,8 +660,11 @@ function MainWindow() {
         const isReconnecting = status === "DISCONNECTED" || status === "CONNECTED";
         setStatus((prev) => prev !== "READY" ? "READY" : prev);
         if (data.total_ticks !== undefined) setTotalTicks((prev) => prev !== (data.total_ticks ?? prev) ? (data.total_ticks ?? prev) : prev);
-        if (data.current_idx !== undefined) setCurrentIdx((prev) => prev !== (data.current_idx ?? prev) ? (data.current_idx ?? prev) : prev);
+        if (!isDraggingRef.current) {
+          if (data.current_idx !== undefined) setCurrentIdx((prev) => prev !== (data.current_idx ?? prev) ? (data.current_idx ?? prev) : prev);
+        }
         if (data.virtual_time_msc !== undefined) setVirtualTimeMsc((prev) => prev !== (data.virtual_time_msc ?? prev) ? (data.virtual_time_msc ?? prev) : prev);
+        applyIncomingPlayingState(data.is_playing ?? false);
         if (data.session_boundaries) {
           setSessionBoundaries((prev) => {
             if (JSON.stringify(prev) === JSON.stringify(data.session_boundaries)) return prev;
@@ -658,6 +678,14 @@ function MainWindow() {
             setMultiplier((prev) => prev !== m ? m : prev);
           }
           if (data.tick_step !== undefined) setTickStep((prev) => prev !== (data.tick_step ?? prev) ? (data.tick_step ?? prev) : prev);
+        }
+        if (data.loop) {
+          const loop = data.loop;
+          setLoopActive((prev) => prev !== loop.active ? loop.active : prev);
+          setLoopA((prev) => prev !== loop.a_msc ? loop.a_msc : prev);
+          setLoopB((prev) => prev !== loop.b_msc ? loop.b_msc : prev);
+          setLoopAIdx((prev) => prev !== (loop.a_idx ?? -1) ? (loop.a_idx ?? -1) : prev);
+          setLoopBIdx((prev) => prev !== (loop.b_idx ?? -1) ? (loop.b_idx ?? -1) : prev);
         }
         setErrorMessage((prev) => prev !== "" ? "" : prev);
         // 取引状態の反映。READY / ACTIVE で共通 (詳細は domain/tradeStateUpdate.ts)
@@ -819,7 +847,7 @@ function MainWindow() {
         }
         if (data.total_ticks !== undefined) setTotalTicks((prev) => prev !== (data.total_ticks ?? prev) ? (data.total_ticks ?? prev) : prev);
         if (data.virtual_time_msc !== undefined) setVirtualTimeMsc((prev) => prev !== (data.virtual_time_msc ?? prev) ? (data.virtual_time_msc ?? prev) : prev);
-        if (data.is_playing !== undefined) setIsPlaying((prev) => prev !== (data.is_playing ?? prev) ? (data.is_playing ?? prev) : prev);
+        if (data.is_playing !== undefined) applyIncomingPlayingState(data.is_playing);
         if (data.session_boundaries) {
           setSessionBoundaries((prev) => {
             if (JSON.stringify(prev) === JSON.stringify(data.session_boundaries)) return prev;
@@ -864,6 +892,8 @@ function MainWindow() {
         }
       } else if (data.status === "DISCONNECTED") {
         setStatus((prev) => prev !== "DISCONNECTED" ? "DISCONNECTED" : prev);
+        playStateGuardRef.current = null;
+        isPlayingRef.current = false;
         setIsPlaying((prev) => prev !== false ? false : prev);
         setLoopActive((prev) => prev !== false ? false : prev);
         setLoopA((prev) => prev !== -1 ? -1 : prev);
@@ -1113,6 +1143,8 @@ function MainWindow() {
     // EA切断時
     const unlistenDisconnect = listen(EVENTS.mt5Disconnected, async () => {
       setStatus("DISCONNECTED");
+      playStateGuardRef.current = null;
+      isPlayingRef.current = false;
       setIsPlaying(false);
       setLoopActive(false);
       setLoopA(-1);
@@ -1822,7 +1854,12 @@ function MainWindow() {
 
   // 再生/一時停止
   const handlePlayPause = () => {
-    const nextPlaying = !isPlaying;
+    const nextPlaying = !isPlayingRef.current;
+    isPlayingRef.current = nextPlaying;
+    playStateGuardRef.current = {
+      expected: nextPlaying,
+      expireAt: performance.now() + 500,
+    };
     setIsPlaying(nextPlaying);
     sendCommand({
       command: "CONTROL",
@@ -2209,6 +2246,9 @@ function MainWindow() {
   const executeTerminate = async () => {
     sendCommand({ command: "TERMINATE" });
     setStatus("CONNECTED");
+    playStateGuardRef.current = null;
+    isPlayingRef.current = false;
+    setIsPlaying(false);
     setLoopActive(false);
     setLoopA(-1);
     setLoopB(-1);
@@ -2289,7 +2329,6 @@ function MainWindow() {
     setTickStep(step);
     sendCommand({
       command: "CONTROL",
-      is_playing: isPlaying,
       speed_mode: mode,
       multiplier: mult,
       tick_step: step,
@@ -2384,7 +2423,6 @@ function MainWindow() {
     if (status === "READY" || status === "ACTIVE") {
       sendCommand({
         command: "CONTROL",
-        is_playing: isPlaying,
         speed_mode: speedMode,
         multiplier: multiplier,
         tick_step: tickStep,
@@ -2466,7 +2504,9 @@ function MainWindow() {
 
       if (matchesHotkey(e, hotkeys.play_pause)) {
         e.preventDefault();
-        handlePlayPause();
+        if (!e.repeat) {
+          handlePlayPause();
+        }
       } else if (matchesHotkey(e, hotkeys.step_forward)) {
         e.preventDefault();
         handleStep(1);

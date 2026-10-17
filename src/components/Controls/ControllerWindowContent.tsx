@@ -24,6 +24,8 @@ export const ControllerWindowContent: React.FC = () => {
   const [currentIdx, setCurrentIdx] = useState(0);
   const [virtualTimeMsc, setVirtualTimeMsc] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const isPlayingRef = useRef(false);
+  const playStateGuardRef = useRef<{ expected: boolean; expireAt: number } | null>(null);
   const [speedMode, setSpeedMode] = useState<"TEMPORAL" | "COUNT">("TEMPORAL");
   const [multiplier, setMultiplier] = useState(1.0);
   const [tickStep, setTickStep] = useState(1);
@@ -231,7 +233,18 @@ export const ControllerWindowContent: React.FC = () => {
       }
       if (data.is_playing !== undefined) {
         const playing = data.is_playing;
-        setIsPlaying((prev) => prev !== playing ? playing : prev);
+        const guard = playStateGuardRef.current;
+        if (guard && performance.now() < guard.expireAt) {
+          if (playing === guard.expected) {
+            playStateGuardRef.current = null;
+            isPlayingRef.current = playing;
+            setIsPlaying((prev) => prev !== playing ? playing : prev);
+          }
+        } else {
+          playStateGuardRef.current = null;
+          isPlayingRef.current = playing;
+          setIsPlaying((prev) => prev !== playing ? playing : prev);
+        }
       }
       if (data.speed_mode) {
         const mode = data.speed_mode as "TEMPORAL" | "COUNT";
@@ -284,16 +297,19 @@ export const ControllerWindowContent: React.FC = () => {
   }, []);
 
   const handlePlayPause = useCallback(() => {
-    setIsPlaying((prevPlaying) => {
-      const nextPlaying = !prevPlaying;
-      sendCommand({
-        command: "CONTROL",
-        is_playing: nextPlaying,
-        speed_mode: speedMode,
-        multiplier: multiplier,
-        tick_step: tickStep,
-      });
-      return nextPlaying;
+    const nextPlaying = !isPlayingRef.current;
+    isPlayingRef.current = nextPlaying;
+    playStateGuardRef.current = {
+      expected: nextPlaying,
+      expireAt: performance.now() + 500,
+    };
+    setIsPlaying(nextPlaying);
+    sendCommand({
+      command: "CONTROL",
+      is_playing: nextPlaying,
+      speed_mode: speedMode,
+      multiplier: multiplier,
+      tick_step: tickStep,
     });
   }, [sendCommand, speedMode, multiplier, tickStep]);
 
@@ -310,12 +326,11 @@ export const ControllerWindowContent: React.FC = () => {
     setTickStep(step);
     sendCommand({
       command: "CONTROL",
-      is_playing: isPlaying,
       speed_mode: mode,
       multiplier: mult,
       tick_step: step,
     });
-  }, [sendCommand, isPlaying]);
+  }, [sendCommand]);
 
   const handleCoarseSpeed = useCallback((increase: boolean) => {
     if (speedMode === "TEMPORAL") {
@@ -484,13 +499,12 @@ export const ControllerWindowContent: React.FC = () => {
       isAutoSpeedBoostedRef.current = false;
       sendCommand({
         command: "CONTROL",
-        is_playing: isPlaying,
         speed_mode: speedMode,
         multiplier: normalMultiplierRef.current || 1.0,
         tick_step: tickStep,
       }).catch(console.error);
     }
-  }, [sendCommand, isPlaying, speedMode, tickStep]);
+  }, [sendCommand, speedMode, tickStep]);
 
   useEffect(() => {
     if (!autoSkipFlat || !isPlaying || !timelineActivity || speedMode !== "TEMPORAL") {
@@ -498,7 +512,6 @@ export const ControllerWindowContent: React.FC = () => {
         isAutoSpeedBoostedRef.current = false;
         sendCommand({
           command: "CONTROL",
-          is_playing: isPlaying,
           speed_mode: speedMode,
           multiplier: normalMultiplierRef.current || 1.0,
           tick_step: tickStep,
@@ -520,7 +533,6 @@ export const ControllerWindowContent: React.FC = () => {
         normalMultiplierRef.current = multiplier >= 50.0 ? 1.0 : multiplier;
         sendCommand({
           command: "CONTROL",
-          is_playing: true,
           speed_mode: "TEMPORAL",
           multiplier: 150.0,
           tick_step: tickStep,
@@ -532,7 +544,6 @@ export const ControllerWindowContent: React.FC = () => {
         isAutoSpeedBoostedRef.current = false;
         sendCommand({
           command: "CONTROL",
-          is_playing: true,
           speed_mode: "TEMPORAL",
           multiplier: normalMultiplierRef.current || 1.0,
           tick_step: tickStep,
@@ -576,7 +587,9 @@ export const ControllerWindowContent: React.FC = () => {
 
       if (!e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && e.code === "Space") {
         e.preventDefault();
-        handlePlayPause();
+        if (!e.repeat) {
+          handlePlayPause();
+        }
       } else if (!e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && e.code === "ArrowRight") {
         e.preventDefault();
         handleStep(1);

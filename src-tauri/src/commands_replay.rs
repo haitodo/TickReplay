@@ -306,6 +306,7 @@ pub fn dispatch_replay_command(
             }
         }
         "TERMINATE" => {
+            state.playback.lock().unwrap().is_playing = false;
             if let Some(core) = core_opt {
                 core.shutdown();
             }
@@ -329,7 +330,7 @@ pub fn dispatch_replay_command(
                     println!("[commands_replay] TickScope Replay プロセス終了完了");
                 }
             }
-            let _ = state.sync_tx.send(r#"{"status":"TERMINATE","command":"TERMINATE"}"#.to_string());
+            let _ = state.sync_tx.send(r#"{"status":"TERMINATE","command":"TERMINATE","is_playing":false}"#.to_string());
         }
         _ => {}
     }
@@ -637,6 +638,7 @@ pub async fn send_command(
                 };
                 core_handle.set_latency_model(latency_model);
 
+                state.playback.lock().unwrap().is_playing = false;
                 *state.core_handle.lock().unwrap() = Some(core_handle.clone());
                 *state.core_join_handle.lock().unwrap() = Some(core_join);
 
@@ -720,9 +722,10 @@ pub async fn send_command(
 
                     let mut last_trade_rev = 0u64;
                     while rx.changed().await.is_ok() {
-                        let (cur_msc, hist_json_opt, json_str) = {
+                        let (cur_msc, is_playing, hist_json_opt, json_str) = {
                             let snap = rx.borrow_and_update();
                             let cur_msc = snap.virtual_time_msc;
+                            let is_playing = snap.is_playing;
                             let hist_json_opt = snap.history.as_ref().and_then(|h| serde_json::to_value(h).ok());
 
                             let bid = snap.current_tick.map(|t| t.bid);
@@ -740,8 +743,8 @@ pub async fn send_command(
                             };
 
                             let payload = UiStreamPayload {
-                                status: if snap.is_playing { "ACTIVE" } else { "READY" },
-                                is_playing: snap.is_playing,
+                                status: if is_playing { "ACTIVE" } else { "READY" },
+                                is_playing,
                                 current_idx: snap.current_index,
                                 total_ticks: snap.total_ticks,
                                 virtual_time_msc: cur_msc,
@@ -771,10 +774,11 @@ pub async fn send_command(
                             };
 
                             let s = serde_json::to_string(&payload).unwrap_or_default();
-                            (cur_msc, hist_json_opt, s)
+                            (cur_msc, is_playing, hist_json_opt, s)
                         };
 
                         *state_c.current_virtual_time_msc.lock().unwrap() = cur_msc;
+                        state_c.playback.lock().unwrap().is_playing = is_playing;
                         if let Some(hist_val) = hist_json_opt {
                             *state_c.last_history.lock().unwrap() = Some(hist_val);
                         }
@@ -804,6 +808,7 @@ pub async fn send_command(
                     "speed_mode": "TEMPORAL",
                     "multiplier": 1.0,
                     "tick_step": 1,
+                    "seek_epoch": snap.seek_epoch,
                     "trade_revision": snap.trade_revision,
                     "history_revision": snap.history_revision,
                     "account": snap.account,

@@ -53,7 +53,10 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(move |app, shortcut, _event| {
+                .with_handler(move |app, shortcut, event| {
+                    if event.state != tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        return;
+                    }
                     // ショートカットキー押下イベントのハンドル
                     let state = app.state::<Arc<state::ReplayState>>();
                     let shortcut_str = shortcut.to_string().to_lowercase();
