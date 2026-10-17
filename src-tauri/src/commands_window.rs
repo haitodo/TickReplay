@@ -1,6 +1,28 @@
 use tauri::{AppHandle, Manager, Emitter};
 use crate::error::AppError;
 
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct WindowVisibilityPayload<'a> {
+    pub label: &'a str,
+    pub visible: bool,
+}
+
+pub fn emit_window_visible(window: &tauri::Window, visible: bool) {
+    let payload = WindowVisibilityPayload {
+        label: window.label(),
+        visible,
+    };
+    let _ = window.emit("window-visible", &payload);
+}
+
+pub fn emit_webview_visible(window: &tauri::WebviewWindow, visible: bool) {
+    let payload = WindowVisibilityPayload {
+        label: window.label(),
+        visible,
+    };
+    let _ = window.emit("window-visible", &payload);
+}
+
 pub fn is_position_valid_on_monitors(
     app_handle: &AppHandle,
     pos_x: i32,
@@ -184,7 +206,7 @@ pub async fn open_speed_order_window(app_handle: AppHandle) -> Result<(), AppErr
         );
 
         window.show()?;
-        let _ = window.emit("window-visible", true);
+        emit_webview_visible(&window, true);
         window.set_focus()?;
         window.set_always_on_top(true)?;
     } else {
@@ -211,7 +233,7 @@ pub async fn open_speed_order_window(app_handle: AppHandle) -> Result<(), AppErr
         );
 
         window.show()?;
-        let _ = window.emit("window-visible", true);
+        emit_webview_visible(&window, true);
         window.set_focus()?;
     }
     Ok(())
@@ -234,7 +256,7 @@ pub async fn open_positions_window(app_handle: AppHandle) -> Result<(), AppError
         );
 
         window.show()?;
-        let _ = window.emit("window-visible", true);
+        emit_webview_visible(&window, true);
         window.set_focus()?;
         window.set_always_on_top(true)?;
     } else {
@@ -260,7 +282,7 @@ pub async fn open_positions_window(app_handle: AppHandle) -> Result<(), AppError
             target_inner_h,
         );
         window.show()?;
-        let _ = window.emit("window-visible", true);
+        emit_webview_visible(&window, true);
         window.set_focus()?;
     }
     Ok(())
@@ -309,7 +331,7 @@ pub async fn open_controller_window(app_handle: AppHandle) -> Result<(), AppErro
         );
 
         window.show()?;
-        let _ = window.emit("window-visible", true);
+        emit_webview_visible(&window, true);
         window.set_focus()?;
         window.set_always_on_top(true)?;
     } else {
@@ -334,13 +356,14 @@ pub async fn open_controller_window(app_handle: AppHandle) -> Result<(), AppErro
             target_inner_h,
         );
         window.show()?;
-        let _ = window.emit("window-visible", true);
+        emit_webview_visible(&window, true);
         window.set_focus()?;
     }
 
     // モニター1のメイン設定ウィンドウを非表示にする
     if let Some(main_win) = app_handle.get_webview_window("main") {
         let _ = main_win.hide();
+        emit_webview_visible(&main_win, false);
     }
 
     Ok(())
@@ -351,6 +374,7 @@ pub async fn show_setup_window(app_handle: AppHandle) -> Result<(), AppError> {
     // コントローラーウィンドウを非表示にする
     if let Some(controller_win) = app_handle.get_webview_window("controller") {
         let _ = controller_win.hide();
+        emit_webview_visible(&controller_win, false);
     }
 
     // モニター1のメイン設定ウィンドウを表示・フォーカス
@@ -360,6 +384,7 @@ pub async fn show_setup_window(app_handle: AppHandle) -> Result<(), AppError> {
             height: 600.0,
         }));
         let _ = main_win.show();
+        emit_webview_visible(&main_win, true);
         let _ = main_win.set_focus();
     }
 
@@ -383,7 +408,7 @@ pub async fn open_settings_window(app_handle: AppHandle) -> Result<(), AppError>
         );
 
         window.show()?;
-        let _ = window.emit("window-visible", true);
+        emit_webview_visible(&window, true);
         window.set_focus()?;
         window.set_always_on_top(true)?;
     } else {
@@ -409,7 +434,7 @@ pub async fn open_settings_window(app_handle: AppHandle) -> Result<(), AppError>
             target_inner_h,
         );
         window.show()?;
-        let _ = window.emit("window-visible", true);
+        emit_webview_visible(&window, true);
         window.set_focus()?;
     }
     Ok(())
@@ -419,7 +444,7 @@ pub async fn open_settings_window(app_handle: AppHandle) -> Result<(), AppError>
 pub async fn close_settings_window(app_handle: AppHandle) -> Result<(), AppError> {
     if let Some(window) = app_handle.get_webview_window("settings") {
         let _ = window.hide();
-        let _ = window.emit("window-visible", false);
+        emit_webview_visible(&window, false);
     }
     Ok(())
 }
@@ -439,7 +464,7 @@ pub async fn open_symbol_selector_window(app_handle: AppHandle) -> Result<(), Ap
             target_inner_h,
         );
         window.show()?;
-        let _ = window.emit("window-visible", true);
+        emit_webview_visible(&window, true);
         window.set_focus()?;
         window.set_always_on_top(true)?;
     } else {
@@ -465,7 +490,7 @@ pub async fn open_symbol_selector_window(app_handle: AppHandle) -> Result<(), Ap
             target_inner_h,
         );
         window.show()?;
-        let _ = window.emit("window-visible", true);
+        emit_webview_visible(&window, true);
         window.set_focus()?;
     }
     Ok(())
@@ -475,7 +500,7 @@ pub async fn open_symbol_selector_window(app_handle: AppHandle) -> Result<(), Ap
 pub async fn close_symbol_selector_window(app_handle: AppHandle) -> Result<(), AppError> {
     if let Some(window) = app_handle.get_webview_window("symbol_selector") {
         let _ = window.hide();
-        let _ = window.emit("window-visible", false);
+        emit_webview_visible(&window, false);
     }
     Ok(())
 }
@@ -484,7 +509,7 @@ pub async fn close_symbol_selector_window(app_handle: AppHandle) -> Result<(), A
 pub async fn hide_window(app_handle: AppHandle, label: String) -> Result<(), AppError> {
     if let Some(window) = app_handle.get_webview_window(&label) {
         let _ = window.hide();
-        let _ = window.emit("window-visible", false);
+        emit_webview_visible(&window, false);
     }
     Ok(())
 }
@@ -562,4 +587,24 @@ pub fn exit_app(app_handle: AppHandle) {
     // MT5 描画パイプへの TERMINATE パケット送信フラッシュを確実に完了させる
     std::thread::sleep(std::time::Duration::from_millis(80));
     app_handle.exit(0);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_window_visibility_payload_serialization() {
+        let payload = WindowVisibilityPayload {
+            label: "speed_order",
+            visible: true,
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(json.contains("\"label\":\"speed_order\""));
+        assert!(json.contains("\"visible\":true"));
+
+        let deserialized: WindowVisibilityPayload = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.label, "speed_order");
+        assert!(deserialized.visible);
+    }
 }

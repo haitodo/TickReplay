@@ -22,6 +22,7 @@ import {
 } from "../utils/symbolUtils";
 import { getMonthRange, getYearRange, parseDateTimeStr } from "../utils/dateUtils";
 import { useTheme } from "../hooks/useTheme";
+import { resolveWindowVisibility } from "../domain/windowVisibility";
 
 interface SymbolSelectorInitPayload {
   sourceSymbol?: string;
@@ -159,8 +160,10 @@ export const SymbolSelectorWindowContent: React.FC = () => {
       }
     });
 
-    const unlistenVisible = listen<boolean>(EVENTS.windowVisible, (event) => {
-      if (event.payload) {
+    const currentLabel = getCurrentWindow().label;
+    const unlistenVisible = listen<unknown>(EVENTS.windowVisible, (event) => {
+      const isVisible = resolveWindowVisibility(currentLabel, event.payload, false);
+      if (isVisible) {
         loadSymbols(true);
       }
     });

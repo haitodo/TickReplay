@@ -11,6 +11,7 @@ import { VirtualAccount, VirtualPosition } from "../types/trading";
 import { nextAccount, nextPositions } from "../domain/tradeStateUpdate";
 import { ReplayProgressPayload } from "../types/replay";
 import { ReplayCommand, sendReplayCommand } from "../utils/command";
+import { resolveWindowVisibility } from "../domain/windowVisibility";
 
 export const PositionsWindowContent: React.FC = () => {
   useTheme();
@@ -120,25 +121,56 @@ export const PositionsWindowContent: React.FC = () => {
       scheduleStatus(event.payload);
     });
 
-    const unlistenVisible = listen<boolean>(EVENTS.windowVisible, (event) => {
-      isVisible = Boolean(event.payload);
+    const currentLabel = getCurrentWindow().label;
+    const unlistenVisible = listen<unknown>(EVENTS.windowVisible, (event) => {
+      const nextVisible = resolveWindowVisibility(currentLabel, event.payload, true);
+      if (nextVisible === null) {
+        if (typeof event.payload === "boolean") {
+          getCurrentWindow().isVisible().then((v) => {
+            isVisible = v;
+            if (v && pendingStatus !== null) {
+              scheduleStatus(pendingStatus);
+            }
+          }).catch(() => {});
+        }
+        return;
+      }
+      isVisible = nextVisible;
       if (isVisible && pendingStatus !== null) {
         scheduleStatus(pendingStatus);
       }
     });
 
     const handleVisibilityChange = () => {
-      if (!document.hidden && pendingStatus !== null) {
-        scheduleStatus(pendingStatus);
+      if (!document.hidden) {
+        getCurrentWindow().isVisible().then((v) => {
+          isVisible = v;
+          if (v && pendingStatus !== null) {
+            scheduleStatus(pendingStatus);
+          }
+        }).catch(() => {});
       }
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    let unlistenFocus: (() => void) | undefined;
+    getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+      if (focused) {
+        isVisible = true;
+        if (pendingStatus !== null) {
+          scheduleStatus(pendingStatus);
+        }
+      }
+    }).then((fn) => {
+      unlistenFocus = fn;
+    }).catch(() => {});
 
     return () => {
       if (statusFrame !== null) cancelAnimationFrame(statusFrame);
       pendingStatus = null;
       unlistenStatus.then((fn) => fn());
       unlistenVisible.then((fn) => fn());
+      if (unlistenFocus) unlistenFocus();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);

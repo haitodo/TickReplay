@@ -171,3 +171,5 @@ export interface CoreStatusSnapshot {
   };
   latest_audits: ExecutionAuditRecord[];
 }
+
+export type { WindowVisibilityPayload } from "../domain/windowVisibility";

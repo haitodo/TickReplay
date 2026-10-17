@@ -21,7 +21,7 @@ pub mod process_guard;
 pub mod core;
 
 use std::sync::Arc;
-use tauri::{Manager, Emitter};
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -94,7 +94,7 @@ pub fn run() {
                         // 完全に破棄せず非表示にすることで、次回起動を瞬時に行う（チラつき防止）
                         api.prevent_close();
                         let _ = window.hide();
-                        let _ = window.emit("window-visible", false);
+                        commands_window::emit_window_visible(window, false);
                         if window.label() == "controller" {
                             if let Some(main_win) = window.app_handle().get_webview_window("main") {
                                 let _ = main_win.show();

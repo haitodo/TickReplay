@@ -64,6 +64,7 @@ import {
   shouldApplyHistory
 } from "./domain/tradeStateUpdate";
 import { ReplayCommand, sendReplayCommand } from "./utils/command";
+import { resolveWindowVisibility } from "./domain/windowVisibility";
 
 
 
@@ -937,14 +938,24 @@ function MainWindow() {
   const isWindowVisibleRef = useRef<boolean>(true);
 
   useEffect(() => {
-    getCurrentWindow().isVisible().then((v) => {
-      isWindowVisibleRef.current = v;
-    }).catch(() => {});
-
-    const unlistenVisible = listen<boolean>(EVENTS.windowVisible, (event) => {
-      const visible = Boolean(event.payload);
-      isWindowVisibleRef.current = visible;
-      if (visible && pendingStatusPayloadRef.current !== null) {
+    const currentLabel = getCurrentWindow().label;
+    const unlistenVisible = listen<unknown>(EVENTS.windowVisible, (event) => {
+      const nextVisible = resolveWindowVisibility(currentLabel, event.payload, true);
+      if (nextVisible === null) {
+        if (typeof event.payload === "boolean") {
+          getCurrentWindow().isVisible().then((v) => {
+            isWindowVisibleRef.current = v;
+            if (v && pendingStatusPayloadRef.current !== null) {
+              const latest = pendingStatusPayloadRef.current;
+              pendingStatusPayloadRef.current = null;
+              handleStatusStringRef.current(latest);
+            }
+          }).catch(() => {});
+        }
+        return;
+      }
+      isWindowVisibleRef.current = nextVisible;
+      if (nextVisible && pendingStatusPayloadRef.current !== null) {
         const latest = pendingStatusPayloadRef.current;
         pendingStatusPayloadRef.current = null;
         handleStatusStringRef.current(latest);
@@ -952,16 +963,36 @@ function MainWindow() {
     });
 
     const handleVisibilityChange = () => {
-      if (!document.hidden && pendingStatusPayloadRef.current !== null) {
-        const latest = pendingStatusPayloadRef.current;
-        pendingStatusPayloadRef.current = null;
-        handleStatusStringRef.current(latest);
+      if (!document.hidden) {
+        getCurrentWindow().isVisible().then((v) => {
+          isWindowVisibleRef.current = v;
+          if (v && pendingStatusPayloadRef.current !== null) {
+            const latest = pendingStatusPayloadRef.current;
+            pendingStatusPayloadRef.current = null;
+            handleStatusStringRef.current(latest);
+          }
+        }).catch(() => {});
       }
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
+    let unlistenFocus: (() => void) | undefined;
+    getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+      if (focused) {
+        isWindowVisibleRef.current = true;
+        if (pendingStatusPayloadRef.current !== null) {
+          const latest = pendingStatusPayloadRef.current;
+          pendingStatusPayloadRef.current = null;
+          handleStatusStringRef.current(latest);
+        }
+      }
+    }).then((fn) => {
+      unlistenFocus = fn;
+    }).catch(() => {});
+
     return () => {
       unlistenVisible.then((fn) => fn());
+      if (unlistenFocus) unlistenFocus();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);

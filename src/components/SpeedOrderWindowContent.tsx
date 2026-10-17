@@ -25,6 +25,7 @@ import { getCachedEconomicAvailabilityMap, isEconomicSpreadActive } from "../uti
 import { formatJstTime, formatServerTime, splitShortDateTime } from "../utils/timeUtils";
 import { type StopwatchItem } from "../domain/holdingTime";
 import { HoldingTimeBar } from "./HoldingTimeBar";
+import { resolveWindowVisibility } from "../domain/windowVisibility";
 
 export const SpeedOrderWindowContent: React.FC = () => {
   useTheme();
@@ -552,19 +553,49 @@ export const SpeedOrderWindowContent: React.FC = () => {
       scheduleStatus(event.payload);
     });
 
-    const unlistenVisible = listen<boolean>(EVENTS.windowVisible, (event) => {
-      isVisible = Boolean(event.payload);
+    const currentLabel = getCurrentWindow().label;
+    const unlistenVisible = listen<unknown>(EVENTS.windowVisible, (event) => {
+      const nextVisible = resolveWindowVisibility(currentLabel, event.payload, true);
+      if (nextVisible === null) {
+        if (typeof event.payload === "boolean") {
+          getCurrentWindow().isVisible().then((v) => {
+            isVisible = v;
+            if (v && pendingStatus !== null) {
+              scheduleStatus(pendingStatus);
+            }
+          }).catch(() => {});
+        }
+        return;
+      }
+      isVisible = nextVisible;
       if (isVisible && pendingStatus !== null) {
         scheduleStatus(pendingStatus);
       }
     });
 
     const handleVisibilityChange = () => {
-      if (!document.hidden && pendingStatus !== null) {
-        scheduleStatus(pendingStatus);
+      if (!document.hidden) {
+        getCurrentWindow().isVisible().then((v) => {
+          isVisible = v;
+          if (v && pendingStatus !== null) {
+            scheduleStatus(pendingStatus);
+          }
+        }).catch(() => {});
       }
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    let unlistenFocus: (() => void) | undefined;
+    getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+      if (focused) {
+        isVisible = true;
+        if (pendingStatus !== null) {
+          scheduleStatus(pendingStatus);
+        }
+      }
+    }).then((fn) => {
+      unlistenFocus = fn;
+    }).catch(() => {});
 
     const unlistenDisconnect = listen(EVENTS.mt5Disconnected, () => {
       discardPendingStatus();
@@ -587,6 +618,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
       pendingStatus = null;
       unlistenStatus.then((fn) => fn());
       unlistenVisible.then((fn) => fn());
+      if (unlistenFocus) unlistenFocus();
       unlistenDisconnect.then((fn) => fn());
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
