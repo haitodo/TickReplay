@@ -23,11 +23,8 @@ import {
 import type { LatencyModel, SlippageModel, ExecutionAuditRecord } from "../types/replay";
 import { getCachedEconomicAvailabilityMap, isEconomicSpreadActive } from "../utils/economicDataUtils";
 import { formatJstTime, formatServerTime, splitShortDateTime } from "../utils/timeUtils";
-import {
-  calculatePositionElapsedTime,
-  formatElapsedTime,
-  type StopwatchItem,
-} from "../domain/holdingTime";
+import { type StopwatchItem } from "../domain/holdingTime";
+import { HoldingTimeBar } from "./HoldingTimeBar";
 
 export const SpeedOrderWindowContent: React.FC = () => {
   useTheme();
@@ -705,27 +702,6 @@ export const SpeedOrderWindowContent: React.FC = () => {
     syncStopwatchState(positions, isPlaying);
   }, [positionTicketsKey, isPlaying]);
 
-  const [timerTrigger, setTimerTrigger] = useState(0);
-  useEffect(() => {
-    if (!showHoldingTime || positions.length === 0 || !isPlaying) {
-      return;
-    }
-    const interval = setInterval(() => {
-      setTimerTrigger(t => t + 1);
-    }, 200);
-    return () => clearInterval(interval);
-  }, [showHoldingTime, positions.length, isPlaying]);
-
-  const getOldestPositionElapsedTime = (_trigger: number) => {
-    const curVirtualTime = virtualTimeMscRef.current || virtualTimeMsc;
-    return calculatePositionElapsedTime(
-      positions,
-      holdingTimeMode,
-      curVirtualTime,
-      stopwatchStateRef.current,
-      Date.now()
-    );
-  };
 
   const handleOrderOpen = (type: "BUY" | "SELL") => {
     if (maxSpreadEnabled && maxSpreadPips > 0) {
@@ -1189,20 +1165,16 @@ export const SpeedOrderWindowContent: React.FC = () => {
         <button className="close-btn close-sell" onClick={handleCloseSell} disabled={totalSellLots === 0}>SELL決済</button>
       </div>
 
-      {/* 最古ポジションの経過時間表示 */}
-      {showHoldingTime && (
-        <div className={`speed-holding-time-bar ${positions.length === 0 ? "inactive" : ""}`}>
-          <span className="holding-time-label">
-            <span className="material-symbols-outlined" style={{ fontSize: "12px", verticalAlign: "middle" }}>schedule</span>
-            最古ポジション保有時間 ({holdingTimeMode === "pc" ? "PC" : "Chart"})
-          </span>
-          <span className="holding-time-val">
-            {positions.length > 0
-              ? formatElapsedTime(getOldestPositionElapsedTime(timerTrigger))
-              : "--"}
-          </span>
-        </div>
-      )}
+      {/* 最古ポジションの経過時間表示 (独立メモ化コンポーネント) */}
+      <HoldingTimeBar
+        showHoldingTime={showHoldingTime}
+        positions={positions}
+        holdingTimeMode={holdingTimeMode}
+        isPlaying={isPlaying}
+        virtualTimeMsc={virtualTimeMsc}
+        virtualTimeMscRef={virtualTimeMscRef}
+        stopwatchStateRef={stopwatchStateRef}
+      />
 
       {/* 建玉要約 (左右並列レイアウト) */}
       <div className="speed-pos-summary-container">

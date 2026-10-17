@@ -138,10 +138,10 @@ describe("formatElapsedTime", () => {
     expect(formatElapsedTime(59900)).toBe("59.9秒");
   });
 
-  it("1分以上1時間未満は 分秒 を表示", () => {
-    expect(formatElapsedTime(60000)).toBe("1分0秒");
-    expect(formatElapsedTime(125000)).toBe("2分5秒");
-    expect(formatElapsedTime(3599000)).toBe("59分59秒");
+  it("1分以上1時間未満は 分秒.コンマ秒 (秒は2桁0埋め) を表示", () => {
+    expect(formatElapsedTime(60000)).toBe("1分00.0秒");
+    expect(formatElapsedTime(125400)).toBe("2分05.4秒");
+    expect(formatElapsedTime(3599900)).toBe("59分59.9秒");
   });
 
   it("1時間以上は 時間分秒 を表示", () => {

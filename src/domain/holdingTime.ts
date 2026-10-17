@@ -53,13 +53,14 @@ export function formatElapsedTime(ms: number): string {
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
+  const tenths = Math.floor((ms % 1000) / 100);
 
   if (hours > 0) {
     return `${hours}時間${minutes}分${seconds}秒`;
   }
   if (minutes > 0) {
-    return `${minutes}分${seconds}秒`;
+    const secPad = seconds < 10 ? `0${seconds}` : `${seconds}`;
+    return `${minutes}分${secPad}.${tenths}秒`;
   }
-  const tenths = Math.floor((ms % 1000) / 100);
   return `${seconds}.${tenths}秒`;
 }
