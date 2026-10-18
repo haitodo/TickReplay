@@ -5,6 +5,17 @@ export interface StopwatchItem {
   lastActiveTime: number | null;
 }
 
+/** 保有時間の注意・警告しきい値 (ミリ秒) */
+export const HOLDING_WARN_MS = 60_000;
+export const HOLDING_OVER_MS = 180_000;
+
+/** 経過時間から表示上のプレッシャー区分を返す */
+export function getHoldingPressure(elapsedMs: number): "warn" | "over" | null {
+  if (elapsedMs >= HOLDING_OVER_MS) return "over";
+  if (elapsedMs >= HOLDING_WARN_MS) return "warn";
+  return null;
+}
+
 /**
  * 最古ポジションの経過時間を計算 (ミリ秒)
  */

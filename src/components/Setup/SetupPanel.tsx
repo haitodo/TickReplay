@@ -1200,7 +1200,7 @@ const SetupPanelComponent: React.FC<SetupPanelProps> = ({
               onClick={() => invoke(COMMANDS.openTracelyApp).catch(console.error)}
               title="トレード分析アプリ Tracely を起動"
             >
-              <span className="material-symbols-outlined icon text-indigo">analytics</span>
+              <span className="material-symbols-outlined icon">analytics</span>
               <span>トレード分析</span>
             </button>
           </div>

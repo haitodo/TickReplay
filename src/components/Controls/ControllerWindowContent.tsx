@@ -7,7 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ControlDashboard } from "./ControlDashboard";
-import { useTheme } from "../../hooks/useTheme";
+import { useAppearance } from "../../hooks/useAppearance";
 import { formatJstTime, formatServerTime, splitShortDateTime } from "../../utils/timeUtils";
 import { DEFAULT_TIME_STEPS, formatSecondsToLabel } from "../../domain/timeSteps";
 import type { TimeStepItem, DayTimelineActivity } from "../../types/replay";
@@ -16,7 +16,7 @@ import { PersistedSettings } from "../../types/settings";
 import { ReplayProgressPayload } from "../../types/replay";
 
 export const ControllerWindowContent: React.FC = () => {
-  useTheme();
+  useAppearance();
 
   // --- 再生ステータス State ---
   const [status, setStatus] = useState<"DISCONNECTED" | "CONNECTED" | "READY" | "ACTIVE">("DISCONNECTED");
@@ -749,7 +749,7 @@ export const ControllerWindowContent: React.FC = () => {
             onClick={() => invoke(COMMANDS.openTracelyApp).catch(console.error)}
             title="トレード分析 (Tracely) を起動"
           >
-            <span className="material-symbols-outlined icon text-indigo">analytics</span>
+            <span className="material-symbols-outlined icon">analytics</span>
           </button>
           <button
             type="button"

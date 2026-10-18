@@ -6,7 +6,7 @@ import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { formatRate } from "../utils/rateUtils";
-import { useTheme } from "../hooks/useTheme";
+import { useAppearance } from "../hooks/useAppearance";
 import { VirtualAccount, VirtualPosition } from "../types/trading";
 import { nextAccount, nextPositions } from "../domain/tradeStateUpdate";
 import { ReplayProgressPayload } from "../types/replay";
@@ -14,7 +14,7 @@ import { ReplayCommand, sendReplayCommand } from "../utils/command";
 import { resolveWindowVisibility } from "../domain/windowVisibility";
 
 export const PositionsWindowContent: React.FC = () => {
-  useTheme();
+  useAppearance();
 
   const [positions, setPositions] = useState<VirtualPosition[]>([]);
   const [account, setAccount] = useState<VirtualAccount | null>(null);

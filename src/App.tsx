@@ -27,7 +27,7 @@ import { SettingsModal } from "./components/Settings/SettingsModal";
 import { parseSymbolName, getCompanionSymbols, switchSymbolSuffix, getAllYears, checkSymbolYearMismatch } from "./utils/symbolUtils";
 import { parseDateTimeStr, alignDateRangeToYear } from "./utils/dateUtils";
 import { checkEconomicDataAvailability } from "./utils/economicDataUtils";
-import { useTheme } from "./hooks/useTheme";
+import { useAppearance } from "./hooks/useAppearance";
 import {
   DEFAULT_TIME_STEPS,
   formatSecondsToLabel,
@@ -576,7 +576,7 @@ function MainWindow() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isResetReplayConfirmOpen, setIsResetReplayConfirmOpen] = useState(false);
   const [isResetTradingConfirmOpen, setIsResetTradingConfirmOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"general" | "hotkeys" | "theme">("general");
+  const [activeTab, setActiveTab] = useState<"general" | "hotkeys" | "display">("general");
 
   // タイムステップカスタマイズ State
   const [timeSteps, setTimeSteps] = useState<TimeStepItem[]>(() => {
@@ -612,10 +612,9 @@ function MainWindow() {
 
 
   const {
-    theme, setTheme, cycleTheme,
     plColorStyle, setPlColorStyle,
     orderColorStyle, setOrderColorStyle
-  } = useTheme();
+  } = useAppearance();
   const [recordingAction, setRecordingAction] = useState<string | null>(null);
   const [hotkeys, setHotkeys] = useState<Record<string, string>>(DEFAULT_HOTKEYS);
   const [timePresets, setTimePresets] = useState<number[]>(() => [...DEFAULT_SPEED_TIME_PRESETS]);
@@ -1246,11 +1245,6 @@ function MainWindow() {
             setTickPresets(saved.tick_presets);
             loadedTickPresets = saved.tick_presets;
           }
-          if (saved.theme_mode) {
-            if (["dark", "dim", "light", "sepia", "warm-sepia"].includes(saved.theme_mode)) {
-              setTheme(saved.theme_mode);
-            }
-          }
           if (saved.always_on_top !== undefined && saved.always_on_top !== null) {
             setAlwaysOnTop(saved.always_on_top);
             loadedAlwaysOnTop = saved.always_on_top;
@@ -1409,7 +1403,7 @@ function MainWindow() {
       unlistenDisconnect.then((fn) => fn());
       unlistenConnect.then((fn) => fn());
     };
-  }, [scheduleStatusUpdate, setOrderColorStyle, setPlColorStyle, setTheme]);
+  }, [scheduleStatusUpdate, setOrderColorStyle, setPlColorStyle]);
 
   // Start Timeが変更されたら、デフォルトのプリロード開始日を年初に自動更新
   useEffect(() => {
@@ -1476,7 +1470,6 @@ function MainWindow() {
     customHotkeys = hotkeys,
     customTimePresets = timePresets,
     customTickPresets = tickPresets,
-    customTheme = theme,
     customAlwaysOnTop = alwaysOnTop,
     customIsShortcutsActive = isShortcutsActive,
     customAutoScrollSync = autoScrollSync,
@@ -1520,7 +1513,6 @@ function MainWindow() {
       hotkeys: customHotkeys,
       time_presets: customTimePresets,
       tick_presets: customTickPresets,
-      theme_mode: customTheme,
       always_on_top: customAlwaysOnTop,
       is_shortcuts_active: customIsShortcutsActive,
       timezone_mode: customTimezoneMode,
@@ -1598,7 +1590,6 @@ function MainWindow() {
     hotkeys,
     timePresets,
     tickPresets,
-    theme,
     alwaysOnTop,
     isShortcutsActive,
     timezoneMode,
@@ -2461,7 +2452,6 @@ function MainWindow() {
       hotkeys,
       timePresets,
       tickPresets,
-      theme,
       alwaysOnTop,
       isShortcutsActive,
       autoScrollSync,
@@ -3028,13 +3018,6 @@ function MainWindow() {
         sourceSymbol={sourceSymbol}
         alwaysOnTop={alwaysOnTop}
         isShortcutsActive={isShortcutsActive}
-        theme={theme}
-        setTheme={setTheme}
-        cycleTheme={cycleTheme}
-        saveAllSettings={saveAllSettings}
-        hotkeys={hotkeys}
-        timePresets={timePresets}
-        tickPresets={tickPresets}
         handleAlwaysOnTopToggle={handleAlwaysOnTopToggle}
         handleShortcutsToggle={handleShortcutsToggle}
         toggleRemoteMode={toggleRemoteMode}
@@ -3179,13 +3162,9 @@ function MainWindow() {
         handleAlwaysOnTopToggle={handleAlwaysOnTopToggle}
         isShortcutsActive={isShortcutsActive}
         handleShortcutsToggle={handleShortcutsToggle}
-        theme={theme}
-        setTheme={setTheme}
         plColorStyle={plColorStyle}
         setPlColorStyle={setPlColorStyle}
         saveAllSettings={saveAllSettings}
-        timePresets={timePresets}
-        tickPresets={tickPresets}
         economicDataDir={economicDataDir}
         setEconomicDataDir={saveEconomicDataDir}
       />
@@ -3824,7 +3803,7 @@ function MainWindow() {
                 onClick={() => {
                   setTimePresets(editingTimePresets);
                   setTickPresets(editingTickPresets);
-                  saveAllSettings(hotkeys, editingTimePresets, editingTickPresets, theme);
+                  saveAllSettings(hotkeys, editingTimePresets, editingTickPresets);
                   setIsSpeedPresetsModalOpen(false);
                 }}
               >

@@ -12,17 +12,15 @@ import {
   formatShortcutForDisplay,
   getTauriShortcutFromEvent,
 } from "../../utils/hotkeyUtils";
-import { THEME_LIST } from "../../constants/themePresets";
-import { useTheme } from "../../hooks/useTheme";
+import { useAppearance } from "../../hooks/useAppearance";
 import { PersistedSettings } from "../../types/settings";
 
 type SettingsSaveOverrides = {
   hotkeys?: Record<string, string>;
   timePresets?: number[];
   tickPresets?: number[];
-  theme?: ReturnType<typeof useTheme>["theme"];
-  plColorStyle?: ReturnType<typeof useTheme>["plColorStyle"];
-  orderColorStyle?: ReturnType<typeof useTheme>["orderColorStyle"];
+  plColorStyle?: ReturnType<typeof useAppearance>["plColorStyle"];
+  orderColorStyle?: ReturnType<typeof useAppearance>["orderColorStyle"];
   alwaysOnTop?: boolean;
   isShortcutsActive?: boolean;
   autoScrollSync?: boolean;
@@ -32,15 +30,13 @@ type SettingsSaveOverrides = {
 
 export const SettingsWindowContent: React.FC = () => {
   const {
-    theme,
-    setTheme,
     plColorStyle,
     setPlColorStyle,
     orderColorStyle,
     setOrderColorStyle,
-  } = useTheme();
+  } = useAppearance();
 
-  const [activeTab, setActiveTab] = useState<"general" | "hotkeys" | "theme">("general");
+  const [activeTab, setActiveTab] = useState<"general" | "hotkeys" | "display">("general");
 
   // 一般設定
   const [autoScrollSync, setAutoScrollSync] = useState(true);
@@ -96,7 +92,6 @@ export const SettingsWindowContent: React.FC = () => {
       const activeHotkeys = overrides.hotkeys ?? hotkeys;
       const activeTimePresets = overrides.timePresets ?? timePresets;
       const activeTickPresets = overrides.tickPresets ?? tickPresets;
-      const activeTheme = overrides.theme ?? theme;
       const activePlColorStyle = overrides.plColorStyle ?? plColorStyle;
       const activeOrderColorStyle = overrides.orderColorStyle ?? orderColorStyle;
       const activeAlwaysOnTop = overrides.alwaysOnTop ?? alwaysOnTop;
@@ -111,7 +106,6 @@ export const SettingsWindowContent: React.FC = () => {
             hotkeys: activeHotkeys,
             time_presets: activeTimePresets,
             tick_presets: activeTickPresets,
-            theme_mode: activeTheme,
             pl_color_style: activePlColorStyle,
             order_color_style: activeOrderColorStyle,
             always_on_top: activeAlwaysOnTop,
@@ -121,15 +115,11 @@ export const SettingsWindowContent: React.FC = () => {
             economic_data_dir: activeEconomicDataDir,
           },
         });
-        localStorage.setItem(STORAGE_KEYS.tickreplayTheme, activeTheme);
-        localStorage.setItem(STORAGE_KEYS.theme, activeTheme);
-        localStorage.setItem(STORAGE_KEYS.themeMode, activeTheme);
         localStorage.setItem(STORAGE_KEYS.plColorStyle, activePlColorStyle);
         localStorage.setItem(STORAGE_KEYS.speedOrderColorStyle, activeOrderColorStyle);
         localStorage.setItem(STORAGE_KEYS.replayEconomicDataDir, activeEconomicDataDir);
 
         emit(EVENTS.settingsUpdated, {
-          theme: activeTheme,
           plColorStyle: activePlColorStyle,
           orderColorStyle: activeOrderColorStyle,
         }).catch(console.error);
@@ -141,7 +131,6 @@ export const SettingsWindowContent: React.FC = () => {
       hotkeys,
       timePresets,
       tickPresets,
-      theme,
       plColorStyle,
       orderColorStyle,
       alwaysOnTop,
@@ -240,11 +229,11 @@ export const SettingsWindowContent: React.FC = () => {
             <span>ショートカット</span>
           </button>
           <button
-            className={`settings-nav-btn ${activeTab === "theme" ? "active" : ""}`}
-            onClick={() => setActiveTab("theme")}
+            className={`settings-nav-btn ${activeTab === "display" ? "active" : ""}`}
+            onClick={() => setActiveTab("display")}
           >
             <span className="material-symbols-outlined icon">palette</span>
-            <span>テーマ・外観</span>
+            <span>表示・配色</span>
           </button>
         </nav>
 
@@ -449,78 +438,12 @@ export const SettingsWindowContent: React.FC = () => {
             </div>
           )}
 
-          {/* 3. テーマ・外観設定 */}
-          {activeTab === "theme" && (
+          {/* 3. 表示・配色設定 */}
+          {activeTab === "display" && (
             <div className="settings-tab-pane">
-              <div className="theme-intro-header">
-                <p className="theme-intro-text">
-                  👀 <strong>眼精疲労軽減・視覚保護設計:</strong> 米国主要テック企業の最新デザインガイドラインに基づき、白文字の眩しさ（ハレーション）や過剰コントラストによる目の疲れ・チカチカを防止する最適な配色を採用しています。
-                </p>
-              </div>
-
-              <div className="settings-section-card">
-                <h3 className="section-title">
-                  <span className="material-symbols-outlined icon">palette</span>
-                  カラーテーマ選択 (5大プリセット)
-                </h3>
-                <div className="theme-cards-grid">
-                  {THEME_LIST.map((themeItem) => {
-                    const isActive = theme === themeItem.id;
-                    return (
-                      <div
-                        key={themeItem.id}
-                        className={`theme-card ${isActive ? "active" : ""}`}
-                        onClick={() => {
-                          setTheme(themeItem.id);
-                          saveAll({ theme: themeItem.id });
-                        }}
-                      >
-                        <div className="theme-card-header">
-                          <div className="theme-card-title-group">
-                            <span className="theme-icon">{themeItem.icon}</span>
-                            <div>
-                              <span className="theme-name">{themeItem.nameJa} ({themeItem.nameEn})</span>
-                              <span className="theme-subname">{themeItem.subname}</span>
-                            </div>
-                          </div>
-                          {isActive ? (
-                            <span className="theme-badge active">✓ 適用中</span>
-                          ) : (
-                            <span className="theme-badge inactive">選択</span>
-                          )}
-                        </div>
-
-                        {/* カラーパレットプレビュー */}
-                        <div className="theme-swatch-bar">
-                          <div className="swatch-item" title={`背景: ${themeItem.bgHex}`}>
-                            <span className="swatch-circle" style={{ backgroundColor: themeItem.bgHex, border: "1px solid rgba(128,128,128,0.4)" }} />
-                            <span className="swatch-label">BG</span>
-                          </div>
-                          <div className="swatch-item" title={`カード: ${themeItem.cardHex}`}>
-                            <span className="swatch-circle" style={{ backgroundColor: themeItem.cardHex, border: "1px solid rgba(128,128,128,0.4)" }} />
-                            <span className="swatch-label">Card</span>
-                          </div>
-                          <div className="swatch-item" title={`文字: ${themeItem.textHex}`}>
-                            <span className="swatch-circle" style={{ backgroundColor: themeItem.textHex }} />
-                            <span className="swatch-label">Text</span>
-                          </div>
-                          <div className="swatch-item" title={`アクセント: ${themeItem.accentHex}`}>
-                            <span className="swatch-circle" style={{ backgroundColor: themeItem.accentHex }} />
-                            <span className="swatch-label">Accent</span>
-                          </div>
-                        </div>
-
-                        <p className="theme-desc">{themeItem.description}</p>
-
-                        <div className="theme-env-badge">
-                          <span className="env-icon">💡</span>
-                          <span>{themeItem.environment}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+              <p className="settings-hint" style={{ marginBottom: "12px" }}>
+                カラーテーマはダーク固定です。損益と発注ボタンの配色を選択できます。
+              </p>
 
               <div className="settings-section-card">
                 <h3 className="section-title">

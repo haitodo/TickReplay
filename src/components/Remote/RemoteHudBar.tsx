@@ -247,7 +247,7 @@ export const RemoteHudBar: React.FC<RemoteHudBarProps> = ({
           onClick={() => invoke(COMMANDS.openTracelyApp).catch(console.error)}
           title="トレード分析 (Tracely) を起動"
         >
-          <span className="material-symbols-outlined text-[14px] text-indigo">analytics</span>
+          <span className="material-symbols-outlined text-[14px]">analytics</span>
         </button>
         <button
           className={`remote-btn-utility ${isShortcutsActive ? "active-green" : ""}`}

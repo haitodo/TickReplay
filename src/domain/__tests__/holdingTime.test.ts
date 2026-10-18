@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { calculatePositionElapsedTime, formatElapsedTime } from "../holdingTime";
+import {
+  calculatePositionElapsedTime,
+  formatElapsedTime,
+  getHoldingPressure,
+  HOLDING_OVER_MS,
+  HOLDING_WARN_MS,
+} from "../holdingTime";
 import type { VirtualPosition } from "../../types/trading";
 
 describe("calculatePositionElapsedTime", () => {
@@ -152,5 +158,22 @@ describe("formatElapsedTime", () => {
   it("負数や NaN は 0.0秒 として安全にフォーマットする", () => {
     expect(formatElapsedTime(-100)).toBe("0.0秒");
     expect(formatElapsedTime(NaN)).toBe("0.0秒");
+  });
+});
+
+describe("getHoldingPressure", () => {
+  it("60秒未満は通常表示", () => {
+    expect(getHoldingPressure(0)).toBeNull();
+    expect(getHoldingPressure(HOLDING_WARN_MS - 1)).toBeNull();
+  });
+
+  it("60秒以上180秒未満は warn", () => {
+    expect(getHoldingPressure(HOLDING_WARN_MS)).toBe("warn");
+    expect(getHoldingPressure(HOLDING_OVER_MS - 1)).toBe("warn");
+  });
+
+  it("180秒以上は over", () => {
+    expect(getHoldingPressure(HOLDING_OVER_MS)).toBe("over");
+    expect(getHoldingPressure(HOLDING_OVER_MS + 60_000)).toBe("over");
   });
 });

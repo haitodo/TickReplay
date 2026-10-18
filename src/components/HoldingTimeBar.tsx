@@ -3,6 +3,7 @@ import type { VirtualPosition } from "../types/trading";
 import {
   calculatePositionElapsedTime,
   formatElapsedTime,
+  getHoldingPressure,
   type StopwatchItem,
 } from "../domain/holdingTime";
 
@@ -26,21 +27,21 @@ export const HoldingTimeBar: React.FC<HoldingTimeBarProps> = memo(
     virtualTimeMscRef,
     stopwatchStateRef,
   }) => {
-    if (!showHoldingTime) return null;
-
     // 50ms (秒間20fps) でタイマーを更新。
     // 親コンポーネント全体を巻き込まず、このバー内部のみが再描画される。
-    const [_, setTrigger] = useState(0);
+    const [, setTrigger] = useState(0);
 
     useEffect(() => {
-      if (positions.length === 0 || !isPlaying) {
+      if (!showHoldingTime || positions.length === 0 || !isPlaying) {
         return;
       }
       const interval = setInterval(() => {
         setTrigger((t) => t + 1);
       }, 50);
       return () => clearInterval(interval);
-    }, [positions.length, isPlaying]);
+    }, [showHoldingTime, positions.length, isPlaying]);
+
+    if (!showHoldingTime) return null;
 
     const currentVirtualTime = virtualTimeMscRef.current || virtualTimeMsc;
     const elapsed =
@@ -54,16 +55,21 @@ export const HoldingTimeBar: React.FC<HoldingTimeBarProps> = memo(
           )
         : 0;
 
+    const pressure = positions.length > 0 ? getHoldingPressure(elapsed) : null;
+
     return (
-      <div className={`speed-holding-time-bar ${positions.length === 0 ? "inactive" : ""}`}>
+      <div
+        className={`speed-holding-time-bar ${positions.length === 0 ? "inactive" : ""} ${pressure ?? ""}`}
+        title="最も古いポジションの保有時間"
+      >
         <span className="holding-time-label">
-          <span
-            className="material-symbols-outlined"
-            style={{ fontSize: "12px", verticalAlign: "middle" }}
-          >
+          <span className="material-symbols-outlined" aria-hidden="true">
             schedule
           </span>
-          最古ポジション保有時間 ({holdingTimeMode === "pc" ? "PC" : "Chart"})
+          保有時間
+          <span className="holding-time-mode">
+            {holdingTimeMode === "pc" ? "PC" : "CHART"}
+          </span>
         </span>
         <span className="holding-time-val font-data">
           {positions.length > 0 ? formatElapsedTime(elapsed) : "--"}

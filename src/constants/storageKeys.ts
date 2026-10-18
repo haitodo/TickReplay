@@ -27,10 +27,7 @@ export const STORAGE_KEYS = {
   speedOrderTpEnabled: "speed-order-tp-enabled",
   speedOrderTpPoints: "speed-order-tp-points",
   symbolSelectorCurrentState: "symbol-selector-current-state",
-  theme: "theme",
-  themeMode: "theme-mode",
   tickPresets: "tick-presets",
   tickreplaySetupAdvancedOpen: "tickreplay_setup_advanced_open",
-  tickreplayTheme: "tickreplay_theme",
   timePresets: "time-presets",
 } as const;

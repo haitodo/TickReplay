@@ -786,7 +786,7 @@ export const AdvancedSettingsAccordion: React.FC<AdvancedSettingsAccordionProps>
                       <span><strong>指値/逆指値自動判定:</strong> TP/SLヒット時に瞬時に自動決済</span>
                     </div>
                     <div className="rule-item">
-                      <span className="material-symbols-outlined icon text-indigo">check_circle</span>
+                      <span className="material-symbols-outlined icon text-green">check_circle</span>
                       <span><strong>スピード発注・ホットキー連携:</strong> 成行・ドテン・全決済に完全対応</span>
                     </div>
                   </div>

@@ -2,7 +2,6 @@
  * アプリケーション環境設定およびホットキー関連のドメイン型定義
  */
 
-import { ThemeType } from "../constants/themePresets";
 import { OrderColorStyle, PlColorStyle } from "./trading";
 import { SessionReplaySettings } from "./session";
 
@@ -32,7 +31,6 @@ export interface AppSettings {
   hotkeys: HotkeyMapping;
   time_presets: number[];
   tick_presets: number[];
-  theme_mode?: ThemeType;
   pl_color_style?: PlColorStyle;
   order_color_style?: OrderColorStyle;
   always_on_top?: boolean;

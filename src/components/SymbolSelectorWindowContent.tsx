@@ -21,7 +21,7 @@ import {
   isDucascopyBroker
 } from "../utils/symbolUtils";
 import { getMonthRange, getYearRange, parseDateTimeStr } from "../utils/dateUtils";
-import { useTheme } from "../hooks/useTheme";
+import { useAppearance } from "../hooks/useAppearance";
 import { resolveWindowVisibility } from "../domain/windowVisibility";
 
 interface SymbolSelectorInitPayload {
@@ -35,7 +35,7 @@ interface SymbolSelectorInitPayload {
 }
 
 export const SymbolSelectorWindowContent: React.FC = () => {
-  useTheme();
+  useAppearance();
 
   // シンボル一覧
   const [availableSymbols, setAvailableSymbols] = useState<SymbolItem[]>([]);

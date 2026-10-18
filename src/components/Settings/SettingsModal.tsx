@@ -2,13 +2,12 @@ import React from "react";
 import { COMMANDS } from "../../constants/commands";
 import { invoke } from "@tauri-apps/api/core";
 import { DEFAULT_HOTKEYS, HOTKEY_METADATA, formatShortcutForDisplay } from "../../utils/hotkeyUtils";
-import { THEME_LIST, ThemeType } from "../../constants/themePresets";
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  activeTab: "general" | "hotkeys" | "theme";
-  setActiveTab: (tab: "general" | "hotkeys" | "theme") => void;
+  activeTab: "general" | "hotkeys" | "display";
+  setActiveTab: (tab: "general" | "hotkeys" | "display") => void;
   recordingAction: string | null;
   setRecordingAction: (action: string | null) => void;
   hotkeys: Record<string, string>;
@@ -24,21 +23,9 @@ interface SettingsModalProps {
   handleShortcutsToggle: () => void;
   economicDataDir?: string;
   setEconomicDataDir?: (val: string) => void;
-  theme?: ThemeType;
-  setTheme?: (theme: ThemeType) => void;
-  themeId?: string;
-  setThemeId?: (id: string) => void;
-  themeMode?: "dark" | "light";
   plColorStyle: "red-blue" | "green-red";
   setPlColorStyle: (val: "red-blue" | "green-red") => void;
-  saveAllSettings: (
-    nextHotkeys?: Record<string, string>,
-    nextTimePresets?: number[],
-    nextTickPresets?: number[],
-    nextTheme?: ThemeType
-  ) => void;
-  timePresets: number[];
-  tickPresets: number[];
+  saveAllSettings: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -61,15 +48,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   handleShortcutsToggle,
   economicDataDir,
   setEconomicDataDir,
-  theme,
-  setTheme,
-  themeId,
-  setThemeId,
   plColorStyle,
   setPlColorStyle,
   saveAllSettings,
-  timePresets,
-  tickPresets,
 }) => {
   if (!isOpen) return null;
 
@@ -115,11 +96,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             ショートカット
           </button>
           <button
-            className={`modal-tab-btn ${activeTab === "theme" ? "active" : ""}`}
-            onClick={() => setActiveTab("theme")}
+            className={`modal-tab-btn ${activeTab === "display" ? "active" : ""}`}
+            onClick={() => setActiveTab("display")}
           >
             <span className="material-symbols-outlined tab-icon">palette</span>
-            テーマ
+            表示・配色
           </button>
         </div>
 
@@ -281,80 +262,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           )}
 
-          {/* 3. テーマ設定 */}
-          {activeTab === "theme" && (
+          {/* 3. 表示・配色設定 */}
+          {activeTab === "display" && (
             <div className="settings-section-stack">
-              <div className="theme-intro-header">
-                <p className="theme-intro-text">
-                  👀 <strong>眼精疲労軽減・視覚保護設計:</strong> 米国主要テック企業の最新デザインガイドラインに基づき、白文字の眩しさ（ハレーション）や過剰コントラストによる目の疲れ・チカチカを防止する最適な配色を採用しています。
-                </p>
-              </div>
-
-              <div className="settings-group">
-                <h4 className="settings-group-title">カラーテーマ選択 (5大プリセット)</h4>
-                <div className="theme-cards-grid">
-                  {THEME_LIST.map((themeItem) => {
-                    const currentTheme = theme || themeId || "dark";
-                    const isActive = currentTheme === themeItem.id;
-                    return (
-                      <div
-                        key={themeItem.id}
-                        className={`theme-card ${isActive ? "active" : ""}`}
-                        onClick={() => {
-                          if (setTheme) setTheme(themeItem.id);
-                          else if (setThemeId) setThemeId(themeItem.id);
-                          saveAllSettings(hotkeys, timePresets, tickPresets, themeItem.id);
-                        }}
-                      >
-                        <div className="theme-card-header">
-                          <div className="theme-card-title-group">
-                            <span className="theme-icon">{themeItem.icon}</span>
-                            <div>
-                              <span className="theme-name">{themeItem.nameJa} ({themeItem.nameEn})</span>
-                              <span className="theme-subname">{themeItem.subname}</span>
-                            </div>
-                          </div>
-                          {isActive ? (
-                            <span className="theme-badge active">✓ 適用中</span>
-                          ) : (
-                            <span className="theme-badge inactive">選択</span>
-                          )}
-                        </div>
-
-                        {/* カラーパレットプレビュー */}
-                        <div className="theme-swatch-bar">
-                          <div className="swatch-item" title={`背景: ${themeItem.bgHex}`}>
-                            <span className="swatch-circle" style={{ backgroundColor: themeItem.bgHex, border: "1px solid rgba(128,128,128,0.4)" }} />
-                            <span className="swatch-label">BG</span>
-                          </div>
-                          <div className="swatch-item" title={`カード: ${themeItem.cardHex}`}>
-                            <span className="swatch-circle" style={{ backgroundColor: themeItem.cardHex, border: "1px solid rgba(128,128,128,0.4)" }} />
-                            <span className="swatch-label">Card</span>
-                          </div>
-                          <div className="swatch-item" title={`文字: ${themeItem.textHex}`}>
-                            <span className="swatch-circle" style={{ backgroundColor: themeItem.textHex }} />
-                            <span className="swatch-label">Text</span>
-                          </div>
-                          <div className="swatch-item" title={`アクセント: ${themeItem.accentHex}`}>
-                            <span className="swatch-circle" style={{ backgroundColor: themeItem.accentHex }} />
-                            <span className="swatch-label">Accent</span>
-                          </div>
-                        </div>
-
-                        <p className="theme-desc">{themeItem.description}</p>
-
-                        <div className="theme-env-badge">
-                          <span className="env-icon">💡</span>
-                          <span>{themeItem.environment}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
               <div className="settings-group">
                 <h4 className="settings-group-title">損益配色パターン</h4>
+                <p className="settings-hint" style={{ marginBottom: "8px" }}>
+                  評価損益の色分けを選択します。カラーテーマはダーク固定です。
+                </p>
                 <div className="pl-color-grid">
                   <div
                     className={`pl-card ${plColorStyle === "red-blue" ? "active" : ""}`}

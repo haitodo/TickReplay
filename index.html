@@ -1,45 +1,27 @@
 <!doctype html>
-<html lang="en">
+<html lang="ja">
   <head>
     <script>
       // React DevToolsが競合・無効化(isDisabled)されている場合に削除して、Fast Refreshが正常に動作するようにする
       if (window.__REACT_DEVTOOLS_GLOBAL_HOOK__ && window.__REACT_DEVTOOLS_GLOBAL_HOOK__.isDisabled) {
         delete window.__REACT_DEVTOOLS_GLOBAL_HOOK__;
       }
-      // 起動時のちらつき防止のため、保存されたテーマを即座に適用する
-      try {
-        var theme = localStorage.getItem("tickreplay_theme") || localStorage.getItem("theme") || localStorage.getItem("theme-mode") || "dark";
-        if (!["dark", "dim", "light", "sepia", "warm-sepia"].includes(theme)) theme = "dark";
-        document.documentElement.setAttribute("data-theme", theme);
-      } catch (e) {}
     </script>
     <style>
       /* 初期表示時のちらつき（フラッシュ）を防ぐための背景色設定 */
       html, body {
-        background-color: #0a0e17; /* ダークテーマ */
+        background-color: #0b0d10;
         margin: 0;
         padding: 0;
       }
-      html[data-theme="dim"], html[data-theme="dim"] body {
-        background-color: #161c28; /* ディム */
-      }
-      html[data-theme="light"], html[data-theme="light"] body {
-        background-color: #f8fafc; /* ライト */
-      }
-      html[data-theme="sepia"], html[data-theme="sepia"] body {
-        background-color: #18130e; /* ダークセピア */
-      }
-      html[data-theme="warm-sepia"], html[data-theme="warm-sepia"] body {
-        background-color: #c2b189; /* ウォームセピア */
+      html {
+        color-scheme: dark;
       }
     </style>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Tick Replay Controller</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   </head>
 
   <body>

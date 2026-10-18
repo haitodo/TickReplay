@@ -9,7 +9,7 @@ import { listen, emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import { CustomSelect } from "../CustomSelect";
-import { useTheme } from "../hooks/useTheme";
+import { useAppearance } from "../hooks/useAppearance";
 import { getContractSizeLabel } from "../domain/contractUtils";
 import { VirtualAccount, VirtualPosition } from "../types/trading";
 import { nextAccount, nextPositions } from "../domain/tradeStateUpdate";
@@ -28,7 +28,7 @@ import { HoldingTimeBar } from "./HoldingTimeBar";
 import { resolveWindowVisibility } from "../domain/windowVisibility";
 
 export const SpeedOrderWindowContent: React.FC = () => {
-  useTheme();
+  useAppearance();
 
   const [status, setStatus] = useState<string>("DISCONNECTED");
   const [bid, setBid] = useState<number>(0);
@@ -657,7 +657,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
 
   const stopwatchStateRef = useRef<Record<string, StopwatchItem>>({});
 
-  const syncStopwatchState = (
+  const syncStopwatchState = useCallback((
     currentPositions: VirtualPosition[],
     playing: boolean
   ) => {
@@ -724,15 +724,18 @@ export const SpeedOrderWindowContent: React.FC = () => {
       }
     });
     localStorage.setItem(STORAGE_KEYS.speedOrderPositionRealTimes, JSON.stringify(currentTimesToStore));
-  };
+  }, []);
 
   const positionTicketsKey = useMemo(() => {
     return positions.map((p) => `${p.ticket}:${p.open_time_msc}`).join(",");
   }, [positions]);
 
+  const positionsRef = useRef(positions);
+  positionsRef.current = positions;
+
   useEffect(() => {
-    syncStopwatchState(positions, isPlaying);
-  }, [positionTicketsKey, isPlaying]);
+    syncStopwatchState(positionsRef.current, isPlaying);
+  }, [positionTicketsKey, isPlaying, syncStopwatchState]);
 
 
   const handleOrderOpen = (type: "BUY" | "SELL") => {
@@ -1041,7 +1044,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
             left: "12px",
             right: "12px",
             zIndex: 90,
-            backgroundColor: "rgba(15, 23, 42, 0.95)",
+            backgroundColor: "rgba(16, 19, 24, 0.95)",
             boxShadow: "0 4px 16px rgba(0,0,0,0.5)",
             border: "1px solid var(--outline-variant)",
             borderLeft: `4px solid ${

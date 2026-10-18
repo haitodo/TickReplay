@@ -2,7 +2,6 @@ import React, { useState, useRef, useEffect } from "react";
 import { COMMANDS } from "../../constants/commands";
 import { invoke } from "@tauri-apps/api/core";
 import { formatJstTime, formatServerTime } from "../../utils/timeUtils";
-import { THEME_LIST, ThemeType } from "../../constants/themePresets";
 import { SessionBoundaryInfo } from "../../domain/sessionBoundaries";
 import { getCachedEconomicAvailabilityMap, isEconomicSpreadActive } from "../../utils/economicDataUtils";
 
@@ -17,20 +16,6 @@ interface AppHeaderProps {
   sourceSymbol: string;
   alwaysOnTop: boolean;
   isShortcutsActive: boolean;
-  theme?: ThemeType;
-  setTheme?: (theme: ThemeType) => void;
-  cycleTheme?: () => void;
-  themeMode?: "dark" | "light";
-  setThemeMode?: (mode: "dark" | "light") => void;
-  saveAllSettings: (
-    nextHotkeys?: Record<string, string>,
-    nextTimePresets?: number[],
-    nextTickPresets?: number[],
-    nextTheme?: ThemeType
-  ) => void;
-  hotkeys: Record<string, string>;
-  timePresets: number[];
-  tickPresets: number[];
   handleAlwaysOnTopToggle: () => void;
   handleShortcutsToggle: () => void;
   toggleRemoteMode: (val: boolean) => void;
@@ -56,13 +41,6 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   sourceSymbol,
   alwaysOnTop,
   isShortcutsActive,
-  theme = "dark",
-  setTheme,
-  cycleTheme,
-  saveAllSettings,
-  hotkeys,
-  timePresets,
-  tickPresets,
   handleAlwaysOnTopToggle,
   handleShortcutsToggle,
   toggleRemoteMode,
@@ -264,7 +242,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   }}
                 >
                   <span className="material-symbols-outlined popover-icon">settings</span>
-                  <span className="popover-label">環境設定 (Hotkeys/Theme)</span>
+                  <span className="popover-label">環境設定</span>
                 </button>
 
                 {/* 口座・ポジション管理 */}
@@ -295,7 +273,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                     }
                   }}
                 >
-                  <span className="material-symbols-outlined popover-icon text-indigo">analytics</span>
+                  <span className="material-symbols-outlined popover-icon">analytics</span>
                   <span className="popover-label">トレード分析</span>
                 </button>
 
@@ -337,39 +315,6 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   <span className="popover-label">リモコンモード (HUDバー)</span>
                 </button>
 
-                <div className="popover-divider" />
-
-                {/* テーマ切替 */}
-                {(() => {
-                  const currentConfig = THEME_LIST.find((t) => t.id === theme) || THEME_LIST[0];
-                  return (
-                    <button
-                      className="popover-item"
-                      onClick={() => {
-                        if (cycleTheme) {
-                          cycleTheme();
-                        } else if (setTheme) {
-                          const themes: ThemeType[] = ["dark", "dim", "light", "sepia", "warm-sepia"];
-                          const cur = theme || "dark";
-                          const next = themes[(themes.indexOf(cur) + 1) % themes.length];
-                          setTheme(next);
-                          saveAllSettings(hotkeys, timePresets, tickPresets, next);
-                        }
-                      }}
-                      title="クリックで5つのテーマを順次切り替えます"
-                    >
-                      <span className="popover-icon" style={{ fontSize: "16px", display: "inline-flex", alignItems: "center" }}>
-                        {currentConfig.icon}
-                      </span>
-                      <span className="popover-label">
-                        テーマ: {currentConfig.nameJa}
-                      </span>
-                      <span className="popover-tag" style={{ fontSize: "9px" }}>
-                        {currentConfig.nameEn}
-                      </span>
-                    </button>
-                  );
-                })()}
               </div>
             )}
           </div>
