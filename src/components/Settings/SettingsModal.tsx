@@ -54,12 +54,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   handleShortcutsToggle,
   economicDataDir,
   setEconomicDataDir,
-  timelineActivityMaxCap = 2800,
-  setTimelineActivityMaxCap,
-  timelineActivityMinFloor = 1500,
-  setTimelineActivityMinFloor,
-  autoSkipThreshold = 0.15,
-  setAutoSkipThreshold,
+  timelineActivityMaxCap: _timelineActivityMaxCap = 2800,
+  setTimelineActivityMaxCap: _setTimelineActivityMaxCap,
+  timelineActivityMinFloor: _timelineActivityMinFloor = 1500,
+  setTimelineActivityMinFloor: _setTimelineActivityMinFloor,
+  autoSkipThreshold: _autoSkipThreshold = 0.15,
+  setAutoSkipThreshold: _setAutoSkipThreshold,
   plColorStyle,
   setPlColorStyle,
   saveAllSettings,
@@ -212,88 +212,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <span className="material-symbols-outlined icon" style={{ fontSize: "16px" }}>restart_alt</span>
                     <span>初期値</span>
                   </button>
-                </div>
-              </div>
-
-              <div className="settings-group">
-                <h4 className="settings-group-title">
-                  <span className="material-symbols-outlined" style={{ fontSize: "16px", verticalAlign: "middle", marginRight: "4px" }}>speed</span>
-                  タイムライン活動度 ＆ 自動スキップ (Auto-Skip)
-                </h4>
-                <p className="settings-hint" style={{ marginBottom: "10px" }}>
-                  シークバーの波形・色彩および活動度に応じた自動早送り（150倍速）の判定基準を設定します。
-                </p>
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "12px" }}>
-                  <div>
-                    <label className="toggle-switch-label" style={{ display: "block", marginBottom: "4px", fontSize: "12px", fontWeight: "bold" }}>
-                      基準上限キャップ (15分)
-                    </label>
-                    <input
-                      type="number"
-                      className="pro-input font-data"
-                      style={{ width: "100%", padding: "5px 8px", fontSize: "12px" }}
-                      min={500}
-                      max={10000}
-                      step={100}
-                      value={timelineActivityMaxCap}
-                      onChange={(e) => {
-                        const val = Math.max(500, parseInt(e.target.value, 10) || 2800);
-                        if (setTimelineActivityMaxCap) setTimelineActivityMaxCap(val);
-                      }}
-                    />
-                    <span className="settings-hint" style={{ fontSize: "10px", marginTop: "2px", display: "block" }}>
-                      指標スパイクによる波形潰れを防止 (初期値: 2800)
-                    </span>
-                  </div>
-
-                  <div>
-                    <label className="toggle-switch-label" style={{ display: "block", marginBottom: "4px", fontSize: "12px", fontWeight: "bold" }}>
-                      基準下限フロア (15分)
-                    </label>
-                    <input
-                      type="number"
-                      className="pro-input font-data"
-                      style={{ width: "100%", padding: "5px 8px", fontSize: "12px" }}
-                      min={200}
-                      max={5000}
-                      step={50}
-                      value={timelineActivityMinFloor}
-                      onChange={(e) => {
-                        const val = Math.max(200, parseInt(e.target.value, 10) || 1500);
-                        if (setTimelineActivityMinFloor) setTimelineActivityMinFloor(val);
-                      }}
-                    />
-                    <span className="settings-hint" style={{ fontSize: "10px", marginTop: "2px", display: "block" }}>
-                      閑散日のスキップ不発を防止 (初期値: 1500)
-                    </span>
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
-                  <div>
-                    <span className="switch-text" style={{ fontSize: "12px", fontWeight: "bold", display: "block" }}>スキップ発動閾値</span>
-                    <span className="settings-hint" style={{ fontSize: "11px" }}>
-                      活動強度がこの割合未満で早送り (復帰: {Math.min(95, Math.round((autoSkipThreshold + (autoSkipThreshold >= 0.5 ? 0.05 : 0.1)) * 100))}%)
-                    </span>
-                  </div>
-                  <select
-                    className="pro-input font-data"
-                    style={{ padding: "4px 8px", fontSize: "12px", width: "170px" }}
-                    value={autoSkipThreshold}
-                    onChange={(e) => {
-                      const val = parseFloat(e.target.value) || 0.15;
-                      if (setAutoSkipThreshold) setAutoSkipThreshold(val);
-                    }}
-                  >
-                    <option value={0.10}>10% (閑散・早朝帯のみ)</option>
-                    <option value={0.15}>15% (標準)</option>
-                    <option value={0.20}>20% (やや早め)</option>
-                    <option value={0.25}>25% (積極的)</option>
-                    <option value={0.35}>35% (低活動スキップ・中活動〜)</option>
-                    <option value={0.50}>50% (活発相場のみ再生)</option>
-                    <option value={0.70}>70% (激変帯特化・急騰急落のみ)</option>
-                  </select>
                 </div>
               </div>
             </div>
