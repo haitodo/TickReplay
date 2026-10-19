@@ -392,6 +392,9 @@ impl CoreScheduler {
                     if tp.is_some() { pos.tp = tp; }
                 }
             }
+            CoreCommand::SetTimeStop { enabled, seconds, mode } => {
+                self.matching.set_time_stop(enabled, seconds, mode);
+            }
             CoreCommand::SetHedging(hedging) => {
                 self.matching.set_hedging(hedging);
             }

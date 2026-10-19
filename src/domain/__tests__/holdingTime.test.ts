@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   calculatePositionElapsedTime,
+  calculateRemainingRatio,
   formatElapsedTime,
+  formatHoldingTimeWithLimit,
   getHoldingPressure,
   HOLDING_OVER_MS,
   HOLDING_WARN_MS,
@@ -175,5 +177,56 @@ describe("getHoldingPressure", () => {
   it("180秒以上は over", () => {
     expect(getHoldingPressure(HOLDING_OVER_MS)).toBe("over");
     expect(getHoldingPressure(HOLDING_OVER_MS + 60_000)).toBe("over");
+  });
+
+  describe("limitSec (スキャルピング制限時間) 指定時", () => {
+    const limitSec = 20; // 20秒制限: 70% = 14秒
+
+    it("制限の70%未満は null (通常表示)", () => {
+      expect(getHoldingPressure(0, limitSec)).toBeNull();
+      expect(getHoldingPressure(13_900, limitSec)).toBeNull();
+    });
+
+    it("制限の70%以上100%未満は warn (アンバー警告)", () => {
+      expect(getHoldingPressure(14_000, limitSec)).toBe("warn");
+      expect(getHoldingPressure(19_999, limitSec)).toBe("warn");
+    });
+
+    it("制限時間 (100%) 以上は over (危険・点滅警告)", () => {
+      expect(getHoldingPressure(20_000, limitSec)).toBe("over");
+      expect(getHoldingPressure(25_000, limitSec)).toBe("over");
+    });
+  });
+});
+
+describe("calculateRemainingRatio", () => {
+  it("制限秒数なし (0以下) の場合は 1.0 を返す", () => {
+    expect(calculateRemainingRatio(5000, 0)).toBe(1.0);
+    expect(calculateRemainingRatio(5000, -1)).toBe(1.0);
+  });
+
+  it("経過時間に応じた残り比率を正しく計算する", () => {
+    expect(calculateRemainingRatio(0, 20)).toBe(1.0);
+    expect(calculateRemainingRatio(10_000, 20)).toBe(0.5);
+    expect(calculateRemainingRatio(15_000, 20)).toBe(0.25);
+  });
+
+  it("制限時間を超えた場合は 0.0 を下回らない (0.0クランプ)", () => {
+    expect(calculateRemainingRatio(20_000, 20)).toBe(0.0);
+    expect(calculateRemainingRatio(25_000, 20)).toBe(0.0);
+  });
+});
+
+describe("formatHoldingTimeWithLimit", () => {
+  it("制限時間なし (0以下) の場合は通常の formatElapsedTime を返す", () => {
+    expect(formatHoldingTimeWithLimit(5400, 0)).toBe("5.4秒");
+  });
+
+  it("未超過時は 経過 / 制限 (残 Ns) とフォーマットする", () => {
+    expect(formatHoldingTimeWithLimit(5400, 20)).toBe("5.4秒 / 20秒 (残 14.6s)");
+  });
+
+  it("超過時は 経過 / 制限 (+Ns) とフォーマットする", () => {
+    expect(formatHoldingTimeWithLimit(21500, 20)).toBe("21.5秒 / 20秒 (+1.5s)");
   });
 });

@@ -427,6 +427,21 @@ pub async fn send_command(
                     }
                     return Ok(());
                 }
+                "SET_TIME_STOP" => {
+                    let enabled = val.get("enabled").and_then(|e| e.as_bool()).unwrap_or(false);
+                    let seconds = val.get("seconds").and_then(|s| s.as_u64()).unwrap_or(20) as u32;
+                    let mode_str = val.get("mode").and_then(|m| m.as_str()).unwrap_or("loss_only");
+                    let mode = if mode_str.eq_ignore_ascii_case("always") {
+                        crate::core::types::TimeStopMode::Always
+                    } else {
+                        crate::core::types::TimeStopMode::LossOnly
+                    };
+                    let core_opt = state.core_handle.lock().unwrap().clone();
+                    if let Some(core) = core_opt {
+                        core.set_time_stop(enabled, seconds, mode);
+                    }
+                    return Ok(());
+                }
                 "SET_LATENCY" => {
                     if let Some(latency) = val.get("latency_ms").and_then(|l| l.as_i64()) {
                         let core_opt = state.core_handle.lock().unwrap().clone();

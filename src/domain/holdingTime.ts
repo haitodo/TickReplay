@@ -5,15 +5,60 @@ export interface StopwatchItem {
   lastActiveTime: number | null;
 }
 
-/** 保有時間の注意・警告しきい値 (ミリ秒) */
+/** 保有時間の注意・警告しきい値 (ミリ秒: デフォルト固定値) */
 export const HOLDING_WARN_MS = 60_000;
 export const HOLDING_OVER_MS = 180_000;
 
 /** 経過時間から表示上のプレッシャー区分を返す */
-export function getHoldingPressure(elapsedMs: number): "warn" | "over" | null {
+export function getHoldingPressure(
+  elapsedMs: number,
+  limitSec?: number
+): "warn" | "over" | null {
+  if (limitSec && limitSec > 0) {
+    const limitMs = limitSec * 1000;
+    const warnMs = limitMs * 0.7; // 制限時間の70%経過で警告（アンバー）
+    if (elapsedMs >= limitMs) return "over";
+    if (elapsedMs >= warnMs) return "warn";
+    return null;
+  }
   if (elapsedMs >= HOLDING_OVER_MS) return "over";
   if (elapsedMs >= HOLDING_WARN_MS) return "warn";
   return null;
+}
+
+/**
+ * 制限時間に対する残り割合（0.0 〜 1.0）
+ * 1.0: 開始直後（残り100%）
+ * 0.0: タイムアップ（残り0%）
+ */
+export function calculateRemainingRatio(
+  elapsedMs: number,
+  limitSec: number
+): number {
+  if (!limitSec || limitSec <= 0) return 1.0;
+  const limitMs = limitSec * 1000;
+  const remaining = Math.max(0, limitMs - elapsedMs);
+  return remaining / limitMs;
+}
+
+/**
+ * 制限時間ありの場合の経過・残り時間表示文字列
+ */
+export function formatHoldingTimeWithLimit(
+  elapsedMs: number,
+  limitSec: number
+): string {
+  if (!limitSec || limitSec <= 0) {
+    return formatElapsedTime(elapsedMs);
+  }
+  const limitMs = limitSec * 1000;
+  const elapsedSecFormatted = formatElapsedTime(elapsedMs);
+  if (elapsedMs >= limitMs) {
+    const overSec = ((elapsedMs - limitMs) / 1000).toFixed(1);
+    return `${elapsedSecFormatted} / ${limitSec}秒 (+${overSec}s)`;
+  }
+  const remainingSec = ((limitMs - elapsedMs) / 1000).toFixed(1);
+  return `${elapsedSecFormatted} / ${limitSec}秒 (残 ${remainingSec}s)`;
 }
 
 /**

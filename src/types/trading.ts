@@ -4,7 +4,9 @@
 
 export type PositionType = "BUY" | "SELL";
 
-export type TradeReason = "MANUAL" | "TP" | "SL" | "CLOSE_ALL" | "RESET";
+export type TradeReason = "MANUAL" | "TP" | "SL" | "CLOSE_ALL" | "RESET" | "TIME_STOP";
+
+export type TimeStopMode = "loss_only" | "always";
 
 export type OrderColorStyle = "standard" | "classic" | "subtle" | "contrast";
 

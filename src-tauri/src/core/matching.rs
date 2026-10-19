@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use crate::core::types::{CoreTick, LatencyModel, OrderSide, SlippageModel};
+use crate::core::types::{CoreTick, LatencyModel, OrderSide, SlippageModel, TimeStopMode};
 use crate::core::journal::{ExecutionAuditRecord, JournalEvent, JournalStore};
 use crate::virtual_trading::{VirtualAccount, VirtualPosition};
 
@@ -80,6 +80,9 @@ pub struct CoreMatchingEngine {
     pub next_ticket: i32,
     pub next_order_id: u64,
     pub prng: DeterministicPrng,
+    pub time_stop_enabled: bool,
+    pub time_stop_seconds: u32,
+    pub time_stop_mode: TimeStopMode,
 }
 
 impl Default for CoreMatchingEngine {
@@ -117,6 +120,9 @@ impl CoreMatchingEngine {
             next_ticket: 1,
             next_order_id: 1,
             prng: DeterministicPrng::new(42),
+            time_stop_enabled: false,
+            time_stop_seconds: 20,
+            time_stop_mode: TimeStopMode::LossOnly,
         }
     }
 
@@ -128,6 +134,12 @@ impl CoreMatchingEngine {
     #[inline]
     pub fn has_pending_triggers(&self) -> bool {
         !self.pending_orders.is_empty() || !self.pending_closes.is_empty()
+    }
+
+    pub fn set_time_stop(&mut self, enabled: bool, seconds: u32, mode: TimeStopMode) {
+        self.time_stop_enabled = enabled;
+        self.time_stop_seconds = seconds;
+        self.time_stop_mode = mode;
     }
 
     pub fn set_latency_model(&mut self, model: LatencyModel) {
@@ -739,6 +751,35 @@ impl CoreMatchingEngine {
                 i += 1;
             }
         }
+
+        // 4. タイムストップ判定 (指定秒数経過時の自動決済)
+        if self.time_stop_enabled && self.time_stop_seconds > 0 {
+            let timeout_ms = (self.time_stop_seconds as i64) * 1000;
+            let mut i = 0;
+            while i < self.positions.len() {
+                let pos = &self.positions[i];
+                let elapsed_ms = current_time_msc - pos.open_time_msc;
+                if elapsed_ms >= timeout_ms {
+                    let is_buy = pos.r#type.as_bytes().first() == Some(&b'B');
+                    let current_close_price = if is_buy { tick.bid } else { tick.ask };
+                    let diff = if is_buy {
+                        current_close_price - pos.open_price
+                    } else {
+                        pos.open_price - current_close_price
+                    };
+                    let should_close = match self.time_stop_mode {
+                        TimeStopMode::LossOnly => diff <= 0.0,
+                        TimeStopMode::Always => true,
+                    };
+                    if should_close {
+                        let ticket = pos.ticket;
+                        self.execute_close(ticket, None, "TIME_STOP".to_string(), current_time_msc, tick);
+                        continue;
+                    }
+                }
+                i += 1;
+            }
+        }
     }
 
     /// 毎ティック / タイマー進行時の評価処理
@@ -978,5 +1019,84 @@ mod tests {
         assert_eq!(engine.positions.len(), 1);
         assert_eq!(engine.positions[0].r#type, "SELL");
         assert_eq!(engine.history.len(), 1);
+    }
+
+    #[test]
+    fn test_time_stop_loss_only() {
+        let mut engine = CoreMatchingEngine::new(1_000_000.0, 25.0, 10_000.0);
+        engine.set_time_stop(true, 10, TimeStopMode::LossOnly);
+
+        let t1 = sample_tick(1_000, 150.000, 150.005);
+        let ticket = engine.submit_order(
+            "USDJPY".to_string(),
+            OrderSide::Buy,
+            1.0,
+            0.0,
+            0.0,
+            None,
+            1_000,
+            true,
+            Some(&t1),
+        ).unwrap();
+
+        // 9秒後 (10_000ms): まだ制限時間前なので含み損でも切られない
+        let t2 = sample_tick(10_000, 149.990, 149.995);
+        engine.on_tick_advance(&t2, 10_000);
+        assert_eq!(engine.positions.len(), 1);
+
+        // 10秒後 (11_000ms): 含み損 (149.990 <= 150.005) なので TIME_STOP で決済される
+        let t3 = sample_tick(11_000, 149.990, 149.995);
+        engine.on_tick_advance(&t3, 11_000);
+        assert_eq!(engine.positions.len(), 0);
+        assert_eq!(engine.history.len(), 1);
+        assert_eq!(engine.history[0].ticket, ticket);
+        assert_eq!(engine.history[0].close_reason, Some("TIME_STOP".to_string()));
+
+        // 次に、含み益が出ている場合は決済されないことのテスト
+        let t4 = sample_tick(12_000, 150.000, 150.005);
+        let ticket2 = engine.submit_order(
+            "USDJPY".to_string(),
+            OrderSide::Buy,
+            1.0,
+            0.0,
+            0.0,
+            None,
+            12_000,
+            true,
+            Some(&t4),
+        ).unwrap();
+
+        // 10秒経過 (22_000ms): 含み益 (150.020 > 150.005) なので決済されず維持される
+        let t5 = sample_tick(22_000, 150.020, 150.025);
+        engine.on_tick_advance(&t5, 22_000);
+        assert_eq!(engine.positions.len(), 1);
+        assert_eq!(engine.positions[0].ticket, ticket2);
+    }
+
+    #[test]
+    fn test_time_stop_always() {
+        let mut engine = CoreMatchingEngine::new(1_000_000.0, 25.0, 10_000.0);
+        engine.set_time_stop(true, 10, TimeStopMode::Always);
+
+        let t1 = sample_tick(1_000, 150.000, 150.005);
+        let ticket = engine.submit_order(
+            "USDJPY".to_string(),
+            OrderSide::Buy,
+            1.0,
+            0.0,
+            0.0,
+            None,
+            1_000,
+            true,
+            Some(&t1),
+        ).unwrap();
+
+        // 10秒経過 (11_000ms): 含み益 (150.050 > 150.005) でも Always モードなので無条件で決済される
+        let t2 = sample_tick(11_000, 150.050, 150.055);
+        engine.on_tick_advance(&t2, 11_000);
+        assert_eq!(engine.positions.len(), 0);
+        assert_eq!(engine.history.len(), 1);
+        assert_eq!(engine.history[0].ticket, ticket);
+        assert_eq!(engine.history[0].close_reason, Some("TIME_STOP".to_string()));
     }
 }

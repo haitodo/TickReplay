@@ -152,6 +152,11 @@ pub enum CoreCommand {
         sl: Option<f64>,
         tp: Option<f64>,
     },
+    SetTimeStop {
+        enabled: bool,
+        seconds: u32,
+        mode: TimeStopMode,
+    },
     SetHedging(bool),
     SetContractSize(f64),
     SetLeverage(f64),
@@ -186,6 +191,15 @@ impl OrderSide {
             OrderSide::Sell => "SELL",
         }
     }
+}
+
+/// タイムストップ（時間切れ自動決済）の執行モード
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TimeStopMode {
+    /// 含み損または同値（含み益でなければ）決済
+    LossOnly,
+    /// 損益にかかわらず無条件で決済
+    Always,
 }
 
 /// Core から外部へ通知されるスナップショット

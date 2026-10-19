@@ -14,7 +14,7 @@ use crate::core::scheduler::{CoreScheduler, SchedulerConfig};
 use crate::core::store::TickStore;
 use crate::core::types::{
     AbLoopConfig, CoreCommand, CoreStatusSnapshot, LatencyModel, OrderSide, PlaybackMode,
-    PlaybackState, SlippageModel,
+    PlaybackState, SlippageModel, TimeStopMode,
 };
 
 /// 外部（Tauri コマンド、IPC、UI）から Replay Core を操作・監視するためのハンドル
@@ -122,6 +122,10 @@ impl ReplayCoreHandle {
 
     pub fn modify_position(&self, ticket: i32, sl: Option<f64>, tp: Option<f64>) {
         let _ = self.cmd_tx.send(CoreCommand::ModifyPosition { ticket, sl, tp });
+    }
+
+    pub fn set_time_stop(&self, enabled: bool, seconds: u32, mode: TimeStopMode) {
+        let _ = self.cmd_tx.send(CoreCommand::SetTimeStop { enabled, seconds, mode });
     }
 
     pub fn set_hedging(&self, hedging: bool) {

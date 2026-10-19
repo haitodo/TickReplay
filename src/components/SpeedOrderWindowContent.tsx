@@ -11,7 +11,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { CustomSelect } from "../CustomSelect";
 import { useAppearance } from "../hooks/useAppearance";
 import { getContractSizeLabel } from "../domain/contractUtils";
-import { VirtualAccount, VirtualPosition } from "../types/trading";
+import { TimeStopMode, VirtualAccount, VirtualPosition } from "../types/trading";
 import { nextAccount, nextPositions } from "../domain/tradeStateUpdate";
 import { ReplayProgressPayload } from "../types/replay";
 import { PersistedSettings } from "../types/settings";
@@ -102,6 +102,22 @@ export const SpeedOrderWindowContent: React.FC = () => {
   const [holdingTimeMode, setHoldingTimeMode] = useState<"pc" | "server">(
     () => (localStorage.getItem(STORAGE_KEYS.speedOrderHoldingTimeMode) as "pc" | "server") || "pc"
   );
+  const [timeStopSeconds, setTimeStopSeconds] = useState<number>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.speedOrderTimeStopSeconds);
+    if (saved !== null) {
+      const parsed = parseInt(saved, 10);
+      if (!isNaN(parsed) && parsed >= 0) return parsed;
+    }
+    return 20;
+  });
+  const [timeStopEnabled, setTimeStopEnabled] = useState<boolean>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.speedOrderTimeStopEnabled);
+    return saved === "true";
+  });
+  const [timeStopMode, setTimeStopMode] = useState<TimeStopMode>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.speedOrderTimeStopMode);
+    return saved === "always" ? "always" : "loss_only";
+  });
   const [sourceSymbol, setSourceSymbol] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.speedOrderSymbol) || "");
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [virtualTimeMsc, setVirtualTimeMsc] = useState<number>(0);
@@ -249,6 +265,18 @@ export const SpeedOrderWindowContent: React.FC = () => {
   }, [holdingTimeMode]);
 
   useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.speedOrderTimeStopSeconds, String(timeStopSeconds));
+    localStorage.setItem(STORAGE_KEYS.speedOrderTimeStopEnabled, String(timeStopEnabled));
+    localStorage.setItem(STORAGE_KEYS.speedOrderTimeStopMode, timeStopMode);
+    sendCommand({
+      command: "SET_TIME_STOP",
+      enabled: timeStopEnabled,
+      seconds: timeStopSeconds,
+      mode: timeStopMode,
+    });
+  }, [timeStopSeconds, timeStopEnabled, timeStopMode]);
+
+  useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.speedOrderErrorDisplayDuration, String(errorDisplayDuration));
   }, [errorDisplayDuration]);
 
@@ -295,6 +323,15 @@ export const SpeedOrderWindowContent: React.FC = () => {
         setShowHoldingTime(e.newValue !== "false");
       } else if (e.key === STORAGE_KEYS.speedOrderHoldingTimeMode && e.newValue) {
         setHoldingTimeMode(e.newValue as "pc" | "server");
+      } else if (e.key === STORAGE_KEYS.speedOrderTimeStopSeconds && e.newValue) {
+        const parsed = parseInt(e.newValue, 10);
+        if (!isNaN(parsed) && parsed >= 0) {
+          setTimeStopSeconds(parsed);
+        }
+      } else if (e.key === STORAGE_KEYS.speedOrderTimeStopEnabled && e.newValue) {
+        setTimeStopEnabled(e.newValue === "true");
+      } else if (e.key === STORAGE_KEYS.speedOrderTimeStopMode && e.newValue) {
+        setTimeStopMode(e.newValue === "always" ? "always" : "loss_only");
       } else if (e.key === STORAGE_KEYS.speedOrderErrorDisplayDuration && e.newValue) {
         const parsed = parseFloat(e.newValue);
         if (!isNaN(parsed) && parsed >= 0) {
@@ -386,6 +423,15 @@ export const SpeedOrderWindowContent: React.FC = () => {
           sendCommand({ command: "SET_CONTRACT_SIZE", size: currentContractSize });
           sendCommand({ command: "SET_HEDGING", allowed: currentHedging });
           sendCommand({ command: "SET_LATENCY", latency_ms: isNaN(currentLatency) ? 30 : Math.min(200, Math.max(0, currentLatency)) });
+          const currentTimeStopSeconds = parseInt(localStorage.getItem(STORAGE_KEYS.speedOrderTimeStopSeconds) || "20", 10);
+          const currentTimeStopEnabled = localStorage.getItem(STORAGE_KEYS.speedOrderTimeStopEnabled) === "true";
+          const currentTimeStopMode = localStorage.getItem(STORAGE_KEYS.speedOrderTimeStopMode) || "loss_only";
+          sendCommand({
+            command: "SET_TIME_STOP",
+            enabled: currentTimeStopEnabled,
+            seconds: isNaN(currentTimeStopSeconds) ? 20 : currentTimeStopSeconds,
+            mode: currentTimeStopMode,
+          });
           if (data.jfx_real !== undefined) {
             setJfxReal(data.jfx_real);
           }
@@ -423,6 +469,15 @@ export const SpeedOrderWindowContent: React.FC = () => {
             sendCommand({ command: "SET_CONTRACT_SIZE", size: currentContractSize });
             sendCommand({ command: "SET_HEDGING", allowed: currentHedging });
             sendCommand({ command: "SET_LATENCY", latency_ms: isNaN(currentLatency) ? 30 : Math.min(200, Math.max(0, currentLatency)) });
+            const currentTimeStopSeconds = parseInt(localStorage.getItem(STORAGE_KEYS.speedOrderTimeStopSeconds) || "20", 10);
+            const currentTimeStopEnabled = localStorage.getItem(STORAGE_KEYS.speedOrderTimeStopEnabled) === "true";
+            const currentTimeStopMode = localStorage.getItem(STORAGE_KEYS.speedOrderTimeStopMode) || "loss_only";
+            sendCommand({
+              command: "SET_TIME_STOP",
+              enabled: currentTimeStopEnabled,
+              seconds: isNaN(currentTimeStopSeconds) ? 20 : currentTimeStopSeconds,
+              mode: currentTimeStopMode,
+            });
           }
           prevStatusRef.current = data.status;
           setStatus(data.status);
@@ -1209,6 +1264,10 @@ export const SpeedOrderWindowContent: React.FC = () => {
         virtualTimeMsc={virtualTimeMsc}
         virtualTimeMscRef={virtualTimeMscRef}
         stopwatchStateRef={stopwatchStateRef}
+        limitSeconds={timeStopSeconds}
+        timeStopEnabled={timeStopEnabled}
+        timeStopMode={timeStopMode}
+        onToggleTimeStop={() => setTimeStopEnabled((prev) => !prev)}
       />
 
       {/* 建玉要約 (左右並列レイアウト) */}
@@ -1507,33 +1566,134 @@ export const SpeedOrderWindowContent: React.FC = () => {
               </div>
 
               {showHoldingTime && (
-                <div className="speed-settings-row">
-                  <div className="speed-settings-label">
-                    <span className="label-text">保有時間モード</span>
-                    <span className="label-desc">時間測定の基準（PC時間またはサーバー時間）</span>
+                <>
+                  <div className="speed-settings-row">
+                    <div className="speed-settings-label">
+                      <span className="label-text">保有時間モード</span>
+                      <span className="label-desc">時間測定の基準（チャート時間推奨）</span>
+                    </div>
+                    <div className="speed-settings-control">
+                      <CustomSelect
+                        value={holdingTimeMode}
+                        onChange={(val) => {
+                          const typedVal = val as "pc" | "server";
+                          setHoldingTimeMode(typedVal);
+                          localStorage.setItem(STORAGE_KEYS.speedOrderHoldingTimeMode, typedVal);
+                          window.dispatchEvent(new StorageEvent("storage", {
+                            key: STORAGE_KEYS.speedOrderHoldingTimeMode,
+                            newValue: typedVal
+                          }));
+                        }}
+                        style={{
+                          width: "100%",
+                        }}
+                        options={[
+                          { value: "server", label: "サーバー時間（チャート時間・推奨）" },
+                          { value: "pc", label: "PC時間（実際の経過時間）" }
+                        ]}
+                      />
+                    </div>
                   </div>
-                  <div className="speed-settings-control">
-                    <CustomSelect
-                      value={holdingTimeMode}
-                      onChange={(val) => {
-                        const typedVal = val as "pc" | "server";
-                        setHoldingTimeMode(typedVal);
-                        localStorage.setItem(STORAGE_KEYS.speedOrderHoldingTimeMode, typedVal);
-                        window.dispatchEvent(new StorageEvent("storage", {
-                          key: STORAGE_KEYS.speedOrderHoldingTimeMode,
-                          newValue: typedVal
-                        }));
-                      }}
-                      style={{
-                        width: "100%",
-                      }}
-                      options={[
-                        { value: "pc", label: "PC時間（実際の経過時間）" },
-                        { value: "server", label: "サーバー時間（チャート時間）" }
-                      ]}
-                    />
+
+                  <div className="speed-settings-row">
+                    <div className="speed-settings-label">
+                      <span className="label-text">制限時間（警告秒数）</span>
+                      <span className="label-desc">70%で黄色、100%で赤点滅（0で無制限）</span>
+                    </div>
+                    <div className="speed-settings-control">
+                      <div style={{ display: "flex", flexDirection: "column", gap: "6px", width: "100%" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <input
+                            type="number"
+                            min="0"
+                            max="3600"
+                            className="speed-input"
+                            style={{
+                              flex: 1,
+                              textAlign: "right",
+                              padding: "4px 8px",
+                              fontSize: "11px",
+                              height: "26px",
+                              boxSizing: "border-box"
+                            }}
+                            value={timeStopSeconds}
+                            onChange={(e) => {
+                              const val = Math.max(0, parseInt(e.target.value, 10) || 0);
+                              setTimeStopSeconds(val);
+                            }}
+                          />
+                          <span style={{ fontSize: "11px", color: "var(--on-surface-variant)" }}>秒</span>
+                        </div>
+                        <div style={{ display: "flex", gap: "4px" }}>
+                          {[10, 15, 20, 30, 60].map((sec) => (
+                            <button
+                              key={sec}
+                              type="button"
+                              style={{
+                                flex: 1,
+                                padding: "2px 0",
+                                fontSize: "10px",
+                                background: timeStopSeconds === sec ? "var(--primary)" : "var(--surface-container-high)",
+                                color: timeStopSeconds === sec ? "var(--on-primary)" : "var(--on-surface)",
+                                border: "1px solid var(--outline-variant)",
+                                borderRadius: "3px",
+                                cursor: "pointer",
+                                fontWeight: timeStopSeconds === sec ? 700 : 400
+                              }}
+                              onClick={() => setTimeStopSeconds(sec)}
+                            >
+                              {sec}s
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                </div>
+
+                  <div className="speed-settings-row">
+                    <div className="speed-settings-label">
+                      <span className="label-text">タイムストップ自動決済</span>
+                      <span className="label-desc">制限時間到達時に自動でポジションを決済</span>
+                    </div>
+                    <div className="speed-settings-control">
+                      <label className="speed-switch">
+                        <input
+                          type="checkbox"
+                          checked={timeStopEnabled}
+                          onChange={(e) => {
+                            const val = e.target.checked;
+                            setTimeStopEnabled(val);
+                          }}
+                        />
+                        <span className="speed-switch-slider"></span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {timeStopEnabled && (
+                    <div className="speed-settings-row">
+                      <div className="speed-settings-label">
+                        <span className="label-text">自動決済の条件</span>
+                        <span className="label-desc">含み損・同値のみ決済か、無条件で全決済か</span>
+                      </div>
+                      <div className="speed-settings-control">
+                        <CustomSelect
+                          value={timeStopMode}
+                          onChange={(val) => {
+                            setTimeStopMode(val as TimeStopMode);
+                          }}
+                          style={{
+                            width: "100%",
+                          }}
+                          options={[
+                            { value: "loss_only", label: "含み損・同値のみ撤退（利益時は維持・推奨）" },
+                            { value: "always", label: "無条件で決済（強制撤退モード）" }
+                          ]}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
 
               <div className="speed-settings-row">
