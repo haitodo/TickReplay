@@ -6300,6 +6300,42 @@ input[type="number"].no-spinner {
   gap: 6px;
 }
 
+.btn-secondary-compact {
+  height: 28px;
+  background-color: var(--btn-default-bg);
+  border: 1px solid var(--btn-default-border);
+  color: var(--btn-default-color);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 0 10px;
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  transition: var(--transition-fast);
+}
+
+.btn-secondary-compact:hover {
+  background-color: var(--btn-default-hover);
+  border-color: var(--outline);
+  color: var(--on-surface);
+}
+
+.btn-secondary-compact:active {
+  background-color: var(--btn-default-active);
+  transform: translateY(1px);
+}
+
+.btn-secondary-compact .icon {
+  font-size: 15px;
+}
+
 .btn-danger-compact {
   background-color: var(--status-danger-bg);
   border: 1px solid var(--status-danger);
