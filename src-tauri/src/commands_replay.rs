@@ -42,6 +42,8 @@ pub fn emit_trading_status_update(
             obj.insert("trade_revision".to_string(), serde_json::json!(snap.trade_revision));
             obj.insert("history_revision".to_string(), serde_json::json!(snap.history_revision));
             obj.insert("execution_audits".to_string(), serde_json::to_value(&snap.latest_audits).unwrap_or_default());
+            obj.insert("time_stop_seconds".to_string(), serde_json::json!(snap.time_stop_seconds));
+            obj.insert("time_stop_enabled".to_string(), serde_json::json!(snap.time_stop_enabled));
         }
     }
 
@@ -733,6 +735,8 @@ pub async fn send_command(
                         execution_audits: Option<&'a [crate::core::journal::ExecutionAuditRecord]>,
                         #[serde(skip_serializing_if = "Option::is_none")]
                         history: Option<&'a [crate::virtual_trading::VirtualPosition]>,
+                        pub time_stop_seconds: u32,
+                        pub time_stop_enabled: bool,
                     }
 
                     let mut last_trade_rev = 0u64;
@@ -786,6 +790,8 @@ pub async fn send_command(
                                 positions: &snap.positions,
                                 execution_audits,
                                 history: snap.history.as_deref(),
+                                time_stop_seconds: snap.time_stop_seconds,
+                                time_stop_enabled: snap.time_stop_enabled,
                             };
 
                             let s = serde_json::to_string(&payload).unwrap_or_default();

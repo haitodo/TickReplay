@@ -222,4 +222,8 @@ pub struct CoreStatusSnapshot {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub history: Option<Vec<crate::virtual_trading::VirtualPosition>>,
     pub latest_audits: Arc<Vec<crate::core::journal::ExecutionAuditRecord>>,
+    #[serde(default)]
+    pub time_stop_seconds: u32,
+    #[serde(default)]
+    pub time_stop_enabled: bool,
 }

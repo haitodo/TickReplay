@@ -227,6 +227,8 @@ impl ReplayCore {
             positions: Vec::new(),
             history: Some(Vec::new()),
             latest_audits: Arc::new(Vec::new()),
+            time_stop_seconds: 20,
+            time_stop_enabled: false,
         };
 
         let (status_tx, status_rx) = watch::channel(initial_snapshot);
@@ -509,6 +511,8 @@ mod tests {
             positions: engine.positions.clone(),
             history: Some(engine.history.clone()),
             latest_audits: Arc::new(engine.audit_log[engine.audit_log.len().saturating_sub(50)..].to_vec()),
+            time_stop_seconds: engine.time_stop_seconds,
+            time_stop_enabled: engine.time_stop_enabled,
         };
 
         let delta_snap = CoreStatusSnapshot {

@@ -470,6 +470,8 @@ impl CoreScheduler {
             positions: self.matching.positions.clone(),
             history,
             latest_audits,
+            time_stop_seconds: self.matching.time_stop_seconds,
+            time_stop_enabled: self.matching.time_stop_enabled,
         };
         let _ = self.status_tx.send(snapshot);
     }

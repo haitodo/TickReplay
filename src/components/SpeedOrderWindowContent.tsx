@@ -270,11 +270,11 @@ export const SpeedOrderWindowContent: React.FC = () => {
     localStorage.setItem(STORAGE_KEYS.speedOrderTimeStopMode, timeStopMode);
     sendCommand({
       command: "SET_TIME_STOP",
-      enabled: timeStopEnabled,
-      seconds: timeStopSeconds,
+      enabled: showHoldingTime && timeStopEnabled,
+      seconds: showHoldingTime ? timeStopSeconds : 0,
       mode: timeStopMode,
     });
-  }, [timeStopSeconds, timeStopEnabled, timeStopMode]);
+  }, [showHoldingTime, timeStopSeconds, timeStopEnabled, timeStopMode]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.speedOrderErrorDisplayDuration, String(errorDisplayDuration));
@@ -423,13 +423,14 @@ export const SpeedOrderWindowContent: React.FC = () => {
           sendCommand({ command: "SET_CONTRACT_SIZE", size: currentContractSize });
           sendCommand({ command: "SET_HEDGING", allowed: currentHedging });
           sendCommand({ command: "SET_LATENCY", latency_ms: isNaN(currentLatency) ? 30 : Math.min(200, Math.max(0, currentLatency)) });
+          const currentShowHolding = localStorage.getItem(STORAGE_KEYS.speedOrderShowHoldingTime) !== "false";
           const currentTimeStopSeconds = parseInt(localStorage.getItem(STORAGE_KEYS.speedOrderTimeStopSeconds) || "20", 10);
           const currentTimeStopEnabled = localStorage.getItem(STORAGE_KEYS.speedOrderTimeStopEnabled) === "true";
           const currentTimeStopMode = localStorage.getItem(STORAGE_KEYS.speedOrderTimeStopMode) || "loss_only";
           sendCommand({
             command: "SET_TIME_STOP",
-            enabled: currentTimeStopEnabled,
-            seconds: isNaN(currentTimeStopSeconds) ? 20 : currentTimeStopSeconds,
+            enabled: currentShowHolding && currentTimeStopEnabled,
+            seconds: currentShowHolding ? (isNaN(currentTimeStopSeconds) ? 20 : currentTimeStopSeconds) : 0,
             mode: currentTimeStopMode,
           });
           if (data.jfx_real !== undefined) {
@@ -469,13 +470,14 @@ export const SpeedOrderWindowContent: React.FC = () => {
             sendCommand({ command: "SET_CONTRACT_SIZE", size: currentContractSize });
             sendCommand({ command: "SET_HEDGING", allowed: currentHedging });
             sendCommand({ command: "SET_LATENCY", latency_ms: isNaN(currentLatency) ? 30 : Math.min(200, Math.max(0, currentLatency)) });
+            const currentShowHolding = localStorage.getItem(STORAGE_KEYS.speedOrderShowHoldingTime) !== "false";
             const currentTimeStopSeconds = parseInt(localStorage.getItem(STORAGE_KEYS.speedOrderTimeStopSeconds) || "20", 10);
             const currentTimeStopEnabled = localStorage.getItem(STORAGE_KEYS.speedOrderTimeStopEnabled) === "true";
             const currentTimeStopMode = localStorage.getItem(STORAGE_KEYS.speedOrderTimeStopMode) || "loss_only";
             sendCommand({
               command: "SET_TIME_STOP",
-              enabled: currentTimeStopEnabled,
-              seconds: isNaN(currentTimeStopSeconds) ? 20 : currentTimeStopSeconds,
+              enabled: currentShowHolding && currentTimeStopEnabled,
+              seconds: currentShowHolding ? (isNaN(currentTimeStopSeconds) ? 20 : currentTimeStopSeconds) : 0,
               mode: currentTimeStopMode,
             });
           }
