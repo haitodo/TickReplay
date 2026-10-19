@@ -46,6 +46,8 @@ export interface AppSettings {
   timeline_activity_max_cap?: number;
   timeline_activity_min_floor?: number;
   auto_skip_threshold?: number;
+  timeline_window_x?: number;
+  timeline_window_y?: number;
 }
 
 /** Settings returned by the backend, including replay-specific persisted values. */

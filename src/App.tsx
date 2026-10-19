@@ -97,6 +97,7 @@ interface AppHandlers {
 }
 
 import { ControllerWindowContent } from "./components/Controls/ControllerWindowContent";
+import { TimelineWindowContent } from "./components/Timeline/TimelineWindowContent";
 /**
  * ウィンドウ種別ごとの入口。?window=... で子ウィンドウを出し分ける。
  * URL 分岐だけを担当し、フックを持たない。
@@ -136,6 +137,13 @@ function WindowRouter() {
     return (
       <ErrorBoundary fallbackTitle="シンボル選択セレクターエラー">
         <SymbolSelectorWindowContent />
+      </ErrorBoundary>
+    );
+  }
+  if (windowParam === "timeline") {
+    return (
+      <ErrorBoundary fallbackTitle="タイムライン・ナビゲーターエラー">
+        <TimelineWindowContent />
       </ErrorBoundary>
     );
   }

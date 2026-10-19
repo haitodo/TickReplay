@@ -90,7 +90,7 @@ pub fn run() {
                     }
                 }
                 tauri::WindowEvent::CloseRequested { api, .. } => {
-                    if window.label() == "speed_order" || window.label() == "positions" || window.label() == "settings" || window.label() == "controller" || window.label() == "symbol_selector" {
+                    if window.label() == "speed_order" || window.label() == "positions" || window.label() == "settings" || window.label() == "controller" || window.label() == "symbol_selector" || window.label() == "timeline" {
                         // 完全に破棄せず非表示にすることで、次回起動を瞬時に行う（チラつき防止）
                         api.prevent_close();
                         let _ = window.hide();
@@ -239,6 +239,21 @@ pub fn run() {
                 .visible(false);
 
                 let _ = symbol_selector_builder.build()?;
+
+                // タイムライン・ナビゲーター画面を初期起動時にあらかじめ非表示で作成しておく
+                let timeline_builder = tauri::webview::WebviewWindowBuilder::new(
+                    &app_handle,
+                    "timeline",
+                    tauri::WebviewUrl::App("index.html?window=timeline".into()),
+                )
+                .title("タイムライン・ナビゲーター - TickReplay")
+                .inner_size(920.0, 340.0)
+                .min_inner_size(680.0, 260.0)
+                .resizable(true)
+                .always_on_top(true)
+                .visible(false);
+
+                let _ = timeline_builder.build()?;
             }
             
             Ok(())
@@ -265,6 +280,8 @@ pub fn run() {
             commands::close_settings_window,
             commands::open_symbol_selector_window,
             commands::close_symbol_selector_window,
+            commands::open_timeline_window,
+            commands::close_timeline_window,
             commands::hide_window,
             commands::open_tracely_app,
             commands::open_trade_analysis_window,

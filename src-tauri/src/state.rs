@@ -234,6 +234,10 @@ pub struct ReplaySettings {
     #[serde(default)]
     pub settings_window_y: Option<i32>,
     #[serde(default)]
+    pub timeline_window_x: Option<i32>,
+    #[serde(default)]
+    pub timeline_window_y: Option<i32>,
+    #[serde(default)]
     pub terminal_names: Option<std::collections::HashMap<String, String>>,
     #[serde(default)]
     pub economic_data_dir: Option<String>,

@@ -246,6 +246,10 @@ pub async fn save_settings(
             settings.settings_window_x = existing_settings.settings_window_x;
             settings.settings_window_y = existing_settings.settings_window_y;
         }
+        if settings.timeline_window_x.is_none() {
+            settings.timeline_window_x = existing_settings.timeline_window_x;
+            settings.timeline_window_y = existing_settings.timeline_window_y;
+        }
         if settings.terminal_names.is_none() {
             settings.terminal_names = existing_settings.terminal_names.clone();
         }
@@ -315,6 +319,12 @@ pub async fn save_window_position_to_disk(
             if s.settings_window_x != Some(x) || s.settings_window_y != Some(y) {
                 s.settings_window_x = Some(x);
                 s.settings_window_y = Some(y);
+                changed = true;
+            }
+        } else if label == "timeline" {
+            if s.timeline_window_x != Some(x) || s.timeline_window_y != Some(y) {
+                s.timeline_window_x = Some(x);
+                s.timeline_window_y = Some(y);
                 changed = true;
             }
         } else {

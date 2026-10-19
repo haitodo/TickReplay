@@ -506,6 +506,63 @@ pub async fn close_symbol_selector_window(app_handle: AppHandle) -> Result<(), A
 }
 
 #[tauri::command]
+pub async fn open_timeline_window(app_handle: AppHandle) -> Result<(), AppError> {
+    let target_inner_w = 920.0;
+    let target_inner_h = 340.0;
+    let settings = crate::commands_settings::load_settings(app_handle.clone()).await.ok().flatten();
+
+    if let Some(window) = app_handle.get_webview_window("timeline") {
+        apply_window_position_and_inner_size(
+            &app_handle,
+            &window,
+            settings.as_ref().and_then(|s| s.timeline_window_x),
+            settings.as_ref().and_then(|s| s.timeline_window_y),
+            target_inner_w,
+            target_inner_h,
+        );
+        window.show()?;
+        emit_webview_visible(&window, true);
+        window.set_focus()?;
+        window.set_always_on_top(true)?;
+    } else {
+        let win_builder = tauri::webview::WebviewWindowBuilder::new(
+            &app_handle,
+            "timeline",
+            tauri::WebviewUrl::App("index.html?window=timeline".into()),
+        )
+        .title("タイムライン・ナビゲーター - TickReplay")
+        .inner_size(target_inner_w, target_inner_h)
+        .min_inner_size(680.0, 260.0)
+        .resizable(true)
+        .always_on_top(true)
+        .visible(false);
+
+        let window = win_builder.build()?;
+        apply_window_position_and_inner_size(
+            &app_handle,
+            &window,
+            settings.as_ref().and_then(|s| s.timeline_window_x),
+            settings.as_ref().and_then(|s| s.timeline_window_y),
+            target_inner_w,
+            target_inner_h,
+        );
+        window.show()?;
+        emit_webview_visible(&window, true);
+        window.set_focus()?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn close_timeline_window(app_handle: AppHandle) -> Result<(), AppError> {
+    if let Some(window) = app_handle.get_webview_window("timeline") {
+        let _ = window.hide();
+        emit_webview_visible(&window, false);
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn hide_window(app_handle: AppHandle, label: String) -> Result<(), AppError> {
     if let Some(window) = app_handle.get_webview_window(&label) {
         let _ = window.hide();

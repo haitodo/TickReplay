@@ -748,6 +748,14 @@ export const ControllerWindowContent: React.FC = () => {
         <div className="ctrl-header-right" ref={exitMenuRef} style={{ position: "relative" }}>
           <button
             type="button"
+            className="ctrl-icon-btn ctrl-timeline-btn"
+            onClick={() => invoke(COMMANDS.openTimelineWindow).catch(console.error)}
+            title="タイムライン・ナビゲーター (詳細波形・ボラティリティ) を開く"
+          >
+            <span className="material-symbols-outlined icon" style={{ color: "#38bdf8" }}>timeline</span>
+          </button>
+          <button
+            type="button"
             className="ctrl-icon-btn ctrl-speed-order-btn"
             onClick={() => invoke(COMMANDS.openSpeedOrderWindow).catch(console.error)}
             title="スピード発注画面を開く"
