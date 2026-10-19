@@ -141,7 +141,7 @@ const TransportControls: React.FC<TransportControlsProps> = React.memo(({
             <button
               className={`mode-badge-btn auto-skip-badge-btn ${autoSkipFlat ? "active" : ""}`}
               onClick={() => setAutoSkipFlat(!autoSkipFlat)}
-              title={autoSkipFlat ? "無風時間の自動早送り: ON (クリックでOFF)" : "無風時間の自動早送り: OFF (クリックでON)"}
+              title={autoSkipFlat ? "自動スキップ (早送り): ON (クリックでOFF)" : "自動スキップ (早送り): OFF (クリックでON)"}
             >
               <span className="material-symbols-outlined icon" style={{ fontSize: "13px", marginRight: "1px" }}>bolt</span>
               SKIP

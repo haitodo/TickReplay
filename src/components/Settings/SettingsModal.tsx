@@ -218,10 +218,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div className="settings-group">
                 <h4 className="settings-group-title">
                   <span className="material-symbols-outlined" style={{ fontSize: "16px", verticalAlign: "middle", marginRight: "4px" }}>speed</span>
-                  タイムライン活動度 ＆ 無風自動早送り (Auto-Skip)
+                  タイムライン活動度 ＆ 自動スキップ (Auto-Skip)
                 </h4>
                 <p className="settings-hint" style={{ marginBottom: "10px" }}>
-                  シークバーの波形・色彩および無風時間帯の自動早送り（150倍速）の判定基準を設定します。
+                  シークバーの波形・色彩および活動度に応じた自動早送り（150倍速）の判定基準を設定します。
                 </p>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "12px" }}>
@@ -272,7 +272,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
                   <div>
-                    <span className="switch-text" style={{ fontSize: "12px", fontWeight: "bold", display: "block" }}>無風・低ボラティリティ スキップ発動閾値</span>
+                    <span className="switch-text" style={{ fontSize: "12px", fontWeight: "bold", display: "block" }}>スキップ発動閾値</span>
                     <span className="settings-hint" style={{ fontSize: "11px" }}>
                       活動強度がこの割合未満で早送り (復帰: {Math.min(95, Math.round((autoSkipThreshold + (autoSkipThreshold >= 0.5 ? 0.05 : 0.1)) * 100))}%)
                     </span>
@@ -286,11 +286,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       if (setAutoSkipThreshold) setAutoSkipThreshold(val);
                     }}
                   >
-                    <option value={0.10}>10% (完全無風・早朝のみ)</option>
-                    <option value={0.15}>15% (標準・無風スキップ)</option>
+                    <option value={0.10}>10% (閑散・早朝帯のみ)</option>
+                    <option value={0.15}>15% (標準)</option>
                     <option value={0.20}>20% (やや早め)</option>
                     <option value={0.25}>25% (積極的)</option>
-                    <option value={0.35}>35% (低活動全スキップ・中活動〜)</option>
+                    <option value={0.35}>35% (低活動スキップ・中活動〜)</option>
                     <option value={0.50}>50% (活発相場のみ再生)</option>
                     <option value={0.70}>70% (激変帯特化・急騰急落のみ)</option>
                   </select>

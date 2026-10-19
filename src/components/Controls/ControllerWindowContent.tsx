@@ -41,7 +41,7 @@ export const ControllerWindowContent: React.FC = () => {
   const [timelineActivity, setTimelineActivity] = useState<DayTimelineActivity | null>(null);
   const lastActivityDateRef = useRef<string>("");
 
-  // 無風・低活動時間の自動早送り State
+  // 指定活動度未満の時間帯の自動早送り (Auto-Skip) State
   const [autoSkipFlat, setAutoSkipFlat] = useState<boolean>(() => {
     return localStorage.getItem("replay-auto-skip-flat") === "true";
   });
