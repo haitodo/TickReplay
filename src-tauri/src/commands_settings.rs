@@ -252,6 +252,15 @@ pub async fn save_settings(
         if settings.economic_data_dir.is_none() {
             settings.economic_data_dir = existing_settings.economic_data_dir.clone();
         }
+        if settings.timeline_activity_max_cap.is_none() {
+            settings.timeline_activity_max_cap = existing_settings.timeline_activity_max_cap;
+        }
+        if settings.timeline_activity_min_floor.is_none() {
+            settings.timeline_activity_min_floor = existing_settings.timeline_activity_min_floor;
+        }
+        if settings.auto_skip_threshold.is_none() {
+            settings.auto_skip_threshold = existing_settings.auto_skip_threshold;
+        }
     }
 
     let config_dir = app_handle.path().app_config_dir()?;

@@ -26,6 +26,9 @@ type SettingsSaveOverrides = {
   autoScrollSync?: boolean;
   autoSkipWeekend?: boolean;
   economicDataDir?: string;
+  timelineActivityMaxCap?: number;
+  timelineActivityMinFloor?: number;
+  autoSkipThreshold?: number;
 };
 
 export const SettingsWindowContent: React.FC = () => {
@@ -44,6 +47,9 @@ export const SettingsWindowContent: React.FC = () => {
   const [alwaysOnTop, setAlwaysOnTop] = useState(false);
   const [isShortcutsActive, setIsShortcutsActive] = useState(false);
   const [economicDataDir, setEconomicDataDir] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.replayEconomicDataDir) || "");
+  const [timelineActivityMaxCap, setTimelineActivityMaxCap] = useState<number>(2800);
+  const [timelineActivityMinFloor, setTimelineActivityMinFloor] = useState<number>(1500);
+  const [autoSkipThreshold, setAutoSkipThreshold] = useState<number>(0.15);
 
   // ホットキー
   const [hotkeys, setHotkeys] = useState<Record<string, string>>(DEFAULT_HOTKEYS);
@@ -66,6 +72,9 @@ export const SettingsWindowContent: React.FC = () => {
           if (data.shortcuts_active !== undefined) setIsShortcutsActive(data.shortcuts_active);
           if (data.auto_scroll_sync !== undefined) setAutoScrollSync(data.auto_scroll_sync);
           if (data.auto_skip_weekend !== undefined) setAutoSkipWeekend(data.auto_skip_weekend);
+          if (data.timeline_activity_max_cap !== undefined) setTimelineActivityMaxCap(data.timeline_activity_max_cap);
+          if (data.timeline_activity_min_floor !== undefined) setTimelineActivityMinFloor(data.timeline_activity_min_floor);
+          if (data.auto_skip_threshold !== undefined) setAutoSkipThreshold(data.auto_skip_threshold);
           if (data.economic_data_dir) {
             setEconomicDataDir(data.economic_data_dir);
           } else if (!localStorage.getItem(STORAGE_KEYS.replayEconomicDataDir)) {
@@ -99,6 +108,9 @@ export const SettingsWindowContent: React.FC = () => {
       const activeAutoScrollSync = overrides.autoScrollSync ?? autoScrollSync;
       const activeAutoSkipWeekend = overrides.autoSkipWeekend ?? autoSkipWeekend;
       const activeEconomicDataDir = overrides.economicDataDir ?? economicDataDir;
+      const activeTimelineActivityMaxCap = overrides.timelineActivityMaxCap ?? timelineActivityMaxCap;
+      const activeTimelineActivityMinFloor = overrides.timelineActivityMinFloor ?? timelineActivityMinFloor;
+      const activeAutoSkipThreshold = overrides.autoSkipThreshold ?? autoSkipThreshold;
 
       try {
         await invoke(COMMANDS.saveSettings, {
@@ -113,6 +125,9 @@ export const SettingsWindowContent: React.FC = () => {
             auto_scroll_sync: activeAutoScrollSync,
             auto_skip_weekend: activeAutoSkipWeekend,
             economic_data_dir: activeEconomicDataDir,
+            timeline_activity_max_cap: activeTimelineActivityMaxCap,
+            timeline_activity_min_floor: activeTimelineActivityMinFloor,
+            auto_skip_threshold: activeAutoSkipThreshold,
           },
         });
         localStorage.setItem(STORAGE_KEYS.plColorStyle, activePlColorStyle);
@@ -122,6 +137,9 @@ export const SettingsWindowContent: React.FC = () => {
         emit(EVENTS.settingsUpdated, {
           plColorStyle: activePlColorStyle,
           orderColorStyle: activeOrderColorStyle,
+          timelineActivityMaxCap: activeTimelineActivityMaxCap,
+          timelineActivityMinFloor: activeTimelineActivityMinFloor,
+          autoSkipThreshold: activeAutoSkipThreshold,
         }).catch(console.error);
       } catch (err) {
         console.error("Failed to save settings:", err);
@@ -138,6 +156,9 @@ export const SettingsWindowContent: React.FC = () => {
       autoScrollSync,
       autoSkipWeekend,
       economicDataDir,
+      timelineActivityMaxCap,
+      timelineActivityMinFloor,
+      autoSkipThreshold,
     ]
   );
 
@@ -376,6 +397,90 @@ export const SettingsWindowContent: React.FC = () => {
                       <span className="material-symbols-outlined icon" style={{ fontSize: "16px" }}>restart_alt</span>
                       <span>初期値</span>
                     </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="settings-section-card">
+                <h3 className="section-title">
+                  <span className="material-symbols-outlined icon">speed</span>
+                  タイムライン活動度 ＆ 無風自動早送り (Auto-Skip)
+                </h3>
+                <div className="settings-options-list">
+                  <p className="option-desc" style={{ marginBottom: "12px" }}>
+                    シークバーの波形・色彩および無風時間帯の自動早送り（150倍速）の判定基準を設定します。
+                  </p>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "12px" }}>
+                    <div>
+                      <label className="option-label" style={{ display: "block", marginBottom: "4px" }}>
+                        基準上限キャップ (15分ティック数)
+                      </label>
+                      <input
+                        type="number"
+                        className="input-compact font-data"
+                        style={{ width: "100%", padding: "6px 10px" }}
+                        min={500}
+                        max={10000}
+                        step={100}
+                        value={timelineActivityMaxCap}
+                        onChange={(e) => {
+                          const val = Math.max(500, parseInt(e.target.value, 10) || 2800);
+                          setTimelineActivityMaxCap(val);
+                          saveAll({ timelineActivityMaxCap: val });
+                        }}
+                      />
+                      <span className="option-desc" style={{ fontSize: "11px", display: "block", marginTop: "2px" }}>
+                        大型指標時のスケール潰れを防ぐ上限天井 (初期値: 2800)
+                      </span>
+                    </div>
+
+                    <div>
+                      <label className="option-label" style={{ display: "block", marginBottom: "4px" }}>
+                        基準下限フロア (15分ティック数)
+                      </label>
+                      <input
+                        type="number"
+                        className="input-compact font-data"
+                        style={{ width: "100%", padding: "6px 10px" }}
+                        min={200}
+                        max={5000}
+                        step={50}
+                        value={timelineActivityMinFloor}
+                        onChange={(e) => {
+                          const val = Math.max(200, parseInt(e.target.value, 10) || 1500);
+                          setTimelineActivityMinFloor(val);
+                          saveAll({ timelineActivityMinFloor: val });
+                        }}
+                      />
+                      <span className="option-desc" style={{ fontSize: "11px", display: "block", marginTop: "2px" }}>
+                        祝日・薄商い日のスキップ不発を防ぐ最低基準 (初期値: 1500)
+                      </span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px" }}>
+                    <div style={{ flex: 1 }}>
+                      <span className="option-label">無風スキップ発動閾値</span>
+                      <span className="option-desc">
+                        活動強度がこの割合を下回ると自動早送りします (復帰は +10%: {Math.round((autoSkipThreshold + 0.1) * 100)}%)
+                      </span>
+                    </div>
+                    <select
+                      className="input-compact font-data"
+                      style={{ padding: "6px 10px", width: "110px" }}
+                      value={autoSkipThreshold}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0.15;
+                        setAutoSkipThreshold(val);
+                        saveAll({ autoSkipThreshold: val });
+                      }}
+                    >
+                      <option value={0.10}>10% (厳格)</option>
+                      <option value={0.15}>15% (標準)</option>
+                      <option value={0.20}>20% (早め)</option>
+                      <option value={0.25}>25% (積極的)</option>
+                    </select>
                   </div>
                 </div>
               </div>

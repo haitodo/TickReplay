@@ -237,5 +237,11 @@ pub struct ReplaySettings {
     pub terminal_names: Option<std::collections::HashMap<String, String>>,
     #[serde(default)]
     pub economic_data_dir: Option<String>,
+    #[serde(default)]
+    pub timeline_activity_max_cap: Option<u32>,
+    #[serde(default)]
+    pub timeline_activity_min_floor: Option<u32>,
+    #[serde(default)]
+    pub auto_skip_threshold: Option<f64>,
 }
 

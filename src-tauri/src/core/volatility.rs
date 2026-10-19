@@ -32,7 +32,12 @@ impl Default for DayTimelineActivity {
 }
 
 /// 指定された仮想時刻（ミリ秒）が属するサーバー日（00:00〜24:00）のタイムライン活動度を計算
-pub fn compute_day_timeline_activity(store: &TickStore, virtual_time_msc: i64) -> DayTimelineActivity {
+pub fn compute_day_timeline_activity(
+    store: &TickStore,
+    virtual_time_msc: i64,
+    min_floor: u32,
+    max_cap: u32,
+) -> DayTimelineActivity {
     if store.is_empty() {
         return DayTimelineActivity::default();
     }
@@ -98,17 +103,21 @@ pub fn compute_day_timeline_activity(store: &TickStore, virtual_time_msc: i64) -
         }
     }
 
-    // 相対強度の正規化
-    // 閑散日でも過度に高強度と誤認されないよう、最低期待基準（min_active_ref）を設ける
+    // 飽和型スケーリング（Clamped Scaling）
+    // 安全のための下限/上限チェック
+    let safe_min_floor = min_floor.max(100);
+    let safe_max_cap = max_cap.max(safe_min_floor);
+
     let max_15m = raw_15m.iter().copied().max().unwrap_or(0);
-    let denom_15m = (max_15m.max(300)) as f32; // 15分で300ティック以上を基準
+    // 分母を [safe_min_floor, safe_max_cap] の範囲にクランプ
+    let denom_15m = (max_15m.clamp(safe_min_floor, safe_max_cap)) as f32;
     let slots_15m = raw_15m
         .iter()
         .map(|&c| (c as f32 / denom_15m).clamp(0.0, 1.0))
         .collect();
 
     let max_1h = raw_1h.iter().copied().max().unwrap_or(0);
-    let denom_1h = (max_1h.max(1200)) as f32; // 1時間で1200ティック以上を基準
+    let denom_1h = (max_1h.clamp(safe_min_floor * 4, safe_max_cap * 4)) as f32;
     let slots_1h = raw_1h
         .iter()
         .map(|&c| (c as f32 / denom_1h).clamp(0.0, 1.0))
@@ -135,7 +144,7 @@ mod tests {
     #[test]
     fn test_compute_day_timeline_activity_empty() {
         let store = TickStore::empty();
-        let res = compute_day_timeline_activity(&store, 1715731200000);
+        let res = compute_day_timeline_activity(&store, 1715731200000, 1500, 2800);
         assert_eq!(res.total_ticks_in_day, 0);
         assert_eq!(res.slots_15m.len(), 96);
         assert_eq!(res.slots_1h.len(), 24);
@@ -163,17 +172,95 @@ mod tests {
         }
 
         let store = TickStore::from_core_ticks(ticks);
-        let res = compute_day_timeline_activity(&store, base_msc + 36000 * 1000);
+        // min_floor=300, max_cap=2000 の場合、max_15m=500 なので denom_15m=500
+        let res = compute_day_timeline_activity(&store, base_msc + 36000 * 1000, 300, 2000);
 
         assert_eq!(res.date_str, "2024-05-15");
         assert_eq!(res.total_ticks_in_day, 500);
         // 10:00 は 10 * 4 = 40スロット目 (15分刻み)
-        assert!(res.slots_15m[40] > 0.9); // 500 >= 300 なので 1.0 に近い
-        // 10:00 は 10スロット目 (1時間刻み)
-        assert!(res.slots_1h[10] > 0.3);
+        assert!((res.slots_15m[40] - 1.0).abs() < 1e-4); // 500 / 500 = 1.0
         // その他のスロットは 0
         assert_eq!(res.slots_15m[0], 0.0);
         assert_eq!(res.slots_1h[0], 0.0);
     }
+
+    #[test]
+    fn test_compute_day_timeline_activity_max_cap() {
+        // 指標スパイク時の上限キャップテスト
+        let base_msc = 1715731200000i64;
+        let mut ticks = Vec::new();
+
+        // スロット 40 (10:00) に 6000 ティック (指標スパイク)
+        for i in 0..6000 {
+            ticks.push(CoreTick {
+                index: i as u64,
+                time_sec: (base_msc / 1000) + 36000,
+                time_msc: base_msc + 36000 * 1000 + (i * 100),
+                bid: 155.0,
+                ask: 155.02,
+                last: 155.01,
+                volume: 1,
+                volume_real: 1.0,
+                flags: 6,
+            });
+        }
+
+        // スロット 16 (04:00 東京時間) に 1400 ティック (通常取引)
+        for i in 0..1400 {
+            ticks.push(CoreTick {
+                index: (6000 + i) as u64,
+                time_sec: (base_msc / 1000) + 14400,
+                time_msc: base_msc + 14400 * 1000 + (i * 100),
+                bid: 155.0,
+                ask: 155.02,
+                last: 155.01,
+                volume: 1,
+                volume_real: 1.0,
+                flags: 6,
+            });
+        }
+
+        let store = TickStore::from_core_ticks(ticks);
+        // max_cap=2800 を指定。6000 ティックあっても分母は 2800 で頭打ち。
+        let res = compute_day_timeline_activity(&store, base_msc + 36000 * 1000, 1500, 2800);
+
+        // 指標スロットは 1.0 (飽和)
+        assert_eq!(res.slots_15m[40], 1.0);
+        // 東京通常取引スロット (1400T) は 1400 / 2800 = 0.50 (シアン〜中活動)
+        assert!((res.slots_15m[16] - 0.50).abs() < 1e-4);
+        // 0.15 未満に押し潰されていないことを確認
+        assert!(res.slots_15m[16] > 0.15);
+    }
+
+    #[test]
+    fn test_compute_day_timeline_activity_min_floor() {
+        // 閑散日の下限フロアテスト
+        let base_msc = 1715731200000i64;
+        let mut ticks = Vec::new();
+
+        // 1日を通して最大でも 150 ティックしかない薄商い日
+        for i in 0..150 {
+            ticks.push(CoreTick {
+                index: i as u64,
+                time_sec: (base_msc / 1000) + 36000,
+                time_msc: base_msc + 36000 * 1000 + (i * 1000),
+                bid: 155.0,
+                ask: 155.02,
+                last: 155.01,
+                volume: 1,
+                volume_real: 1.0,
+                flags: 6,
+            });
+        }
+
+        let store = TickStore::from_core_ticks(ticks);
+        // min_floor=1500 を指定。ピーク 150 でも分母は 1500 になる。
+        let res = compute_day_timeline_activity(&store, base_msc + 36000 * 1000, 1500, 2800);
+
+        // 150 / 1500 = 0.10 (< 0.15 なので無風スキップ判定を満たす)
+        assert!((res.slots_15m[40] - 0.10).abs() < 1e-4);
+        assert!(res.slots_15m[40] < 0.15);
+    }
 }
+
 

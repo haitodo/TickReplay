@@ -473,6 +473,9 @@ function MainWindow() {
   const [preloadedBars, setPreloadedBars] = useState(300);
   const [autoScrollSync, setAutoScrollSync] = useState(true);
   const [autoSkipWeekend, setAutoSkipWeekend] = useState(true);
+  const [timelineActivityMaxCap, setTimelineActivityMaxCap] = useState(2800);
+  const [timelineActivityMinFloor, setTimelineActivityMinFloor] = useState(1500);
+  const [autoSkipThreshold, setAutoSkipThreshold] = useState(0.15);
   const [preloadMode, setPreloadMode] = useState<"BARS" | "DATE">("BARS");
   const [preloadDate, setPreloadDate] = useState("2026-01-01 00:00:00");
   const [preloadTimeframe, setPreloadTimeframe] = useState("AUTO");
@@ -1259,6 +1262,15 @@ function MainWindow() {
           if (saved.auto_skip_weekend !== undefined && saved.auto_skip_weekend !== null) {
             setAutoSkipWeekend(saved.auto_skip_weekend);
           }
+          if (saved.timeline_activity_max_cap !== undefined && saved.timeline_activity_max_cap !== null) {
+            setTimelineActivityMaxCap(saved.timeline_activity_max_cap);
+          }
+          if (saved.timeline_activity_min_floor !== undefined && saved.timeline_activity_min_floor !== null) {
+            setTimelineActivityMinFloor(saved.timeline_activity_min_floor);
+          }
+          if (saved.auto_skip_threshold !== undefined && saved.auto_skip_threshold !== null) {
+            setAutoSkipThreshold(saved.auto_skip_threshold);
+          }
           if (saved.pl_color_style) {
             setPlColorStyle(saved.pl_color_style as "red-blue" | "green-red");
           }
@@ -1494,7 +1506,10 @@ function MainWindow() {
     customHoldingTimeMode = holdingTimeMode,
     customAdditionalSymbols = additionalSymbols,
     customContractSize = contractSize,
-    customEconomicDataDir = economicDataDir
+    customEconomicDataDir = economicDataDir,
+    customTimelineActivityMaxCap = timelineActivityMaxCap,
+    customTimelineActivityMinFloor = timelineActivityMinFloor,
+    customAutoSkipThreshold = autoSkipThreshold
   ) => {
     const settingsObj = {
       selected_terminal: selectedTerminal,
@@ -1507,6 +1522,9 @@ function MainWindow() {
       preloaded_bars: preloadedBars,
       auto_scroll_sync: customAutoScrollSync,
       auto_skip_weekend: customAutoSkipWeekend,
+      timeline_activity_max_cap: customTimelineActivityMaxCap,
+      timeline_activity_min_floor: customTimelineActivityMinFloor,
+      auto_skip_threshold: customAutoSkipThreshold,
       preload_mode: preloadMode,
       preload_date: preloadDate,
       preload_timeframe: customPreloadTimeframe,
@@ -3167,6 +3185,21 @@ function MainWindow() {
         saveAllSettings={saveAllSettings}
         economicDataDir={economicDataDir}
         setEconomicDataDir={saveEconomicDataDir}
+        timelineActivityMaxCap={timelineActivityMaxCap}
+        setTimelineActivityMaxCap={(val) => {
+          setTimelineActivityMaxCap(val);
+          saveAllSettings(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, val, undefined, undefined);
+        }}
+        timelineActivityMinFloor={timelineActivityMinFloor}
+        setTimelineActivityMinFloor={(val) => {
+          setTimelineActivityMinFloor(val);
+          saveAllSettings(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, val, undefined);
+        }}
+        autoSkipThreshold={autoSkipThreshold}
+        setAutoSkipThreshold={(val) => {
+          setAutoSkipThreshold(val);
+          saveAllSettings(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, val);
+        }}
       />
 
       {/* Custom Symbol Import Modal */}

@@ -1086,15 +1086,24 @@ pub async fn set_execution_models(
 #[tauri::command]
 pub async fn get_day_timeline_activity(
     virtual_time_msc: Option<i64>,
+    app_handle: tauri::AppHandle,
     state: State<'_, Arc<ReplayState>>,
 ) -> Result<crate::core::volatility::DayTimelineActivity, AppError> {
     let v_time = virtual_time_msc.unwrap_or_else(|| {
         *state.current_virtual_time_msc.lock().unwrap()
     });
 
+    let (min_floor, max_cap) = match crate::commands_settings::load_settings(app_handle).await {
+        Ok(Some(settings)) => (
+            settings.timeline_activity_min_floor.unwrap_or(1500),
+            settings.timeline_activity_max_cap.unwrap_or(2800),
+        ),
+        _ => (1500, 2800),
+    };
+
     let store_guard = state.tick_store.lock().unwrap();
     if let Some(ref store) = *store_guard {
-        Ok(crate::core::volatility::compute_day_timeline_activity(store, v_time))
+        Ok(crate::core::volatility::compute_day_timeline_activity(store, v_time, min_floor, max_cap))
     } else {
         Ok(crate::core::volatility::DayTimelineActivity::default())
     }

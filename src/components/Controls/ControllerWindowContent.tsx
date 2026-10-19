@@ -45,6 +45,7 @@ export const ControllerWindowContent: React.FC = () => {
   const [autoSkipFlat, setAutoSkipFlat] = useState<boolean>(() => {
     return localStorage.getItem("replay-auto-skip-flat") === "true";
   });
+  const [autoSkipThreshold, setAutoSkipThreshold] = useState<number>(0.15);
   const normalMultiplierRef = useRef<number>(1.0);
   const isAutoSpeedBoostedRef = useRef<boolean>(false);
 
@@ -144,6 +145,9 @@ export const ControllerWindowContent: React.FC = () => {
           if (settings.tick_presets && Array.isArray(settings.tick_presets) && settings.tick_presets.length > 0) {
             setTickPresets(settings.tick_presets);
           }
+          if (settings.auto_skip_threshold !== undefined) {
+            setAutoSkipThreshold(settings.auto_skip_threshold);
+          }
         }
       })
       .catch(console.warn);
@@ -151,6 +155,7 @@ export const ControllerWindowContent: React.FC = () => {
     // 購読完了前にこの effect が破棄された場合でもリスナーを残さないためのフラグ
     let disposed = false;
     let unlisten: (() => void) | undefined;
+    let unlistenSettings: (() => void) | undefined;
     let pendingStatus: string | null = null;
     let statusFrame: number | null = null;
     let windowVisible = !document.hidden;
@@ -193,12 +198,23 @@ export const ControllerWindowContent: React.FC = () => {
         scheduleStatus(event.payload);
       });
 
+      // 設定更新イベント購読
+      const offSettings = await listen<{ autoSkipThreshold?: number }>(EVENTS.settingsUpdated, (event) => {
+        if (event.payload?.autoSkipThreshold !== undefined) {
+          setAutoSkipThreshold(event.payload.autoSkipThreshold);
+        }
+        // タイムライン活動度 (波形) を最新の設定で再取得
+        lastActivityDateRef.current = "";
+      });
+
       // 購読が解決する前にアンマウントされていた場合は即座に解除する
       if (disposed) {
         off();
+        offSettings();
         return;
       }
       unlisten = off;
+      unlistenSettings = offSettings;
     };
 
     setupListener();
@@ -209,6 +225,7 @@ export const ControllerWindowContent: React.FC = () => {
       if (statusFrame !== null) cancelAnimationFrame(statusFrame);
       pendingStatus = null;
       if (unlisten) unlisten();
+      if (unlistenSettings) unlistenSettings();
     };
   }, []);
 
@@ -525,8 +542,10 @@ export const ControllerWindowContent: React.FC = () => {
 
     const slotIdx = Math.max(0, Math.min(95, Math.floor(secInDay / 900)));
     const intensity = timelineActivity.slots_15m[slotIdx] || 0;
+    const threshold = autoSkipThreshold || 0.15;
+    const restoreThreshold = threshold + 0.10;
 
-    if (intensity < 0.15) {
+    if (intensity < threshold) {
       // 閑散状態: 自動早送り (150x)
       if (!isAutoSpeedBoostedRef.current) {
         isAutoSpeedBoostedRef.current = true;
@@ -538,7 +557,7 @@ export const ControllerWindowContent: React.FC = () => {
           tick_step: tickStep,
         }).catch(console.error);
       }
-    } else if (intensity >= 0.25) {
+    } else if (intensity >= restoreThreshold) {
       // 活動再開: 通常速度へ復帰
       if (isAutoSpeedBoostedRef.current) {
         isAutoSpeedBoostedRef.current = false;
@@ -550,7 +569,7 @@ export const ControllerWindowContent: React.FC = () => {
         }).catch(console.error);
       }
     }
-  }, [autoSkipFlat, isPlaying, virtualTimeMsc, timelineActivity, speedMode, multiplier, tickStep, sendCommand]);
+  }, [autoSkipFlat, autoSkipThreshold, isPlaying, virtualTimeMsc, timelineActivity, speedMode, multiplier, tickStep, sendCommand]);
 
   const handleSessionJump = useCallback((session: string, dir: "PREV" | "NEXT") => {
     sendCommand({

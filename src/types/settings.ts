@@ -43,6 +43,9 @@ export interface AppSettings {
   fred_api_key?: string;
   finnhub_api_key?: string;
   economic_data_dir?: string;
+  timeline_activity_max_cap?: number;
+  timeline_activity_min_floor?: number;
+  auto_skip_threshold?: number;
 }
 
 /** Settings returned by the backend, including replay-specific persisted values. */
