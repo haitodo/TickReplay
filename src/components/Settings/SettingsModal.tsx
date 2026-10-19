@@ -272,24 +272,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
                   <div>
-                    <span className="switch-text" style={{ fontSize: "12px", fontWeight: "bold", display: "block" }}>無風スキップ発動閾値</span>
+                    <span className="switch-text" style={{ fontSize: "12px", fontWeight: "bold", display: "block" }}>無風・低ボラティリティ スキップ発動閾値</span>
                     <span className="settings-hint" style={{ fontSize: "11px" }}>
-                      活動強度がこの割合未満で早送り (復帰: {Math.round((autoSkipThreshold + 0.1) * 100)}%)
+                      活動強度がこの割合未満で早送り (復帰: {Math.min(95, Math.round((autoSkipThreshold + (autoSkipThreshold >= 0.5 ? 0.05 : 0.1)) * 100))}%)
                     </span>
                   </div>
                   <select
                     className="pro-input font-data"
-                    style={{ padding: "4px 8px", fontSize: "12px", width: "110px" }}
+                    style={{ padding: "4px 8px", fontSize: "12px", width: "170px" }}
                     value={autoSkipThreshold}
                     onChange={(e) => {
                       const val = parseFloat(e.target.value) || 0.15;
                       if (setAutoSkipThreshold) setAutoSkipThreshold(val);
                     }}
                   >
-                    <option value={0.10}>10% (厳格)</option>
-                    <option value={0.15}>15% (標準)</option>
-                    <option value={0.20}>20% (早め)</option>
+                    <option value={0.10}>10% (完全無風・早朝のみ)</option>
+                    <option value={0.15}>15% (標準・無風スキップ)</option>
+                    <option value={0.20}>20% (やや早め)</option>
                     <option value={0.25}>25% (積極的)</option>
+                    <option value={0.35}>35% (低活動全スキップ・中活動〜)</option>
+                    <option value={0.50}>50% (活発相場のみ再生)</option>
+                    <option value={0.70}>70% (激変帯特化・急騰急落のみ)</option>
                   </select>
                 </div>
               </div>

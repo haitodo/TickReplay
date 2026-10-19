@@ -461,14 +461,14 @@ export const SettingsWindowContent: React.FC = () => {
 
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px" }}>
                     <div style={{ flex: 1 }}>
-                      <span className="option-label">無風スキップ発動閾値</span>
+                      <span className="option-label">無風・低ボラティリティ スキップ発動閾値</span>
                       <span className="option-desc">
-                        活動強度がこの割合を下回ると自動早送りします (復帰は +10%: {Math.round((autoSkipThreshold + 0.1) * 100)}%)
+                        活動強度がこの割合を下回ると自動早送りします (通常速度復帰: {Math.min(95, Math.round((autoSkipThreshold + (autoSkipThreshold >= 0.5 ? 0.05 : 0.1)) * 100))}%)
                       </span>
                     </div>
                     <select
                       className="input-compact font-data"
-                      style={{ padding: "6px 10px", width: "110px" }}
+                      style={{ padding: "6px 10px", width: "170px" }}
                       value={autoSkipThreshold}
                       onChange={(e) => {
                         const val = parseFloat(e.target.value) || 0.15;
@@ -476,10 +476,13 @@ export const SettingsWindowContent: React.FC = () => {
                         saveAll({ autoSkipThreshold: val });
                       }}
                     >
-                      <option value={0.10}>10% (厳格)</option>
-                      <option value={0.15}>15% (標準)</option>
-                      <option value={0.20}>20% (早め)</option>
+                      <option value={0.10}>10% (完全無風・早朝のみ)</option>
+                      <option value={0.15}>15% (標準・無風スキップ)</option>
+                      <option value={0.20}>20% (やや早め)</option>
                       <option value={0.25}>25% (積極的)</option>
+                      <option value={0.35}>35% (低活動全スキップ・中活動〜)</option>
+                      <option value={0.50}>50% (活発相場のみ再生)</option>
+                      <option value={0.70}>70% (激変帯特化・急騰急落のみ)</option>
                     </select>
                   </div>
                 </div>

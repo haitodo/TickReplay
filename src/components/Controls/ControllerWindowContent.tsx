@@ -543,7 +543,8 @@ export const ControllerWindowContent: React.FC = () => {
     const slotIdx = Math.max(0, Math.min(95, Math.floor(secInDay / 900)));
     const intensity = timelineActivity.slots_15m[slotIdx] || 0;
     const threshold = autoSkipThreshold || 0.15;
-    const restoreThreshold = threshold + 0.10;
+    const restoreMargin = threshold >= 0.50 ? 0.05 : 0.10;
+    const restoreThreshold = Math.min(0.95, threshold + restoreMargin);
 
     if (intensity < threshold) {
       // 閑散状態: 自動早送り (150x)
