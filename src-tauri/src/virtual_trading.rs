@@ -352,7 +352,12 @@ impl VirtualTradingEngine {
 
         let is_buy = pos.r#type == "BUY";
         let diff = if is_buy { close_price - pos.open_price } else { pos.open_price - close_price };
-        let realized_profit = diff * close_vol * self.contract_size;
+        let raw_profit = diff * close_vol * self.contract_size;
+        let realized_profit = if self.account.currency == "JPY" {
+            raw_profit.round()
+        } else {
+            (raw_profit * 100.0).round() / 100.0
+        };
 
         let mut hist_pos = pos.clone();
         hist_pos.volume = close_vol;
@@ -525,7 +530,12 @@ impl VirtualTradingEngine {
             pos.current_price = Some(cur_price);
 
             let diff = if is_buy { cur_price - pos.open_price } else { pos.open_price - cur_price };
-            pos.profit = diff * pos.volume * self.contract_size;
+            let raw_profit = diff * pos.volume * self.contract_size;
+            pos.profit = if self.account.currency == "JPY" {
+                raw_profit.round()
+            } else {
+                (raw_profit * 100.0).round() / 100.0
+            };
 
             let diff_pips = diff * 100.0;
             if diff_pips > pos.mfe_pips {

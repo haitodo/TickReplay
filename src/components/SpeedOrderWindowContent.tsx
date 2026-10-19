@@ -845,7 +845,10 @@ export const SpeedOrderWindowContent: React.FC = () => {
   const sellPositions = positions.filter(p => p.type === "SELL");
   const totalBuyLots = buyPositions.reduce((sum, p) => sum + p.volume, 0);
   const totalSellLots = sellPositions.reduce((sum, p) => sum + p.volume, 0);
-  const totalPL = account?.total_profit ?? 0;
+  // 評価損益の計算
+  const totalBuyProfit = buyPositions.reduce((sum, p) => sum + p.profit, 0);
+  const totalSellProfit = sellPositions.reduce((sum, p) => sum + p.profit, 0);
+  const totalPL = account?.profit ?? (totalBuyProfit + totalSellProfit);
 
   // 発注可能ロット数計算
   const leverage = account?.leverage || 25;
@@ -864,10 +867,6 @@ export const SpeedOrderWindowContent: React.FC = () => {
     ? sellPositions.reduce((sum, p) => sum + p.volume * p.open_price, 0) / totalSellLots
     : 0;
 
-  // 評価損益の計算
-  const totalBuyProfit = buyPositions.reduce((sum, p) => sum + p.profit, 0);
-  const totalSellProfit = sellPositions.reduce((sum, p) => sum + p.profit, 0);
-
   // pipsの計算 (現在のBid/Askレートと平均建値の価格差からpips値を直接算出)
   const pipMultiplier = isCrypto || isIndex ? 1 : isGold ? 10 : isJpy ? 100 : 10000;
   const buyPips = totalBuyLots > 0 ? (bid - avgBuyRate) * pipMultiplier : 0;
@@ -875,10 +874,13 @@ export const SpeedOrderWindowContent: React.FC = () => {
   const spreadValue = (ask > 0 && bid > 0) ? ((ask - bid) * pipMultiplier).toFixed(1) : "--";
 
   const formatPLCompact = (val: number) => {
-    const formatted = val.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-    if (val > 0) return <span className="profit-green">+{formatted}</span>;
-    if (val < 0) return <span className="loss-red">{formatted}</span>;
-    return <span style={{ opacity: 0.4 }}>0.00</span>;
+    const rounded = Math.round(val);
+    const formatted = isJpy
+      ? rounded.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+      : val.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+    if (rounded > 0) return <span className="profit-green">+{formatted}</span>;
+    if (rounded < 0) return <span className="loss-red">{formatted}</span>;
+    return <span style={{ opacity: 0.4 }}>0</span>;
   };
 
   const formatPipsCompact = (val: number) => {
@@ -1335,13 +1337,19 @@ export const SpeedOrderWindowContent: React.FC = () => {
         <div className="account-stat">
           <span className="stat-label">P/L:</span>
           <span className={`stat-val ${totalPL >= 0 ? "profit-green" : "loss-red"}`}>
-            {totalPL >= 0 ? "+" : ""}{totalPL.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+            {totalPL >= 0 ? "+" : ""}{isJpy
+              ? Math.round(totalPL).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+              : totalPL.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
           </span>
         </div>
         <div className="account-stat">
           <span className="stat-label">Equity:</span>
           <span className="stat-val font-bold">
-            {account ? account.equity.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : "1,000,000"}
+            {account
+              ? (isJpy
+                  ? Math.round(account.equity).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+                  : account.equity.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }))
+              : "1,000,000"}
           </span>
         </div>
       </div>

@@ -194,7 +194,7 @@ export const PositionsWindowContent: React.FC = () => {
   const margin = account ? Number(account.margin) || 0 : 0;
   const freeMargin = account ? Number(account.free_margin) || 1000000 : 1000000;
   const marginLevel = account ? Number(account.margin_level) || 0 : 0;
-  const totalPL = account ? Number(account.equity) - Number(account.balance) : safePositions.reduce((sum, p) => sum + (Number(p.profit) || 0), 0);
+  const totalPL = account ? (account.profit ?? (Number(account.equity) - Number(account.balance))) : safePositions.reduce((sum, p) => sum + (Number(p.profit) || 0), 0);
   const leverage = account?.leverage || 25;
 
   const totalBuyLots = safePositions
@@ -205,13 +205,13 @@ export const PositionsWindowContent: React.FC = () => {
     .reduce((sum, p) => sum + (Number(p.volume) || 0), 0);
 
   const formatCurrency = (val: number | undefined | null) => {
-    const num = Number(val) || 0;
+    const num = Math.round(Number(val) || 0);
     return num.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + " 円";
   };
 
   const formatPL = (val: number | undefined | null) => {
-    const num = Number(val) || 0;
-    const formatted = num.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+    const num = Math.round(Number(val) || 0);
+    const formatted = num.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
     if (num > 0) return <span className="profit-green">+{formatted} 円</span>;
     if (num < 0) return <span className="loss-red">{formatted} 円</span>;
     return <span>0 円</span>;

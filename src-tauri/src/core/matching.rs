@@ -25,6 +25,26 @@ pub struct PendingCoreClose {
     pub reason: String,
 }
 
+#[inline]
+pub fn symbol_specs(symbol: &str, ref_price: f64) -> (f64, f64, u32) {
+    let sym = symbol.to_uppercase();
+    if sym.contains("JPY") || (symbol.is_empty() && ref_price > 20.0) {
+        (0.001, 0.01, 3)
+    } else if sym.contains("XAU") || sym.contains("GOLD") {
+        (0.01, 0.1, 2)
+    } else if sym.contains("BTC") || sym.contains("ETH") || sym.contains("225") || sym.contains("US30") || sym.contains("NAS") {
+        (0.01, 1.0, 2)
+    } else {
+        (0.00001, 0.0001, 5)
+    }
+}
+
+#[inline]
+pub fn round_to_point(price: f64, digits: u32) -> f64 {
+    let factor = 10f64.powi(digits as i32);
+    (price * factor).round() / factor
+}
+
 #[derive(Debug, Clone)]
 pub struct DeterministicPrng {
     state: u64,
@@ -427,28 +447,32 @@ impl CoreMatchingEngine {
             }
         }
 
+        let (_point, pip_size, digits) = symbol_specs(&symbol, tick.ask);
         let mut fill_price = if is_buy { tick.ask } else { tick.bid };
 
         // スリッページ適用
         let slippage_pips = self.calculate_slippage_pips(tick);
-        let slip_diff = slippage_pips * 0.01; // USDJPY 0.01 = 1 pip
+        let slip_diff = slippage_pips * pip_size;
         if is_buy {
             fill_price += slip_diff;
         } else {
             fill_price -= slip_diff;
         }
+        fill_price = round_to_point(fill_price, digits);
 
         let ticket = self.next_ticket;
         self.next_ticket += 1;
 
         let sl = if sl_points > 0.0 {
-            Some(if is_buy { fill_price - sl_points * 0.01 } else { fill_price + sl_points * 0.01 })
+            let raw_sl = if is_buy { fill_price - sl_points * pip_size } else { fill_price + sl_points * pip_size };
+            Some(round_to_point(raw_sl, digits))
         } else {
             None
         };
 
         let tp = if tp_points > 0.0 {
-            Some(if is_buy { fill_price + tp_points * 0.01 } else { fill_price - tp_points * 0.01 })
+            let raw_tp = if is_buy { fill_price + tp_points * pip_size } else { fill_price - tp_points * pip_size };
+            Some(round_to_point(raw_tp, digits))
         } else {
             None
         };
@@ -603,17 +627,19 @@ impl CoreMatchingEngine {
         let mut pos = self.positions.remove(idx);
         let close_volume = volume.unwrap_or(pos.volume).min(pos.volume);
         let is_buy = pos.r#type == "BUY";
+        let (_point, pip_size, digits) = symbol_specs(&pos.symbol, tick.bid);
         let mut close_price = if is_buy { tick.bid } else { tick.ask };
 
         // 成行手動決済時のスリッページ適用
         if reason == "MANUAL" || reason == "CLOSE_ALL" {
             let slip_pips = self.calculate_slippage_pips(tick);
-            let slip_diff = slip_pips * 0.01;
+            let slip_diff = slip_pips * pip_size;
             if is_buy {
                 close_price -= slip_diff;
             } else {
                 close_price += slip_diff;
             }
+            close_price = round_to_point(close_price, digits);
         }
 
         let price_diff = if is_buy {
@@ -621,7 +647,12 @@ impl CoreMatchingEngine {
         } else {
             pos.open_price - close_price
         };
-        let profit = price_diff * close_volume * self.contract_size;
+        let raw_profit = price_diff * close_volume * self.contract_size;
+        let profit = if self.account.currency == "JPY" {
+            raw_profit.round()
+        } else {
+            (raw_profit * 100.0).round() / 100.0
+        };
 
         if close_volume < pos.volume {
             // 部分決済: 残部を再登録
@@ -836,7 +867,12 @@ impl CoreMatchingEngine {
                 pos.mae_pips = worst_diff_pips;
             }
 
-            let profit = diff * pos.volume * self.contract_size;
+            let raw_profit = diff * pos.volume * self.contract_size;
+            let profit = if self.account.currency == "JPY" {
+                raw_profit.round()
+            } else {
+                (raw_profit * 100.0).round() / 100.0
+            };
             pos.profit = profit;
             total_unrealized_profit += profit;
 
