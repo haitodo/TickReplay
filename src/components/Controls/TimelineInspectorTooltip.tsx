@@ -73,14 +73,31 @@ export const TimelineInspectorTooltip: React.FC<TimelineInspectorTooltipProps> =
   // ルーペ（前後4スロットの拡大ミニグラフ: 計9本 / 約2時間15分分）
   const startSlot = Math.max(0, slot15Idx - 4);
   const endSlot = Math.min(95, slot15Idx + 4);
-  const zoomSlots: { idx: number; intensity: number; isCurrent: boolean }[] = [];
+  const rangeStartSec = startSlot * 900;
+  const rangeEndSec = (endSlot + 1) * 900;
+  const rangeDuration = rangeEndSec - rangeStartSec;
+
+  // 現在再生位置（playhead）がルーペ内にあるかどうかの判定と位置計算
+  const isPlayheadInLoupe = currentSecInDay >= rangeStartSec && currentSecInDay <= rangeEndSec;
+  const playheadPercent = isPlayheadInLoupe && rangeDuration > 0
+    ? ((currentSecInDay - rangeStartSec) / rangeDuration) * 100
+    : 0;
+  const playingSlotIdx = Math.floor(currentSecInDay / 900);
+
+  const zoomSlots: { idx: number; intensity: number; isHoverTarget: boolean; isPlayingSlot: boolean }[] = [];
   for (let i = startSlot; i <= endSlot; i++) {
     zoomSlots.push({
       idx: i,
       intensity: activity.slots_15m[i] || 0,
-      isCurrent: i === slot15Idx,
+      isHoverTarget: i === slot15Idx,
+      isPlayingSlot: i === playingSlotIdx,
     });
   }
+
+  // ホバー時刻と現在再生時刻の差分（分単位）
+  const deltaSec = sec - currentSecInDay;
+  const deltaMin = Math.round(Math.abs(deltaSec) / 60);
+  const isNearCurrent = Math.abs(deltaSec) < 30;
 
   // ポップアップが画面端で見切れないようにX座標をクランプ
   const tooltipLeft = Math.max(110, Math.min(trackWidth - 110, clientX));
@@ -92,19 +109,38 @@ export const TimelineInspectorTooltip: React.FC<TimelineInspectorTooltipProps> =
         left: `${tooltipLeft}px`,
       }}
     >
-      {/* 上部: 時刻 ＆ セッションタグ */}
+      {/* 上部: 時刻 ＆ セッションタグ ＆ 現在地との時間差 */}
       <div className="inspector-header">
         <span className={`inspector-session-badge ${sessionClass}`}>
           {sessionName}
         </span>
         <span className="inspector-time font-data">
           {timeSlotStr} <span className="inspector-tz-tag">{timezoneMode}</span>
+          {isNearCurrent ? (
+            <span className="inspector-delta-tag now">NOW</span>
+          ) : deltaSec > 0 ? (
+            <span className="inspector-delta-tag">+{deltaMin}m</span>
+          ) : (
+            <span className="inspector-delta-tag">-{deltaMin}m</span>
+          )}
         </span>
       </div>
 
-      {/* 中央: ルーペ（拡大ミニ波形: 前後4スロットの15分足バー） */}
+      {/* 中央: ルーペ（拡大ミニ波形: 前後4スロットの15分足バー ＆ リアルタイム再生針） */}
       <div className="inspector-loupe-area">
         <div className="inspector-bars-track">
+          {/* 現在再生針 (Playhead Needle) */}
+          {isPlayheadInLoupe && (
+            <div
+              className="inspector-playhead-line"
+              style={{ left: `${playheadPercent}%` }}
+              title="現在再生位置"
+            >
+              <div className="inspector-playhead-pin" />
+              <div className="inspector-playhead-dot" />
+            </div>
+          )}
+
           {zoomSlots.map((slot) => {
             const barH = Math.max(3, Math.round(slot.intensity * 38));
             const slotIsPast = (slot.idx + 0.5) * 900 <= currentSecInDay;
@@ -115,10 +151,17 @@ export const TimelineInspectorTooltip: React.FC<TimelineInspectorTooltipProps> =
               color = slotIsPast ? "#38bdf8" : "rgba(56, 189, 248, 0.50)";
             }
 
+            const colClass = [
+              "inspector-bar-col",
+              slot.isHoverTarget ? "hover-target" : "",
+              slot.isPlayingSlot ? "playing-slot" : "",
+            ].filter(Boolean).join(" ");
+
             return (
               <div
                 key={slot.idx}
-                className={`inspector-bar-col ${slot.isCurrent ? "current" : ""}`}
+                className={colClass}
+                title={slot.isPlayingSlot ? "再生中スロット" : undefined}
               >
                 <div
                   className="inspector-bar-fill"
@@ -133,15 +176,23 @@ export const TimelineInspectorTooltip: React.FC<TimelineInspectorTooltipProps> =
         </div>
       </div>
 
-      {/* 下部: 活動度サマリー */}
+      {/* 下部: 活動度サマリー ＆ 範囲外ナビ */}
       <div className="inspector-footer font-data">
-        <span>
+        <div>
           活動強度:{" "}
           <strong className="text-accent">
             {Math.round((activity.slots_15m[slot15Idx] || 0) * 100)}%
           </strong>
           {!isPast && <span className="text-muted" style={{ marginLeft: "6px", fontSize: "10px" }}>(未再生)</span>}
-        </span>
+        </div>
+        {!isPlayheadInLoupe && (
+          <div className="inspector-out-range-nav">
+            <span className="material-symbols-outlined" style={{ fontSize: "11px", verticalAlign: "middle" }}>
+              {currentSecInDay < rangeStartSec ? "arrow_back" : "arrow_forward"}
+            </span>
+            <span>現在地は{currentSecInDay < rangeStartSec ? "左側" : "右側"} ({deltaMin}分差)</span>
+          </div>
+        )}
       </div>
 
       {/* 下向き矢印ピン */}

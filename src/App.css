@@ -6912,6 +6912,7 @@ input[type="number"].no-spinner {
 }
 
 .inspector-bars-track {
+  position: relative;
   display: flex;
   align-items: flex-end;
   gap: 4px;
@@ -6924,10 +6925,17 @@ input[type="number"].no-spinner {
   align-items: flex-end;
   justify-content: center;
   height: 100%;
+  position: relative;
+  transition: background 0.15s ease;
 }
 
-.inspector-bar-col.current {
-  border-bottom: 2.5px solid #ffffff;
+.inspector-bar-col.hover-target {
+  border-bottom: 2px solid #ffffff;
+}
+
+.inspector-bar-col.playing-slot {
+  background: rgba(56, 189, 248, 0.15);
+  border-radius: 3px;
 }
 
 .inspector-bar-fill {
@@ -6936,27 +6944,73 @@ input[type="number"].no-spinner {
   transition: height 0.1s ease;
 }
 
-.inspector-future-blur-box {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  width: 100%;
-  height: 100%;
+/* ルーペ内 リアルタイム再生針 (Playhead Needle) */
+.inspector-playhead-line {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: #38bdf8;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.95);
+  pointer-events: none;
+  z-index: 10;
+  transform: translateX(-50%);
 }
 
-.inspector-future-text {
-  font-size: 10px;
-  color: var(--on-surface-variant);
-  font-weight: 500;
+.inspector-playhead-pin {
+  position: absolute;
+  top: -5px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid #38bdf8;
+  filter: drop-shadow(0 0 3px rgba(56, 189, 248, 0.8));
 }
 
-.inspector-future-gradient-bar {
-  width: 90%;
-  height: 8px;
+.inspector-playhead-dot {
+  position: absolute;
+  bottom: -3px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #38bdf8;
+  box-shadow: 0 0 4px #38bdf8;
+}
+
+/* ホバー時刻と現在地との時間差タグ */
+.inspector-delta-tag {
+  font-size: 9px;
+  padding: 1px 5px;
   border-radius: 3px;
-  background: linear-gradient(90deg, rgba(99, 102, 241, 0.5), rgba(245, 158, 11, 0.8));
+  background: rgba(255, 255, 255, 0.08);
+  color: #cbd5e1;
+  margin-left: 4px;
+}
+
+.inspector-delta-tag.now {
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  font-weight: 700;
+}
+
+/* 現在地がルーペ範囲外にあるときのナビゲーション */
+.inspector-out-range-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(56, 189, 248, 0.12);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  margin-top: 2px;
 }
 
 .inspector-footer {
