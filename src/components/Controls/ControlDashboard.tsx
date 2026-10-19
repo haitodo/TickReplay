@@ -50,6 +50,7 @@ interface ControlDashboardProps {
   sendSeekTimeCommand?: (targetMsc: number, immediate?: boolean) => void;
   autoSkipFlat?: boolean;
   setAutoSkipFlat?: (val: boolean) => void;
+  onOpenAutoSkipSettings?: () => void;
 }
 
 interface TransportControlsProps {
@@ -68,6 +69,7 @@ interface TransportControlsProps {
   onOpenSpeedPresets: () => void;
   autoSkipFlat?: boolean;
   setAutoSkipFlat?: (val: boolean) => void;
+  onOpenAutoSkipSettings?: () => void;
 }
 
 const TransportControls: React.FC<TransportControlsProps> = React.memo(({
@@ -86,6 +88,7 @@ const TransportControls: React.FC<TransportControlsProps> = React.memo(({
   onOpenSpeedPresets,
   autoSkipFlat,
   setAutoSkipFlat,
+  onOpenAutoSkipSettings,
 }) => {
   return (
     <>
@@ -138,14 +141,25 @@ const TransportControls: React.FC<TransportControlsProps> = React.memo(({
             {speedMode === "TEMPORAL" ? "TIME" : "TICK"}
           </button>
           {setAutoSkipFlat && (
-            <button
-              className={`mode-badge-btn auto-skip-badge-btn ${autoSkipFlat ? "active" : ""}`}
-              onClick={() => setAutoSkipFlat(!autoSkipFlat)}
-              title={autoSkipFlat ? "自動スキップ (早送り): ON (クリックでOFF)" : "自動スキップ (早送り): OFF (クリックでON)"}
-            >
-              <span className="material-symbols-outlined icon" style={{ fontSize: "13px", marginRight: "1px" }}>bolt</span>
-              SKIP
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: "2px" }}>
+              <button
+                className={`mode-badge-btn auto-skip-badge-btn ${autoSkipFlat ? "active" : ""}`}
+                onClick={() => setAutoSkipFlat(!autoSkipFlat)}
+                title={autoSkipFlat ? "自動スキップ (早送り): ON (クリックでOFF)" : "自動スキップ (早送り): OFF (クリックでON)"}
+              >
+                <span className="material-symbols-outlined icon" style={{ fontSize: "13px", marginRight: "1px" }}>bolt</span>
+                SKIP
+              </button>
+              {onOpenAutoSkipSettings && (
+                <button
+                  className="btn-text-icon"
+                  onClick={onOpenAutoSkipSettings}
+                  title="自動スキップ設定を編集"
+                >
+                  <span className="material-symbols-outlined icon">tune</span>
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -498,6 +512,7 @@ const ControlDashboardComponent: React.FC<ControlDashboardProps> = ({
   sendSeekTimeCommand,
   autoSkipFlat,
   setAutoSkipFlat,
+  onOpenAutoSkipSettings,
 }) => {
   const safeMultiplier = typeof multiplier === "number" ? multiplier : parseFloat(String(multiplier)) || 1.0;
   const [dragSec, setDragSec] = useState<number | null>(null);
@@ -562,6 +577,7 @@ const ControlDashboardComponent: React.FC<ControlDashboardProps> = ({
           onOpenSpeedPresets={handleOpenSpeedPresets}
           autoSkipFlat={autoSkipFlat}
           setAutoSkipFlat={setAutoSkipFlat}
+          onOpenAutoSkipSettings={onOpenAutoSkipSettings}
         />
 
         {/* タイムラインシーカー */}

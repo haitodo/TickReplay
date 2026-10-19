@@ -4,7 +4,7 @@ import { COMMANDS } from "../../constants/commands";
 import { EVENTS } from "../../constants/events";
 import { STORAGE_KEYS } from "../../constants/storageKeys";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { listen, emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ControlDashboard } from "./ControlDashboard";
 import { useAppearance } from "../../hooks/useAppearance";
@@ -46,6 +46,15 @@ export const ControllerWindowContent: React.FC = () => {
     return localStorage.getItem("replay-auto-skip-flat") === "true";
   });
   const [autoSkipThreshold, setAutoSkipThreshold] = useState<number>(0.15);
+  const [timelineActivityMaxCap, setTimelineActivityMaxCap] = useState<number>(2800);
+  const [timelineActivityMinFloor, setTimelineActivityMinFloor] = useState<number>(1500);
+
+  // 自動スキップ設定モーダル State
+  const [isAutoSkipModalOpen, setIsAutoSkipModalOpen] = useState(false);
+  const [tempAutoSkipThreshold, setTempAutoSkipThreshold] = useState<number>(0.15);
+  const [tempActivityMaxCap, setTempActivityMaxCap] = useState<number>(2800);
+  const [tempActivityMinFloor, setTempActivityMinFloor] = useState<number>(1500);
+
   const normalMultiplierRef = useRef<number>(1.0);
   const isAutoSpeedBoostedRef = useRef<boolean>(false);
 
@@ -148,6 +157,12 @@ export const ControllerWindowContent: React.FC = () => {
           if (settings.auto_skip_threshold !== undefined) {
             setAutoSkipThreshold(settings.auto_skip_threshold);
           }
+          if (settings.timeline_activity_max_cap !== undefined) {
+            setTimelineActivityMaxCap(settings.timeline_activity_max_cap);
+          }
+          if (settings.timeline_activity_min_floor !== undefined) {
+            setTimelineActivityMinFloor(settings.timeline_activity_min_floor);
+          }
         }
       })
       .catch(console.warn);
@@ -199,9 +214,19 @@ export const ControllerWindowContent: React.FC = () => {
       });
 
       // 設定更新イベント購読
-      const offSettings = await listen<{ autoSkipThreshold?: number }>(EVENTS.settingsUpdated, (event) => {
+      const offSettings = await listen<{
+        autoSkipThreshold?: number;
+        timelineActivityMaxCap?: number;
+        timelineActivityMinFloor?: number;
+      }>(EVENTS.settingsUpdated, (event) => {
         if (event.payload?.autoSkipThreshold !== undefined) {
           setAutoSkipThreshold(event.payload.autoSkipThreshold);
+        }
+        if (event.payload?.timelineActivityMaxCap !== undefined) {
+          setTimelineActivityMaxCap(event.payload.timelineActivityMaxCap);
+        }
+        if (event.payload?.timelineActivityMinFloor !== undefined) {
+          setTimelineActivityMinFloor(event.payload.timelineActivityMinFloor);
         }
         // タイムライン活動度 (波形) を最新の設定で再取得
         lastActivityDateRef.current = "";
@@ -508,7 +533,7 @@ export const ControllerWindowContent: React.FC = () => {
     }
   }, [virtualTimeMsc, timelineActivity]);
 
-  // 無風・閑散時間の自動早送り (Auto-Skip Flat) ロジック
+  // 自動スキップ (Auto-Skip) ロジック
   const handleSetAutoSkipFlat = useCallback((val: boolean) => {
     setAutoSkipFlat(val);
     localStorage.setItem("replay-auto-skip-flat", String(val));
@@ -522,6 +547,43 @@ export const ControllerWindowContent: React.FC = () => {
       }).catch(console.error);
     }
   }, [sendCommand, speedMode, tickStep]);
+
+  // 自動スキップ設定モーダル開閉 & 保存
+  const handleOpenAutoSkipSettings = useCallback(() => {
+    setTempAutoSkipThreshold(autoSkipThreshold);
+    setTempActivityMaxCap(timelineActivityMaxCap);
+    setTempActivityMinFloor(timelineActivityMinFloor);
+    setIsAutoSkipModalOpen(true);
+  }, [autoSkipThreshold, timelineActivityMaxCap, timelineActivityMinFloor]);
+
+  const handleSaveAutoSkipSettings = useCallback(async () => {
+    try {
+      const current = await invoke<PersistedSettings>(COMMANDS.loadSettings).catch(() => null);
+      await invoke(COMMANDS.saveSettings, {
+        settings: {
+          ...(current || {}),
+          auto_skip_threshold: tempAutoSkipThreshold,
+          timeline_activity_max_cap: tempActivityMaxCap,
+          timeline_activity_min_floor: tempActivityMinFloor,
+        },
+      });
+
+      setAutoSkipThreshold(tempAutoSkipThreshold);
+      setTimelineActivityMaxCap(tempActivityMaxCap);
+      setTimelineActivityMinFloor(tempActivityMinFloor);
+
+      await emit(EVENTS.settingsUpdated, {
+        autoSkipThreshold: tempAutoSkipThreshold,
+        timelineActivityMaxCap: tempActivityMaxCap,
+        timelineActivityMinFloor: tempActivityMinFloor,
+      });
+
+      lastActivityDateRef.current = "";
+      setIsAutoSkipModalOpen(false);
+    } catch (err) {
+      console.error("Failed to save auto skip settings:", err);
+    }
+  }, [tempAutoSkipThreshold, tempActivityMaxCap, tempActivityMinFloor]);
 
   useEffect(() => {
     if (!autoSkipFlat || !isPlaying || !timelineActivity || speedMode !== "TEMPORAL") {
@@ -890,8 +952,117 @@ export const ControllerWindowContent: React.FC = () => {
           sendSeekTimeCommand={sendSeekTimeCommand}
           autoSkipFlat={autoSkipFlat}
           setAutoSkipFlat={handleSetAutoSkipFlat}
+          onOpenAutoSkipSettings={handleOpenAutoSkipSettings}
         />
       </main>
+
+      {/* 自動スキップ設定モーダル */}
+      {isAutoSkipModalOpen && (
+        <div className="modal-overlay" onClick={() => setIsAutoSkipModalOpen(false)}>
+          <div className="modal-container" style={{ maxWidth: "380px" }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">自動スキップ設定</h3>
+              <button className="modal-close-btn" onClick={() => setIsAutoSkipModalOpen(false)}>
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <div className="modal-body" style={{ padding: "14px", display: "flex", flexDirection: "column", gap: "14px" }}>
+              <div>
+                <label className="form-label" style={{ fontWeight: "bold", fontSize: "12px", display: "block", marginBottom: "4px" }}>
+                  スキップ発動閾値
+                </label>
+                <select
+                  className="input-compact font-data"
+                  style={{ width: "100%", padding: "6px 8px", fontSize: "12px" }}
+                  value={tempAutoSkipThreshold}
+                  onChange={(e) => setTempAutoSkipThreshold(parseFloat(e.target.value) || 0.15)}
+                >
+                  <option value={0.10}>10% (閑散・早朝帯のみ)</option>
+                  <option value={0.15}>15% (標準)</option>
+                  <option value={0.20}>20% (やや早め)</option>
+                  <option value={0.25}>25% (積極的)</option>
+                  <option value={0.35}>35% (低活動スキップ・中活動〜)</option>
+                  <option value={0.50}>50% (活発相場のみ再生)</option>
+                  <option value={0.70}>70% (激変帯特化・急騰急落のみ)</option>
+                </select>
+                <span className="settings-hint" style={{ fontSize: "11px", display: "block", marginTop: "4px" }}>
+                  活動強度がこの割合を下回ると自動早送り (復帰: {Math.min(95, Math.round((tempAutoSkipThreshold + (tempAutoSkipThreshold >= 0.5 ? 0.05 : 0.1)) * 100))}%)
+                </span>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                <div>
+                  <label className="form-label" style={{ fontWeight: "bold", fontSize: "11px", display: "block", marginBottom: "4px" }}>
+                    基準上限キャップ (15分)
+                  </label>
+                  <input
+                    type="number"
+                    className="input-compact font-data"
+                    style={{ width: "100%", padding: "5px 8px", fontSize: "12px" }}
+                    min={500}
+                    max={10000}
+                    step={100}
+                    value={tempActivityMaxCap}
+                    onChange={(e) => setTempActivityMaxCap(Math.max(500, parseInt(e.target.value, 10) || 2800))}
+                  />
+                  <span className="settings-hint" style={{ fontSize: "10px", display: "block", marginTop: "2px" }}>
+                    上限天井 (初期値: 2800)
+                  </span>
+                </div>
+
+                <div>
+                  <label className="form-label" style={{ fontWeight: "bold", fontSize: "11px", display: "block", marginBottom: "4px" }}>
+                    基準下限フロア (15分)
+                  </label>
+                  <input
+                    type="number"
+                    className="input-compact font-data"
+                    style={{ width: "100%", padding: "5px 8px", fontSize: "12px" }}
+                    min={200}
+                    max={5000}
+                    step={50}
+                    value={tempActivityMinFloor}
+                    onChange={(e) => setTempActivityMinFloor(Math.max(200, parseInt(e.target.value, 10) || 1500))}
+                  />
+                  <span className="settings-hint" style={{ fontSize: "10px", display: "block", marginTop: "2px" }}>
+                    最低基準 (初期値: 1500)
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer" style={{ padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <button
+                type="button"
+                className="btn-action-outline"
+                style={{ fontSize: "11px", padding: "4px 8px" }}
+                onClick={() => {
+                  setTempAutoSkipThreshold(0.15);
+                  setTempActivityMaxCap(2800);
+                  setTempActivityMinFloor(1500);
+                }}
+              >
+                初期値に戻す
+              </button>
+              <div style={{ display: "flex", gap: "6px" }}>
+                <button
+                  type="button"
+                  className="btn-action-outline"
+                  onClick={() => setIsAutoSkipModalOpen(false)}
+                >
+                  キャンセル
+                </button>
+                <button
+                  type="button"
+                  className="btn-modal-primary"
+                  onClick={handleSaveAutoSkipSettings}
+                >
+                  保存
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 速度プリセット編集モーダル */}
       {isSpeedPresetsModalOpen && (

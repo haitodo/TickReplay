@@ -209,6 +209,7 @@ export const TimelineWindowContent: React.FC = () => {
 
     let disposed = false;
     let unlisten: (() => void) | undefined;
+    let unlistenSettings: (() => void) | undefined;
     let pendingStatus: string | null = null;
     let statusFrame: number | null = null;
     let windowVisible = !document.hidden;
@@ -249,11 +250,18 @@ export const TimelineWindowContent: React.FC = () => {
         scheduleStatus(event.payload);
       });
 
+      const offSettings = await listen(EVENTS.settingsUpdated, () => {
+        lastActivityDateRef.current = "";
+        setTimelineActivity(null);
+      });
+
       if (disposed) {
         off();
+        offSettings();
         return;
       }
       unlisten = off;
+      unlistenSettings = offSettings;
     };
 
     setupListener();
@@ -264,6 +272,7 @@ export const TimelineWindowContent: React.FC = () => {
       if (statusFrame !== null) cancelAnimationFrame(statusFrame);
       pendingStatus = null;
       if (unlisten) unlisten();
+      if (unlistenSettings) unlistenSettings();
     };
   }, []);
 
