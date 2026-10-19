@@ -70,50 +70,39 @@ export const MiniWaveformTrack: React.FC<MiniWaveformTrackProps> = React.memo(({
 
     const currentX = Math.max(0, Math.min(w, (currentSecInDay / 86400) * w));
 
-    // 1. 未来（未再生区間）: 1時間単位のぼかしグラデーション帯
-    if (activity.slots_1h && activity.slots_1h.length === 24) {
-      const slot1hW = w / 24;
-      for (let i = 0; i < 24; i++) {
-        const xStart = i * slot1hW;
-        const xEnd = (i + 1) * slot1hW;
-        if (xEnd > currentX) {
-          const drawStart = Math.max(xStart, currentX);
-          const intensity = activity.slots_1h[i] || 0;
-          if (intensity > 0.05) {
-            // 活動度に応じた淡いぼかし色 (薄いスレート〜控えめなアンバー)
-            const alpha = Math.min(0.35, intensity * 0.4);
-            const r = Math.round(99 + intensity * (245 - 99));
-            const g = Math.round(102 + intensity * (158 - 102));
-            const b = Math.round(241 + intensity * (11 - 241));
-            ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
-            ctx.fillRect(drawStart, 0, xEnd - drawStart, h);
-          }
-        }
-      }
-    }
-
-    // 2. 過去（再生済み区間）: 15分刻みの明確なバーグラフ
+    // 15分刻みの明確なバーグラフ（全96スロットを一貫して描画）
     const slots96 = activity.slots_15m;
     const slot96W = w / 96;
     for (let i = 0; i < 96; i++) {
       const xStart = i * slot96W;
       const xCenter = xStart + slot96W / 2;
-      if (xCenter <= currentX) {
-        const intensity = slots96[i] || 0;
-        const barH = Math.max(1.5, intensity * (h - 2));
-        const barW = Math.max(1, slot96W - 1);
-        const yTop = h - barH;
+      const intensity = slots96[i] || 0;
+      const barH = Math.max(1.5, intensity * (h - 2));
+      const barW = Math.max(1, slot96W - 1);
+      const yTop = h - barH;
 
+      const isPast = xCenter <= currentX;
+      if (isPast) {
+        // 再生済み（過去）: 鮮やかな不透明バー
         if (intensity >= 0.7) {
-          ctx.fillStyle = "rgba(245, 158, 11, 0.85)"; // 高活動: 鮮やかなアンバー/オレンジ
+          ctx.fillStyle = "rgba(245, 158, 11, 0.9)"; // 高活動: アンバー
         } else if (intensity >= 0.35) {
-          ctx.fillStyle = "rgba(56, 189, 248, 0.75)"; // 中活動: シアン
+          ctx.fillStyle = "rgba(56, 189, 248, 0.85)"; // 中活動: シアン
         } else {
-          ctx.fillStyle = "rgba(148, 163, 184, 0.35)"; // 低活動: 薄いスレート
+          ctx.fillStyle = "rgba(148, 163, 184, 0.45)"; // 低活動: スレート
         }
-
-        ctx.fillRect(xStart + 0.5, yTop, barW, barH);
+      } else {
+        // 未再生（未来）: 落ち着いた半透明バー（ボラティリティの波形は完全に把握可能）
+        if (intensity >= 0.7) {
+          ctx.fillStyle = "rgba(245, 158, 11, 0.45)";
+        } else if (intensity >= 0.35) {
+          ctx.fillStyle = "rgba(56, 189, 248, 0.40)";
+        } else {
+          ctx.fillStyle = "rgba(148, 163, 184, 0.20)";
+        }
       }
+
+      ctx.fillRect(xStart + 0.5, yTop, barW, barH);
     }
 
     // 3. セッション境界ライン (TYO, LDN, NY)

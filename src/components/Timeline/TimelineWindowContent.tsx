@@ -42,11 +42,6 @@ export const TimelineWindowContent: React.FC = () => {
   const [timelineActivity, setTimelineActivity] = useState<DayTimelineActivity | null>(null);
   const lastActivityDateRef = useRef<string>("");
 
-  // 表示モード: "BLIND" (未来をぼかす) vs "REVEALED" (未来も全開示して検証)
-  const [revealMode, setRevealMode] = useState<"BLIND" | "REVEALED">(() => {
-    return (localStorage.getItem("replay-timeline-reveal-mode") as "BLIND" | "REVEALED") || "BLIND";
-  });
-
   // 最前面ピン留め
   const [isAlwaysOnTop, setIsAlwaysOnTop] = useState(true);
 
@@ -90,12 +85,6 @@ export const TimelineWindowContent: React.FC = () => {
     window.addEventListener("storage", handleStorage);
     return () => window.removeEventListener("storage", handleStorage);
   }, []);
-
-  // --- 表示モード保存 ---
-  const toggleRevealMode = (mode: "BLIND" | "REVEALED") => {
-    setRevealMode(mode);
-    localStorage.setItem("replay-timeline-reveal-mode", mode);
-  };
 
   // --- 最前面トグル ---
   const toggleAlwaysOnTop = async () => {
@@ -500,63 +489,31 @@ export const TimelineWindowContent: React.FC = () => {
       const chartTopMargin = 22; // 上部セッション名用の余白
       const chartHeight = h - chartTopMargin - 4;
 
-      // A. 未来区間の描画
-      if (revealMode === "BLIND") {
-        // ブラインド練習モード: 1時間単位のぼかし帯
-        if (act.slots_1h && act.slots_1h.length === 24) {
-          const slot1hW = w / 24;
-          for (let i = 0; i < 24; i++) {
-            const xStart = i * slot1hW;
-            const xEnd = (i + 1) * slot1hW;
-            if (xEnd > currentX) {
-              const drawStart = Math.max(xStart, currentX);
-              const intensity = act.slots_1h[i] || 0;
-              if (intensity > 0.05) {
-                const alpha = Math.min(0.3, intensity * 0.35);
-                ctx.fillStyle = `rgba(148, 163, 184, ${alpha})`;
-                ctx.fillRect(drawStart, chartTopMargin, xEnd - drawStart, chartHeight);
-              }
-            }
-          }
-        }
-      } else {
-        // 全開示・検証モード: 未来も15分刻みバーをクリアに描画 (少し淡い色)
-        for (let i = 0; i < 96; i++) {
-          const xStart = i * slot96W;
-          const xCenter = xStart + slot96W / 2;
-          if (xCenter > currentX) {
-            const intensity = slots96[i] || 0;
-            const barH = Math.max(2, intensity * chartHeight);
-            const yTop = h - 4 - barH;
-            const barW = Math.max(1.5, slot96W - 2);
-
-            let color = "rgba(148, 163, 184, 0.35)";
-            if (intensity >= 0.7) color = "rgba(245, 158, 11, 0.45)";
-            else if (intensity >= 0.35) color = "rgba(56, 189, 248, 0.40)";
-
-            ctx.fillStyle = color;
-            ctx.fillRect(xStart + 1, yTop, barW, barH);
-          }
-        }
-      }
-
-      // B. 過去区間 (再生済み) の描画: 鮮やかなフル不透明バー
+      // 4. ボラティリティ波形の描画（15分刻み全96スロットを一貫して描画）
       for (let i = 0; i < 96; i++) {
         const xStart = i * slot96W;
         const xCenter = xStart + slot96W / 2;
-        if (xCenter <= currentX) {
-          const intensity = slots96[i] || 0;
-          const barH = Math.max(2, intensity * chartHeight);
-          const yTop = h - 4 - barH;
-          const barW = Math.max(1.5, slot96W - 2);
+        const intensity = slots96[i] || 0;
+        const barH = Math.max(2, intensity * chartHeight);
+        const yTop = h - 4 - barH;
+        const barW = Math.max(1.5, slot96W - 2);
 
-          let color = "rgba(148, 163, 184, 0.55)";
+        const isPast = xCenter <= currentX;
+        let color: string;
+        if (isPast) {
+          // 再生済み（過去）: 鮮やかな不透明バー
           if (intensity >= 0.7) color = "#f59e0b"; // 高活動: アンバー
           else if (intensity >= 0.35) color = "#38bdf8"; // 中活動: シアン
-
-          ctx.fillStyle = color;
-          ctx.fillRect(xStart + 1, yTop, barW, barH);
+          else color = "rgba(148, 163, 184, 0.55)"; // 低活動: スレート
+        } else {
+          // 未再生（未来）: 落ち着いた半透明バー（ボラティリティの波形は完全に把握可能）
+          if (intensity >= 0.7) color = "rgba(245, 158, 11, 0.45)";
+          else if (intensity >= 0.35) color = "rgba(56, 189, 248, 0.40)";
+          else color = "rgba(148, 163, 184, 0.20)";
         }
+
+        ctx.fillStyle = color;
+        ctx.fillRect(xStart + 1, yTop, barW, barH);
       }
     }
 
@@ -589,7 +546,7 @@ export const TimelineWindowContent: React.FC = () => {
     ctx.fill();
 
     ctx.restore();
-  }, [timelineActivity, activeSec, revealMode, loopActive, loopA, loopB, sizeVersion]);
+  }, [timelineActivity, activeSec, loopActive, loopA, loopB, sizeVersion]);
 
   // --- Canvas マウス操作 (クリック・ドラッグによるシーク) ---
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -755,26 +712,6 @@ export const TimelineWindowContent: React.FC = () => {
         </div>
 
         <div className="timeline-header-right">
-          {/* 表示モード切替: ブラインド vs 全開示 */}
-          <div className="timeline-mode-toggle">
-            <button
-              className={revealMode === "BLIND" ? "active" : ""}
-              onClick={() => toggleRevealMode("BLIND")}
-              title="ブラインド練習モード: 未再生（未来）の急変時刻をぼかし、先読みバイアスを防ぎます"
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>visibility_off</span>
-              練習
-            </button>
-            <button
-              className={revealMode === "REVEALED" ? "active" : ""}
-              onClick={() => toggleRevealMode("REVEALED")}
-              title="全開示・検証モード: 1日全体のボラティリティの波をフル表示し、急変ポイントを即座に探せます"
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>query_stats</span>
-              検証
-            </button>
-          </div>
-
           {/* 最前面ピン留めボタン */}
           <button
             type="button"
@@ -825,6 +762,7 @@ export const TimelineWindowContent: React.FC = () => {
             </div>
             <div className="tooltip-intensity">
               活動強度: <strong>{Math.round(hoverInfo.intensity * 100)}%</strong>
+              {hoverInfo.sec > activeSec && <span style={{ marginLeft: "6px", color: "#64748b", fontSize: "10px" }}>(未再生)</span>}
             </div>
           </div>
         )}

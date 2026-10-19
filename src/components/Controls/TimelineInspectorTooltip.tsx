@@ -20,7 +20,6 @@ export const TimelineInspectorTooltip: React.FC<TimelineInspectorTooltipProps> =
   timezoneMode,
 }) => {
   const slot15Idx = Math.max(0, Math.min(95, Math.floor(sec / 900)));
-  const slot1hIdx = Math.max(0, Math.min(23, Math.floor(sec / 3600)));
   const isPast = sec <= currentSecInDay;
 
   // 15分スロットの時刻範囲フォールバック (秒計算)
@@ -103,61 +102,46 @@ export const TimelineInspectorTooltip: React.FC<TimelineInspectorTooltipProps> =
         </span>
       </div>
 
-      {/* 中央: ルーペ（拡大ミニ波形） */}
+      {/* 中央: ルーペ（拡大ミニ波形: 前後4スロットの15分足バー） */}
       <div className="inspector-loupe-area">
-        {isPast ? (
-          // 過去（再生済み）: 15分ごとの高解像度ズームバー
-          <div className="inspector-bars-track">
-            {zoomSlots.map((slot) => {
-              const barH = Math.max(3, Math.round(slot.intensity * 38));
-              let color = "rgba(148, 163, 184, 0.45)";
-              if (slot.intensity >= 0.7) color = "#f59e0b";
-              else if (slot.intensity >= 0.35) color = "#38bdf8";
+        <div className="inspector-bars-track">
+          {zoomSlots.map((slot) => {
+            const barH = Math.max(3, Math.round(slot.intensity * 38));
+            const slotIsPast = (slot.idx + 0.5) * 900 <= currentSecInDay;
+            let color = slotIsPast ? "rgba(148, 163, 184, 0.55)" : "rgba(148, 163, 184, 0.35)";
+            if (slot.intensity >= 0.7) {
+              color = slotIsPast ? "#f59e0b" : "rgba(245, 158, 11, 0.55)";
+            } else if (slot.intensity >= 0.35) {
+              color = slotIsPast ? "#38bdf8" : "rgba(56, 189, 248, 0.50)";
+            }
 
-              return (
+            return (
+              <div
+                key={slot.idx}
+                className={`inspector-bar-col ${slot.isCurrent ? "current" : ""}`}
+              >
                 <div
-                  key={slot.idx}
-                  className={`inspector-bar-col ${slot.isCurrent ? "current" : ""}`}
-                >
-                  <div
-                    className="inspector-bar-fill"
-                    style={{
-                      height: `${barH}px`,
-                      backgroundColor: color,
-                    }}
-                  />
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          // 未来（未再生）: 1時間単位の滑らかなぼかし帯（急変の正確な時刻は伏せる）
-          <div className="inspector-future-blur-box">
-            <span className="inspector-future-text">
-              1h帯活動傾向: {Math.round((activity.slots_1h[slot1hIdx] || 0) * 100)}%
-            </span>
-            <div
-              className="inspector-future-gradient-bar"
-              style={{
-                opacity: Math.max(0.2, activity.slots_1h[slot1hIdx] || 0),
-              }}
-            />
-          </div>
-        )}
+                  className="inspector-bar-fill"
+                  style={{
+                    height: `${barH}px`,
+                    backgroundColor: color,
+                  }}
+                />
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* 下部: 活動度サマリー */}
       <div className="inspector-footer font-data">
-        {isPast ? (
-          <span>
-            活動強度:{" "}
-            <strong className="text-accent">
-              {Math.round((activity.slots_15m[slot15Idx] || 0) * 100)}%
-            </strong>
-          </span>
-        ) : (
-          <span className="text-muted">未再生区間 (概略表示)</span>
-        )}
+        <span>
+          活動強度:{" "}
+          <strong className="text-accent">
+            {Math.round((activity.slots_15m[slot15Idx] || 0) * 100)}%
+          </strong>
+          {!isPast && <span className="text-muted" style={{ marginLeft: "6px", fontSize: "10px" }}>(未再生)</span>}
+        </span>
       </div>
 
       {/* 下向き矢印ピン */}

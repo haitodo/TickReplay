@@ -151,43 +151,6 @@
   -webkit-app-region: no-drag;
 }
 
-/* 表示モード切替トグル */
-.timeline-mode-toggle {
-  display: flex;
-  align-items: center;
-  background: rgba(15, 23, 42, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  padding: 2px;
-  gap: 2px;
-}
-
-.timeline-mode-toggle button {
-  background: transparent;
-  border: none;
-  color: #94a3b8;
-  padding: 3px 8px;
-  font-size: 11px;
-  font-weight: 600;
-  border-radius: 4px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  transition: all 0.15s ease;
-}
-
-.timeline-mode-toggle button.active {
-  background: #2563eb;
-  color: #ffffff;
-  box-shadow: 0 1px 4px rgba(37, 99, 235, 0.4);
-}
-
-.timeline-mode-toggle button:hover:not(.active) {
-  color: #f1f5f9;
-  background: rgba(255, 255, 255, 0.05);
-}
-
 .timeline-header-icon-btn {
   background: transparent;
   border: 1px solid transparent;
