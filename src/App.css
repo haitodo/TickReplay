@@ -6934,7 +6934,7 @@ input[type="number"].no-spinner {
 }
 
 .inspector-bar-col.playing-slot {
-  background: rgba(56, 189, 248, 0.15);
+  background: rgba(244, 63, 94, 0.16);
   border-radius: 3px;
 }
 
@@ -6944,14 +6944,14 @@ input[type="number"].no-spinner {
   transition: height 0.1s ease;
 }
 
-/* ルーペ内 リアルタイム再生針 (Playhead Needle) */
+/* ルーペ内 リアルタイム再生針 (Playhead Needle: ネオンレッドで全バーから強力に浮き立つ) */
 .inspector-playhead-line {
   position: absolute;
   top: -2px;
   bottom: -2px;
   width: 2px;
-  background: #38bdf8;
-  box-shadow: 0 0 8px rgba(56, 189, 248, 0.95);
+  background: #f43f5e;
+  box-shadow: 0 0 8px rgba(244, 63, 94, 0.95), 0 0 2px #ffffff;
   pointer-events: none;
   z-index: 10;
   transform: translateX(-50%);
@@ -6966,8 +6966,8 @@ input[type="number"].no-spinner {
   height: 0;
   border-left: 4px solid transparent;
   border-right: 4px solid transparent;
-  border-top: 5px solid #38bdf8;
-  filter: drop-shadow(0 0 3px rgba(56, 189, 248, 0.8));
+  border-top: 5px solid #f43f5e;
+  filter: drop-shadow(0 0 3px rgba(244, 63, 94, 0.8));
 }
 
 .inspector-playhead-dot {
@@ -6978,8 +6978,8 @@ input[type="number"].no-spinner {
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: #38bdf8;
-  box-shadow: 0 0 4px #38bdf8;
+  background: #f43f5e;
+  box-shadow: 0 0 4px #f43f5e;
 }
 
 /* ホバー時刻と現在地との時間差タグ */
@@ -6993,9 +6993,9 @@ input[type="number"].no-spinner {
 }
 
 .inspector-delta-tag.now {
-  background: rgba(56, 189, 248, 0.2);
-  color: #38bdf8;
-  border: 1px solid rgba(56, 189, 248, 0.4);
+  background: rgba(244, 63, 94, 0.2);
+  color: #fb7185;
+  border: 1px solid rgba(244, 63, 94, 0.4);
   font-weight: 700;
 }
 
@@ -7007,9 +7007,9 @@ input[type="number"].no-spinner {
   font-size: 9px;
   padding: 1px 5px;
   border-radius: 3px;
-  background: rgba(56, 189, 248, 0.12);
-  color: #38bdf8;
-  border: 1px solid rgba(56, 189, 248, 0.3);
+  background: rgba(244, 63, 94, 0.12);
+  color: #fb7185;
+  border: 1px solid rgba(244, 63, 94, 0.3);
   margin-top: 2px;
 }
 

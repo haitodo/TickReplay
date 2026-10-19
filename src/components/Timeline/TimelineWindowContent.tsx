@@ -517,10 +517,10 @@ export const TimelineWindowContent: React.FC = () => {
       }
     }
 
-    // 5. 現在再生ヘッド (針)
-    ctx.strokeStyle = "#38bdf8";
+    // 5. 現在再生ヘッド (針: ネオンレッドで青・オレンジ・グレーの全バーから際立たせる)
+    ctx.strokeStyle = "#f43f5e";
     ctx.lineWidth = 2;
-    ctx.shadowColor = "rgba(56, 189, 248, 0.8)";
+    ctx.shadowColor = "rgba(244, 63, 94, 0.9)";
     ctx.shadowBlur = 8;
     ctx.beginPath();
     ctx.moveTo(currentX, 0);
@@ -529,7 +529,7 @@ export const TimelineWindowContent: React.FC = () => {
     ctx.shadowBlur = 0;
 
     // 上部ヘッドピンマーカー
-    ctx.fillStyle = "#38bdf8";
+    ctx.fillStyle = "#f43f5e";
     ctx.beginPath();
     ctx.moveTo(currentX - 5, 0);
     ctx.lineTo(currentX + 5, 0);
