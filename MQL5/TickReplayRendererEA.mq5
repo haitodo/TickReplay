@@ -177,6 +177,7 @@ const ulong REDRAW_INTERVAL_US = 16666; // 最大 60FPS にチャート再描画
 // ビューアーチャート管理
 long     m_viewer_chart_ids[];
 int      m_pending_reset_redraw_count = 0; // 時間遷移後の末尾スクロール追跡カウンタ
+datetime m_pending_reset_target_dt    = 0; // 時間遷移の目標時刻 (早期終了判定用)
 
 //--- 前方宣言
 bool ConnectPipe();
@@ -1565,8 +1566,6 @@ void ProcessReset(const ResetPayload &rst)
         return;
     }
 
-    ulong reset_start_us = GetMicrosecondCount();
-
     long target_msc = rst.virtual_time_msc;
     if(target_msc <= 0)
     {
@@ -1640,15 +1639,25 @@ void ProcessReset(const ResetPayload &rst)
         m_current_idx_sub = (int)rst.sub_target_idx;
     }
 
-    // チャートリフレッシュ & 追跡スクロール設定
-    RedrawAllViewerCharts(false);
-    m_pending_reset_redraw_count = 1;
+    // チャートリフレッシュ & 追跡スクロール設定 (即座に末尾スナップ有効化)
+    RedrawAllViewerCharts(true);
+    m_pending_reset_redraw_count = 50; // 最大約100ms間、MT5の非同期バー構築完了まで末尾スナップを監視
+    m_pending_reset_target_dt    = target_dt;
+
+    // 各ビューアーチャートの上位足タイムシリーズ同期を促進
+    int total_v = ArraySize(m_viewer_chart_ids);
+    for(int vi = 0; vi < total_v; vi++)
+    {
+        long vcid = m_viewer_chart_ids[vi];
+        if(vcid > 0)
+        {
+            string vsym = ChartSymbol(vcid);
+            ENUM_TIMEFRAMES vp = ChartPeriod(vcid);
+            SeriesInfoInteger(vsym, vp, SERIES_LASTBAR_DATE);
+        }
+    }
 
     // チャート左上にリプレイ状態コメントを表示
-    ulong dur_ms = (ulong)((GetMicrosecondCount() - reset_start_us) / 1000);
-    PrintFormat("[RendererEA] ProcessReset 完了: 遷移所要時間=%d ms, target_idx=%d, virtual_time=%s",
-        dur_ms, m_current_idx, TimeToString(target_dt, TIME_DATE | TIME_SECONDS));
-
     Comment(StringFormat("=== TickReplay Core v2 ===\nSymbol: %s\nVirtual Time (Server): %s\nRendered Ticks: %d",
         m_replay_symbol, TimeToString(target_dt, TIME_DATE | TIME_SECONDS),
         m_current_idx + 1));
@@ -1791,19 +1800,42 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTimer()
 {
-    // 時間遷移直後の追跡スクロール（MT5非同期バー構築完了後の末尾位置同期を100%保証）
+    // 時間遷移直後の追跡スクロール (同期完了を検知して1回だけ再描画・即座に終了する超低負荷設計)
     if(m_pending_reset_redraw_count > 0)
     {
         m_pending_reset_redraw_count--;
+
+        bool all_synced = true;
         int total_viewers = ArraySize(m_viewer_chart_ids);
         for(int i = 0; i < total_viewers; i++)
         {
-            if(m_viewer_chart_ids[i] > 0)
+            long vcid = m_viewer_chart_ids[i];
+            if(vcid > 0)
             {
-                ChartSetInteger(m_viewer_chart_ids[i], CHART_AUTOSCROLL, true);
-                ChartNavigate(m_viewer_chart_ids[i], CHART_END, 0);
-                ChartRedraw(m_viewer_chart_ids[i]);
+                string vsym = ChartSymbol(vcid);
+                ENUM_TIMEFRAMES vp = ChartPeriod(vcid);
+                datetime vlast = (datetime)SeriesInfoInteger(vsym, vp, SERIES_LASTBAR_DATE);
+                if(vlast > m_pending_reset_target_dt)
+                {
+                    all_synced = false;
+                    break;
+                }
             }
+        }
+
+        // 全チャートのバー同期完了、またはタイムアウト到達時に1回だけ末尾スナップを実行して即終了
+        if(all_synced || m_pending_reset_redraw_count == 0)
+        {
+            for(int i = 0; i < total_viewers; i++)
+            {
+                if(m_viewer_chart_ids[i] > 0)
+                {
+                    ChartSetInteger(m_viewer_chart_ids[i], CHART_AUTOSCROLL, true);
+                    ChartNavigate(m_viewer_chart_ids[i], CHART_END, 0);
+                    ChartRedraw(m_viewer_chart_ids[i]);
+                }
+            }
+            m_pending_reset_redraw_count = 0; // 即座に追跡終了 (無駄な毎フレーム描画を完全カット)
         }
     }
 
