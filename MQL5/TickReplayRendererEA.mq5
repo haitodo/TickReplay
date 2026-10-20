@@ -1730,7 +1730,8 @@ void ProcessImportTicks(const ImportTicksPayload &p)
                 if(read_count > 0)
                 {
                     bool is_custom = false;
-                    if(!SymbolExist(target_symbol, is_custom))
+                    bool exists = SymbolExist(target_symbol, is_custom);
+                    if(!exists)
                     {
                         string actual_base = base_symbol;
                         bool base_exists = false;
@@ -1739,13 +1740,36 @@ void ProcessImportTicks(const ImportTicksPayload &p)
                             int under = StringFind(target_symbol, "_");
                             if(under > 0) actual_base = StringSubstr(target_symbol, 0, under);
                         }
-                        if(!CustomSymbolCreate(target_symbol, group_path, actual_base))
+                        ResetLastError();
+                        bool created = CustomSymbolCreate(target_symbol, group_path, actual_base);
+                        if(!created)
                         {
                             CustomSymbolCreate(target_symbol, group_path, NULL);
                         }
+
+                        bool is_jpy = (StringFind(target_symbol, "JPY") >= 0);
+                        long digits = SymbolInfoInteger(actual_base, SYMBOL_DIGITS);
+                        if(digits <= 0) digits = is_jpy ? 3 : 5;
+                        CustomSymbolSetInteger(target_symbol, SYMBOL_DIGITS, digits);
+
+                        double point = SymbolInfoDouble(actual_base, SYMBOL_POINT);
+                        if(point <= 0) point = (digits == 3 || digits == 2) ? 0.001 : 0.00001;
+                        CustomSymbolSetDouble(target_symbol, SYMBOL_POINT, point);
                     }
+
+                    SymbolSelect(target_symbol, true);
+
+                    ResetLastError();
                     int added = CustomTicksAdd(target_symbol, ticks);
-                    PrintFormat("[RendererEA] CustomTicksAdd 完了: symbol=%s, 追加数=%d/%d", target_symbol, added, read_count);
+                    int err_add = GetLastError();
+                    if(added > 0)
+                    {
+                        PrintFormat("[RendererEA] CustomTicksAdd 完了: symbol=%s, 追加数=%d/%d", target_symbol, added, read_count);
+                    }
+                    else
+                    {
+                        PrintFormat("[RendererEA] [Error] CustomTicksAdd 失敗: symbol=%s, 追加数=%d/%d, GetLastError=%d", target_symbol, added, read_count, err_add);
+                    }
                 }
             }
             else
