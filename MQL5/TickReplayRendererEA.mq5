@@ -992,6 +992,22 @@ bool ProcessProfile(string profile_name, string main_symbol, string sub_symbol, 
             }
         }
 
+        if(m_start_time_msc > 0)
+        {
+            int pos_time_idx = StringFind(file_content, "position_time=");
+            if(pos_time_idx >= 0)
+            {
+                int line_end = StringFind(file_content, "\r\n", pos_time_idx);
+                if(line_end > pos_time_idx)
+                {
+                    string before = StringSubstr(file_content, 0, pos_time_idx);
+                    string after = StringSubstr(file_content, line_end);
+                    long start_sec = m_start_time_msc / 1000;
+                    file_content = before + "position_time=" + IntegerToString(start_sec) + after;
+                }
+            }
+        }
+
         string filename_no_ext = filename;
         int ext_pos = StringFind(filename, ".chr");
         if(ext_pos >= 0)

@@ -666,14 +666,22 @@ pub async fn send_command(
                 let preload_mode_str = val.get("preload_mode").and_then(|m| m.as_str()).unwrap_or("BARS");
                 let preload_mode = if preload_mode_str == "DATE" { 1u32 } else { 0u32 };
                 let preload_date_str = val.get("preload_date").and_then(|d| d.as_str()).unwrap_or("");
-                let start_msc = jst_to_server_time_msc(st).unwrap_or(first_msc);
+                let raw_start_msc = jst_to_server_time_msc(st).unwrap_or(first_msc);
                 let end_msc = jst_to_server_time_msc(et).unwrap_or(0);
                 let preload_date_msc = jst_to_server_time_msc(preload_date_str).unwrap_or(0);
+
+                // 指定開始時刻がデータの先頭時刻より前である場合は、データが存在する先頭時刻に補正してMT5描画とCoreクロックを完全に一致させる
+                let effective_start_msc = if first_msc > 0 && (raw_start_msc <= 0 || raw_start_msc < first_msc) {
+                    println!("[commands_replay] 指定開始時刻({})がデータ先頭({})より前のため、データ先頭に自動補正します", raw_start_msc, first_msc);
+                    first_msc
+                } else {
+                    raw_start_msc
+                };
 
                 if let Some(ref pipe) = render_pipe_opt {
                     pipe.send_init(
                         1,
-                        start_msc,
+                        effective_start_msc,
                         end_msc,
                         preload_date_msc,
                         preloaded_bars,
@@ -682,15 +690,14 @@ pub async fn send_command(
                         sub_sym,
                         profile_name,
                     );
-                    println!("[commands_replay] MT5 Renderer EA へ INIT 要求送信: sym={}, profile={}, start_msc={}", source_sym, profile_name, start_msc);
+                    println!("[commands_replay] MT5 Renderer EA へ INIT 要求送信: sym={}, profile={}, start_msc={}", source_sym, profile_name, effective_start_msc);
                 }
 
-                // Replay Core の初期時刻を start_msc (または first_msc) にシーク
-                let initial_v_time = if start_msc > 0 { start_msc } else { first_msc };
-                if initial_v_time > 0 {
-                    core_handle.seek_time(initial_v_time);
+                // Replay Core の初期時刻を effective_start_msc にシーク
+                if effective_start_msc > 0 {
+                    core_handle.seek_time(effective_start_msc);
                 }
-                *state.current_virtual_time_msc.lock().unwrap() = initial_v_time;
+                *state.current_virtual_time_msc.lock().unwrap() = effective_start_msc;
 
                 // 5. Core ステータスを フロントエンド & WebSocket へ継続ストリーミングする UI Streamer タスクを起動
                 let mut rx = core_handle.subscribe();
@@ -825,7 +832,7 @@ pub async fn send_command(
                     "is_playing": false,
                     "current_idx": 0,
                     "total_ticks": total_ticks,
-                    "virtual_time_msc": initial_v_time,
+                    "virtual_time_msc": effective_start_msc,
                     "speed_mode": "TEMPORAL",
                     "multiplier": 1.0,
                     "tick_step": 1,

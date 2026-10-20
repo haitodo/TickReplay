@@ -50,7 +50,7 @@ impl Default for WeekendSkipConfig {
         Self {
             enabled: true,
             friday_close_hour: 23,
-            monday_open_hour: 0,
+            monday_open_hour: 1, // MT5サーバー時間(GMT+2冬 / GMT+3夏) 01:00 オープン (JST冬08:00 / 夏07:00)
         }
     }
 }

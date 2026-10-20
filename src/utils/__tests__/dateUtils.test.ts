@@ -4,6 +4,7 @@ import {
   formatDateTimeStr,
   getDaysInMonth,
   getMonthRange,
+  getTradingMonthRange,
   getYearRange,
   shiftDateRangeByMonth,
   isSingleFullMonth,
@@ -51,6 +52,48 @@ describe("dateUtils", () => {
     expect(may2024.end).toBe("2024-05-31 23:59:59");
   });
 
+  describe("getTradingMonthRange", () => {
+    it("1日が日曜日の場合、翌日月曜日の市場オープン時刻から開始すること (冬時間 08:00 JST)", () => {
+      // 2026年3月1日は日曜日 -> 3月2日(月) 08:00:00 JST (冬時間)
+      const res = getTradingMonthRange(2026, 3, "JST");
+      expect(res.start).toBe("2026-03-02 08:00:00");
+      expect(res.end).toBe("2026-03-31 23:59:59");
+
+      // 2026年2月1日は日曜日 -> 2月2日(月) 08:00:00 JST (冬時間)
+      const resFeb = getTradingMonthRange(2026, 2, "JST");
+      expect(resFeb.start).toBe("2026-02-02 08:00:00");
+      expect(resFeb.end).toBe("2026-02-28 23:59:59");
+    });
+
+    it("1日が土曜日の場合、3日後月曜日の市場オープン時刻から開始すること (夏時間 07:00 JST)", () => {
+      // 2026年8月1日は土曜日 -> 8月3日(月) 07:00:00 JST (夏時間)
+      const res = getTradingMonthRange(2026, 8, "JST");
+      expect(res.start).toBe("2026-08-03 07:00:00");
+      expect(res.end).toBe("2026-08-31 23:59:59");
+    });
+
+    it("1日が月曜日の場合、1日当日の市場オープン時刻から開始すること (夏時間 07:00 JST)", () => {
+      // 2026年6月1日は月曜日 -> 6月1日(月) 07:00:00 JST (夏時間)
+      const res = getTradingMonthRange(2026, 6, "JST");
+      expect(res.start).toBe("2026-06-01 07:00:00");
+      expect(res.end).toBe("2026-06-30 23:59:59");
+    });
+
+    it("1日が平日の火〜金の場合、1日 00:00:00 から開始すること (市場稼働中)", () => {
+      // 2026年4月1日は水曜日 -> 4月1日(水) 00:00:00 JST
+      const res = getTradingMonthRange(2026, 4, "JST");
+      expect(res.start).toBe("2026-04-01 00:00:00");
+      expect(res.end).toBe("2026-04-30 23:59:59");
+    });
+
+    it("timezoneModeがSERVERの場合、月曜オープンは 01:00:00 になること", () => {
+      // 2026年3月1日(日) -> SERVER時間(GMT+2冬)では月曜 01:00:00 (= JST 08:00)
+      const res = getTradingMonthRange(2026, 3, "SERVER");
+      expect(res.start).toBe("2026-03-02 01:00:00");
+      expect(res.end).toBe("2026-03-31 23:59:59");
+    });
+  });
+
   it("getYearRange returns full year range", () => {
     const year2024 = getYearRange(2024);
     expect(year2024.start).toBe("2024-01-01 00:00:00");
@@ -72,6 +115,12 @@ describe("dateUtils", () => {
     const nextYear = shiftDateRangeByMonth("2024-12-01 00:00:00", "2024-12-31 23:59:59", 1);
     expect(nextYear.start).toBe("2025-01-01 00:00:00");
     expect(nextYear.end).toBe("2025-01-31 23:59:59");
+
+    // isTradingOpen = true の場合、月曜オープンにスナップすること
+    // 2024年6月1日は土曜日 -> 6月3日(月) 07:00:00 JST (夏時間)
+    const tradingNext = shiftDateRangeByMonth("2024-05-01 00:00:00", "2024-05-31 23:59:59", 1, true, "JST");
+    expect(tradingNext.start).toBe("2024-06-03 07:00:00");
+    expect(tradingNext.end).toBe("2024-06-30 23:59:59");
   });
 
   it("isSingleFullMonth detects if range matches full single month", () => {
@@ -91,6 +140,23 @@ describe("dateUtils", () => {
       isFullMonth: false,
       year: 2024,
       month: 1
+    });
+
+    // 取引開始スナップ済みの期間もフル月として判定すること (冬08:00, 夏07:00, サーバー01:00)
+    expect(isSingleFullMonth("2026-03-02 08:00:00", "2026-03-31 23:59:59")).toEqual({
+      isFullMonth: true,
+      year: 2026,
+      month: 3
+    });
+    expect(isSingleFullMonth("2026-06-01 07:00:00", "2026-06-30 23:59:59")).toEqual({
+      isFullMonth: true,
+      year: 2026,
+      month: 6
+    });
+    expect(isSingleFullMonth("2026-03-02 01:00:00", "2026-03-31 23:59:59")).toEqual({
+      isFullMonth: true,
+      year: 2026,
+      month: 3
     });
   });
 
@@ -120,4 +186,3 @@ describe("dateUtils", () => {
     });
   });
 });
-

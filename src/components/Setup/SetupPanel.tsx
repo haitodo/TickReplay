@@ -18,7 +18,7 @@ import { formatJstTime, getNewsTimeForDisplay } from "../../utils/timeUtils";
 import { SavedSession } from "../../types/session";
 import type { ExpandedGroupsMap } from "../../types/uiState";
 import {
-  getMonthRange,
+  getTradingMonthRange,
   getYearRange,
   shiftDateRangeByMonth,
   parseDateTimeStr,
@@ -352,7 +352,7 @@ const SetupPanelComponent: React.FC<SetupPanelProps> = ({
   // 年度切り替えハンドラー（期間の年度変更 ＋ 全対応シンボルの自動一括切り替え）
   const handleSelectYear = (newYear: number) => {
     setViewYear(newYear);
-    const range = getMonthRange(newYear, parsedStart.month);
+    const range = getTradingMonthRange(newYear, parsedStart.month, timezoneMode);
     setStartTime?.(range.start);
     setEndTime?.(range.end);
 
@@ -849,7 +849,7 @@ const SetupPanelComponent: React.FC<SetupPanelProps> = ({
                           type="button"
                           className="month-nav-btn"
                           onClick={() => {
-                            const shifted = shiftDateRangeByMonth(startTime, endTime, -1);
+                            const shifted = shiftDateRangeByMonth(startTime, endTime, -1, true, timezoneMode);
                             setStartTime?.(shifted.start);
                             setEndTime?.(shifted.end);
                             const newParsed = parseDateTimeStr(shifted.start);
@@ -866,7 +866,7 @@ const SetupPanelComponent: React.FC<SetupPanelProps> = ({
                           type="button"
                           className="month-nav-btn"
                           onClick={() => {
-                            const shifted = shiftDateRangeByMonth(startTime, endTime, 1);
+                            const shifted = shiftDateRangeByMonth(startTime, endTime, 1, true, timezoneMode);
                             setStartTime?.(shifted.start);
                             setEndTime?.(shifted.end);
                             const newParsed = parseDateTimeStr(shifted.start);
@@ -887,7 +887,7 @@ const SetupPanelComponent: React.FC<SetupPanelProps> = ({
                           type="button"
                           className="month-preset-btn"
                           onClick={() => {
-                            const range = getMonthRange(viewYear, parsedStart.month);
+                            const range = getTradingMonthRange(viewYear, parsedStart.month, timezoneMode);
                             setStartTime?.(range.start);
                             setEndTime?.(range.end);
                           }}
@@ -920,11 +920,11 @@ const SetupPanelComponent: React.FC<SetupPanelProps> = ({
                             type="button"
                             className={`month-pill-btn ${isSelectedMonth ? "active" : ""}`}
                             onClick={() => {
-                              const range = getMonthRange(viewYear, m);
+                              const range = getTradingMonthRange(viewYear, m, timezoneMode);
                               setStartTime?.(range.start);
                               setEndTime?.(range.end);
                             }}
-                            title={`${viewYear}年${m}月 (1ヶ月間: 1日 00:00 〜 末日 23:59) をリプレイ期間にセット`}
+                            title={`${viewYear}年${m}月 (取引可能期間: 第1営業日オープン〜末日) をセット`}
                           >
                             {m}月
                           </button>
