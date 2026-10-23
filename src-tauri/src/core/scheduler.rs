@@ -37,6 +37,7 @@ pub struct CoreScheduler {
 
     render_pipe: Option<RenderPipeHandle>,
     tickscope_bridge: Option<TickScopeBridge>,
+    last_idle_pipe_advance: Instant,
 }
 
 impl CoreScheduler {
@@ -63,6 +64,7 @@ impl CoreScheduler {
             status_tx,
             render_pipe: None,
             tickscope_bridge: None,
+            last_idle_pipe_advance: Instant::now(),
         }
     }
 
@@ -166,6 +168,7 @@ impl CoreScheduler {
                             to_msc,
                         );
                     }
+                    self.last_idle_pipe_advance = now;
 
                     // 2. TickScope への TICK_BATCH ストリーミング送信
                     if let Some(ref mut bridge) = self.tickscope_bridge {
@@ -179,15 +182,18 @@ impl CoreScheduler {
                         }
                     }
 
-                    // 仮想時間が進行している場合、ストアに新規ティックがない静寂時間帯でも MT5 Renderer EA へ ADVANCE を送信
-                    // (MT5側カスタムシンボルの独自ティック描画および時間同期をリアルタイムに維持)
-                    if let Some(ref pipe) = self.render_pipe {
-                        pipe.send_advance(
-                            self.clock.seek_epoch() as u32,
-                            self.current_index as u64,
-                            0,
-                            to_msc,
-                        );
+                    // 仮想時間が進行している場合、ストアに新規ティックがない静寂時間帯でも MT5 Renderer EA へ ADVANCE を適度に間引き送信 (~60Hz)
+                    // (不要な毎2msのパイプフラッディングを防止しつつ、MT5側カスタムシンボルの独自ティック描画および時間同期を維持)
+                    if now.duration_since(self.last_idle_pipe_advance) >= Duration::from_millis(16) {
+                        if let Some(ref pipe) = self.render_pipe {
+                            pipe.send_advance(
+                                self.clock.seek_epoch() as u32,
+                                self.current_index as u64,
+                                0,
+                                to_msc,
+                            );
+                        }
+                        self.last_idle_pipe_advance = now;
                     }
                 }
             }

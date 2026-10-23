@@ -1540,14 +1540,27 @@ void ProcessAdvance(const AdvancePayload &adv, ulong start_us)
                 int start_pos = 0;
                 if(m_has_last_applied_tick)
                 {
-                    start_pos = fetched_count;
+                    int last_matched = -1;
                     for(int i = 0; i < fetched_count; i++)
                     {
-                        if(ticks_slice[i].time_msc > m_last_applied_tick.time_msc)
+                        if(ticks_slice[i].time_msc < m_last_applied_tick.time_msc)
                         {
-                            start_pos = i;
+                            continue;
+                        }
+                        if(ticks_slice[i].time_msc == m_last_applied_tick.time_msc &&
+                           ticks_slice[i].bid == m_last_applied_tick.bid &&
+                           ticks_slice[i].ask == m_last_applied_tick.ask)
+                        {
+                            last_matched = i;
+                        }
+                        else if(ticks_slice[i].time_msc > m_last_applied_tick.time_msc)
+                        {
                             break;
                         }
+                    }
+                    if(last_matched >= 0)
+                    {
+                        start_pos = last_matched + 1;
                     }
                 }
 
@@ -1598,14 +1611,27 @@ void ProcessAdvance(const AdvancePayload &adv, ulong start_us)
                     int start_pos_sub = 0;
                     if(m_has_last_applied_tick_sub)
                     {
-                        start_pos_sub = sub_count;
+                        int last_matched_sub = -1;
                         for(int i = 0; i < sub_count; i++)
                         {
-                            if(sub_slice[i].time_msc > m_last_applied_tick_sub.time_msc)
+                            if(sub_slice[i].time_msc < m_last_applied_tick_sub.time_msc)
                             {
-                                start_pos_sub = i;
+                                continue;
+                            }
+                            if(sub_slice[i].time_msc == m_last_applied_tick_sub.time_msc &&
+                               sub_slice[i].bid == m_last_applied_tick_sub.bid &&
+                               sub_slice[i].ask == m_last_applied_tick_sub.ask)
+                            {
+                                last_matched_sub = i;
+                            }
+                            else if(sub_slice[i].time_msc > m_last_applied_tick_sub.time_msc)
+                            {
                                 break;
                             }
+                        }
+                        if(last_matched_sub >= 0)
+                        {
+                            start_pos_sub = last_matched_sub + 1;
                         }
                     }
 
@@ -1880,6 +1906,10 @@ void ProcessImportTicks(const ImportTicksPayload &p)
 
                     SymbolSelect(target_symbol, true);
 
+                    ulong imp_from_msc = (ulong)ticks[0].time_msc;
+                    ulong imp_to_msc   = (ulong)ticks[read_count - 1].time_msc;
+                    CustomTicksDelete(target_symbol, imp_from_msc, imp_to_msc);
+
                     ResetLastError();
                     int added = CustomTicksAdd(target_symbol, ticks);
                     int err_add = GetLastError();
@@ -2003,6 +2033,11 @@ void OnTimer()
     if(bytes_avail < HEADER_SIZE)
         return;
 
+    bool has_pending_adv = false;
+    AdvancePayload latest_adv;
+    ZeroMemory(latest_adv);
+    ulong latest_adv_start_us = 0;
+
     while(bytes_avail >= HEADER_SIZE)
     {
         uchar header_buf[HEADER_SIZE];
@@ -2044,57 +2079,79 @@ void OnTimer()
         // シーク・ジャンプ前の古い残存進行パケットを破棄して位置逆戻りを防止
         if(header.msg_type == MSG_ADVANCE && header.epoch < m_current_epoch)
         {
+            if(!PeekNamedPipe(m_hPipe, 0, 0, 0, bytes_avail, 0))
+            {
+                CloseHandle(m_hPipe);
+                m_hPipe = INVALID_HANDLE_VALUE;
+                CloseAllReplayCharts();
+                break;
+            }
             continue;
         }
         m_current_epoch = header.epoch;
 
         ulong start_us = GetMicrosecondCount();
 
-        switch(header.msg_type)
+        if(header.msg_type == MSG_ADVANCE)
         {
-            case MSG_INIT:
+            // パイプ内に連続して到着している ADVANCE パケットを集約 (Coalesce)
+            // 最後の ADVANCE のみを実行することでパイプ蓄積遅延を完全解消
+            BytesToStruct(payload_buf, 0, latest_adv);
+            has_pending_adv = true;
+            latest_adv_start_us = start_us;
+        }
+        else
+        {
+            // 制御コマンド到着時: 保留中 ADVANCE の適切なフラッシュまたは破棄
+            if(header.msg_type == MSG_RESET || header.msg_type == MSG_INIT || header.msg_type == MSG_TERMINATE)
             {
-                InitPayload init_p;
-                BytesToStruct(payload_buf, 0, init_p);
-                ProcessInit(init_p);
-                break;
+                has_pending_adv = false;
             }
-            case MSG_ADVANCE:
+            else if(has_pending_adv)
             {
-                AdvancePayload adv;
-                BytesToStruct(payload_buf, 0, adv);
-                ProcessAdvance(adv, start_us);
-                break;
+                ProcessAdvance(latest_adv, latest_adv_start_us);
+                has_pending_adv = false;
             }
-            case MSG_RESET:
+
+            switch(header.msg_type)
             {
-                ResetPayload rst;
-                BytesToStruct(payload_buf, 0, rst);
-                ProcessReset(rst);
-                break;
+                case MSG_INIT:
+                {
+                    InitPayload init_p;
+                    BytesToStruct(payload_buf, 0, init_p);
+                    ProcessInit(init_p);
+                    break;
+                }
+                case MSG_RESET:
+                {
+                    ResetPayload rst;
+                    BytesToStruct(payload_buf, 0, rst);
+                    ProcessReset(rst);
+                    break;
+                }
+                case MSG_APPLY_PROFILE:
+                {
+                    ApplyProfilePayload app;
+                    BytesToStruct(payload_buf, 0, app);
+                    ProcessApplyProfile(app);
+                    break;
+                }
+                case MSG_IMPORT_TICKS:
+                {
+                    ImportTicksPayload imp;
+                    BytesToStruct(payload_buf, 0, imp);
+                    ProcessImportTicks(imp);
+                    break;
+                }
+                case MSG_TERMINATE:
+                {
+                    Print("[RendererEA] MSG_TERMINATE 受信: リプレイチャートを全クローズします");
+                    CloseAllReplayCharts();
+                    break;
+                }
+                default:
+                    break;
             }
-            case MSG_APPLY_PROFILE:
-            {
-                ApplyProfilePayload app;
-                BytesToStruct(payload_buf, 0, app);
-                ProcessApplyProfile(app);
-                break;
-            }
-            case MSG_IMPORT_TICKS:
-            {
-                ImportTicksPayload imp;
-                BytesToStruct(payload_buf, 0, imp);
-                ProcessImportTicks(imp);
-                break;
-            }
-            case MSG_TERMINATE:
-            {
-                Print("[RendererEA] MSG_TERMINATE 受信: リプレイチャートを全クローズします");
-                CloseAllReplayCharts();
-                break;
-            }
-            default:
-                break;
         }
 
         if(!PeekNamedPipe(m_hPipe, 0, 0, 0, bytes_avail, 0))
@@ -2104,5 +2161,11 @@ void OnTimer()
             CloseAllReplayCharts();
             break;
         }
+    }
+
+    // パイプバッファを完全に読み切った後、最新の ADVANCE を 1 回だけ確定実行
+    if(has_pending_adv)
+    {
+        ProcessAdvance(latest_adv, latest_adv_start_us);
     }
 }
