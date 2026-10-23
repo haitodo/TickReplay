@@ -32,7 +32,7 @@ interface RemoteHudBarProps {
   toggleRemoteMode: (val: boolean) => void;
 }
 
-export const RemoteHudBar: React.FC<RemoteHudBarProps> = ({
+export const RemoteHudBar: React.FC<RemoteHudBarProps> = React.memo(({
   handleDragStart,
   timezoneMode,
   virtualTimeMsc,
@@ -272,4 +272,4 @@ export const RemoteHudBar: React.FC<RemoteHudBarProps> = ({
       </div>
     </div>
   );
-};
+});

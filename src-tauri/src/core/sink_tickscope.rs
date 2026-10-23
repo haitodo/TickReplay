@@ -108,7 +108,7 @@ impl TickScopeBridge {
 
         // 送信
         let stream = self.stream.as_mut().unwrap();
-        if let Err(e) = stream.write_all(&buf) {
+        if let Err(e) = stream.write_all(buf) {
             self.disconnect();
             return Err(e);
         }
@@ -122,8 +122,7 @@ impl TickScopeBridge {
             self.connect()?;
         }
 
-        let total_len = HEADER_LENGTH as usize + HEARTBEAT_PAYLOAD_LENGTH;
-        let mut buf = vec![0u8; total_len];
+        let mut buf = [0u8; HEADER_LENGTH as usize + HEARTBEAT_PAYLOAD_LENGTH];
 
         // ヘッダー
         buf[0..4].copy_from_slice(&MAGIC_TICK.to_le_bytes());

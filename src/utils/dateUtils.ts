@@ -70,11 +70,11 @@ export const getTradingMonthRange = (
   month: number,
   timezoneMode: "JST" | "SERVER" = "JST"
 ): { start: string; end: string } => {
-  let startDay = 1;
+  let startDay: number;
   const firstDate = new Date(Date.UTC(year, month - 1, 1));
   const dayOfWeek = firstDate.getUTCDay(); // 0: 日, 1: 月, ..., 6: 土
 
-  let isMondayOpen = false;
+  let isMondayOpen: boolean;
 
   if (dayOfWeek === 6) {
     // 1日が土曜 -> 3日(月)
@@ -95,8 +95,8 @@ export const getTradingMonthRange = (
   }
 
   let startHour = 0;
-  let startMinute = 0;
-  let startSecond = 0;
+  const startMinute = 0;
+  const startSecond = 0;
 
   if (isMondayOpen) {
     if (timezoneMode === "SERVER") {

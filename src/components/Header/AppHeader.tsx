@@ -30,7 +30,7 @@ interface AppHeaderProps {
   getDayOfWeekStr: (msc: number, isJst: boolean) => string;
 }
 
-export const AppHeader: React.FC<AppHeaderProps> = ({
+export const AppHeader: React.FC<AppHeaderProps> = React.memo(({
   status,
   virtualTimeMsc,
   timezoneMode,
@@ -354,4 +354,4 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
       )}
     </>
   );
-};
+});

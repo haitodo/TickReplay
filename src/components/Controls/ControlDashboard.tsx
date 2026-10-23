@@ -18,10 +18,6 @@ interface ControlDashboardProps {
   handleMediumSpeed: (up: boolean) => void;
   handleFineSpeed: (up: boolean) => void;
   setIsSpeedPresetsModalOpen: (val: boolean) => void;
-  setEditingTimePresets: (val: number[]) => void;
-  setEditingTickPresets: (val: number[]) => void;
-  setModalNewTimePreset: (val: string) => void;
-  setModalNewTickPreset: (val: string) => void;
   loopActive: boolean;
   loopA: number;
   loopB: number;
@@ -38,7 +34,6 @@ interface ControlDashboardProps {
   progressPercent: number;
   timeSteps: TimeStepItem[];
   setIsTimeStepsModalOpen: (val: boolean) => void;
-  setEditingTimeSteps: (val: TimeStepItem[]) => void;
   handleSessionJump: (session: string, dir: "PREV" | "NEXT") => void;
   handleTimeJump: (sec: number) => void;
   getDayOffset: () => string;
@@ -480,10 +475,6 @@ const ControlDashboardComponent: React.FC<ControlDashboardProps> = ({
   handleMediumSpeed,
   handleFineSpeed,
   setIsSpeedPresetsModalOpen,
-  setEditingTimePresets,
-  setEditingTickPresets,
-  setModalNewTimePreset,
-  setModalNewTickPreset,
   loopActive,
   loopA,
   loopB,
@@ -500,7 +491,6 @@ const ControlDashboardComponent: React.FC<ControlDashboardProps> = ({
   progressPercent,
   timeSteps,
   setIsTimeStepsModalOpen,
-  setEditingTimeSteps,
   handleSessionJump,
   handleTimeJump,
   getDayOffset,
@@ -523,17 +513,12 @@ const ControlDashboardComponent: React.FC<ControlDashboardProps> = ({
   } | null>(null);
 
   const handleOpenSpeedPresets = React.useCallback(() => {
-    setEditingTimePresets([...timePresets]);
-    setEditingTickPresets([...tickPresets]);
-    setModalNewTimePreset("");
-    setModalNewTickPreset("");
     setIsSpeedPresetsModalOpen(true);
-  }, [timePresets, tickPresets, setEditingTimePresets, setEditingTickPresets, setModalNewTimePreset, setModalNewTickPreset, setIsSpeedPresetsModalOpen]);
+  }, [setIsSpeedPresetsModalOpen]);
 
   const handleOpenTimeSteps = React.useCallback(() => {
-    setEditingTimeSteps([...timeSteps]);
     setIsTimeStepsModalOpen(true);
-  }, [timeSteps, setEditingTimeSteps, setIsTimeStepsModalOpen]);
+  }, [setIsTimeStepsModalOpen]);
 
   // サーバー日の当日秒数 (0..86400)
   const isServerDayMode = Boolean(timelineActivity && timelineActivity.day_start_msc > 0);

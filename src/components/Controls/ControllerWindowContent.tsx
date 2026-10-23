@@ -9,7 +9,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ControlDashboard } from "./ControlDashboard";
 import { useAppearance } from "../../hooks/useAppearance";
 import { formatJstTime, formatServerTime, splitShortDateTime } from "../../utils/timeUtils";
-import { DEFAULT_TIME_STEPS, formatSecondsToLabel } from "../../domain/timeSteps";
+import { DEFAULT_TIME_STEPS } from "../../domain/timeSteps";
+import { SpeedPresetsModal, TimeStepsModal } from "../Modals";
 import type { TimeStepItem, DayTimelineActivity } from "../../types/replay";
 import { ReplayCommand, sendReplayCommand } from "../../utils/command";
 import { PersistedSettings } from "../../types/settings";
@@ -93,10 +94,6 @@ export const ControllerWindowContent: React.FC = () => {
   const [timePresets, setTimePresets] = useState<number[]>(() => [...DEFAULT_SPEED_TIME_PRESETS]);
   const [tickPresets, setTickPresets] = useState<number[]>(() => [...DEFAULT_SPEED_TICK_PRESETS]);
   const [isSpeedPresetsModalOpen, setIsSpeedPresetsModalOpen] = useState(false);
-  const [editingTimePresets, setEditingTimePresets] = useState<number[]>([]);
-  const [editingTickPresets, setEditingTickPresets] = useState<number[]>([]);
-  const [modalNewTimePreset, setModalNewTimePreset] = useState("");
-  const [modalNewTickPreset, setModalNewTickPreset] = useState("");
 
   // タイムステップ
   const [timeSteps, setTimeSteps] = useState<TimeStepItem[]>(() => {
@@ -112,8 +109,6 @@ export const ControllerWindowContent: React.FC = () => {
     return DEFAULT_TIME_STEPS;
   });
   const [isTimeStepsModalOpen, setIsTimeStepsModalOpen] = useState(false);
-  const [editingTimeSteps, setEditingTimeSteps] = useState<TimeStepItem[]>([]);
-  const [newStepSeconds, setNewStepSeconds] = useState(300);
 
   // 終了メニュー & 保存終了モーダル State
   const [isExitMenuOpen, setIsExitMenuOpen] = useState(false);
@@ -920,10 +915,6 @@ export const ControllerWindowContent: React.FC = () => {
           handleMediumSpeed={handleMediumSpeed}
           handleFineSpeed={handleFineSpeed}
           setIsSpeedPresetsModalOpen={setIsSpeedPresetsModalOpen}
-          setEditingTimePresets={setEditingTimePresets}
-          setEditingTickPresets={setEditingTickPresets}
-          setModalNewTimePreset={setModalNewTimePreset}
-          setModalNewTickPreset={setModalNewTickPreset}
           loopActive={loopActive}
           loopA={loopA}
           loopB={loopB}
@@ -940,7 +931,6 @@ export const ControllerWindowContent: React.FC = () => {
           progressPercent={progressPercent}
           timeSteps={timeSteps}
           setIsTimeStepsModalOpen={setIsTimeStepsModalOpen}
-          setEditingTimeSteps={setEditingTimeSteps}
           handleSessionJump={handleSessionJump}
           handleTimeJump={handleTimeJump}
           getDayOffset={getDayOffset}
@@ -1065,194 +1055,29 @@ export const ControllerWindowContent: React.FC = () => {
       )}
 
       {/* 速度プリセット編集モーダル */}
-      {isSpeedPresetsModalOpen && (
-        <div className="modal-overlay" onClick={() => setIsSpeedPresetsModalOpen(false)}>
-          <div className="modal-container" style={{ maxWidth: "380px" }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">速度プリセット設定</h3>
-              <button className="modal-close-btn" onClick={() => setIsSpeedPresetsModalOpen(false)}>
-                <span className="material-symbols-outlined">close</span>
-              </button>
-            </div>
-            <div className="modal-body" style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
-              <div>
-                <label className="form-label">時間比率プリセット (倍率):</label>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", margin: "4px 0" }}>
-                  {editingTimePresets.map((val, idx) => (
-                    <span key={idx} className="chip-btn">
-                      {val}x
-                      <button
-                        type="button"
-                        style={{ background: "none", border: "none", color: "#f87171", cursor: "pointer", marginLeft: "4px" }}
-                        onClick={() => setEditingTimePresets(editingTimePresets.filter((_, i) => i !== idx))}
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                </div>
-                <div style={{ display: "flex", gap: "4px" }}>
-                  <input
-                    type="number"
-                    step="0.1"
-                    className="input-compact"
-                    placeholder="例: 15.0"
-                    value={modalNewTimePreset}
-                    onChange={(e) => setModalNewTimePreset(e.target.value)}
-                  />
-                  <button
-                    type="button"
-                    className="btn-modal-primary"
-                    onClick={() => {
-                      const num = parseFloat(modalNewTimePreset);
-                      if (!isNaN(num) && num > 0 && !editingTimePresets.includes(num)) {
-                        setEditingTimePresets([...editingTimePresets, num].sort((a, b) => a - b));
-                        setModalNewTimePreset("");
-                      }
-                    }}
-                  >
-                    追加
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="form-label">ティック比率プリセット (ステップ):</label>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", margin: "4px 0" }}>
-                  {editingTickPresets.map((val, idx) => (
-                    <span key={idx} className="chip-btn">
-                      {val}T
-                      <button
-                        type="button"
-                        style={{ background: "none", border: "none", color: "#f87171", cursor: "pointer", marginLeft: "4px" }}
-                        onClick={() => setEditingTickPresets(editingTickPresets.filter((_, i) => i !== idx))}
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                </div>
-                <div style={{ display: "flex", gap: "4px" }}>
-                  <input
-                    type="number"
-                    className="input-compact"
-                    placeholder="例: 100"
-                    value={modalNewTickPreset}
-                    onChange={(e) => setModalNewTickPreset(e.target.value)}
-                  />
-                  <button
-                    type="button"
-                    className="btn-modal-primary"
-                    onClick={() => {
-                      const num = parseInt(modalNewTickPreset, 10);
-                      if (!isNaN(num) && num > 0 && !editingTickPresets.includes(num)) {
-                        setEditingTickPresets([...editingTickPresets, num].sort((a, b) => a - b));
-                        setModalNewTickPreset("");
-                      }
-                    }}
-                  >
-                    追加
-                  </button>
-                </div>
-              </div>
-            </div>
-            <div className="modal-footer" style={{ padding: "8px 12px", display: "flex", justifyContent: "flex-end", gap: "6px" }}>
-              <button
-                type="button"
-                className="btn-action-outline"
-                onClick={() => setIsSpeedPresetsModalOpen(false)}
-              >
-                キャンセル
-              </button>
-              <button
-                type="button"
-                className="btn-modal-primary"
-                onClick={() => {
-                  setTimePresets(editingTimePresets);
-                  setTickPresets(editingTickPresets);
-                  localStorage.setItem(STORAGE_KEYS.timePresets, JSON.stringify(editingTimePresets));
-                  localStorage.setItem(STORAGE_KEYS.tickPresets, JSON.stringify(editingTickPresets));
-                  setIsSpeedPresetsModalOpen(false);
-                }}
-              >
-                保存
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <SpeedPresetsModal
+        isOpen={isSpeedPresetsModalOpen}
+        timePresets={timePresets}
+        tickPresets={tickPresets}
+        onSave={(times, ticks) => {
+          setTimePresets(times);
+          setTickPresets(ticks);
+          localStorage.setItem(STORAGE_KEYS.timePresets, JSON.stringify(times));
+          localStorage.setItem(STORAGE_KEYS.tickPresets, JSON.stringify(ticks));
+        }}
+        onClose={() => setIsSpeedPresetsModalOpen(false)}
+      />
 
       {/* タイムステップ編集モーダル */}
-      {isTimeStepsModalOpen && (
-        <div className="modal-overlay" onClick={() => setIsTimeStepsModalOpen(false)}>
-          <div className="modal-container" style={{ maxWidth: "380px" }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">タイムステップ設定</h3>
-              <button className="modal-close-btn" onClick={() => setIsTimeStepsModalOpen(false)}>
-                <span className="material-symbols-outlined">close</span>
-              </button>
-            </div>
-            <div className="modal-body" style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
-                {editingTimeSteps.map((item, idx) => (
-                  <span key={item.id} className="chip-btn">
-                    {item.label}
-                    <button
-                      type="button"
-                      style={{ background: "none", border: "none", color: "#f87171", cursor: "pointer", marginLeft: "4px" }}
-                      onClick={() => setEditingTimeSteps(editingTimeSteps.filter((_, i) => i !== idx))}
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
-              <div style={{ display: "flex", gap: "4px" }}>
-                <input
-                  type="number"
-                  className="input-compact"
-                  placeholder="秒数 (例: 300)"
-                  value={newStepSeconds}
-                  onChange={(e) => setNewStepSeconds(parseInt(e.target.value, 10) || 0)}
-                />
-                <button
-                  type="button"
-                  className="btn-modal-primary"
-                  onClick={() => {
-                    if (newStepSeconds > 0 && !editingTimeSteps.some((s) => s.seconds === newStepSeconds)) {
-                      const newId = "ts-" + Date.now();
-                      const newLabel = formatSecondsToLabel(newStepSeconds);
-                      setEditingTimeSteps([...editingTimeSteps, { id: newId, seconds: newStepSeconds, label: newLabel }].sort((a, b) => a.seconds - b.seconds));
-                    }
-                  }}
-                >
-                  追加
-                </button>
-              </div>
-            </div>
-            <div className="modal-footer" style={{ padding: "8px 12px", display: "flex", justifyContent: "flex-end", gap: "6px" }}>
-              <button
-                type="button"
-                className="btn-action-outline"
-                onClick={() => setIsTimeStepsModalOpen(false)}
-              >
-                キャンセル
-              </button>
-              <button
-                type="button"
-                className="btn-modal-primary"
-                onClick={() => {
-                  setTimeSteps(editingTimeSteps);
-                  localStorage.setItem(STORAGE_KEYS.customTimeSteps, JSON.stringify(editingTimeSteps));
-                  setIsTimeStepsModalOpen(false);
-                }}
-              >
-                保存
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <TimeStepsModal
+        isOpen={isTimeStepsModalOpen}
+        timeSteps={timeSteps}
+        onApply={(steps) => {
+          setTimeSteps(steps);
+          localStorage.setItem(STORAGE_KEYS.customTimeSteps, JSON.stringify(steps));
+        }}
+        onClose={() => setIsTimeStepsModalOpen(false)}
+      />
 
       {/* セッション保存して終了モーダル */}
       {isSaveAndExitModalOpen && (

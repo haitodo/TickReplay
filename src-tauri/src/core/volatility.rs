@@ -63,7 +63,7 @@ pub fn compute_day_timeline_activity(
     let day_start_msc = day_start.and_utc().timestamp_millis();
     let day_end_msc = day_end.and_utc().timestamp_millis() + 999;
 
-    let tyo_start_sec = if is_dst { 2 * 3600 + 45 * 60 } else { 1 * 3600 + 45 * 60 };
+    let tyo_start_sec = if is_dst { 2 * 3600 + 45 * 60 } else { 3600 + 45 * 60 };
     let ldn_start_sec = 10 * 3600;
     let ny_start_sec = 15 * 3600;
 
@@ -87,14 +87,14 @@ pub fn compute_day_timeline_activity(
 
     let total_ticks_in_day = (end_idx - start_idx + 1) as u32;
 
-    // 15分スロット (96件) および 1時間スロット (24件) のカウント
-    let mut raw_15m = vec![0u32; 96];
-    let mut raw_1h = vec![0u32; 24];
+    // 15分スロット (96件) および 1時間スロット (24件) のカウント (スタック配列でヒープ割り当てゼロ)
+    let mut raw_15m = [0u32; 96];
+    let mut raw_1h = [0u32; 24];
 
     for idx in start_idx..=end_idx {
         if let Some(tick) = store.get(idx) {
             let offset_sec = (tick.time_msc - day_start_msc) / 1000;
-            if offset_sec >= 0 && offset_sec < 86400 {
+            if (0..86400).contains(&offset_sec) {
                 let slot_15 = (offset_sec / 900).clamp(0, 95) as usize;
                 let slot_1h = (offset_sec / 3600).clamp(0, 23) as usize;
                 raw_15m[slot_15] += 1;

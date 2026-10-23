@@ -17,8 +17,17 @@ import { SpeedOrderWindowContent } from "./components/SpeedOrderWindowContent";
 import { PositionsWindowContent } from "./components/PositionsWindowContent";
 import { SettingsWindowContent } from "./components/Settings/SettingsWindowContent";
 import { DeleteSessionModal } from "./components/DeleteSessionModal";
-import { EconomicDataMissingModal } from "./components/Modals/EconomicDataMissingModal";
-import { TerminalNameModal } from "./components/Modals/TerminalNameModal";
+import {
+  EconomicDataMissingModal,
+  TerminalNameModal,
+  ClearAllSessionsConfirmModal,
+  ResetReplayConfirmModal,
+  ResetTradingConfirmModal,
+  MaxBarsWarningModal,
+  SaveSessionModal,
+  TimeStepsModal,
+  SpeedPresetsModal,
+} from "./components/Modals";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { AppHeader } from "./components/Header/AppHeader";
 import { SetupPanel } from "./components/Setup/SetupPanel";
@@ -30,9 +39,8 @@ import { checkEconomicDataAvailability } from "./utils/economicDataUtils";
 import { useAppearance } from "./hooks/useAppearance";
 import {
   DEFAULT_TIME_STEPS,
-  formatSecondsToLabel,
-  PRESET_TIME_OPTIONS,
 } from "./domain/timeSteps";
+import { formatTerminalNamesMap } from "./domain/settings";
 import type { TimeStepItem } from "./types/replay";
 import {
   getServerToJstOffsetHours,
@@ -550,22 +558,6 @@ function MainWindow() {
   const [isRemoteMode, setIsRemoteMode] = useState(false);
   const [isShortcutsActive, setIsShortcutsActive] = useState(false);
   const [alwaysOnTop, setAlwaysOnTop] = useState(false);
-  const [isSubmenuOpen, setIsSubmenuOpen] = useState(false);
-  const submenuRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (submenuRef.current && !submenuRef.current.contains(event.target as Node)) {
-        setIsSubmenuOpen(false);
-      }
-    };
-    if (isSubmenuOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-    }
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [isSubmenuOpen]);
 
   // リプレイ状態（READY / ACTIVE）に新しく遷移した際、モニター2の操作コントローラーウィンドウを起動
   const prevStatusRef = useRef<string | null>(null);
@@ -606,14 +598,7 @@ function MainWindow() {
   });
 
   const [isTimeStepsModalOpen, setIsTimeStepsModalOpen] = useState<boolean>(false);
-  const [editingTimeSteps, setEditingTimeSteps] = useState<TimeStepItem[]>(timeSteps);
-
-  // Transport 速度プリセット設定モーダル用 State
   const [isSpeedPresetsModalOpen, setIsSpeedPresetsModalOpen] = useState<boolean>(false);
-  const [editingTimePresets, setEditingTimePresets] = useState<number[]>([]);
-  const [editingTickPresets, setEditingTickPresets] = useState<number[]>([]);
-  const [modalNewTimePreset, setModalNewTimePreset] = useState<string>("");
-  const [modalNewTickPreset, setModalNewTickPreset] = useState<string>("");
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.customTimeSteps, JSON.stringify(timeSteps));
@@ -1487,38 +1472,41 @@ function MainWindow() {
 
   // すべての設定をまとめて保存・同期するヘルパー関数
   const saveAllSettings = async (
-    customHotkeys = hotkeys,
-    customTimePresets = timePresets,
-    customTickPresets = tickPresets,
-    customAlwaysOnTop = alwaysOnTop,
-    customIsShortcutsActive = isShortcutsActive,
-    customAutoScrollSync = autoScrollSync,
-    customTimezoneMode = timezoneMode,
-    customAutoSkipWeekend = autoSkipWeekend,
-    customPlColorStyle = plColorStyle,
-    customOrderColorStyle = orderColorStyle,
-    customHedging = hedging,
-    customEnableVirtualTrading = enableVirtualTrading,
-    customInitialBalance = initialBalance,
-    customLeverage = leverage,
-    customEnablePseudoRate = enablePseudoRate,
-    customPseudoBaseSpread = pseudoBaseSpread,
-    customPseudoThreshold = pseudoThreshold,
-    customPseudoSensitivity = pseudoSensitivity,
-    customPseudoMode = pseudoMode,
-    customPseudoRolloverEnabled = pseudoRolloverEnabled,
-    customPseudoRolloverSpread = pseudoRolloverSpread,
-    customPseudoRolloverRecoveryMin = pseudoRolloverRecoveryMin,
-    customPreloadTimeframe = preloadTimeframe,
-    customShowHoldingTime = showHoldingTime,
-    customHoldingTimeMode = holdingTimeMode,
-    customAdditionalSymbols = additionalSymbols,
-    customContractSize = contractSize,
-    customEconomicDataDir = economicDataDir,
-    customTimelineActivityMaxCap = timelineActivityMaxCap,
-    customTimelineActivityMinFloor = timelineActivityMinFloor,
-    customAutoSkipThreshold = autoSkipThreshold
+    options?: Partial<PersistedSettings>
   ) => {
+    const opts = options || {};
+    const effHotkeys = opts.hotkeys ?? hotkeys;
+    const effTimePresets = opts.time_presets ?? timePresets;
+    const effTickPresets = opts.tick_presets ?? tickPresets;
+    const effAlwaysOnTop = opts.always_on_top ?? alwaysOnTop;
+    const effIsShortcutsActive = opts.is_shortcuts_active ?? isShortcutsActive;
+    const effAutoScrollSync = opts.auto_scroll_sync ?? autoScrollSync;
+    const effTimezoneMode = opts.timezone_mode ?? timezoneMode;
+    const effAutoSkipWeekend = opts.auto_skip_weekend ?? autoSkipWeekend;
+    const effPlColorStyle = opts.pl_color_style ?? plColorStyle;
+    const effOrderColorStyle = opts.order_color_style ?? orderColorStyle;
+    const effHedging = opts.hedging ?? hedging;
+    const effEnableVirtualTrading = opts.enable_virtual_trading ?? enableVirtualTrading;
+    const effInitialBalance = opts.initial_balance ?? initialBalance;
+    const effLeverage = opts.leverage ?? leverage;
+    const effContractSize = opts.contract_size ?? contractSize;
+    const effEnablePseudoRate = opts.enable_pseudo_rate ?? enablePseudoRate;
+    const effPseudoBaseSpread = opts.pseudo_base_spread ?? pseudoBaseSpread;
+    const effPseudoThreshold = opts.pseudo_threshold ?? pseudoThreshold;
+    const effPseudoSensitivity = opts.pseudo_sensitivity ?? pseudoSensitivity;
+    const effPseudoMode = opts.pseudo_mode ?? pseudoMode;
+    const effPseudoRolloverEnabled = opts.pseudo_rollover_enabled ?? pseudoRolloverEnabled;
+    const effPseudoRolloverSpread = opts.pseudo_rollover_spread ?? pseudoRolloverSpread;
+    const effPseudoRolloverRecoveryMin = opts.pseudo_rollover_recovery_min ?? pseudoRolloverRecoveryMin;
+    const effPreloadTimeframe = opts.preload_timeframe ?? preloadTimeframe;
+    const effShowHoldingTime = opts.show_holding_time ?? showHoldingTime;
+    const effHoldingTimeMode = opts.holding_time_mode ?? holdingTimeMode;
+    const effAdditionalSymbols = opts.additional_symbols ?? additionalSymbols;
+    const effEconomicDataDir = opts.economic_data_dir ?? economicDataDir;
+    const effTimelineActivityMaxCap = opts.timeline_activity_max_cap ?? timelineActivityMaxCap;
+    const effTimelineActivityMinFloor = opts.timeline_activity_min_floor ?? timelineActivityMinFloor;
+    const effAutoSkipThreshold = opts.auto_skip_threshold ?? autoSkipThreshold;
+
     const settingsObj = {
       selected_terminal: selectedTerminal,
       selected_profile: selectedProfile,
@@ -1528,56 +1516,47 @@ function MainWindow() {
       start_time: startTime,
       end_time: endTime,
       preloaded_bars: preloadedBars,
-      auto_scroll_sync: customAutoScrollSync,
-      auto_skip_weekend: customAutoSkipWeekend,
-      timeline_activity_max_cap: customTimelineActivityMaxCap,
-      timeline_activity_min_floor: customTimelineActivityMinFloor,
-      auto_skip_threshold: customAutoSkipThreshold,
+      auto_scroll_sync: effAutoScrollSync,
+      auto_skip_weekend: effAutoSkipWeekend,
+      timeline_activity_max_cap: effTimelineActivityMaxCap,
+      timeline_activity_min_floor: effTimelineActivityMinFloor,
+      auto_skip_threshold: effAutoSkipThreshold,
       preload_mode: preloadMode,
       preload_date: preloadDate,
-      preload_timeframe: customPreloadTimeframe,
-      hotkeys: customHotkeys,
-      time_presets: customTimePresets,
-      tick_presets: customTickPresets,
-      always_on_top: customAlwaysOnTop,
-      is_shortcuts_active: customIsShortcutsActive,
-      timezone_mode: customTimezoneMode,
-      pl_color_style: customPlColorStyle,
-      order_color_style: customOrderColorStyle,
-      hedging: customHedging,
-      enable_virtual_trading: customEnableVirtualTrading,
-      initial_balance: customInitialBalance,
-      leverage: customLeverage,
-      contract_size: customContractSize,
-      enable_pseudo_rate: customEnablePseudoRate,
-      pseudo_base_spread: customPseudoBaseSpread,
-      pseudo_threshold: customPseudoThreshold,
-      pseudo_sensitivity: customPseudoSensitivity,
-      pseudo_mode: customPseudoMode,
-      pseudo_rollover_enabled: customPseudoRolloverEnabled,
-      pseudo_rollover_spread: customPseudoRolloverSpread,
-      pseudo_rollover_recovery_min: customPseudoRolloverRecoveryMin,
-      show_holding_time: customShowHoldingTime,
-      holding_time_mode: customHoldingTimeMode,
-      additional_symbols: customAdditionalSymbols,
-      economic_data_dir: customEconomicDataDir,
-      terminal_names: (() => {
-        const map: { [key: string]: string } = {};
-        terminals.forEach((t) => {
-          if (t.custom_name && t.custom_name.trim()) {
-            if (t.id) map[t.id] = t.custom_name.trim();
-            map[t.path] = t.custom_name.trim();
-          }
-        });
-        return Object.keys(map).length > 0 ? map : undefined;
-      })(),
+      preload_timeframe: effPreloadTimeframe,
+      hotkeys: effHotkeys,
+      time_presets: effTimePresets,
+      tick_presets: effTickPresets,
+      always_on_top: effAlwaysOnTop,
+      is_shortcuts_active: effIsShortcutsActive,
+      timezone_mode: effTimezoneMode,
+      pl_color_style: effPlColorStyle,
+      order_color_style: effOrderColorStyle,
+      hedging: effHedging,
+      enable_virtual_trading: effEnableVirtualTrading,
+      initial_balance: effInitialBalance,
+      leverage: effLeverage,
+      contract_size: effContractSize,
+      enable_pseudo_rate: effEnablePseudoRate,
+      pseudo_base_spread: effPseudoBaseSpread,
+      pseudo_threshold: effPseudoThreshold,
+      pseudo_sensitivity: effPseudoSensitivity,
+      pseudo_mode: effPseudoMode,
+      pseudo_rollover_enabled: effPseudoRolloverEnabled,
+      pseudo_rollover_spread: effPseudoRolloverSpread,
+      pseudo_rollover_recovery_min: effPseudoRolloverRecoveryMin,
+      show_holding_time: effShowHoldingTime,
+      holding_time_mode: effHoldingTimeMode,
+      additional_symbols: effAdditionalSymbols,
+      economic_data_dir: effEconomicDataDir,
+      terminal_names: formatTerminalNamesMap(terminals),
     };
     try {
-      localStorage.setItem(STORAGE_KEYS.speedOrderHotkeys, JSON.stringify(customHotkeys));
-      localStorage.setItem(STORAGE_KEYS.speedOrderContractSize, customContractSize.toString());
-      localStorage.setItem(STORAGE_KEYS.replayEconomicDataDir, customEconomicDataDir);
+      localStorage.setItem(STORAGE_KEYS.speedOrderHotkeys, JSON.stringify(effHotkeys));
+      localStorage.setItem(STORAGE_KEYS.speedOrderContractSize, effContractSize.toString());
+      localStorage.setItem(STORAGE_KEYS.replayEconomicDataDir, effEconomicDataDir);
       await invoke(COMMANDS.saveSettings, { settings: settingsObj });
-      await invoke(COMMANDS.syncPresets, { timePresets: customTimePresets, tickPresets: customTickPresets });
+      await invoke(COMMANDS.syncPresets, { timePresets: effTimePresets, tickPresets: effTickPresets });
     } catch (e) {
       console.error("Failed to save/sync settings", e);
     }
@@ -2331,34 +2310,8 @@ function MainWindow() {
     }
   };
 
-  // 終了
-  const handleTerminate = async () => {
-    if (isRemoteMode) {
-      await toggleRemoteMode(false);
-    }
-    // 保存確認モーダルを表示
-    const now = new Date();
-    const pad = (n: number) => n.toString().padStart(2, '0');
-    const defaultName = `${sourceSymbol}_Replay_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
-    setSaveSessionName(currentSessionId ? currentSessionName : defaultName);
-    setSaveAsNewSnapshot(false);
-    setSessionSaveType("terminate");
-    setIsSaveSessionOpen(true);
-  };
-
-  // ドラッグ開始ハンドラ（ボーダレスウィンドウの移動用）
-  const handleDragStart = async (e: React.MouseEvent) => {
-    if (e.button === 0) { // 左クリックのみ
-      try {
-        await getCurrentWindow().startDragging();
-      } catch (err) {
-        console.error("Failed to start dragging window", err);
-      }
-    }
-  };
-
   // リモコンモード切り替え（Tauriウィンドウサイズ・枠線・位置吸着制御）
-  const toggleRemoteMode = async (remote: boolean) => {
+  const toggleRemoteMode = useCallback(async (remote: boolean) => {
     try {
       await invoke(COMMANDS.setRemoteMode, { isRemote: remote, alwaysOnTop: alwaysOnTop });
       setIsRemoteMode(remote);
@@ -2370,7 +2323,33 @@ function MainWindow() {
     } catch (e) {
       console.error("Failed to toggle remote mode", e);
     }
-  };
+  }, [alwaysOnTop]);
+
+  // ドラッグ開始ハンドラ（ボーダレスウィンドウの移動用）
+  const handleDragStart = useCallback(async (e: React.MouseEvent) => {
+    if (e.button === 0) { // 左クリックのみ
+      try {
+        await getCurrentWindow().startDragging();
+      } catch (err) {
+        console.error("Failed to start dragging window", err);
+      }
+    }
+  }, []);
+
+  // 終了
+  const handleTerminate = useCallback(async () => {
+    if (isRemoteMode) {
+      await toggleRemoteMode(false);
+    }
+    // 保存確認モーダルを表示
+    const now = new Date();
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const defaultName = `${sourceSymbol}_Replay_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+    setSaveSessionName(currentSessionId ? currentSessionName : defaultName);
+    setSaveAsNewSnapshot(false);
+    setSessionSaveType("terminate");
+    setIsSaveSessionOpen(true);
+  }, [isRemoteMode, toggleRemoteMode, sourceSymbol, currentSessionId, currentSessionName]);
 
   // リモートモード時のbody・html背景透過の制御
   useEffect(() => {
@@ -2461,29 +2440,21 @@ function MainWindow() {
   // --- 3. UIトグル動作
 
   // 常に最前面に表示トグル
-  const handleAlwaysOnTopToggle = async () => {
+  const handleAlwaysOnTopToggle = useCallback(async () => {
     const next = !alwaysOnTop;
     try {
       await invoke(COMMANDS.setAlwaysOnTop, { always: next });
       setAlwaysOnTop(next);
+      await saveAllSettingsRef.current({ always_on_top: next });
     } catch (e) {
       console.error(e);
     }
-  };
+  }, [alwaysOnTop]);
 
   // 時間比率モード時の週末自動スキップ有効化トグル
-  const handleAutoSkipWeekendToggle = (val: boolean) => {
+  const handleAutoSkipWeekendToggle = useCallback((val: boolean) => {
     setAutoSkipWeekend(val);
-    saveAllSettings(
-      hotkeys,
-      timePresets,
-      tickPresets,
-      alwaysOnTop,
-      isShortcutsActive,
-      autoScrollSync,
-      timezoneMode,
-      val
-    );
+    saveAllSettingsRef.current({ auto_skip_weekend: val });
     if (status === "READY" || status === "ACTIVE") {
       sendCommand({
         command: "CONTROL",
@@ -2493,18 +2464,19 @@ function MainWindow() {
         auto_skip_weekend: val,
       });
     }
-  };
+  }, [status, speedMode, multiplier, tickStep, sendCommand]);
 
   // キーボードショートカット有効化トグル
-  const handleShortcutsToggle = async () => {
+  const handleShortcutsToggle = useCallback(async () => {
     const next = !isShortcutsActive;
     try {
       await invoke(COMMANDS.setShortcutsActive, { active: next, hotkeys: hotkeys });
       setIsShortcutsActive(next);
+      await saveAllSettingsRef.current({ is_shortcuts_active: next });
     } catch (e) {
       console.error(e);
     }
-  };
+  }, [isShortcutsActive, hotkeys]);
 
   // Keep handlersRef updated with the latest closures
   useEffect(() => {
@@ -2825,7 +2797,7 @@ function MainWindow() {
         setHotkeys(newHotkeys);
 
         // 設定保存
-        saveAllSettingsRef.current(newHotkeys)
+        saveAllSettingsRef.current({ hotkeys: newHotkeys })
           .then(() => {
             invoke(COMMANDS.setShortcutsActive, { active: isShortcutsActive, hotkeys: newHotkeys }).catch(console.error);
           })
@@ -2843,7 +2815,7 @@ function MainWindow() {
     const newHotkeys = { ...hotkeys, [actionKey]: "" };
     setHotkeys(newHotkeys);
 
-    saveAllSettings(newHotkeys)
+    saveAllSettings({ hotkeys: newHotkeys })
       .then(() => {
         invoke(COMMANDS.setShortcutsActive, { active: isShortcutsActive, hotkeys: newHotkeys }).catch(console.error);
       })
@@ -2853,7 +2825,7 @@ function MainWindow() {
   const handleResetAllHotkeys = () => {
     setHotkeys(DEFAULT_HOTKEYS);
 
-    saveAllSettings(DEFAULT_HOTKEYS)
+    saveAllSettings({ hotkeys: DEFAULT_HOTKEYS })
       .then(() => {
         invoke(COMMANDS.setShortcutsActive, { active: isShortcutsActive, hotkeys: DEFAULT_HOTKEYS }).catch(console.error);
       })
@@ -2919,11 +2891,11 @@ function MainWindow() {
   }, [sendCommand]);
 
   // セッション描画データの整理
-  const sessions = organizeSessions(sessionBoundaries);
-  const currentSession = getCurrentSession(sessions, currentIdx);
+  const sessions = useMemo(() => organizeSessions(sessionBoundaries), [sessionBoundaries]);
+  const currentSession = useMemo(() => getCurrentSession(sessions, currentIdx), [sessions, currentIdx]);
 
   // ミニタイムライン用のセッション背景描画
-  const renderMiniSessionTrack = () => {
+  const renderMiniSessionTrack = useCallback(() => {
     if (totalTicks <= 0 || sessions.length === 0) return null;
     const blocks = [];
     for (let i = 0; i < sessions.length; i++) {
@@ -2947,7 +2919,7 @@ function MainWindow() {
       );
     }
     return blocks;
-  };
+  }, [sessions, totalTicks]);
 
 
 
@@ -3196,17 +3168,17 @@ function MainWindow() {
         timelineActivityMaxCap={timelineActivityMaxCap}
         setTimelineActivityMaxCap={(val) => {
           setTimelineActivityMaxCap(val);
-          saveAllSettings(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, val, undefined, undefined);
+          saveAllSettings({ timeline_activity_max_cap: val });
         }}
         timelineActivityMinFloor={timelineActivityMinFloor}
         setTimelineActivityMinFloor={(val) => {
           setTimelineActivityMinFloor(val);
-          saveAllSettings(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, val, undefined);
+          saveAllSettings({ timeline_activity_min_floor: val });
         }}
         autoSkipThreshold={autoSkipThreshold}
         setAutoSkipThreshold={(val) => {
           setAutoSkipThreshold(val);
-          saveAllSettings(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, val);
+          saveAllSettings({ auto_skip_threshold: val });
         }}
       />
 
@@ -3323,537 +3295,90 @@ function MainWindow() {
       />
 
       {/* Clear All Sessions Modal */}
-      {isClearAllSessionsConfirmOpen && (
-        <div className="modal-overlay" onClick={() => setIsClearAllSessionsConfirmOpen(false)}>
-          <div className="modal-container" style={{ maxWidth: "400px" }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <span className="material-symbols-outlined" style={{ color: "var(--status-danger)" }}>
-                  delete_sweep
-                </span>
-                全セッションデータの削除
-              </h3>
-              <button className="modal-close-btn" onClick={() => setIsClearAllSessionsConfirmOpen(false)}>
-                <span className="material-symbols-outlined">close</span>
-              </button>
-            </div>
-            <div className="modal-body" style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "12px", lineHeight: "1.6" }}>
-              <div style={{ fontSize: "12px", textAlign: "center" }}>
-                保存されているすべてのセッションデータを完全に削除してもよろしいですか？この操作は取り消せません。
-              </div>
-            </div>
-            <div className="modal-footer" style={{ padding: "12px 16px", display: "flex", gap: "8px", width: "100%", boxSizing: "border-box" }}>
-              <button className="pro-btn" style={{ flex: 1 }} onClick={() => setIsClearAllSessionsConfirmOpen(false)}>
-                キャンセル
-              </button>
-              <button className="pro-btn danger-filled" style={{ flex: 1 }} onClick={executeClearAllSessions}>
-                一括削除
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ClearAllSessionsConfirmModal
+        isOpen={isClearAllSessionsConfirmOpen}
+        onConfirm={executeClearAllSessions}
+        onClose={() => setIsClearAllSessionsConfirmOpen(false)}
+      />
 
       {/* Reset Replay Modal */}
-      {isResetReplayConfirmOpen && (
-        <div className="modal-overlay" onClick={() => setIsResetReplayConfirmOpen(false)}>
-          <div className="modal-container" style={{ maxWidth: "400px" }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <span className="material-symbols-outlined text-accent" style={{ color: "var(--primary-color)" }}>
-                  restart_alt
-                </span>
-                リプレイ設定のリセット
-              </h3>
-              <button className="modal-close-btn" onClick={() => setIsResetReplayConfirmOpen(false)}>
-                <span className="material-symbols-outlined">close</span>
-              </button>
-            </div>
-            <div className="modal-body" style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "12px", lineHeight: "1.6" }}>
-              <div style={{ fontSize: "12px", textAlign: "center" }}>
-                リプレイ設定をデフォルト値にリセットしますか？
-              </div>
-            </div>
-            <div className="modal-footer" style={{ padding: "12px 16px", display: "flex", gap: "8px", width: "100%", boxSizing: "border-box" }}>
-              <button className="pro-btn" style={{ flex: 1 }} onClick={() => setIsResetReplayConfirmOpen(false)}>
-                キャンセル
-              </button>
-              <button
-                className="pro-btn primary"
-                style={{ flex: 1 }}
-                onClick={() => {
-                  executeResetReplaySettings();
-                  setIsResetReplayConfirmOpen(false);
-                }}
-              >
-                リセット
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ResetReplayConfirmModal
+        isOpen={isResetReplayConfirmOpen}
+        onConfirm={() => {
+          executeResetReplaySettings();
+          setIsResetReplayConfirmOpen(false);
+        }}
+        onClose={() => setIsResetReplayConfirmOpen(false)}
+      />
 
       {/* Reset Trading Modal */}
-      {isResetTradingConfirmOpen && (
-        <div className="modal-overlay" onClick={() => setIsResetTradingConfirmOpen(false)}>
-          <div className="modal-container" style={{ maxWidth: "400px" }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <span className="material-symbols-outlined text-accent" style={{ color: "var(--primary-color)" }}>
-                  restart_alt
-                </span>
-                取引設定のリセット
-              </h3>
-              <button className="modal-close-btn" onClick={() => setIsResetTradingConfirmOpen(false)}>
-                <span className="material-symbols-outlined">close</span>
-              </button>
-            </div>
-            <div className="modal-body" style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "12px", lineHeight: "1.6" }}>
-              <div style={{ fontSize: "12px", textAlign: "center" }}>
-                取引設定をデフォルト値にリセットしますか？
-              </div>
-            </div>
-            <div className="modal-footer" style={{ padding: "12px 16px", display: "flex", gap: "8px", width: "100%", boxSizing: "border-box" }}>
-              <button className="pro-btn" style={{ flex: 1 }} onClick={() => setIsResetTradingConfirmOpen(false)}>
-                キャンセル
-              </button>
-              <button
-                className="pro-btn primary"
-                style={{ flex: 1 }}
-                onClick={() => {
-                  executeResetTradingSettings();
-                  setIsResetTradingConfirmOpen(false);
-                }}
-              >
-                リセット
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ResetTradingConfirmModal
+        isOpen={isResetTradingConfirmOpen}
+        onConfirm={() => {
+          executeResetTradingSettings();
+          setIsResetTradingConfirmOpen(false);
+        }}
+        onClose={() => setIsResetTradingConfirmOpen(false)}
+      />
 
       {/* Max Bars Warning Modal */}
-      {isMaxBarsWarningOpen && (
-        <div className="modal-overlay" onClick={() => setIsMaxBarsWarningOpen(false)}>
-          <div className="modal-container" style={{ maxWidth: "400px" }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title" style={{ display: "flex", alignItems: "center", gap: "6px", color: "#ffb74d" }}>
-                <span className="material-symbols-outlined" style={{ color: "#ffb74d" }}>
-                  warning
-                </span>
-                チャート最大バー数の確認
-              </h3>
-              <button className="modal-close-btn" onClick={() => setIsMaxBarsWarningOpen(false)}>
-                <span className="material-symbols-outlined">close</span>
-              </button>
-            </div>
-            <div className="modal-body" style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: "10px", lineHeight: "1.5" }}>
-              <div style={{ fontSize: "12px", fontWeight: "600", color: "var(--on-surface)" }}>
-                MT5の「チャートの最大バー数」が無制限に設定されていません。
-              </div>
-              <div style={{ backgroundColor: "rgba(255, 183, 77, 0.1)", border: "1px dashed rgba(255, 183, 77, 0.4)", borderRadius: "6px", padding: "8px 10px", fontSize: "11px" }}>
-                <div>
-                  <strong>現在の設定:</strong>{" "}
-                  {maxBarsInfo ? (maxBarsInfo.max_bars > 0 ? `${maxBarsInfo.max_bars.toLocaleString()} 本` : maxBarsInfo.raw_value) : "未検出"}
-                </div>
-              </div>
-              <div style={{ fontSize: "11px", color: "var(--on-surface-variant)" }}>
-                ※ 過去データ検証時にインジケータを正確に計算するため、MT5の [ツール] → [オプション] → [チャート] で「無制限」に設定することを推奨します。
-              </div>
-            </div>
-            <div className="modal-footer" style={{ padding: "12px 16px", display: "flex", gap: "8px", width: "100%", boxSizing: "border-box" }}>
-              <button type="button" className="pro-btn" style={{ flex: 1 }} onClick={() => setIsMaxBarsWarningOpen(false)}>
-                戻る
-              </button>
-              <button
-                type="button"
-                className="pro-btn primary"
-                style={{ flex: 1, backgroundColor: "#ffb74d", color: "#1c1b1f", fontWeight: "bold" }}
-                onClick={() => {
-                  setIsMaxBarsWarningOpen(false);
-                  executeInitReplay();
-                }}
-              >
-                開始する
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <MaxBarsWarningModal
+        isOpen={isMaxBarsWarningOpen}
+        maxBarsInfo={maxBarsInfo}
+        onProceed={() => {
+          setIsMaxBarsWarningOpen(false);
+          executeInitReplay();
+        }}
+        onClose={() => setIsMaxBarsWarningOpen(false)}
+      />
 
       {/* Save Session Modal */}
-      {isSaveSessionOpen && (
-        <div className="modal-overlay" onClick={() => setIsSaveSessionOpen(false)}>
-          <div className="modal-container" style={{ maxWidth: "400px" }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <span className="material-symbols-outlined icon-accent" style={{ color: "var(--primary-color)" }}>
-                  save
-                </span>
-                {sessionSaveType === "terminate" ? "セッションを保存して終了" : "現在の状態を保存"}
-              </h3>
-              <button className="modal-close-btn" onClick={() => setIsSaveSessionOpen(false)}>
-                <span className="material-symbols-outlined">close</span>
-              </button>
-            </div>
-            <div className="modal-body" style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: "10px" }}>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label" style={{ marginBottom: "4px" }}>
-                  セッション名
-                </label>
-                <input
-                  type="text"
-                  className="input-compact"
-                  value={saveSessionName}
-                  onChange={(e) => setSaveSessionName(e.target.value)}
-                  placeholder="セッション名を入力してください"
-                />
-              </div>
-              {currentSessionId && (
-                <div style={{ display: "flex", flexDirection: "column", gap: "4px", marginTop: "2px" }}>
-                  <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontSize: "11.5px", color: "var(--on-surface)" }}>
-                    <input
-                      type="checkbox"
-                      checked={saveAsNewSnapshot}
-                      onChange={(e) => setSaveAsNewSnapshot(e.target.checked)}
-                    />
-                    新規スナップショットとして保存
-                  </label>
-                  <span style={{ fontSize: "9.5px", color: "var(--on-surface-variant)", marginLeft: "18px" }}>
-                    {saveAsNewSnapshot
-                      ? "現在の履歴を上書きせず、新しい履歴として保存します。"
-                      : `既存データ（${currentSessionName}）に上書き保存します。`}
-                  </span>
-                </div>
-              )}
-            </div>
-            <div className="modal-footer" style={{ padding: "12px 16px", display: "flex", gap: "8px", width: "100%", boxSizing: "border-box" }}>
-              {sessionSaveType === "terminate" && (
-                <button
-                  className="pro-btn danger"
-                  style={{ marginRight: "auto" }}
-                  onClick={async () => {
-                    setIsSaveSessionOpen(false);
-                    await executeTerminate();
-                  }}
-                >
-                  保存せず終了
-                </button>
-              )}
-              <button className="pro-btn" onClick={() => setIsSaveSessionOpen(false)}>
-                キャンセル
-              </button>
-              <button
-                className="pro-btn primary"
-                disabled={!saveSessionName.trim()}
-                onClick={async () => {
-                  await executeSaveSession();
-                  setIsSaveSessionOpen(false);
-                  if (sessionSaveType === "terminate") {
-                    await executeTerminate();
-                  }
-                }}
-              >
-                保存
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <SaveSessionModal
+        isOpen={isSaveSessionOpen}
+        sessionSaveType={sessionSaveType}
+        currentSessionId={currentSessionId}
+        currentSessionName={currentSessionName}
+        saveSessionName={saveSessionName}
+        setSaveSessionName={setSaveSessionName}
+        saveAsNewSnapshot={saveAsNewSnapshot}
+        setSaveAsNewSnapshot={setSaveAsNewSnapshot}
+        onSave={async () => {
+          await executeSaveSession();
+          setIsSaveSessionOpen(false);
+          if (sessionSaveType === "terminate") {
+            await executeTerminate();
+          }
+        }}
+        onTerminateWithoutSaving={async () => {
+          setIsSaveSessionOpen(false);
+          await executeTerminate();
+        }}
+        onClose={() => setIsSaveSessionOpen(false)}
+      />
 
       {/* Time Steps Modal */}
-      {isTimeStepsModalOpen && (
-        <div className="modal-overlay" onClick={() => setIsTimeStepsModalOpen(false)}>
-          <div className="modal-container" style={{ maxWidth: "420px" }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <span className="material-symbols-outlined icon-accent" style={{ color: "var(--primary-color)" }}>
-                  tune
-                </span>
-                Time Steps 設定 (最大5枠)
-              </h3>
-              <button className="modal-close-btn" onClick={() => setIsTimeStepsModalOpen(false)}>
-                <span className="material-symbols-outlined">close</span>
-              </button>
-            </div>
-            <div className="modal-body" style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: "12px" }}>
-              <div>
-                <div className="form-label" style={{ marginBottom: "4px" }}>
-                  プリセットから追加:
-                </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
-                  {PRESET_TIME_OPTIONS.map((preset) => {
-                    const isAlreadyAdded = editingTimeSteps.some((item) => item.seconds === preset.seconds);
-                    const isMax = editingTimeSteps.length >= 5;
-                    return (
-                      <button
-                        key={preset.label}
-                        className="chip-btn"
-                        disabled={isAlreadyAdded || isMax}
-                        style={{
-                          opacity: isAlreadyAdded || isMax ? 0.4 : 1,
-                          cursor: isAlreadyAdded || isMax ? "not-allowed" : "pointer",
-                        }}
-                        onClick={() => {
-                          if (editingTimeSteps.length < 5 && !isAlreadyAdded) {
-                            const updated = [
-                              ...editingTimeSteps,
-                              { id: `ts-${Date.now()}-${Math.random()}`, seconds: preset.seconds, label: preset.label },
-                            ].sort((a, b) => a.seconds - b.seconds);
-                            setEditingTimeSteps(updated);
-                          }
-                        }}
-                      >
-                        + {preset.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div>
-                <div className="form-label" style={{ marginBottom: "6px" }}>
-                  設定中のステップ ({editingTimeSteps.length}/5):
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                  {editingTimeSteps.map((step, index) => (
-                    <div
-                      key={step.id || index}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "6px",
-                        backgroundColor: "#161922",
-                        padding: "4px 8px",
-                        borderRadius: "var(--radius-sm)",
-                        border: "1px solid rgba(255, 255, 255, 0.06)",
-                      }}
-                    >
-                      <span className="font-data" style={{ fontSize: "11px", color: "var(--on-surface-variant)", width: "16px" }}>
-                        #{index + 1}
-                      </span>
-                      <input
-                        type="number"
-                        className="input-compact"
-                        style={{ width: "65px", textAlign: "right" }}
-                        value={step.seconds}
-                        min={1}
-                        max={86400}
-                        onChange={(e) => {
-                          const val = Math.max(1, parseInt(e.target.value) || 1);
-                          const updated = [...editingTimeSteps];
-                          updated[index] = {
-                            ...updated[index],
-                            seconds: val,
-                            label: formatSecondsToLabel(val),
-                          };
-                          setEditingTimeSteps(updated);
-                        }}
-                      />
-                      <span style={{ fontSize: "10px", color: "var(--on-surface-variant)" }}>秒</span>
-                      <input
-                        type="text"
-                        className="input-compact"
-                        style={{ width: "50px", fontWeight: 700, marginLeft: "auto" }}
-                        value={step.label}
-                        onChange={(e) => {
-                          const updated = [...editingTimeSteps];
-                          updated[index] = { ...updated[index], label: e.target.value };
-                          setEditingTimeSteps(updated);
-                        }}
-                      />
-                      <button
-                        className="btn-danger-compact"
-                        style={{ width: "22px", height: "22px", padding: 0, justifyContent: "center" }}
-                        disabled={editingTimeSteps.length <= 1}
-                        onClick={() => {
-                          if (editingTimeSteps.length > 1) {
-                            setEditingTimeSteps(editingTimeSteps.filter((_, i) => i !== index));
-                          }
-                        }}
-                      >
-                        <span className="material-symbols-outlined text-[12px]">delete</span>
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="modal-footer" style={{ padding: "10px 16px", display: "flex", gap: "8px", justifyContent: "space-between" }}>
-              <button
-                className="pro-btn"
-                onClick={() => setEditingTimeSteps([...DEFAULT_TIME_STEPS].sort((a, b) => a.seconds - b.seconds))}
-              >
-                初期化
-              </button>
-              <div style={{ display: "flex", gap: "6px" }}>
-                <button className="pro-btn" onClick={() => setIsTimeStepsModalOpen(false)}>
-                  キャンセル
-                </button>
-                <button
-                  className="pro-btn primary"
-                  onClick={() => {
-                    setTimeSteps(editingTimeSteps);
-                    setIsTimeStepsModalOpen(false);
-                  }}
-                >
-                  反映
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <TimeStepsModal
+        isOpen={isTimeStepsModalOpen}
+        timeSteps={timeSteps}
+        onApply={(updated) => setTimeSteps(updated)}
+        onClose={() => setIsTimeStepsModalOpen(false)}
+      />
 
       {/* Speed Presets Modal */}
-      {isSpeedPresetsModalOpen && (
-        <div className="modal-overlay" onClick={() => setIsSpeedPresetsModalOpen(false)}>
-          <div className="modal-container" style={{ maxWidth: "420px" }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <span className="material-symbols-outlined icon-accent" style={{ color: "var(--primary-color)" }}>
-                  tune
-                </span>
-                速度プリセット設定
-              </h3>
-              <button className="modal-close-btn" onClick={() => setIsSpeedPresetsModalOpen(false)}>
-                <span className="material-symbols-outlined">close</span>
-              </button>
-            </div>
-            <div className="modal-body" style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: "12px" }}>
-              {/* Time Presets */}
-              <div>
-                <div className="form-label" style={{ marginBottom: "4px" }}>
-                  時間比率モード (倍率):
-                </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginBottom: "6px" }}>
-                  {editingTimePresets.map((val, idx) => (
-                    <span
-                      key={idx}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "3px",
-                        background: "#161922",
-                        border: "1px solid rgba(255, 255, 255, 0.08)",
-                        borderRadius: "12px",
-                        padding: "2px 8px",
-                        fontSize: "11px",
-                      }}
-                    >
-                      {val}x
-                      <button
-                        type="button"
-                        style={{ background: "none", border: "none", color: "#f87171", cursor: "pointer", padding: 0 }}
-                        onClick={() => setEditingTimePresets(editingTimePresets.filter((_, i) => i !== idx))}
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                </div>
-                <div style={{ display: "flex", gap: "4px" }}>
-                  <input
-                    type="number"
-                    step="0.1"
-                    className="input-compact"
-                    placeholder="例: 15.0"
-                    value={modalNewTimePreset}
-                    onChange={(e) => setModalNewTimePreset(e.target.value)}
-                  />
-                  <button
-                    type="button"
-                    className="pro-btn primary"
-                    onClick={() => {
-                      const num = parseFloat(modalNewTimePreset);
-                      if (!isNaN(num) && num > 0 && !editingTimePresets.includes(num)) {
-                        setEditingTimePresets([...editingTimePresets, num].sort((a, b) => a - b));
-                        setModalNewTimePreset("");
-                      }
-                    }}
-                  >
-                    追加
-                  </button>
-                </div>
-              </div>
-
-              {/* Tick Presets */}
-              <div>
-                <div className="form-label" style={{ marginBottom: "4px" }}>
-                  ティック数モード (枚数):
-                </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginBottom: "6px" }}>
-                  {editingTickPresets.map((val, idx) => (
-                    <span
-                      key={idx}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "3px",
-                        background: "#161922",
-                        border: "1px solid rgba(255, 255, 255, 0.08)",
-                        borderRadius: "12px",
-                        padding: "2px 8px",
-                        fontSize: "11px",
-                      }}
-                    >
-                      {val}T
-                      <button
-                        type="button"
-                        style={{ background: "none", border: "none", color: "#f87171", cursor: "pointer", padding: 0 }}
-                        onClick={() => setEditingTickPresets(editingTickPresets.filter((_, i) => i !== idx))}
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                </div>
-                <div style={{ display: "flex", gap: "4px" }}>
-                  <input
-                    type="number"
-                    step="1"
-                    className="input-compact"
-                    placeholder="例: 20"
-                    value={modalNewTickPreset}
-                    onChange={(e) => setModalNewTickPreset(e.target.value)}
-                  />
-                  <button
-                    type="button"
-                    className="pro-btn primary"
-                    onClick={() => {
-                      const num = parseInt(modalNewTickPreset);
-                      if (!isNaN(num) && num > 0 && !editingTickPresets.includes(num)) {
-                        setEditingTickPresets([...editingTickPresets, num].sort((a, b) => a - b));
-                        setModalNewTickPreset("");
-                      }
-                    }}
-                  >
-                    追加
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className="modal-footer" style={{ padding: "10px 16px", display: "flex", gap: "8px", justifyContent: "flex-end" }}>
-              <button className="pro-btn" onClick={() => setIsSpeedPresetsModalOpen(false)}>
-                キャンセル
-              </button>
-              <button
-                className="pro-btn primary"
-                onClick={() => {
-                  setTimePresets(editingTimePresets);
-                  setTickPresets(editingTickPresets);
-                  saveAllSettings(hotkeys, editingTimePresets, editingTickPresets);
-                  setIsSpeedPresetsModalOpen(false);
-                }}
-              >
-                保存
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <SpeedPresetsModal
+        isOpen={isSpeedPresetsModalOpen}
+        timePresets={timePresets}
+        tickPresets={tickPresets}
+        onSave={async (times, ticks) => {
+          setTimePresets(times);
+          setTickPresets(ticks);
+          await saveAllSettings({
+            time_presets: times,
+            tick_presets: ticks,
+          });
+        }}
+        onClose={() => setIsSpeedPresetsModalOpen(false)}
+      />
     </div>
   );
 }

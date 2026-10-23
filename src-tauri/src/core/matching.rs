@@ -41,7 +41,14 @@ pub fn symbol_specs(symbol: &str, ref_price: f64) -> (f64, f64, u32) {
 
 #[inline]
 pub fn round_to_point(price: f64, digits: u32) -> f64 {
-    let factor = 10f64.powi(digits as i32);
+    const POW10: [f64; 9] = [
+        1.0, 10.0, 100.0, 1_000.0, 10_000.0, 100_000.0, 1_000_000.0, 10_000_000.0, 100_000_000.0,
+    ];
+    let factor = if (digits as usize) < POW10.len() {
+        POW10[digits as usize]
+    } else {
+        10f64.powi(digits as i32)
+    };
     (price * factor).round() / factor
 }
 
