@@ -149,8 +149,39 @@ struct ChartLayoutInfo
 };
 
 //--- Input パラメータ
-input string InpPipeName = "\\\\.\\pipe\\tick_replay_render"; // Core レンダリングパイプ名
-input int    InpTimerMs  = 2;                                // パイプ監視周期 (ミリ秒: 2ms = 500Hz)
+input string InpPipeName        = "\\\\.\\pipe\\tick_replay_render"; // Core レンダリングパイプ名
+input int    InpTimerMs         = 2;                                // パイプ監視周期 (ミリ秒: 2ms = 500Hz)
+input int    InpReceiveDelayMs  = 20;                               // 物理受信遅延シミュレーション (ms: OANDA/JFX=20, 海外=180, 遅延なし=0)
+input bool   InpAutoDetectDelay = true;                             // 銘柄名からブローカー物理遅延(国内20ms/海外180ms)を自動判別
+
+//+------------------------------------------------------------------+
+//| シンボル名に応じた実効物理受信遅延(ms)を取得 (TickScope完全一致)  |
+//+------------------------------------------------------------------+
+int GetEffectiveReceiveDelay(string symbol)
+{
+    if(InpReceiveDelayMs <= 0) return 0;
+    if(!InpAutoDetectDelay) return InpReceiveDelayMs;
+
+    string sym_lower = symbol;
+    StringToLower(sym_lower);
+
+    // 海外ブローカー（ロンドンLD4/ニューヨークNY4等、海底ケーブル往復遅延を再現）
+    if(StringFind(sym_lower, "tradeview") >= 0 || 
+       StringFind(sym_lower, "axiory") >= 0 || 
+       StringFind(sym_lower, "dukas") >= 0)
+    {
+        return 180;
+    }
+
+    // 国内ブローカー（東京近郊サーバー遅延を再現）
+    if(StringFind(sym_lower, "jfx") >= 0 || 
+       StringFind(sym_lower, "oanda") >= 0)
+    {
+        return 20;
+    }
+
+    return InpReceiveDelayMs;
+}
 
 //--- 状態変数
 long     m_hPipe = INVALID_HANDLE_VALUE;
@@ -1413,10 +1444,13 @@ void ProcessInit(const InitPayload &p)
         PreloadHistoricalRatesEx(m_source_symbol_sub, m_replay_symbol_sub, start_dt, max_period_sec, preload_mode, preload_date_msc, preloaded_bars);
     }
 
-    // 3. 初回気配値・クォート反映 (開始時刻時点の最新1ティックのみを CustomTicksAdd)
-    m_start_time_msc = start_msc;
+    // 3. 初回気配値・クォート反映 (物理受信遅延を考慮した実効開始時刻で CustomTicksAdd)
+    int delay_main = GetEffectiveReceiveDelay(m_source_symbol);
+    long eff_start_msc = (delay_main > 0) ? MathMax(0, start_msc - delay_main) : start_msc;
+    m_start_time_msc = eff_start_msc;
+
     MqlTick first_quote;
-    if(GetLatestTickAtOrBefore(m_source_symbol, start_msc, first_quote))
+    if(GetLatestTickAtOrBefore(m_source_symbol, eff_start_msc, first_quote))
     {
         MqlTick quote_slice[1];
         quote_slice[0] = first_quote;
@@ -1428,13 +1462,16 @@ void ProcessInit(const InitPayload &p)
     {
         m_has_last_applied_tick = false;
     }
-    m_current_v_time_msc = start_msc;
+    m_current_v_time_msc = eff_start_msc;
     m_current_idx = 0;
 
     if(m_enable_dual_feed && m_replay_symbol_sub != "")
     {
+        int delay_sub = GetEffectiveReceiveDelay(m_source_symbol_sub);
+        long eff_start_msc_sub = (delay_sub > 0) ? MathMax(0, start_msc - delay_sub) : start_msc;
+
         MqlTick first_quote_sub;
-        if(GetLatestTickAtOrBefore(m_source_symbol_sub, start_msc, first_quote_sub))
+        if(GetLatestTickAtOrBefore(m_source_symbol_sub, eff_start_msc_sub, first_quote_sub))
         {
             MqlTick sub_slice[1];
             sub_slice[0] = first_quote_sub;
@@ -1446,7 +1483,7 @@ void ProcessInit(const InitPayload &p)
         {
             m_has_last_applied_tick_sub = false;
         }
-        m_current_v_time_msc_sub = start_msc;
+        m_current_v_time_msc_sub = eff_start_msc_sub;
         m_current_idx_sub = 0;
     }
 
@@ -1482,13 +1519,16 @@ void ProcessAdvance(const AdvancePayload &adv, ulong start_us)
 
     bool ticks_added = false;
 
-    // メインシンボルへの差分反映: 新規ティックが存在する場合のみ抽出・反映
+    // メインシンボルへの差分反映: 物理受信遅延を考慮した実効描画時刻を算出 (TickScope完全一致)
+    int delay_main = GetEffectiveReceiveDelay(m_source_symbol);
+    long eff_adv_msc = (delay_main > 0) ? MathMax(0, adv_msc - delay_main) : adv_msc;
+
     if((long)adv.main_idx > m_current_idx && m_source_symbol != "")
     {
         int expected_ticks = (int)(adv.main_idx - m_current_idx);
         // 同一ミリ秒内の連続ティックを1件も落とさないよう、前回適用ティックの時刻から取得 (+1しない)
-        ulong from_msc = (m_has_last_applied_tick && m_last_applied_tick.time_msc > 0) ? (ulong)m_last_applied_tick.time_msc : (ulong)adv_msc;
-        ulong to_msc   = (ulong)adv_msc;
+        ulong from_msc = (m_has_last_applied_tick && m_last_applied_tick.time_msc > 0) ? (ulong)m_last_applied_tick.time_msc : (ulong)eff_adv_msc;
+        ulong to_msc   = (ulong)eff_adv_msc;
 
         if(to_msc >= from_msc)
         {
@@ -1552,17 +1592,20 @@ void ProcessAdvance(const AdvancePayload &adv, ulong start_us)
         }
     }
 
-    m_current_v_time_msc = adv_msc;
+    m_current_v_time_msc = eff_adv_msc;
     m_current_idx = (int)adv.main_idx;
 
-    // サブシンボルへの差分反映: 新規サブティックが存在する場合のみ抽出・反映
+    // サブシンボルへの差分反映: 物理受信遅延を考慮した実効描画時刻を算出 (TickScope完全一致)
     if(m_enable_dual_feed && m_replay_symbol_sub != "")
     {
+        int delay_sub = GetEffectiveReceiveDelay(m_source_symbol_sub);
+        long eff_adv_msc_sub = (delay_sub > 0) ? MathMax(0, adv_msc - delay_sub) : adv_msc;
+
         if((long)adv.sub_idx > m_current_idx_sub && m_source_symbol_sub != "")
         {
             int expected_ticks_sub = (int)(adv.sub_idx - m_current_idx_sub);
-            ulong sub_from_msc = (m_has_last_applied_tick_sub && m_last_applied_tick_sub.time_msc > 0) ? (ulong)m_last_applied_tick_sub.time_msc : (ulong)adv_msc;
-            ulong sub_to_msc   = (ulong)adv_msc;
+            ulong sub_from_msc = (m_has_last_applied_tick_sub && m_last_applied_tick_sub.time_msc > 0) ? (ulong)m_last_applied_tick_sub.time_msc : (ulong)eff_adv_msc_sub;
+            ulong sub_to_msc   = (ulong)eff_adv_msc_sub;
 
             if(sub_to_msc >= sub_from_msc)
             {
@@ -1622,7 +1665,7 @@ void ProcessAdvance(const AdvancePayload &adv, ulong start_us)
             }
         }
 
-        m_current_v_time_msc_sub = adv_msc;
+        m_current_v_time_msc_sub = eff_adv_msc_sub;
         m_current_idx_sub = (int)adv.sub_idx;
     }
 
@@ -1637,9 +1680,10 @@ void ProcessAdvance(const AdvancePayload &adv, ulong start_us)
     if(now_us - m_last_comment_us >= 16666)
     {
         m_last_comment_us = now_us;
-        datetime disp_dt = (datetime)(adv_msc / 1000);
-        Comment(StringFormat("=== TickReplay Core v2 ===\nSymbol: %s\nVirtual Time (Server): %s\nRendered Ticks: %d",
-            m_replay_symbol, TimeToString(disp_dt, TIME_DATE | TIME_SECONDS),
+        datetime disp_dt = (datetime)(eff_adv_msc / 1000);
+        string delay_str = (delay_main > 0) ? StringFormat(" (+%dms Delay)", delay_main) : "";
+        Comment(StringFormat("=== TickReplay Core v2 ===\nSymbol: %s%s\nVirtual Time (Server): %s\nRendered Ticks: %d",
+            m_replay_symbol, delay_str, TimeToString(disp_dt, TIME_DATE | TIME_SECONDS),
             m_current_idx + 1));
     }
 
@@ -1664,18 +1708,21 @@ void ProcessReset(const ResetPayload &rst)
         target_msc = m_start_time_msc;
     }
 
-    datetime target_dt = (datetime)(target_msc / 1000);
+    int delay_main = GetEffectiveReceiveDelay(m_source_symbol);
+    long eff_target_msc = (delay_main > 0) ? MathMax(0, target_msc - delay_main) : target_msc;
+
+    datetime target_dt = (datetime)(eff_target_msc / 1000);
     datetime cur_dt    = (m_current_v_time_msc > 0) ? (datetime)(m_current_v_time_msc / 1000) : target_dt;
 
-    // --- メインシンボルの高速シーク・リセット ---
-    if(target_msc < m_current_v_time_msc || m_current_v_time_msc == 0)
+    // --- メインシンボルの高速シーク・リセット (物理遅延考慮) ---
+    if(eff_target_msc < m_current_v_time_msc || m_current_v_time_msc == 0)
     {
         // 巻き戻し: target_dt より後の未来バーおよび未来ティックを削除してゴースト足を一掃
         datetime del_time = target_dt + 1;
         CustomRatesDelete(m_replay_symbol, del_time, D'3000.01.01 00:00:00');
-        CustomTicksDelete(m_replay_symbol, (ulong)(target_msc + 1), LONG_MAX);
+        CustomTicksDelete(m_replay_symbol, (ulong)(eff_target_msc + 1), LONG_MAX);
     }
-    else if(target_msc > m_current_v_time_msc)
+    else if(eff_target_msc > m_current_v_time_msc)
     {
         // 前方ジャンプ: cur_dt から target_dt までのM1バーを source_symbol から取得して CustomRatesUpdate
         MqlRates jump_rates[];
@@ -1689,7 +1736,7 @@ void ProcessReset(const ResetPayload &rst)
 
     // 気配値（Bid/Ask）・スプレッド・現在値同期用に最新1ティックのみ CustomTicksAdd
     MqlTick cur_tick;
-    if(GetLatestTickAtOrBefore(m_source_symbol, target_msc, cur_tick))
+    if(GetLatestTickAtOrBefore(m_source_symbol, eff_target_msc, cur_tick))
     {
         MqlTick quote[1];
         quote[0] = cur_tick;
@@ -1702,23 +1749,27 @@ void ProcessReset(const ResetPayload &rst)
         m_has_last_applied_tick = false;
     }
 
-    m_current_v_time_msc = target_msc;
+    m_current_v_time_msc = eff_target_msc;
     m_current_idx = (int)rst.main_target_idx;
 
-    // --- サブシンボルの高速シーク・リセット ---
+    // --- サブシンボルの高速シーク・リセット (物理遅延考慮) ---
     if(m_enable_dual_feed && m_replay_symbol_sub != "")
     {
-        if(target_msc < m_current_v_time_msc_sub || m_current_v_time_msc_sub == 0)
+        int delay_sub = GetEffectiveReceiveDelay(m_source_symbol_sub);
+        long eff_sub_target_msc = (delay_sub > 0) ? MathMax(0, target_msc - delay_sub) : target_msc;
+        datetime sub_target_dt = (datetime)(eff_sub_target_msc / 1000);
+
+        if(eff_sub_target_msc < m_current_v_time_msc_sub || m_current_v_time_msc_sub == 0)
         {
-            CustomRatesDelete(m_replay_symbol_sub, target_dt + 1, D'3000.01.01 00:00:00');
-            CustomTicksDelete(m_replay_symbol_sub, (ulong)(target_msc + 1), LONG_MAX);
+            CustomRatesDelete(m_replay_symbol_sub, sub_target_dt + 1, D'3000.01.01 00:00:00');
+            CustomTicksDelete(m_replay_symbol_sub, (ulong)(eff_sub_target_msc + 1), LONG_MAX);
         }
-        else if(target_msc > m_current_v_time_msc_sub)
+        else if(eff_sub_target_msc > m_current_v_time_msc_sub)
         {
             MqlRates sub_jump_rates[];
             ArrayFree(sub_jump_rates);
-            datetime cur_sub_dt = (m_current_v_time_msc_sub > 0) ? (datetime)(m_current_v_time_msc_sub / 1000) : target_dt;
-            int sub_copied = CopyRates(m_source_symbol_sub, PERIOD_M1, cur_sub_dt, target_dt, sub_jump_rates);
+            datetime cur_sub_dt = (m_current_v_time_msc_sub > 0) ? (datetime)(m_current_v_time_msc_sub / 1000) : sub_target_dt;
+            int sub_copied = CopyRates(m_source_symbol_sub, PERIOD_M1, cur_sub_dt, sub_target_dt, sub_jump_rates);
             if(sub_copied > 0)
             {
                 CustomRatesUpdate(m_replay_symbol_sub, sub_jump_rates);
@@ -1726,7 +1777,7 @@ void ProcessReset(const ResetPayload &rst)
         }
 
         MqlTick sub_cur_tick;
-        if(GetLatestTickAtOrBefore(m_source_symbol_sub, target_msc, sub_cur_tick))
+        if(GetLatestTickAtOrBefore(m_source_symbol_sub, eff_sub_target_msc, sub_cur_tick))
         {
             MqlTick sub_quote[1];
             sub_quote[0] = sub_cur_tick;
@@ -1739,7 +1790,7 @@ void ProcessReset(const ResetPayload &rst)
             m_has_last_applied_tick_sub = false;
         }
 
-        m_current_v_time_msc_sub = target_msc;
+        m_current_v_time_msc_sub = eff_sub_target_msc;
         m_current_idx_sub = (int)rst.sub_target_idx;
     }
 
