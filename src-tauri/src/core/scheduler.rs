@@ -171,10 +171,23 @@ impl CoreScheduler {
                     if let Some(ref mut bridge) = self.tickscope_bridge {
                         let _ = bridge.send_tick_batch(slice);
                     }
-                } else if self.matching.has_pending_triggers() {
-                    // ティック区間がない静寂時間帯でも、遅延保留注文・決済を execute_after_msc に正確に評価・約定
-                    if let Some(tick) = self.store.get(self.current_index) {
-                        self.matching.on_tick_advance(tick, to_msc);
+                } else {
+                    if self.matching.has_pending_triggers() {
+                        // ティック区間がない静寂時間帯でも、遅延保留注文・決済を execute_after_msc に正確に評価・約定
+                        if let Some(tick) = self.store.get(self.current_index) {
+                            self.matching.on_tick_advance(tick, to_msc);
+                        }
+                    }
+
+                    // 仮想時間が進行している場合、ストアに新規ティックがない静寂時間帯でも MT5 Renderer EA へ ADVANCE を送信
+                    // (MT5側カスタムシンボルの独自ティック描画および時間同期をリアルタイムに維持)
+                    if let Some(ref pipe) = self.render_pipe {
+                        pipe.send_advance(
+                            self.clock.seek_epoch() as u32,
+                            self.current_index as u64,
+                            0,
+                            to_msc,
+                        );
                     }
                 }
             }
@@ -224,9 +237,29 @@ impl CoreScheduler {
             }
             CoreCommand::Pause => {
                 self.clock.pause();
+                let cur_msc = self.clock.virtual_time_msc();
+                if let Some(ref pipe) = self.render_pipe {
+                    pipe.send_advance(
+                        self.clock.seek_epoch() as u32,
+                        self.current_index as u64,
+                        0,
+                        cur_msc,
+                    );
+                }
             }
             CoreCommand::TogglePlay => {
                 self.clock.toggle_play();
+                if !self.clock.is_playing() {
+                    let cur_msc = self.clock.virtual_time_msc();
+                    if let Some(ref pipe) = self.render_pipe {
+                        pipe.send_advance(
+                            self.clock.seek_epoch() as u32,
+                            self.current_index as u64,
+                            0,
+                            cur_msc,
+                        );
+                    }
+                }
             }
             CoreCommand::SetMultiplier(mult) => {
                 self.clock.set_multiplier(mult);
