@@ -24,9 +24,6 @@ pub fn emit_trading_status_update(
                 obj.insert("bid".to_string(), serde_json::json!(tick.bid));
                 obj.insert("ask".to_string(), serde_json::json!(tick.ask));
                 obj.insert("spread".to_string(), serde_json::json!(spread));
-                obj.insert("dmm_bid".to_string(), serde_json::json!(tick.bid));
-                obj.insert("dmm_ask".to_string(), serde_json::json!(tick.ask));
-                obj.insert("dmm_spread".to_string(), serde_json::json!(spread));
                 obj.insert("jfx_bid".to_string(), serde_json::json!(tick.bid));
                 obj.insert("jfx_ask".to_string(), serde_json::json!(tick.ask));
                 obj.insert("jfx_spread".to_string(), serde_json::json!(spread));
@@ -347,7 +344,7 @@ pub async fn send_command(
     state: State<'_, Arc<ReplayState>>,
 ) -> Result<(), AppError> {
     let final_cmd_json = command_json;
-    if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&final_cmd_json) {
+    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&final_cmd_json) {
         if let Some(command) = val.get("command").and_then(|c| c.as_str()) {
             // --- 仮想取引エンジンのコマンド直接処理 (MT5 Named Pipe への転送不要) ---
             match command {
@@ -584,12 +581,6 @@ pub async fn send_command(
                     }
                     return Ok(());
                 }
-                "SET_PSEUDO_RATE" => {
-                    return Ok(());
-                }
-                "SET_HISTORY_VISIBILITY" => {
-                    return Ok(());
-                }
                 _ => {}
             }
 
@@ -724,12 +715,6 @@ pub async fn send_command(
                         #[serde(skip_serializing_if = "Option::is_none")]
                         spread: Option<f64>,
                         #[serde(skip_serializing_if = "Option::is_none")]
-                        dmm_bid: Option<f64>,
-                        #[serde(skip_serializing_if = "Option::is_none")]
-                        dmm_ask: Option<f64>,
-                        #[serde(skip_serializing_if = "Option::is_none")]
-                        dmm_spread: Option<f64>,
-                        #[serde(skip_serializing_if = "Option::is_none")]
                         jfx_bid: Option<f64>,
                         #[serde(skip_serializing_if = "Option::is_none")]
                         jfx_ask: Option<f64>,
@@ -786,9 +771,6 @@ pub async fn send_command(
                                 bid,
                                 ask,
                                 spread,
-                                dmm_bid: bid,
-                                dmm_ask: ask,
-                                dmm_spread: spread,
                                 jfx_bid: bid,
                                 jfx_ask: ask,
                                 jfx_spread: spread,
@@ -900,78 +882,6 @@ pub async fn send_command(
                     println!("[commands_replay] tick-scope-replay.exe が見つかりませんでした。手動起動またはビルドを確認してください。");
                 }
 
-                // economic_events_csv が未設定または空の場合、キャッシュまたはロードから自動補完
-                let needs_eco_csv = match val.get("economic_events_csv") {
-                    Some(serde_json::Value::String(s)) => s.is_empty(),
-                    None => true,
-                    _ => false,
-                };
-
-                if needs_eco_csv {
-                    let enable_pseudo = val.get("enable_pseudo_rate").and_then(|v| v.as_bool()).unwrap_or(true);
-                    if enable_pseudo {
-                        if let (Some(sym), Some(st), Some(et)) = (
-                            val.get("source_symbol").and_then(|s| s.as_str()).map(|s| s.to_string()),
-                            val.get("start_time").and_then(|s| s.as_str()).map(|s| s.to_string()),
-                            val.get("end_time").and_then(|s| s.as_str()).map(|s| s.to_string()),
-                        ) {
-                            let pm = val.get("preload_mode").and_then(|s| s.as_str()).map(|s| s.to_string());
-                            let pd = val.get("preload_date").and_then(|s| s.as_str()).map(|s| s.to_string());
-                            
-                            let ym_list = crate::pseudo_dmm::get_year_months_between(
-                                if pm.as_deref() == Some("DATE") && pd.as_ref().is_some_and(|s| !s.is_empty()) {
-                                    pd.as_deref().unwrap()
-                                } else {
-                                    &st
-                                },
-                                &et,
-                            );
-
-                            let custom_dir = val.get("economic_data_dir").and_then(|s| s.as_str()).map(|s| s.to_string());
-
-                            let mut all_events = Vec::new();
-                            let mut missing_ym = Vec::new();
-                            {
-                                let cache = state.economic_events.lock().unwrap();
-                                for (y, m) in &ym_list {
-                                    let ym_str = format!("{:04}-{:02}", y, m);
-                                    if let Some(events) = cache.get(&ym_str) {
-                                        all_events.extend(events.clone());
-                                    } else {
-                                        missing_ym.push((*y, *m));
-                                    }
-                                }
-                            }
-
-                            if !missing_ym.is_empty() {
-                                let cd = custom_dir.clone();
-                                if let Ok((_, loaded_events)) = tokio::task::spawn_blocking(move || {
-                                    crate::pseudo_dmm::load_and_check_economic_data_range(
-                                        &sym,
-                                        &st,
-                                        &et,
-                                        pm.as_deref(),
-                                        pd.as_deref(),
-                                        cd.as_deref(),
-                                    )
-                                }).await {
-                                    let mut cache = state.economic_events.lock().unwrap();
-                                    for (ym, events) in loaded_events {
-                                        all_events.extend(events.clone());
-                                        cache.insert(ym, events);
-                                    }
-                                }
-                            }
-
-                            let csv = crate::pseudo_dmm::format_economic_schedule_csv(&all_events);
-                            if !csv.is_empty() {
-                                if let Some(obj) = val.as_object_mut() {
-                                    obj.insert("economic_events_csv".to_string(), serde_json::Value::String(csv));
-                                }
-                            }
-                        }
-                    }
-                }
 
                 return Ok(());
             }

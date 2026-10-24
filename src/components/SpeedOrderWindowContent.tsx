@@ -436,8 +436,8 @@ export const SpeedOrderWindowContent: React.FC = () => {
           if (data.jfx_real !== undefined) {
             setJfxReal(data.jfx_real);
           }
-          const initBid = data.jfx_bid !== undefined ? data.jfx_bid : (data.dmm_bid !== undefined ? data.dmm_bid : data.bid);
-          const initAsk = data.jfx_ask !== undefined ? data.jfx_ask : (data.dmm_ask !== undefined ? data.dmm_ask : data.ask);
+          const initBid = data.jfx_bid !== undefined ? data.jfx_bid : data.bid;
+          const initAsk = data.jfx_ask !== undefined ? data.jfx_ask : data.ask;
           if (initBid) setBid(initBid);
           if (initAsk) setAsk(initAsk);
           if (data.account) setAccount(data.account);
@@ -462,11 +462,9 @@ export const SpeedOrderWindowContent: React.FC = () => {
         if (data.status === "ACTIVE" || data.status === "READY" || data.status === "CONNECTED") {
           const prev = prevStatusRef.current;
           if (prev === "DISCONNECTED") {
-            const currentShow = localStorage.getItem(STORAGE_KEYS.speedOrderShowHistory) === "true";
             const currentContractSize = parseInt(localStorage.getItem(STORAGE_KEYS.speedOrderContractSize) || "10000", 10);
             const currentHedging = localStorage.getItem(STORAGE_KEYS.speedOrderHedging) === "true";
             const currentLatency = parseInt(localStorage.getItem(STORAGE_KEYS.speedOrderLatencyMs) || "30", 10);
-            sendCommand({ command: "SET_HISTORY_VISIBILITY", show: currentShow });
             sendCommand({ command: "SET_CONTRACT_SIZE", size: currentContractSize });
             sendCommand({ command: "SET_HEDGING", allowed: currentHedging });
             sendCommand({ command: "SET_LATENCY", latency_ms: isNaN(currentLatency) ? 30 : Math.min(200, Math.max(0, currentLatency)) });
@@ -486,7 +484,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
           if (data.jfx_real !== undefined) {
             setJfxReal(data.jfx_real);
           }
-          const nextBid = data.jfx_bid !== undefined ? data.jfx_bid : (data.dmm_bid !== undefined ? data.dmm_bid : data.bid);
+          const nextBid = data.jfx_bid !== undefined ? data.jfx_bid : data.bid;
           if (nextBid !== undefined) {
             setBid((prev) => {
               if (prev > 0) {
@@ -503,7 +501,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
               return nextBid;
             });
           }
-          const nextAsk = data.jfx_ask !== undefined ? data.jfx_ask : (data.dmm_ask !== undefined ? data.dmm_ask : data.ask);
+          const nextAsk = data.jfx_ask !== undefined ? data.jfx_ask : data.ask;
           if (nextAsk !== undefined) {
             setAsk((prev) => {
               if (prev > 0) {

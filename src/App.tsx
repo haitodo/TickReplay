@@ -1102,36 +1102,6 @@ function MainWindow() {
     localStorage.setItem(STORAGE_KEYS.speedOrderHedging, String(hedging));
   }, [hedging]);
 
-  // --- 疑似レート設定をEAに同期するエフェクト
-  useEffect(() => {
-    if (status === "ACTIVE" || status === "READY") {
-      const rawBase = pipsToPriceDiff(sourceSymbol, pseudoBaseSpread);
-      const rawThresh = pipsToPriceDiff(sourceSymbol, pseudoThreshold);
-      const rawRolloverSpread = pipsToPriceDiff(sourceSymbol, pseudoRolloverSpread);
-
-      sendCommand({
-        command: "SET_PSEUDO_RATE",
-        enable_pseudo_rate: enablePseudoRate,
-        pseudo_base_spread: rawBase,
-        pseudo_threshold: rawThresh,
-        pseudo_sensitivity: pseudoSensitivity,
-        pseudo_rollover_enabled: pseudoRolloverEnabled,
-        pseudo_rollover_spread: rawRolloverSpread,
-        pseudo_rollover_recovery_min: pseudoRolloverRecoveryMin,
-      }).catch(console.error);
-    }
-  }, [
-    status,
-    enablePseudoRate,
-    pseudoBaseSpread,
-    pseudoThreshold,
-    pseudoSensitivity,
-    pseudoRolloverEnabled,
-    pseudoRolloverSpread,
-    pseudoRolloverRecoveryMin,
-    sourceSymbol,
-    sendCommand,
-  ]);
 
   // --- 複数ウィンドウ間での設定同期用エフェクト
   useEffect(() => {

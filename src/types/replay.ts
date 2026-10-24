@@ -88,9 +88,6 @@ export interface ReplayProgressPayload {
   bid?: number;
   ask?: number;
   spread?: number;
-  dmm_bid?: number;
-  dmm_ask?: number;
-  dmm_spread?: number;
   jfx_bid?: number;
   jfx_ask?: number;
   jfx_spread?: number;
