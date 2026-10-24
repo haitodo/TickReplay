@@ -67,13 +67,12 @@ pub async fn import_custom_symbol_chunk(
     crate::mt5::validate_terminal_path(&terminal_path)?;
     validate_import_symbol_and_ym(&symbol_name, &year_month)?;
 
-    {
-        let last_status = state.last_status.lock().unwrap();
-        if last_status.is_empty() {
-            return Err(AppError::Config(
-                "MetaTrader 5 (EA) が接続されていません。MT5を起動し、EAをセットアップした状態でインポートを行ってください。".to_string()
-            ));
-        }
+    let render_pipe_opt = state.render_pipe_handle.lock().unwrap().clone();
+    let is_connected = render_pipe_opt.as_ref().map(|p| p.is_connected()).unwrap_or(false);
+    if !is_connected {
+        return Err(AppError::Config(
+            "MetaTrader 5 (Renderer EA) が接続されていません。MT5を起動し、チャートにRenderer EAがセットアップされていることを確認してください。".to_string()
+        ));
     }
 
     let zip_p = std::path::PathBuf::from(&zip_path);
@@ -94,18 +93,15 @@ pub async fn import_custom_symbol_chunk(
     let actual_group = if group_path.is_empty() { "Custom" } else { &group_path };
     let actual_base = if base_symbol.is_empty() { &symbol_name } else { &base_symbol };
 
-    let render_pipe_opt = state.render_pipe_handle.lock().unwrap().clone();
     if let Some(ref pipe) = render_pipe_opt {
-        if pipe.is_connected() {
-            pipe.send_import_ticks(
-                1,
-                &symbol_name,
-                actual_group,
-                actual_base,
-                &relative_bin,
-            );
-            println!("[commands_custom_symbol] MT5 RendererEA へ IMPORT_TICKS 要求送信: sym={}, bin={}", symbol_name, relative_bin);
-        }
+        pipe.send_import_ticks(
+            1,
+            &symbol_name,
+            actual_group,
+            actual_base,
+            &relative_bin,
+        );
+        println!("[commands_custom_symbol] MT5 RendererEA へ IMPORT_TICKS 要求送信: sym={}, bin={}", symbol_name, relative_bin);
     }
 
     let config_dir = app_handle.path().app_config_dir()?;

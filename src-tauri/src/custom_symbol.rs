@@ -547,7 +547,7 @@ fn walk_dir_collect(
     }
 }
 
-/// 1ヶ月分の Parquet (Drenhis tick出力) からデータを読み込み、疑似DMMパイプラインを適用して .bin ファイルとして出力する
+/// 1ヶ月分の Parquet (Drenhis tick出力) からデータを読み込み、生ティックのまま .bin ファイルとして出力する
 pub fn convert_parquet_to_mql_bin(
     parquet_path: &Path,
     output_bin_path: &Path,
@@ -555,19 +555,6 @@ pub fn convert_parquet_to_mql_bin(
     let file = File::open(parquet_path)?;
     let builder = ParquetRecordBatchReaderBuilder::try_new(file)
         .map_err(|e| AppError::Config(format!("Parquetオープン失敗 '{}': {}", parquet_path.display(), e)))?;
-
-    let parsed_info = analyze_zip_path(parquet_path, Path::new(""));
-    let pair = parsed_info.as_ref().map(|p| p.pair.as_str()).unwrap_or("USDJPY");
-    let ym = parsed_info.as_ref().map(|p| p.year_month.as_str()).unwrap_or("2026-08");
-
-    let is_dmm = parquet_path.to_string_lossy().to_lowercase().contains("dmm")
-        || output_bin_path.to_string_lossy().to_lowercase().contains("dmm");
-
-    let mut pseudo_dmm = if is_dmm {
-        Some(crate::pseudo_dmm::PseudoDmmEngine::new(pair, ym))
-    } else {
-        None
-    };
 
     // カラムプロジェクション: mt5_ms, utc_ms, bid, ask のみ抽出
     let file_schema = builder.schema();
@@ -635,20 +622,10 @@ pub fn convert_parquet_to_mql_bin(
 
             let time_sec = time_msc / 1000;
 
-            let (final_bid, final_ask) = if let Some(ref mut dmm) = pseudo_dmm {
-                if let Some((dmm_bid, dmm_ask, _)) = dmm.process_tick(time_msc, bid, ask) {
-                    (dmm_bid, dmm_ask)
-                } else {
-                    continue;
-                }
-            } else {
-                (bid, ask)
-            };
-
             ticks.push(MqlTick {
                 time: time_sec,
-                bid: final_bid,
-                ask: final_ask,
+                bid,
+                ask,
                 last: 0.0,
                 volume: 0,
                 time_msc,
@@ -713,19 +690,6 @@ pub fn convert_zip_to_mql_bin(
     // 概算ティック容量をあらかじめ予約 (無用な再メモリ拡張を排除)
     let mut ticks: Vec<MqlTick> = Vec::with_capacity(buffer.len() / 35 + 100);
 
-    let parsed_info = analyze_zip_path(input_path, Path::new(""));
-    let pair = parsed_info.as_ref().map(|p| p.pair.as_str()).unwrap_or("USDJPY");
-    let ym = parsed_info.as_ref().map(|p| p.year_month.as_str()).unwrap_or("2026-08");
-
-    let is_dmm = input_path.to_string_lossy().to_lowercase().contains("dmm")
-        || output_bin_path.to_string_lossy().to_lowercase().contains("dmm");
-
-    let mut pseudo_dmm = if is_dmm {
-        Some(crate::pseudo_dmm::PseudoDmmEngine::new(pair, ym))
-    } else {
-        None
-    };
-
     for line_bytes in buffer.split(|&b| b == b'\n') {
         let trimmed = trim_ascii_bytes(line_bytes);
         if trimmed.is_empty() || trimmed[0] == b'#' || trimmed[0] == b'D' || trimmed[0] == b'd' {
@@ -779,21 +743,10 @@ pub fn convert_zip_to_mql_bin(
         };
         let time_sec = time_msc / 1000;
 
-        // 疑似DMM 4層レート生成パイプラインの適用
-        let (final_bid, final_ask) = if let Some(ref mut dmm) = pseudo_dmm {
-            if let Some((dmm_bid, dmm_ask, _)) = dmm.process_tick(time_msc, bid, ask) {
-                (dmm_bid, dmm_ask)
-            } else {
-                continue;
-            }
-        } else {
-            (bid, ask)
-        };
-
         ticks.push(MqlTick {
             time: time_sec,
-            bid: final_bid,
-            ask: final_ask,
+            bid,
+            ask,
             last: 0.0,
             volume: 0,
             time_msc,
