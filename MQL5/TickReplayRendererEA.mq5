@@ -56,7 +56,7 @@ bool ShowWindow(long hWnd, int nCmdShow);
 #define RESET_PAYLOAD_SIZE         32
 #define ACK_PAYLOAD_SIZE           24
 #define APPLY_PROFILE_PAYLOAD_SIZE 128
-#define INIT_PAYLOAD_SIZE          192
+#define INIT_PAYLOAD_SIZE          704
 #define IMPORT_TICKS_PAYLOAD_SIZE  224
 
 //--- 自然アライメント構造体定義 (pack 境界なし)
@@ -112,15 +112,16 @@ struct ApplyProfilePayload
 
 struct InitPayload
 {
-    long  start_time_msc;    // 8 bytes: リプレイ開始日時 (ミリ秒)
-    long  end_time_msc;      // 8 bytes: リプレイ終了日時 (ミリ秒)
-    long  preload_date_msc;  // 8 bytes: 過去足プリロード基準日 (ミリ秒)
-    uint  preloaded_bars;    // 4 bytes: 過去足プリロード本数
-    uint  preload_mode;      // 4 bytes: 0 = BARS, 1 = DATE
-    uchar source_symbol[32]; // 32 bytes: ソースシンボル名
-    uchar sub_symbol[32];    // 32 bytes: サブシンボル名
-    uchar profile_name[64];  // 64 bytes: 適用プロファイル名
-    uchar reserved[32];      // 32 bytes: 予約
+    long  start_time_msc;        // 8 bytes: リプレイ開始日時 (ミリ秒)
+    long  end_time_msc;          // 8 bytes: リプレイ終了日時 (ミリ秒)
+    long  preload_date_msc;      // 8 bytes: 過去足プリロード基準日 (ミリ秒)
+    uint  preloaded_bars;        // 4 bytes: 過去足プリロード本数
+    uint  preload_mode;          // 4 bytes: 0 = BARS, 1 = DATE
+    uchar source_symbol[32];     // 32 bytes: ソースシンボル名
+    uchar sub_symbol[32];        // 32 bytes: サブシンボル名
+    uchar profile_name[64];      // 64 bytes: 適用プロファイル名
+    uchar additional_symbols[512]; // 512 bytes: カンマ区切りの同期他通貨シンボル名
+    uchar reserved[32];          // 32 bytes: 予約
 };
 
 struct ImportTicksPayload
@@ -206,6 +207,15 @@ MqlTick  m_last_applied_tick;
 bool     m_has_last_applied_tick = false;
 MqlTick  m_last_applied_tick_sub;
 bool     m_has_last_applied_tick_sub = false;
+
+// 同期他通貨 (EURJPY, GBPJPY 等のマルチカレンシーリプレイ用)
+#define MAX_SYNC_SYMBOLS 8
+int      m_sync_count = 0;
+string   m_sync_source_symbols[MAX_SYNC_SYMBOLS];
+string   m_sync_replay_symbols[MAX_SYNC_SYMBOLS];
+long     m_sync_current_v_time_msc[MAX_SYNC_SYMBOLS];
+MqlTick  m_sync_last_applied_tick[MAX_SYNC_SYMBOLS];
+bool     m_sync_has_last_applied_tick[MAX_SYNC_SYMBOLS];
 
 ulong    m_last_redraw_us = 0;
 ulong    m_last_comment_us = 0;
@@ -332,24 +342,30 @@ datetime GetBarHistoryStartTime(string symbol, ENUM_TIMEFRAMES tf, datetime ref_
 {
     if(bar_count <= 0) return ref_time;
 
+    SymbolSelect(symbol, true);
     MqlRates rates[];
     ArrayFree(rates);
-    int copied = CopyRates(symbol, tf, ref_time - 1, bar_count, rates);
-    if(copied > 0)
+
+    for(int r = 0; r < 5; r++)
     {
-        datetime min_time = rates[0].time;
-        for(int i = 1; i < copied; i++)
+        int copied = CopyRates(symbol, tf, ref_time - 1, bar_count, rates);
+        if(copied > 0)
         {
-            if(rates[i].time < min_time)
+            datetime min_time = rates[0].time;
+            for(int i = 1; i < copied; i++)
             {
-                min_time = rates[i].time;
+                if(rates[i].time < min_time)
+                {
+                    min_time = rates[i].time;
+                }
             }
+            return min_time;
         }
-        return min_time;
+        Sleep(20);
     }
 
     int sec_per_bar = PeriodSeconds(tf);
-    return ref_time - (datetime)(bar_count * sec_per_bar * 1.5);
+    return ref_time - (datetime)(bar_count * sec_per_bar * 2.5 + 172800);
 }
 
 //+------------------------------------------------------------------+
@@ -432,6 +448,20 @@ void CloseAllReplayCharts()
     m_total_ticks_sub = 0;
     m_replay_symbol = "";
     m_replay_symbol_sub = "";
+
+    for(int s = 0; s < m_sync_count; s++)
+    {
+        if(m_sync_replay_symbols[s] != "")
+        {
+            CustomTicksDelete(m_sync_replay_symbols[s], 0, LONG_MAX);
+            CustomRatesDelete(m_sync_replay_symbols[s], 0, LONG_MAX);
+        }
+        m_sync_source_symbols[s] = "";
+        m_sync_replay_symbols[s] = "";
+        m_sync_current_v_time_msc[s] = 0;
+        m_sync_has_last_applied_tick[s] = false;
+    }
+    m_sync_count = 0;
 
     if(closed_count > 0)
     {
@@ -629,49 +659,60 @@ bool InitializeReplaySymbol(string replay_symbol, string source_symbol)
 bool PreloadHistoricalRatesEx(string source_symbol, string replay_symbol, datetime start_time, int max_period_sec, uint preload_mode, long preload_date_msc, uint preloaded_bars)
 {
     SymbolSelect(source_symbol, true);
-    datetime preload_start = 0;
     datetime start_minute = start_time - (start_time % 60);
     datetime preload_end = start_minute - 1;
 
-    if(preload_mode == 1) // DATE モード
+    // キャッシュ構築待ち (最大10回、計200ms)
+    for(int retry = 0; retry < 10; retry++)
     {
-        if(preload_date_msc > 0)
-        {
-            preload_start = (datetime)(preload_date_msc / 1000);
-        }
+        if(SeriesInfoInteger(source_symbol, PERIOD_M1, SERIES_BARS_COUNT) > 0)
+            break;
+        Sleep(20);
     }
 
-    if(preload_start <= 0 || preload_mode == 0) // BARS モードまたはフォールバック
-    {
-        ENUM_TIMEFRAMES tf = SecondsToTimeframe(max_period_sec);
-        int bars = (preloaded_bars > 0) ? (int)preloaded_bars : 300;
-        preload_start = GetBarHistoryStartTime(source_symbol, tf, start_time, bars);
-    }
-
-    if(preload_start >= start_time)
-    {
-        PrintFormat("[RendererEA] プリロード対象期間なし (開始=%s, リプレイ開始=%s)",
-            TimeToString(preload_start), TimeToString(start_time));
-        return true;
-    }
-
-    PrintFormat("[RendererEA] 過去データプリロード取得: %s -> %s (%s 〜 %s)",
-        source_symbol, replay_symbol, TimeToString(preload_start), TimeToString(preload_end));
+    int bars = (preloaded_bars > 0) ? (int)preloaded_bars : 300;
+    int tf_multiplier = MathMax(1, max_period_sec / 60);
+    // 上位足に必要なバー数に安全係数1.5を乗じた必要M1バー数 (最低500本)
+    int needed_m1_bars = MathMax(500, (int)(bars * tf_multiplier * 1.5));
 
     MqlRates preload_rates[];
     ArrayFree(preload_rates);
+    int copied = 0;
 
-    int copied = CopyRates(source_symbol, PERIOD_M1, preload_start, preload_end, preload_rates);
+    if(preload_mode == 1 && preload_date_msc > 0) // DATE モード
+    {
+        datetime preload_start = (datetime)(preload_date_msc / 1000);
+        if(preload_start < preload_end)
+        {
+            PrintFormat("[RendererEA] 過去データプリロード取得 (DATE): %s -> %s (%s 〜 %s)",
+                source_symbol, replay_symbol, TimeToString(preload_start), TimeToString(preload_end));
+            for(int r = 0; r < 5; r++)
+            {
+                copied = CopyRates(source_symbol, PERIOD_M1, preload_start, preload_end, preload_rates);
+                if(copied > 0) break;
+                Sleep(30);
+            }
+        }
+    }
+
+    // BARS モード、または DATE モード失敗時のフォールバック:
+    // preload_end から過去に向かって確実に needed_m1_bars 本の確定バーを取得
     if(copied <= 0)
     {
-        PrintFormat("[RendererEA] [Warning] CopyRatesでのM1バー取得失敗 (Code: %d)。直近バーでのフォールバック試行。", GetLastError());
-        int fallback_bars = (preloaded_bars > 0) ? (int)preloaded_bars : 300;
-        copied = CopyRates(source_symbol, PERIOD_M1, preload_end, fallback_bars, preload_rates);
-        if(copied <= 0)
+        PrintFormat("[RendererEA] 過去データプリロード取得 (実取引バー基準): %s -> %s (基準=%s, 必要M1本数=%d)",
+            source_symbol, replay_symbol, TimeToString(preload_end), needed_m1_bars);
+        for(int r = 0; r < 5; r++)
         {
-            PrintFormat("[RendererEA] [Warning] フォールバックでもM1バー取得失敗 (Code: %d)", GetLastError());
-            return true;
+            copied = CopyRates(source_symbol, PERIOD_M1, preload_end, needed_m1_bars, preload_rates);
+            if(copied > 0) break;
+            Sleep(30);
         }
+    }
+
+    if(copied <= 0)
+    {
+        PrintFormat("[RendererEA] [Warning] M1バー取得失敗: symbol=%s, code=%d", source_symbol, GetLastError());
+        return true;
     }
 
     int updated = CustomRatesUpdate(replay_symbol, preload_rates);
@@ -1014,6 +1055,51 @@ bool ProcessProfile(string profile_name, string main_symbol, string sub_symbol, 
                 string before = StringSubstr(file_content, 0, sym_header_pos);
                 string after = StringSubstr(file_content, line_end);
                 file_content = before + "symbol=" + target_symbol + after;
+            }
+        }
+
+        // インジケータ引数の同期他通貨シンボル置換 (KuChart等のInpSymXXXX=を対応する_Replayシンボルに自動配線)
+        for(int s = 0; s < m_sync_count; s++)
+        {
+            string s_src = m_sync_source_symbols[s];
+            string s_rep = m_sync_replay_symbols[s];
+            if(s_src == "" || s_rep == "") continue;
+
+            string base_name = ExtractBaseSymbol(s_src);
+            if(base_name != "")
+            {
+                string param_key = "InpSym" + base_name + "=";
+                int p_pos = StringFind(file_content, param_key);
+                while(p_pos >= 0)
+                {
+                    int p_end = StringFind(file_content, "\r\n", p_pos);
+                    if(p_end > p_pos)
+                    {
+                        string before_p = StringSubstr(file_content, 0, p_pos);
+                        string after_p = StringSubstr(file_content, p_end);
+                        file_content = before_p + param_key + s_rep + after_p;
+                        p_pos = StringFind(file_content, param_key, p_pos + StringLen(param_key) + StringLen(s_rep));
+                    }
+                    else break;
+                }
+            }
+        }
+        string m_base = ExtractBaseSymbol(m_source_symbol);
+        if(m_base != "")
+        {
+            string param_key = "InpSym" + m_base + "=";
+            int p_pos = StringFind(file_content, param_key);
+            while(p_pos >= 0)
+            {
+                int p_end = StringFind(file_content, "\r\n", p_pos);
+                if(p_end > p_pos)
+                {
+                    string before_p = StringSubstr(file_content, 0, p_pos);
+                    string after_p = StringSubstr(file_content, p_end);
+                    file_content = before_p + param_key + main_symbol + after_p;
+                    p_pos = StringFind(file_content, param_key, p_pos + StringLen(param_key) + StringLen(main_symbol));
+                }
+                else break;
             }
         }
 
@@ -1425,6 +1511,68 @@ void ProcessInit(const InitPayload &p)
         m_replay_symbol_sub = "";
     }
 
+    // additional_symbols (同期他通貨: KuChart等向け) のパースと登録
+    string add_syms_str = CharArrayToString(p.additional_symbols);
+    StringTrimLeft(add_syms_str);
+    StringTrimRight(add_syms_str);
+
+    for(int s = 0; s < m_sync_count; s++)
+    {
+        if(m_sync_replay_symbols[s] != "")
+        {
+            CustomTicksDelete(m_sync_replay_symbols[s], 0, LONG_MAX);
+            CustomRatesDelete(m_sync_replay_symbols[s], 0, LONG_MAX);
+        }
+        m_sync_source_symbols[s] = "";
+        m_sync_replay_symbols[s] = "";
+        m_sync_current_v_time_msc[s] = 0;
+        m_sync_has_last_applied_tick[s] = false;
+    }
+    m_sync_count = 0;
+
+    if(add_syms_str != "")
+    {
+        string tokens[];
+        int num_tokens = StringSplit(add_syms_str, ',', tokens);
+        for(int i = 0; i < num_tokens && m_sync_count < 16; i++)
+        {
+            string sym = tokens[i];
+            StringTrimLeft(sym);
+            StringTrimRight(sym);
+            if(sym == "" || sym == m_source_symbol || sym == m_replay_symbol) continue;
+            if(m_enable_dual_feed && (sym == m_source_symbol_sub || sym == m_replay_symbol_sub)) continue;
+
+            string src_s = sym;
+            string rep_s = "";
+            if(StringFind(sym, "_Replay") > 0)
+            {
+                rep_s = sym;
+                src_s = StringSubstr(sym, 0, StringFind(sym, "_Replay"));
+            }
+            else
+            {
+                rep_s = sym + "_Replay";
+            }
+
+            bool exists = false;
+            for(int j = 0; j < m_sync_count; j++)
+            {
+                if(m_sync_source_symbols[j] == src_s) { exists = true; break; }
+            }
+            if(exists) continue;
+
+            m_sync_source_symbols[m_sync_count] = src_s;
+            m_sync_replay_symbols[m_sync_count] = rep_s;
+            m_sync_current_v_time_msc[m_sync_count] = 0;
+            m_sync_has_last_applied_tick[m_sync_count] = false;
+            m_sync_count++;
+        }
+    }
+    if(m_sync_count > 0)
+    {
+        PrintFormat("[RendererEA] 同期他通貨を %d 件登録: %s", m_sync_count, add_syms_str);
+    }
+
     // 1. カスタムシンボルの作成・初期化
     if(!InitializeReplaySymbol(m_replay_symbol, m_source_symbol))
     {
@@ -1434,6 +1582,10 @@ void ProcessInit(const InitPayload &p)
     {
         InitializeReplaySymbol(m_replay_symbol_sub, m_source_symbol_sub);
     }
+    for(int s = 0; s < m_sync_count; s++)
+    {
+        InitializeReplaySymbol(m_sync_replay_symbols[s], m_sync_source_symbols[s]);
+    }
 
     // 2. 過去足の事前描画 (プリロード) - M1バーを source_symbol から CopyRates で一括反映
     datetime start_dt = (datetime)(start_msc / 1000);
@@ -1442,6 +1594,10 @@ void ProcessInit(const InitPayload &p)
     if(m_enable_dual_feed && m_source_symbol_sub != "" && m_replay_symbol_sub != "")
     {
         PreloadHistoricalRatesEx(m_source_symbol_sub, m_replay_symbol_sub, start_dt, max_period_sec, preload_mode, preload_date_msc, preloaded_bars);
+    }
+    for(int s = 0; s < m_sync_count; s++)
+    {
+        PreloadHistoricalRatesEx(m_sync_source_symbols[s], m_sync_replay_symbols[s], start_dt, max_period_sec, preload_mode, preload_date_msc, preloaded_bars);
     }
 
     // 3. 初回気配値・クォート反映 (物理受信遅延を考慮した実効開始時刻で CustomTicksAdd)
@@ -1485,6 +1641,29 @@ void ProcessInit(const InitPayload &p)
         }
         m_current_v_time_msc_sub = eff_start_msc_sub;
         m_current_idx_sub = 0;
+    }
+
+    for(int s = 0; s < m_sync_count; s++)
+    {
+        string src_s = m_sync_source_symbols[s];
+        string rep_s = m_sync_replay_symbols[s];
+        int delay_s = GetEffectiveReceiveDelay(src_s);
+        long eff_start_s = (delay_s > 0) ? MathMax(0, start_msc - delay_s) : start_msc;
+
+        MqlTick first_quote_s;
+        if(GetLatestTickAtOrBefore(src_s, eff_start_s, first_quote_s))
+        {
+            MqlTick s_slice[1];
+            s_slice[0] = first_quote_s;
+            CustomTicksAdd(rep_s, s_slice);
+            m_sync_last_applied_tick[s] = first_quote_s;
+            m_sync_has_last_applied_tick[s] = true;
+        }
+        else
+        {
+            m_sync_has_last_applied_tick[s] = false;
+        }
+        m_sync_current_v_time_msc[s] = eff_start_s;
     }
 
     // 4. ビューアーチャートのオープン & プロファイル適用
@@ -1658,6 +1837,80 @@ void ProcessAdvance(const AdvancePayload &adv, ulong start_us)
                 }
             }
             m_current_v_time_msc_sub = eff_adv_msc_sub;
+        }
+    }
+
+    // 同期他通貨への差分反映 (KuChart等向け)
+    for(int s = 0; s < m_sync_count; s++)
+    {
+        string src_s = m_sync_source_symbols[s];
+        string rep_s = m_sync_replay_symbols[s];
+        if(src_s == "" || rep_s == "") continue;
+
+        int delay_s = GetEffectiveReceiveDelay(src_s);
+        long eff_adv_msc_s = (delay_s > 0) ? MathMax(0, adv_msc - delay_s) : adv_msc;
+
+        if(eff_adv_msc_s >= m_sync_current_v_time_msc[s])
+        {
+            ulong s_from_msc = (m_sync_has_last_applied_tick[s] && m_sync_last_applied_tick[s].time_msc > 0) ? (ulong)m_sync_last_applied_tick[s].time_msc : (ulong)eff_adv_msc_s;
+            ulong s_to_msc   = (ulong)eff_adv_msc_s;
+
+            if(s_to_msc > s_from_msc || (!m_sync_has_last_applied_tick[s] && s_to_msc >= s_from_msc))
+            {
+                MqlTick sync_slice[];
+                ArrayFree(sync_slice);
+                int sync_count = CopyTicksRange(src_s, sync_slice, COPY_TICKS_ALL, s_from_msc, s_to_msc);
+                if(sync_count > 0)
+                {
+                    int start_pos_s = 0;
+                    if(m_sync_has_last_applied_tick[s])
+                    {
+                        int last_matched_s = -1;
+                        for(int i = 0; i < sync_count; i++)
+                        {
+                            if(sync_slice[i].time_msc < m_sync_last_applied_tick[s].time_msc)
+                            {
+                                continue;
+                            }
+                            if(sync_slice[i].time_msc == m_sync_last_applied_tick[s].time_msc &&
+                               sync_slice[i].bid == m_sync_last_applied_tick[s].bid &&
+                               sync_slice[i].ask == m_sync_last_applied_tick[s].ask)
+                            {
+                                last_matched_s = i;
+                            }
+                            else if(sync_slice[i].time_msc > m_sync_last_applied_tick[s].time_msc)
+                            {
+                                break;
+                            }
+                        }
+                        if(last_matched_s >= 0)
+                        {
+                            start_pos_s = last_matched_s + 1;
+                        }
+                    }
+
+                    int new_count_s = sync_count - start_pos_s;
+                    if(new_count_s > 0)
+                    {
+                        if(start_pos_s == 0)
+                        {
+                            CustomTicksAdd(rep_s, sync_slice);
+                            m_sync_last_applied_tick[s] = sync_slice[sync_count - 1];
+                        }
+                        else
+                        {
+                            MqlTick new_s_slice[];
+                            ArrayResize(new_s_slice, new_count_s);
+                            ArrayCopy(new_s_slice, sync_slice, 0, start_pos_s, new_count_s);
+                            CustomTicksAdd(rep_s, new_s_slice);
+                            m_sync_last_applied_tick[s] = new_s_slice[new_count_s - 1];
+                        }
+                        m_sync_has_last_applied_tick[s] = true;
+                        ticks_added = true;
+                    }
+                }
+            }
+            m_sync_current_v_time_msc[s] = eff_adv_msc_s;
         }
     }
 
@@ -1903,6 +2156,108 @@ void ProcessReset(const ResetPayload &rst)
 
         m_current_v_time_msc_sub = eff_sub_target_msc;
         m_current_idx_sub = (int)rst.sub_target_idx;
+    }
+
+    // --- 同期他通貨の高速シーク・リセット ---
+    for(int s = 0; s < m_sync_count; s++)
+    {
+        string src_s = m_sync_source_symbols[s];
+        string rep_s = m_sync_replay_symbols[s];
+        if(src_s == "" || rep_s == "") continue;
+
+        int delay_s = GetEffectiveReceiveDelay(src_s);
+        long eff_s_target_msc = (delay_s > 0) ? MathMax(0, target_msc - delay_s) : target_msc;
+
+        if(eff_s_target_msc < m_sync_current_v_time_msc[s] || m_sync_current_v_time_msc[s] == 0)
+        {
+            CustomTicksDelete(rep_s, (ulong)(eff_s_target_msc + 1), LONG_MAX);
+
+            MqlTick s_cur_tick;
+            if(GetLatestTickAtOrBefore(src_s, eff_s_target_msc, s_cur_tick))
+            {
+                if(m_sync_current_v_time_msc[s] == 0 && !m_sync_has_last_applied_tick[s])
+                {
+                    MqlTick s_quote[1];
+                    s_quote[0] = s_cur_tick;
+                    CustomTicksAdd(rep_s, s_quote);
+                }
+                m_sync_last_applied_tick[s] = s_cur_tick;
+                m_sync_has_last_applied_tick[s] = true;
+            }
+            else
+            {
+                m_sync_has_last_applied_tick[s] = false;
+            }
+        }
+        else if(eff_s_target_msc > m_sync_current_v_time_msc[s])
+        {
+            ulong s_from_msc = (m_sync_has_last_applied_tick[s] && m_sync_last_applied_tick[s].time_msc > 0) ? (ulong)m_sync_last_applied_tick[s].time_msc : (ulong)(m_sync_current_v_time_msc[s] > 0 ? m_sync_current_v_time_msc[s] : eff_s_target_msc);
+            ulong s_to_msc   = (ulong)eff_s_target_msc;
+
+            if(s_to_msc >= s_from_msc)
+            {
+                MqlTick s_slice[];
+                ArrayFree(s_slice);
+                int s_count = CopyTicksRange(src_s, s_slice, COPY_TICKS_ALL, s_from_msc, s_to_msc);
+
+                if(s_count > 0)
+                {
+                    int start_pos_s = 0;
+                    if(m_sync_has_last_applied_tick[s])
+                    {
+                        int last_matched_s = -1;
+                        for(int i = 0; i < s_count; i++)
+                        {
+                            if(s_slice[i].time_msc < m_sync_last_applied_tick[s].time_msc)
+                            {
+                                continue;
+                            }
+                            if(s_slice[i].time_msc == m_sync_last_applied_tick[s].time_msc &&
+                               s_slice[i].bid == m_sync_last_applied_tick[s].bid &&
+                               s_slice[i].ask == m_sync_last_applied_tick[s].ask)
+                            {
+                                last_matched_s = i;
+                            }
+                            else if(s_slice[i].time_msc > m_sync_last_applied_tick[s].time_msc)
+                            {
+                                break;
+                            }
+                        }
+                        if(last_matched_s >= 0)
+                        {
+                            start_pos_s = last_matched_s + 1;
+                        }
+                    }
+
+                    int new_count_s = s_count - start_pos_s;
+                    if(new_count_s > 0)
+                    {
+                        const int CHUNK_SIZE = 10000;
+                        for(int offset = start_pos_s; offset < s_count; offset += CHUNK_SIZE)
+                        {
+                            int cur_chunk = MathMin(CHUNK_SIZE, s_count - offset);
+                            MqlTick chunk_slice[];
+                            ArrayResize(chunk_slice, cur_chunk);
+                            ArrayCopy(chunk_slice, s_slice, 0, offset, cur_chunk);
+                            CustomTicksAdd(rep_s, chunk_slice);
+                        }
+                        m_sync_last_applied_tick[s] = s_slice[s_count - 1];
+                        m_sync_has_last_applied_tick[s] = true;
+                    }
+                }
+                else
+                {
+                    MqlTick s_cur_tick;
+                    if(GetLatestTickAtOrBefore(src_s, eff_s_target_msc, s_cur_tick))
+                    {
+                        m_sync_last_applied_tick[s] = s_cur_tick;
+                        m_sync_has_last_applied_tick[s] = true;
+                    }
+                }
+            }
+        }
+
+        m_sync_current_v_time_msc[s] = eff_s_target_msc;
     }
 
     // チャートリフレッシュ & 追跡スクロール設定 (即座に末尾スナップ有効化)
@@ -2181,8 +2536,8 @@ void OnTimer()
             return;
         }
 
-        uchar payload_buf[512]; // プロトコル最大長(224B)を余裕で収容する固定バッファ (ヒープ確保0)
-        uint to_read = (header.payload_len <= 512) ? header.payload_len : 512;
+        uchar payload_buf[1024]; // プロトコル最大長(704B)を余裕で収容する固定バッファ (ヒープ確保0)
+        uint to_read = (header.payload_len <= 1024) ? header.payload_len : 1024;
 
         if(header.payload_len > 0)
         {

@@ -92,7 +92,7 @@ pub struct ApplyProfilePayload {
     pub sub_symbol: [u8; 32],
 }
 
-/// 0x0007 INIT ペイロード (Core -> EA, 192 bytes)
+/// 0x0007 INIT ペイロード (Core -> EA, 320 bytes)
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct InitPayload {
@@ -104,6 +104,7 @@ pub struct InitPayload {
     pub source_symbol: [u8; 32],
     pub sub_symbol: [u8; 32],
     pub profile_name: [u8; 64],
+    pub additional_symbols: [u8; 512],
     pub reserved: [u8; 32],
 }
 
@@ -176,6 +177,7 @@ impl RenderPacketCodec {
         source_symbol: &str,
         sub_symbol: &str,
         profile_name: &str,
+        additional_symbols: &str,
     ) -> Vec<u8> {
         let mut payload = InitPayload {
             start_time_msc,
@@ -186,6 +188,7 @@ impl RenderPacketCodec {
             source_symbol: [0u8; 32],
             sub_symbol: [0u8; 32],
             profile_name: [0u8; 64],
+            additional_symbols: [0u8; 512],
             reserved: [0u8; 32],
         };
         let s_bytes = source_symbol.as_bytes();
@@ -199,6 +202,26 @@ impl RenderPacketCodec {
         let p_bytes = profile_name.as_bytes();
         let p_len = p_bytes.len().min(63);
         payload.profile_name[..p_len].copy_from_slice(&p_bytes[..p_len]);
+
+        let a_bytes = additional_symbols.as_bytes();
+        let max_len = 511;
+        let a_len = if a_bytes.len() > max_len {
+            let truncated = &a_bytes[..max_len];
+            let safe_len = match truncated.iter().rposition(|&b| b == b',') {
+                Some(pos) => pos,
+                None => max_len,
+            };
+            eprintln!(
+                "[render_pipe] Warning: additional_symbols exceeded {} bytes ({} bytes). Safely truncated to {} bytes.",
+                max_len,
+                a_bytes.len(),
+                safe_len
+            );
+            safe_len
+        } else {
+            a_bytes.len()
+        };
+        payload.additional_symbols[..a_len].copy_from_slice(&a_bytes[..a_len]);
 
         let header = RenderHeader::new(
             MSG_INIT,
@@ -350,6 +373,7 @@ pub enum RenderPipeCommand {
         source_symbol: String,
         sub_symbol: String,
         profile_name: String,
+        additional_symbols: String,
     },
     ImportTicks {
         epoch: u32,
@@ -428,6 +452,7 @@ impl RenderPipeHandle {
         source_symbol: &str,
         sub_symbol: &str,
         profile_name: &str,
+        additional_symbols: &str,
     ) {
         let cmd = RenderPipeCommand::Init {
             epoch,
@@ -439,6 +464,7 @@ impl RenderPipeHandle {
             source_symbol: source_symbol.to_string(),
             sub_symbol: sub_symbol.to_string(),
             profile_name: profile_name.to_string(),
+            additional_symbols: additional_symbols.to_string(),
         };
         *self.last_init.lock().unwrap() = Some(cmd.clone());
         let _ = self.cmd_tx.send(cmd);
@@ -621,8 +647,8 @@ impl RenderPipeServer {
                                         break;
                                     }
                                 }
-                                RenderPipeCommand::Init { epoch, start_time_msc, end_time_msc, preload_date_msc, preloaded_bars, preload_mode, source_symbol, sub_symbol, profile_name } => {
-                                    let packet = RenderPacketCodec::encode_init(epoch, start_time_msc, end_time_msc, preload_date_msc, preloaded_bars, preload_mode, &source_symbol, &sub_symbol, &profile_name);
+                                RenderPipeCommand::Init { epoch, start_time_msc, end_time_msc, preload_date_msc, preloaded_bars, preload_mode, source_symbol, sub_symbol, profile_name, additional_symbols } => {
+                                    let packet = RenderPacketCodec::encode_init(epoch, start_time_msc, end_time_msc, preload_date_msc, preloaded_bars, preload_mode, &source_symbol, &sub_symbol, &profile_name, &additional_symbols);
                                     if let Err(e) = writer.write_all(&packet).await {
                                         eprintln!("[RenderPipe] INIT 送信エラー: {}", e);
                                         break;
@@ -769,7 +795,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<ResetPayload>(), 32);
         assert_eq!(std::mem::size_of::<AckPayload>(), 24);
         assert_eq!(std::mem::size_of::<ApplyProfilePayload>(), 128);
-        assert_eq!(std::mem::size_of::<InitPayload>(), 192);
+        assert_eq!(std::mem::size_of::<InitPayload>(), 704);
     }
 
     #[test]
@@ -818,6 +844,7 @@ mod tests {
             "USDJPY.cl",
             "EURJPY",
             "Default",
+            "EURJPY_2025,GBPJPY_2025",
         );
         let mut cursor = std::io::Cursor::new(bytes);
         let (header, payload) = RenderPacketCodec::read_packet(&mut cursor).unwrap();
@@ -825,7 +852,7 @@ mod tests {
         assert_eq!(header.magic, RENDER_MAGIC);
         assert_eq!(header.msg_type, MSG_INIT);
         assert_eq!(header.epoch, 1);
-        assert_eq!(payload.len(), 192);
+        assert_eq!(payload.len(), 704);
 
         let init: &InitPayload = bytemuck::from_bytes(&payload);
         assert_eq!(init.start_time_msc, 1720000000);
@@ -834,6 +861,7 @@ mod tests {
         assert_eq!(String::from_utf8_lossy(&init.source_symbol).trim_matches('\0'), "USDJPY.cl");
         assert_eq!(String::from_utf8_lossy(&init.sub_symbol).trim_matches('\0'), "EURJPY");
         assert_eq!(String::from_utf8_lossy(&init.profile_name).trim_matches('\0'), "Default");
+        assert_eq!(String::from_utf8_lossy(&init.additional_symbols).trim_matches('\0'), "EURJPY_2025,GBPJPY_2025");
     }
 
     #[test]

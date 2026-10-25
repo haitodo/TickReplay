@@ -653,6 +653,7 @@ pub async fn send_command(
                 // 4. MT5 Renderer EA へ INIT パケットを送信 (カスタムシンボル・ティック・過去足事前描画・プロファイルチャートの一括構築)
                 let profile_name = val.get("profile_name").and_then(|s| s.as_str()).unwrap_or("");
                 let sub_sym = val.get("sub_source_symbol").and_then(|s| s.as_str()).unwrap_or("");
+                let additional_symbols = val.get("additional_symbols").and_then(|s| s.as_str()).unwrap_or("");
                 let preloaded_bars = val.get("preloaded_bars").and_then(|b| b.as_u64()).unwrap_or(300) as u32;
                 let preload_mode_str = val.get("preload_mode").and_then(|m| m.as_str()).unwrap_or("BARS");
                 let preload_mode = if preload_mode_str == "DATE" { 1u32 } else { 0u32 };
@@ -680,8 +681,9 @@ pub async fn send_command(
                         source_sym,
                         sub_sym,
                         profile_name,
+                        additional_symbols,
                     );
-                    println!("[commands_replay] MT5 Renderer EA へ INIT 要求送信: sym={}, profile={}, start_msc={}", source_sym, profile_name, effective_start_msc);
+                    println!("[commands_replay] MT5 Renderer EA へ INIT 要求送信: sym={}, profile={}, sync={}, start_msc={}", source_sym, profile_name, additional_symbols, effective_start_msc);
                 }
 
                 // Replay Core の初期時刻を effective_start_msc にシーク
