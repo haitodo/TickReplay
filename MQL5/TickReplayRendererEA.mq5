@@ -1026,28 +1026,9 @@ bool ProcessProfile(string profile_name, string main_symbol, string sub_symbol, 
 
         string target_symbol = is_sub_chart ? sub_symbol : main_symbol;
 
-        if(original_symbol != "" && original_symbol != target_symbol)
-        {
-            StringReplace(file_content, original_symbol, target_symbol);
-        }
-
-        if(is_sub_chart)
-        {
-            if(main_symbol != "" && main_symbol != target_symbol)
-            {
-                StringReplace(file_content, main_symbol, target_symbol);
-            }
-        }
-        else
-        {
-            if(sub_symbol != "" && sub_symbol != target_symbol)
-            {
-                StringReplace(file_content, sub_symbol, target_symbol);
-            }
-        }
-
+        // チャートのシンボル指定 (symbol=xxxx) を target_symbol に置換 (引数名を壊さないよう安全に行単位で置換)
         int sym_header_pos = StringFind(file_content, "symbol=");
-        if(sym_header_pos >= 0)
+        while(sym_header_pos >= 0)
         {
             int line_end = StringFind(file_content, "\r\n", sym_header_pos);
             if(line_end > sym_header_pos)
@@ -1055,7 +1036,14 @@ bool ProcessProfile(string profile_name, string main_symbol, string sub_symbol, 
                 string before = StringSubstr(file_content, 0, sym_header_pos);
                 string after = StringSubstr(file_content, line_end);
                 file_content = before + "symbol=" + target_symbol + after;
+                sym_header_pos = StringFind(file_content, "symbol=", sym_header_pos + StringLen("symbol=" + target_symbol));
             }
+            else break;
+        }
+
+        if(original_symbol != "" && original_symbol != target_symbol)
+        {
+            StringReplace(file_content, "description=" + original_symbol, "description=" + target_symbol);
         }
 
         // インジケータ引数の同期他通貨シンボル置換 (KuChart等のInpSymXXXX=を対応する_Replayシンボルに自動配線)
