@@ -10,7 +10,8 @@ pub mod jfx_characteristics {
     pub const MAX_SPREAD_PIPS: f64 = 15.0;
 }
 
-/// JFX特化型 擬似レート生成エンジン (零遅延・インパルス保存・Change-Driven型)
+/// JFX特化型 擬似レート生成エンジン
+/// 数理設計: 双安定 ΣΔ (シグマ・デルタ) 量子化・100ms同期コアレッシング・インパルス逆畳み込みモデル (ΣΔ-CIM)
 pub struct PseudoJfxEngine {
     pub symbol: String,
     pub year: i32,
@@ -20,15 +21,20 @@ pub struct PseudoJfxEngine {
     point_size: f64,
     /// 価格から整数ポイントへの変換倍率 (JPYペア: 1000.0, 非JPYペア: 100_000.0)
     point_scale: f64,
-    // 前回の生クォート (1pt = 0.1pip 単位の整数ポイント)
-    last_raw_b_pt: i64,
-    last_raw_a_pt: i64,
-    last_raw_sum_pt: i64,
-    last_q_pt: i64,
     // 前回の出力クォート (整数ポイントによる厳密Change-Driven判定用)
+    last_q_pt: i64,
+    last_step_pt: i64,
+    last_emit_msc: i64,
     last_emitted_bid_pt: i64,
     last_emitted_ask_pt: i64,
-    // 直近10秒間のボラティリティ追跡 (mt5_ms, mid_pips)
+    // 双安定 ΣΔ ディザリング状態 (+1: 切り上げバウンス中, -1: 切り下げバウンス中, 0: 安定)
+    dither_state: i8,
+    // 大スパイク後のモメンタム維持 (シュミットトリガ)
+    spike_latch_dir: i8,
+    spike_latch_until_msc: i64,
+    // 直近140msの生クォート履歴 (msc, b_pt, a_pt, sum_pt)
+    raw_history: Vec<(i64, i64, i64, i64)>,
+    // 直近10秒間のボラティリティ追跡 (mt5_ms, q_pt)
     recent_ticks: Vec<(i64, i64)>,
 }
 
@@ -64,18 +70,21 @@ impl PseudoJfxEngine {
             events,
             point_size,
             point_scale,
-            last_raw_b_pt: 0,
-            last_raw_a_pt: 0,
-            last_raw_sum_pt: 0,
             last_q_pt: 0,
+            last_step_pt: 0,
+            last_emit_msc: -1000,
             last_emitted_bid_pt: 0,
             last_emitted_ask_pt: 0,
+            dither_state: 0,
+            spike_latch_dir: 0,
+            spike_latch_until_msc: -1000,
+            raw_history: Vec::with_capacity(16),
             recent_ticks: Vec::with_capacity(256),
         }
     }
 
     /// 単一ティックを JFX 特性に合わせて変換
-    /// Change-Driven 方式: 量子化後の Bid および Ask が直前と同一の場合は None を返す
+    /// 双安定 ΣΔ 量子化・100ms同期コアレッシング・インパルス逆畳み込みモデル (ΣΔ-CIM)
     #[inline]
     pub fn process_tick(
         &mut self,
@@ -88,37 +97,130 @@ impl PseudoJfxEngine {
         let a_pt = (raw_ask * self.point_scale).round() as i64;
         let sum_pt = b_pt + a_pt; // 2 * mid_pt
 
-        let q_pt = if self.last_raw_sum_pt == 0 {
-            // 初回ティック初期化
-            sum_pt / 2
-        } else if sum_pt == self.last_raw_sum_pt {
-            // 生Mid(sum_pt)が不変の場合は前回の量子化価格を維持 (インパルス切り上げ後の同値落下を防止)
-            self.last_q_pt
-        } else {
-            let da_pt = a_pt - self.last_raw_a_pt;
-            let db_pt = b_pt - self.last_raw_b_pt;
-            let d_sum = sum_pt - self.last_raw_sum_pt;
+        // 初回ティック初期化
+        if self.last_emit_msc <= 0 {
+            let q_pt = sum_pt / 2;
+            self.last_q_pt = q_pt;
+            self.last_emit_msc = mt5_time_msc;
+            self.raw_history.push((mt5_time_msc, b_pt, a_pt, sum_pt));
 
-            // --- 2. 方向性インパルス量子化 (M_OPT) ---
-            // 上方向インパルス (買い先行ブレイク da >= 2 かつ db >= 0、または sum_pt が 3pt以上急変):
-            // 切り上げ (sum_pt + 1) / 2 を採用し、OANDAの50ms非同期分割によるスパイク減衰を完全防止。
-            // 通常時および下方向移動時:
-            // 切り捨て sum_pt / 2 を採用し、OANDAの +0.018p 上方バイアスを相殺しつつ
-            // 片側1ptのスプレッド伸縮による偽チャタリングを遮断。
-            let up_impulse = (da_pt >= 2 && db_pt >= 0) || (d_sum >= 3);
-            if up_impulse {
-                (sum_pt + 1) / 2
+            return self.finalize_quote(mt5_time_msc, q_pt, (a_pt - b_pt).max(0) as f64 * 0.1);
+        }
+
+        // 直近 140ms 窓の生クォート履歴を更新
+        self.raw_history.push((mt5_time_msc, b_pt, a_pt, sum_pt));
+        let cutoff_140ms = mt5_time_msc - 140;
+        self.raw_history.retain(|&(t, _, _, _)| t >= cutoff_140ms);
+
+        // --- 2. 100ms 同期コアレッシングゲート (JFX MT5サーバーの約100ms配信仕様に準拠) ---
+        let dt_emit = mt5_time_msc - self.last_emit_msc;
+        if dt_emit < 98 {
+            return None;
+        }
+
+        // 直近 120ms 窓の基準値 (最も古いレコード) を取得して累積速度を算出
+        let &(_, b_prev120, a_prev120, s_prev120) = self
+            .raw_history
+            .first()
+            .unwrap_or(&(mt5_time_msc, b_pt, a_pt, sum_pt));
+        let ds_120 = sum_pt - s_prev120;
+        let da_120 = a_pt - a_prev120;
+        let db_120 = b_pt - b_prev120;
+
+        let q_floor = sum_pt / 2;
+        let q_ceil = (sum_pt + 1) / 2;
+        let is_odd = sum_pt % 2 != 0;
+        let r = sum_pt - 2 * self.last_q_pt; // 直前出力からの残差 (単位: 0.5pt)
+
+        // --- 3. 120ms 窓インパルス判定 (OANDA 50ms 分割減衰の逆畳み込み) ---
+        let up_impulse = (da_120 >= 2 && db_120 >= 0) || (ds_120 >= 3);
+        let dn_impulse = (db_120 <= -2 && da_120 <= 0) || (ds_120 <= -3);
+
+        let q_pt = if mt5_time_msc < self.spike_latch_until_msc {
+            // 大スパイク後のモメンタム保持 (シュミットトリガ: 進行方向に追従し逆方向は -1.5pt 以上戻らない限り維持)
+            if self.spike_latch_dir > 0 {
+                if r >= 2 {
+                    if up_impulse { q_ceil } else { q_floor }
+                } else if r <= -3 {
+                    self.spike_latch_dir = 0;
+                    q_floor
+                } else {
+                    self.last_q_pt
+                }
+            } else if self.spike_latch_dir < 0 {
+                if r <= -2 {
+                    q_floor
+                } else if r >= 3 {
+                    self.spike_latch_dir = 0;
+                    q_floor
+                } else {
+                    self.last_q_pt
+                }
             } else {
-                sum_pt / 2
+                q_floor
+            }
+        } else if up_impulse {
+            self.dither_state = 0;
+            q_ceil
+        } else if dn_impulse {
+            self.dither_state = 0;
+            q_floor
+        } else {
+            // --- 4. 通常・レンジ領域 (半整数・双安定 ΣΔ ディザリング & 平均回帰ピンポン核) ---
+            if self.dither_state == 1 {
+                self.dither_state = 0;
+                q_floor
+            } else if self.dither_state == -1 {
+                self.dither_state = 0;
+                q_floor
+            } else if is_odd {
+                // 半整数点 (k + 0.5pt): 下から進入時は k+1 へディザ切り上げし次クロックで k へ復帰
+                if r == 1 && self.last_step_pt <= 0 {
+                    self.dither_state = 1;
+                    q_ceil
+                } else if r == -1 {
+                    self.dither_state = if self.last_step_pt == 1 { 0 } else { -1 };
+                    q_floor
+                } else {
+                    q_floor
+                }
+            } else {
+                // 偶数点 (k): 緩やかな 1pt 上昇後は元に戻りやすくする
+                let q = q_floor;
+                if q - self.last_q_pt == 1 && ds_120 <= 2 {
+                    self.dither_state = 1;
+                }
+                q
             }
         };
 
-        self.last_raw_b_pt = b_pt;
-        self.last_raw_a_pt = a_pt;
-        self.last_raw_sum_pt = sum_pt;
-        self.last_q_pt = q_pt;
+        // 直前出力と同値なら間引く (厳密 Change-Driven)
+        if q_pt == self.last_q_pt && self.last_emitted_bid_pt > 0 {
+            return None;
+        }
 
-        // --- 3. JST 時刻情報の分解 ---
+        let step = q_pt - self.last_q_pt;
+        if step.abs() >= 3 {
+            self.spike_latch_dir = if step > 0 { 1 } else { -1 };
+            self.spike_latch_until_msc = mt5_time_msc + 320;
+            self.dither_state = 0;
+        }
+        self.last_step_pt = step;
+        self.last_q_pt = q_pt;
+        self.last_emit_msc = mt5_time_msc;
+
+        let raw_oanda_spread_pips = (a_pt - b_pt).max(0) as f64 * 0.1;
+        self.finalize_quote(mt5_time_msc, q_pt, raw_oanda_spread_pips)
+    }
+
+    /// クォートの確定 (スプレッド計算、整数ポイント丸め、Change-Driven判定)
+    fn finalize_quote(
+        &mut self,
+        mt5_time_msc: i64,
+        q_pt: i64,
+        raw_oanda_spread_pips: f64,
+    ) -> Option<(f64, f64, f64)> {
+        // --- 5. JST 時刻情報の分解 ---
         let naive_mt5_sec = mt5_time_msc / 1000;
         let naive_dt = chrono::DateTime::from_timestamp(naive_mt5_sec, 0)
             .map(|dt| dt.naive_utc())
@@ -140,8 +242,7 @@ impl PseudoJfxEngine {
         let jst_hour = jst_dt.hour();
         let jst_min = jst_dt.minute();
 
-        // --- 4. JFX 実測準拠スプレッド制御 (pips単位で計算し、最後に整数ポイントへ変換) ---
-        // 通常時 & 東京仲値: 原則 0.2 pips (2 points) 固定
+        // --- 6. JFX 実測準拠スプレッド制御 (原則固定 0.2銭) ---
         let mut target_spread_pips = jfx_characteristics::BASE_SPREAD_PIPS;
 
         // 早朝ロールオーバー (夏時間: 05:59〜07:15 JST / 冬時間: 06:59〜08:15 JST)
@@ -149,39 +250,29 @@ impl PseudoJfxEngine {
         let pre_hour = rollover_hour - 1;
 
         if jst_hour == pre_hour && jst_min == 59 {
-            // 05:59 / 06:59: 直前拡大 (実測P50 = 3.2 pips)
             target_spread_pips = target_spread_pips.max(3.2);
         } else if jst_hour == rollover_hour {
             let early_pips = if jst_min <= 20 {
-                // 06:11〜06:20 (06:00〜06:10はメンテ休止): 実測P50 = 9.8 pips
                 9.8
             } else if jst_min <= 30 {
-                // 06:21〜06:30: 実測P50 = 8.5 pips
                 8.5
             } else {
-                // 06:31〜06:59: 実測P50 = 5.9 pips 固定
                 5.9
             };
             target_spread_pips = target_spread_pips.max(early_pips);
         } else if jst_hour == rollover_hour + 1 {
             if jst_min < 5 {
-                // 07:00〜07:04: 実測P50 = 3.6 pips
                 target_spread_pips = target_spread_pips.max(3.6);
             } else if jst_min < 11 {
-                // 07:05〜07:10: 実測P50 = 1.5 pips -> 1.1 pips
                 let progress = (jst_min - 5) as f64 / 6.0;
                 let early_pips = 1.5 - (1.5 - 1.1) * progress;
                 target_spread_pips = target_spread_pips.max(early_pips);
             } else if jst_min < 15 {
-                // 07:11〜07:14: 1.1 pips から 0.2 pips へ復帰
                 let progress = (jst_min - 11) as f64 / 4.0;
                 let early_pips = 1.1 - (1.1 - 0.2) * progress;
                 target_spread_pips = target_spread_pips.max(early_pips);
             }
         }
-
-        // OANDA生スプレッド (pips単位: 1pt = 0.1pip)
-        let raw_oanda_spread_pips = (a_pt - b_pt).max(0) as f64 * 0.1;
 
         // 経済指標動的制御 (イベント近傍にある場合のみボラティリティ追跡を実行)
         if !self.events.is_empty() {
@@ -222,7 +313,6 @@ impl PseudoJfxEngine {
                             let rel_sec = (mt5_time_msc - ev.mt5_ms) as f64 / 1000.0;
                             match ev.tier {
                                 1 => {
-                                    // Tier 1 (NFP, CPI): -15s〜-5s (0.2->2.5p), -5s〜-1s (2.5->3.2p), -1s〜0s (3.2->7.9p)
                                     if rel_sec < -5.0 {
                                         0.2 + (2.5 - 0.2) * ((rel_sec + 15.0) / 10.0).max(0.0)
                                     } else if rel_sec < -1.0 {
@@ -232,7 +322,6 @@ impl PseudoJfxEngine {
                                     }
                                 }
                                 2 => {
-                                    // Tier 2 (ISM, 小売等): -10s〜-1s (0.2->2.0p), -1s〜0s (2.0->4.5p)
                                     if rel_sec < -1.0 {
                                         0.2 + (2.0 - 0.2) * ((rel_sec + 10.0) / 9.0).max(0.0)
                                     } else {
@@ -240,12 +329,10 @@ impl PseudoJfxEngine {
                                     }
                                 }
                                 _ => {
-                                    // Tier 3 (中重要度): -5s〜0s (0.2->1.8p)
                                     0.2 + (1.8 - 0.2) * ((rel_sec + 5.0) / 5.0).max(0.0)
                                 }
                             }
                         } else if mt5_time_msc <= ev.mt5_ms + 10_000 {
-                            // 初動ピークフェーズ (T 〜 T+10s)
                             let (base_peak_pips, max_cap_pips) = match ev.tier {
                                 1 => (7.9, 14.9),
                                 2 => (4.5, 8.0),
@@ -255,7 +342,6 @@ impl PseudoJfxEngine {
                             let dyn_pips = base_peak_pips + 0.30 * oanda_excess_pips + 0.40 * price_volatility_10s_pips;
                             dyn_pips.min(max_cap_pips)
                         } else {
-                            // 収束フェーズ (T+10s 〜 T+recovery): 2次減衰
                             let decay_start_pips = match ev.tier {
                                 1 => 4.5,
                                 2 => 3.0,
@@ -291,14 +377,12 @@ impl PseudoJfxEngine {
             jfx_characteristics::MAX_SPREAD_PIPS,
         );
 
-        // --- 5. ポイント整数空間での Bid / Ask 確定 (ask - bid == spread を100%保証) ---
+        // --- 7. ポイント整数空間での Bid / Ask 確定 (ask - bid == spread を100%保証) ---
         let spr_pt = (clamped_pips * 10.0).round().max(2.0) as i64;
         let jfx_bid_pt = q_pt - (spr_pt / 2);
         let jfx_ask_pt = jfx_bid_pt + spr_pt;
 
-        // --- 6. 厳密 Change-Driven 判定 ---
-        // JFX実データ (99.5%が変化時配信) に準拠:
-        // 量子化後の Bid または Ask が直前と1ptでも変化した場合のみ出力し、完全同値は None で間引く
+        // 量子化後の Bid または Ask が直前と1ptでも変化した場合のみ出力
         if self.last_emitted_bid_pt > 0
             && jfx_bid_pt == self.last_emitted_bid_pt
             && jfx_ask_pt == self.last_emitted_ask_pt
@@ -327,10 +411,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_pseudo_jfx_zero_delay_and_impulse() {
+    fn test_pseudo_jfx_bistable_and_coalescing() {
         let mut engine = PseudoJfxEngine::new("USDJPY", "2026-09");
 
-        // 1. 初回ティック: 150.000 / 150.004 (Mid = 150.002)
+        // 1. 初回ティック (t = 0ms): 150.000 / 150.004 (Mid = 150.002)
         let t1 = engine.process_tick(1788500000000, 150.000, 150.004);
         assert!(t1.is_some());
         let (b1, a1, spr1) = t1.unwrap();
@@ -338,28 +422,33 @@ mod tests {
         assert_eq!(a1, 150.003);
         assert_eq!(spr1, 0.002);
 
-        // 2. 同値ティック: None が返されること (Change-Driven)
-        let t1_same = engine.process_tick(1788500000050, 150.000, 150.004);
-        assert!(t1_same.is_none());
-
-        // 3. Askだけ 1pt 拡大 (150.000 / 150.005, Mid=150.0025):
-        // 切り捨てにより 150.002 を維持し、偽チャタリングを起こさないこと
-        let t2 = engine.process_tick(1788500000100, 150.000, 150.005);
+        // 2. 50ms 後のティック (t = 50ms): 100ms ゲート未満 (<98ms) のため None
+        let t2 = engine.process_tick(1788500000050, 150.001, 150.005);
         assert!(t2.is_none());
 
-        // 4. 急激な上方向ブレイク (Askが 150.008 へ +3pt 跳ね、Bidは 150.001 へ +1pt):
-        // 上方向インパルス判定により即座に上へ追従すること
-        let t3 = engine.process_tick(1788500000150, 150.001, 150.008);
+        // 3. 100ms 後のティック (t = 100ms): 半整数点 150.000 / 150.005 (Mid = 150.0025, sum_pt = 300005: 奇数)
+        // 双安定 ΣΔ により切り上げバウンス (q = 150.003)
+        let t3 = engine.process_tick(1788500000100, 150.000, 150.005);
         assert!(t3.is_some());
         let (b3, a3, _) = t3.unwrap();
-        // Mid = (150.001 + 150.008) / 2 = 150.0045 -> 上方向インパルスで 150.005 に切り上げ
-        // Bid = 150.004, Ask = 150.006
-        assert_eq!(b3, 150.004);
-        assert_eq!(a3, 150.006);
+        assert_eq!(b3, 150.002);
+        assert_eq!(a3, 150.004);
 
-        // 5. 直後に同値ティック (150.001 / 150.008) が来ても、勝手に -1pt 落下せず None を返すこと
-        let t4_same = engine.process_tick(1788500000200, 150.001, 150.008);
-        assert!(t4_same.is_none());
+        // 4. 次の 100ms 後 (t = 200ms): OANDA が同値 (150.000 / 150.005) のまま静止
+        // 双安定ピンポン復帰により、直ちに元の基底 q_floor = 150.002 へ復帰！ (Exact Ping-Pong 完成)
+        let t4 = engine.process_tick(1788500000200, 150.000, 150.005);
+        assert!(t4.is_some());
+        let (b4, a4, _) = t4.unwrap();
+        assert_eq!(b4, 150.001);
+        assert_eq!(a4, 150.003);
+
+        // 5. 大スパイク (t = 300ms): 150.002 / 150.010 (+4pt 跳ね)
+        // 120ms 窓でのインパルス判定により即座に上方向追従 (q = 150.006)
+        let t5 = engine.process_tick(1788500000300, 150.002, 150.010);
+        assert!(t5.is_some());
+        let (b5, a5, _) = t5.unwrap();
+        assert_eq!(b5, 150.005);
+        assert_eq!(a5, 150.007);
     }
 
     #[test]
@@ -374,11 +463,11 @@ mod tests {
         assert_eq!(a1, 1.08503);
         assert_eq!(spr1, 0.00002);
 
-        // 上方向インパルス: 1.08501 / 1.08508 (Mid = 1.085045 -> 1.08505)
-        let t2 = engine.process_tick(1788500000050, 1.08501, 1.08508);
+        // 100ms 後に上方向インパルス: 1.08502 / 1.08510 (da >= 2)
+        let t2 = engine.process_tick(1788500000100, 1.08502, 1.08510);
         assert!(t2.is_some());
         let (b2, a2, _) = t2.unwrap();
-        assert_eq!(b2, 1.08504);
-        assert_eq!(a2, 1.08506);
+        assert_eq!(b2, 1.08505);
+        assert_eq!(a2, 1.08507);
     }
 }
