@@ -11,18 +11,9 @@
  */
 
 import type { TradeHistoryItem, VirtualAccount, VirtualPosition } from "../types/trading";
-import type { ReplayProgressPayload } from "../types/replay";
+import type { FeedRate, ReplayProgressPayload, SubFeedRate } from "../types/replay";
 
-export interface FeedRate {
-  bid: number;
-  ask: number;
-  spread: number;
-}
-
-export interface SubFeedRate extends FeedRate {
-  active: boolean;
-  symbol: string;
-}
+export type { FeedRate, SubFeedRate };
 
 type FeedRateInput = Pick<ReplayProgressPayload, "bid" | "ask" | "spread">;
 type SubFeedRateInput = Pick<

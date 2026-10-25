@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useCallback } from "react";
 import type { ExecutionAuditRecord } from "../../types/replay";
 import { getExecutionAuditLog } from "../../utils/command";
-import { formatJstTime } from "../../utils/timeUtils";
+import {
+  formatExecutionAuditCopyText,
+  formatExecutionAuditCsv,
+  formatExecutionAuditTime,
+} from "../../utils/executionAuditFormatters";
 
 interface ExecutionAuditModalProps {
   isOpen: boolean;
@@ -37,40 +41,9 @@ export const ExecutionAuditModal: React.FC<ExecutionAuditModalProps> = ({ isOpen
 
   if (!isOpen) return null;
 
-  const formatMscTime = (msc: number) => {
-    if (!msc || msc <= 0) return "--:--:--";
-    const base = formatJstTime(msc);
-    const ms = String(Math.abs(Math.floor(msc % 1000))).padStart(3, "0");
-    return `${base}.${ms}`;
-  };
-
   const handleExportCsv = () => {
     if (logs.length === 0) return;
-    const headers = [
-      "Ticket",
-      "Symbol",
-      "Side",
-      "Volume",
-      "ClickTime",
-      "FillTime",
-      "LatencyMs",
-      "RequestPrice",
-      "FillPrice",
-      "SlippagePips",
-    ];
-    const rows = logs.map((log) => [
-      log.ticket,
-      log.symbol,
-      log.side,
-      log.volume,
-      formatMscTime(log.click_time_msc),
-      formatMscTime(log.fill_time_msc),
-      log.latency_ms,
-      log.request_price,
-      log.fill_price,
-      log.slippage_pips.toFixed(2),
-    ]);
-    const csvContent = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const csvContent = formatExecutionAuditCsv(logs);
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -83,15 +56,7 @@ export const ExecutionAuditModal: React.FC<ExecutionAuditModalProps> = ({ isOpen
 
   const handleCopy = () => {
     if (logs.length === 0) return;
-    const text = logs
-      .map(
-        (l) =>
-          `[#${l.ticket}] ${l.side} ${l.volume}lot @ ${l.fill_price} (Req: ${l.request_price}, Slip: ${
-            l.slippage_pips >= 0 ? "+" : ""
-          }${l.slippage_pips.toFixed(2)}pips, Latency: ${l.latency_ms}ms)`
-      )
-      .join("\n");
-    navigator.clipboard.writeText(text);
+    navigator.clipboard.writeText(formatExecutionAuditCopyText(logs));
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -354,10 +319,10 @@ export const ExecutionAuditModal: React.FC<ExecutionAuditModalProps> = ({ isOpen
                         </td>
                         <td style={{ padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap" }}>{record.volume.toFixed(2)}</td>
                         <td style={{ padding: "6px 8px", color: "var(--on-surface-variant)", fontSize: "10px", whiteSpace: "nowrap" }}>
-                          {formatMscTime(record.click_time_msc)}
+                          {formatExecutionAuditTime(record.click_time_msc)}
                         </td>
                         <td style={{ padding: "6px 8px", color: "var(--on-surface-variant)", fontSize: "10px", whiteSpace: "nowrap" }}>
-                          {formatMscTime(record.fill_time_msc)}
+                          {formatExecutionAuditTime(record.fill_time_msc)}
                         </td>
                         <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600, whiteSpace: "nowrap" }}>
                           <span

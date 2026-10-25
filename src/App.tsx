@@ -41,7 +41,7 @@ import {
   DEFAULT_TIME_STEPS,
 } from "./domain/timeSteps";
 import { formatTerminalNamesMap } from "./domain/settings";
-import type { TimeStepItem } from "./types/replay";
+import type { FeedRate, SubFeedRate, TimeStepItem } from "./types/replay";
 import {
   getServerToJstOffsetHours,
   convertServerStrToJstStr as convertServerToJstStr,
@@ -361,8 +361,8 @@ function MainWindow() {
   const [sourceSymbol, setSourceSymbol] = useState("USDJPY");
   const [enableDualFeed, setEnableDualFeed] = useState(false);
   const [subSourceSymbol, setSubSourceSymbol] = useState("");
-  const [mainFeedRate, setMainFeedRate] = useState<{ bid: number; ask: number; spread: number }>({ bid: 0, ask: 0, spread: 0 });
-  const [subFeedRate, setSubFeedRate] = useState<{ active: boolean; symbol: string; bid: number; ask: number; spread: number } | null>(null);
+  const [mainFeedRate, setMainFeedRate] = useState<FeedRate>({ bid: 0, ask: 0, spread: 0 });
+  const [subFeedRate, setSubFeedRate] = useState<SubFeedRate | null>(null);
   const [, setChartSymbol] = useState("");
   const hasSavedSymbolRef = useRef(false);
   const [additionalSymbols, setAdditionalSymbols] = useState("");
@@ -2377,34 +2377,26 @@ function MainWindow() {
     }
   };
 
-  // Fine（0.1刻み微調整）速度変更
-  const handleFineSpeed = (increment: boolean) => {
+  const adjustSpeedByStep = (temporalDelta: number, countDelta: number) => {
     if (speedMode === "TEMPORAL") {
-      const step = 0.1;
-      let nextVal = increment ? multiplier + step : multiplier - step;
+      let nextVal = multiplier + temporalDelta;
       nextVal = Math.max(0.1, Math.min(1000.0, nextVal));
       updateSpeed("TEMPORAL", Math.round(nextVal * 10) / 10, tickStep);
     } else {
-      const step = 1;
-      let nextVal = increment ? tickStep + step : tickStep - step;
+      let nextVal = tickStep + countDelta;
       nextVal = Math.max(1, Math.min(1000, nextVal));
       updateSpeed("COUNT", multiplier, nextVal);
     }
   };
 
+  // Fine（0.1刻み微調整）速度変更
+  const handleFineSpeed = (increment: boolean) => {
+    adjustSpeedByStep(increment ? 0.1 : -0.1, increment ? 1 : -1);
+  };
+
   // Medium（1.0刻み調整）速度変更
   const handleMediumSpeed = (increment: boolean) => {
-    if (speedMode === "TEMPORAL") {
-      const step = 1.0;
-      let nextVal = increment ? multiplier + step : multiplier - step;
-      nextVal = Math.max(0.1, Math.min(1000.0, nextVal));
-      updateSpeed("TEMPORAL", Math.round(nextVal * 10) / 10, tickStep);
-    } else {
-      const step = 10;
-      let nextVal = increment ? tickStep + step : tickStep - step;
-      nextVal = Math.max(1, Math.min(1000, nextVal));
-      updateSpeed("COUNT", multiplier, nextVal);
-    }
+    adjustSpeedByStep(increment ? 1.0 : -1.0, increment ? 10 : -10);
   };
 
   // --- 3. UIトグル動作

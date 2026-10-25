@@ -385,29 +385,23 @@ export const ControllerWindowContent: React.FC = () => {
     }
   }, [speedMode, multiplier, tickStep, timePresets, tickPresets, updateSpeed]);
 
-  const handleMediumSpeed = useCallback((increase: boolean) => {
+  const adjustSpeedByStep = useCallback((temporalDelta: number, countDelta: number) => {
     if (speedMode === "TEMPORAL") {
-      const delta = increase ? 1.0 : -1.0;
-      const next = Math.max(0.1, parseFloat((multiplier + delta).toFixed(1)));
+      const next = Math.max(0.1, parseFloat((multiplier + temporalDelta).toFixed(1)));
       updateSpeed("TEMPORAL", next, tickStep);
     } else {
-      const delta = increase ? 10 : -10;
-      const next = Math.max(1, tickStep + delta);
+      const next = Math.max(1, tickStep + countDelta);
       updateSpeed("COUNT", multiplier, next);
     }
   }, [speedMode, multiplier, tickStep, updateSpeed]);
 
+  const handleMediumSpeed = useCallback((increase: boolean) => {
+    adjustSpeedByStep(increase ? 1.0 : -1.0, increase ? 10 : -10);
+  }, [adjustSpeedByStep]);
+
   const handleFineSpeed = useCallback((increase: boolean) => {
-    if (speedMode === "TEMPORAL") {
-      const delta = increase ? 0.1 : -0.1;
-      const next = Math.max(0.1, parseFloat((multiplier + delta).toFixed(1)));
-      updateSpeed("TEMPORAL", next, tickStep);
-    } else {
-      const delta = increase ? 1 : -1;
-      const next = Math.max(1, tickStep + delta);
-      updateSpeed("COUNT", multiplier, next);
-    }
-  }, [speedMode, multiplier, tickStep, updateSpeed]);
+    adjustSpeedByStep(increase ? 0.1 : -0.1, increase ? 1 : -1);
+  }, [adjustSpeedByStep]);
 
   const handleSetLoopA = useCallback(() => {
     sendCommand({ command: "LOOP_SET_A" });

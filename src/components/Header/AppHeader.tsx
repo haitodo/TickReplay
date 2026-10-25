@@ -3,6 +3,7 @@ import { COMMANDS } from "../../constants/commands";
 import { invoke } from "@tauri-apps/api/core";
 import { formatJstTime, formatServerTime } from "../../utils/timeUtils";
 import { SessionBoundaryInfo } from "../../domain/sessionBoundaries";
+import type { FeedRate, SubFeedRate } from "../../types/replay";
 import { getCachedEconomicAvailabilityMap, isEconomicSpreadActive } from "../../utils/economicDataUtils";
 
 interface AppHeaderProps {
@@ -11,8 +12,8 @@ interface AppHeaderProps {
   timezoneMode: "JST" | "SERVER";
   setTimezoneMode: (mode: "JST" | "SERVER") => void;
   currentSession: SessionBoundaryInfo | null;
-  subFeedRate: { active: boolean; symbol: string; bid: number; ask: number; spread: number } | null;
-  mainFeedRate: { bid: number; ask: number; spread: number };
+  subFeedRate: SubFeedRate | null;
+  mainFeedRate: FeedRate;
   sourceSymbol: string;
   alwaysOnTop: boolean;
   isShortcutsActive: boolean;
