@@ -8,6 +8,85 @@ export interface SpeedPresetsModalProps {
   onClose: () => void;
 }
 
+interface PresetEditorProps {
+  label: string;
+  unit: string;
+  presets: number[];
+  inputValue: string;
+  inputStep: number;
+  placeholder: string;
+  parseValue: (value: string) => number;
+  onInputChange: (value: string) => void;
+  onPresetsChange: (presets: number[]) => void;
+}
+
+const PresetEditor: React.FC<PresetEditorProps> = ({
+  label,
+  unit,
+  presets,
+  inputValue,
+  inputStep,
+  placeholder,
+  parseValue,
+  onInputChange,
+  onPresetsChange,
+}) => {
+  const handleAddPreset = () => {
+    const value = parseValue(inputValue);
+    if (!isNaN(value) && value > 0 && !presets.includes(value)) {
+      onPresetsChange([...presets, value].sort((a, b) => a - b));
+      onInputChange("");
+    }
+  };
+
+  return (
+    <div>
+      <div className="form-label" style={{ marginBottom: "4px" }}>
+        {label}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginBottom: "6px" }}>
+        {presets.map((value, index) => (
+          <span
+            key={index}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "3px",
+              background: "#161922",
+              border: "1px solid rgba(255, 255, 255, 0.08)",
+              borderRadius: "12px",
+              padding: "2px 8px",
+              fontSize: "11px",
+            }}
+          >
+            {value}{unit}
+            <button
+              type="button"
+              style={{ background: "none", border: "none", color: "#f87171", cursor: "pointer", padding: 0 }}
+              onClick={() => onPresetsChange(presets.filter((_, presetIndex) => presetIndex !== index))}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: "4px" }}>
+        <input
+          type="number"
+          step={inputStep}
+          className="input-compact"
+          placeholder={placeholder}
+          value={inputValue}
+          onChange={(event) => onInputChange(event.target.value)}
+        />
+        <button type="button" className="pro-btn primary" onClick={handleAddPreset}>
+          追加
+        </button>
+      </div>
+    </div>
+  );
+};
+
 export const SpeedPresetsModal: React.FC<SpeedPresetsModalProps> = React.memo(({
   isOpen,
   timePresets,
@@ -48,117 +127,28 @@ export const SpeedPresetsModal: React.FC<SpeedPresetsModalProps> = React.memo(({
           </button>
         </div>
         <div className="modal-body" style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: "12px" }}>
-          {/* Time Presets */}
-          <div>
-            <div className="form-label" style={{ marginBottom: "4px" }}>
-              時間比率モード (倍率):
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginBottom: "6px" }}>
-              {editingTimePresets.map((val, idx) => (
-                <span
-                  key={idx}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "3px",
-                    background: "#161922",
-                    border: "1px solid rgba(255, 255, 255, 0.08)",
-                    borderRadius: "12px",
-                    padding: "2px 8px",
-                    fontSize: "11px",
-                  }}
-                >
-                  {val}x
-                  <button
-                    type="button"
-                    style={{ background: "none", border: "none", color: "#f87171", cursor: "pointer", padding: 0 }}
-                    onClick={() => setEditingTimePresets(editingTimePresets.filter((_, i) => i !== idx))}
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-            <div style={{ display: "flex", gap: "4px" }}>
-              <input
-                type="number"
-                step="0.1"
-                className="input-compact"
-                placeholder="例: 15.0"
-                value={modalNewTimePreset}
-                onChange={(e) => setModalNewTimePreset(e.target.value)}
-              />
-              <button
-                type="button"
-                className="pro-btn primary"
-                onClick={() => {
-                  const num = parseFloat(modalNewTimePreset);
-                  if (!isNaN(num) && num > 0 && !editingTimePresets.includes(num)) {
-                    setEditingTimePresets([...editingTimePresets, num].sort((a, b) => a - b));
-                    setModalNewTimePreset("");
-                  }
-                }}
-              >
-                追加
-              </button>
-            </div>
-          </div>
-
-          {/* Tick Presets */}
-          <div>
-            <div className="form-label" style={{ marginBottom: "4px" }}>
-              ティック数モード (枚数):
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginBottom: "6px" }}>
-              {editingTickPresets.map((val, idx) => (
-                <span
-                  key={idx}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "3px",
-                    background: "#161922",
-                    border: "1px solid rgba(255, 255, 255, 0.08)",
-                    borderRadius: "12px",
-                    padding: "2px 8px",
-                    fontSize: "11px",
-                  }}
-                >
-                  {val}T
-                  <button
-                    type="button"
-                    style={{ background: "none", border: "none", color: "#f87171", cursor: "pointer", padding: 0 }}
-                    onClick={() => setEditingTickPresets(editingTickPresets.filter((_, i) => i !== idx))}
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-            <div style={{ display: "flex", gap: "4px" }}>
-              <input
-                type="number"
-                step="1"
-                className="input-compact"
-                placeholder="例: 20"
-                value={modalNewTickPreset}
-                onChange={(e) => setModalNewTickPreset(e.target.value)}
-              />
-              <button
-                type="button"
-                className="pro-btn primary"
-                onClick={() => {
-                  const num = parseInt(modalNewTickPreset);
-                  if (!isNaN(num) && num > 0 && !editingTickPresets.includes(num)) {
-                    setEditingTickPresets([...editingTickPresets, num].sort((a, b) => a - b));
-                    setModalNewTickPreset("");
-                  }
-                }}
-              >
-                追加
-              </button>
-            </div>
-          </div>
+          <PresetEditor
+            label="時間比率モード (倍率):"
+            unit="x"
+            presets={editingTimePresets}
+            inputValue={modalNewTimePreset}
+            inputStep={0.1}
+            placeholder="例: 15.0"
+            parseValue={parseFloat}
+            onInputChange={setModalNewTimePreset}
+            onPresetsChange={setEditingTimePresets}
+          />
+          <PresetEditor
+            label="ティック数モード (枚数):"
+            unit="T"
+            presets={editingTickPresets}
+            inputValue={modalNewTickPreset}
+            inputStep={1}
+            placeholder="例: 20"
+            parseValue={parseInt}
+            onInputChange={setModalNewTickPreset}
+            onPresetsChange={setEditingTickPresets}
+          />
         </div>
 
         <div className="modal-footer" style={{ padding: "10px 16px", display: "flex", gap: "8px", justifyContent: "flex-end" }}>

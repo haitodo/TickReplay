@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import type { TimeStepItem, DayTimelineActivity } from "../../types/replay";
 import { formatJstTime, formatServerTime } from "../../utils/timeUtils";
+import { getSecondsIntoDay } from "../../domain/timeline";
 import { MiniWaveformTrack } from "./MiniWaveformTrack";
 import { TimelineInspectorTooltip } from "./TimelineInspectorTooltip";
 
@@ -523,7 +524,7 @@ const ControlDashboardComponent: React.FC<ControlDashboardProps> = ({
   // サーバー日の当日秒数 (0..86400)
   const isServerDayMode = Boolean(timelineActivity && timelineActivity.day_start_msc > 0);
   const currentSecInDay = isServerDayMode
-    ? Math.max(0, Math.min(86400, Math.floor((virtualTimeMsc - timelineActivity!.day_start_msc) / 1000)))
+    ? getSecondsIntoDay(virtualTimeMsc, timelineActivity!.day_start_msc)
     : 0;
 
   const handleTrackMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {

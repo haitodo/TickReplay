@@ -7,6 +7,7 @@ import { EVENTS } from "../../constants/events";
 import { STORAGE_KEYS } from "../../constants/storageKeys";
 import { useAppearance } from "../../hooks/useAppearance";
 import { formatJstTime, formatServerTime } from "../../utils/timeUtils";
+import { getSecondsIntoDay } from "../../domain/timeline";
 import { ReplayCommand, sendReplayCommand } from "../../utils/command";
 import type { DayTimelineActivity, ReplayProgressPayload } from "../../types/replay";
 import type { PersistedSettings } from "../../types/settings";
@@ -374,7 +375,7 @@ export const TimelineWindowContent: React.FC = () => {
   // 当日秒数 (0..86400)
   const isServerDayMode = Boolean(timelineActivity && timelineActivity.day_start_msc > 0);
   const currentSecInDay = isServerDayMode
-    ? Math.max(0, Math.min(86400, Math.floor((virtualTimeMsc - timelineActivity!.day_start_msc) / 1000)))
+    ? getSecondsIntoDay(virtualTimeMsc, timelineActivity!.day_start_msc)
     : 0;
   const activeSec = dragSec !== null ? dragSec : currentSecInDay;
 

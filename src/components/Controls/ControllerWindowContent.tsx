@@ -44,7 +44,7 @@ export const ControllerWindowContent: React.FC = () => {
 
   // 指定活動度未満の時間帯の自動早送り (Auto-Skip) State
   const [autoSkipFlat, setAutoSkipFlat] = useState<boolean>(() => {
-    return localStorage.getItem("replay-auto-skip-flat") === "true";
+    return localStorage.getItem(STORAGE_KEYS.replayAutoSkipFlat) === "true";
   });
   const [autoSkipThreshold, setAutoSkipThreshold] = useState<number>(0.15);
   const [timelineActivityMaxCap, setTimelineActivityMaxCap] = useState<number>(2800);
@@ -531,7 +531,7 @@ export const ControllerWindowContent: React.FC = () => {
   // 自動スキップ (Auto-Skip) ロジック
   const handleSetAutoSkipFlat = useCallback((val: boolean) => {
     setAutoSkipFlat(val);
-    localStorage.setItem("replay-auto-skip-flat", String(val));
+    localStorage.setItem(STORAGE_KEYS.replayAutoSkipFlat, String(val));
     if (!val && isAutoSpeedBoostedRef.current) {
       isAutoSpeedBoostedRef.current = false;
       sendCommand({

@@ -3,6 +3,7 @@ export const STORAGE_KEYS = {
   plColorStyle: "pl-color-style",
   replayEconomicDataDir: "replay_economic_data_dir",
   replayTimezoneMode: "replay-timezone-mode",
+  replayAutoSkipFlat: "replay-auto-skip-flat",
   selectedTerminalPath: "selected-terminal-path",
   speedOrderColorStyle: "speed-order-color-style",
   speedOrderContractSize: "speed-order-contract-size",
