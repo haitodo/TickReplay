@@ -11,6 +11,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { CustomSelect } from "../CustomSelect";
 import { useAppearance } from "../hooks/useAppearance";
 import { getContractSizeLabel } from "../domain/contractUtils";
+import { summarizePositionSide } from "../domain/positionSummary";
 import { TimeStopMode, VirtualAccount, VirtualPosition } from "../types/trading";
 import { nextAccount, nextPositions } from "../domain/tradeStateUpdate";
 import { ReplayProgressPayload } from "../types/replay";
@@ -839,13 +840,16 @@ export const SpeedOrderWindowContent: React.FC = () => {
   const askParts = getPriceParts(ask);
 
   // ポジション集計
-  const buyPositions = positions.filter(p => p.type === "BUY");
-  const sellPositions = positions.filter(p => p.type === "SELL");
-  const totalBuyLots = buyPositions.reduce((sum, p) => sum + p.volume, 0);
-  const totalSellLots = sellPositions.reduce((sum, p) => sum + p.volume, 0);
-  // 評価損益の計算
-  const totalBuyProfit = buyPositions.reduce((sum, p) => sum + p.profit, 0);
-  const totalSellProfit = sellPositions.reduce((sum, p) => sum + p.profit, 0);
+  const {
+    totalLots: totalBuyLots,
+    totalProfit: totalBuyProfit,
+    averageOpenRate: avgBuyRate,
+  } = summarizePositionSide(positions, "BUY");
+  const {
+    totalLots: totalSellLots,
+    totalProfit: totalSellProfit,
+    averageOpenRate: avgSellRate,
+  } = summarizePositionSide(positions, "SELL");
   const totalPL = account?.profit ?? (totalBuyProfit + totalSellProfit);
 
   // 発注可能ロット数計算
@@ -856,14 +860,6 @@ export const SpeedOrderWindowContent: React.FC = () => {
   const maxLots = contractSize === 100000
     ? Math.max(0, Math.floor(maxLotsRaw * 100) / 100)
     : Math.max(0, Math.floor(maxLotsRaw));
-
-  // 平均レートの計算
-  const avgBuyRate = totalBuyLots > 0
-    ? buyPositions.reduce((sum, p) => sum + p.volume * p.open_price, 0) / totalBuyLots
-    : 0;
-  const avgSellRate = totalSellLots > 0
-    ? sellPositions.reduce((sum, p) => sum + p.volume * p.open_price, 0) / totalSellLots
-    : 0;
 
   // pipsの計算 (現在のBid/Askレートと平均建値の価格差からpips値を直接算出)
   const pipMultiplier = isCrypto || isIndex ? 1 : isGold ? 10 : isJpy ? 100 : 10000;

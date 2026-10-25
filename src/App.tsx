@@ -39,6 +39,7 @@ import { checkEconomicDataAvailability } from "./utils/economicDataUtils";
 import { useAppearance } from "./hooks/useAppearance";
 import {
   DEFAULT_TIME_STEPS,
+  MAX_TIME_STEPS,
 } from "./domain/timeSteps";
 import { formatTerminalNamesMap } from "./domain/settings";
 import type { FeedRate, SubFeedRate, TimeStepItem } from "./types/replay";
@@ -588,7 +589,7 @@ function MainWindow() {
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return (parsed as TimeStepItem[]).slice(0, 5).sort((a, b) => a.seconds - b.seconds);
+          return (parsed as TimeStepItem[]).slice(0, MAX_TIME_STEPS).sort((a, b) => a.seconds - b.seconds);
         }
       } catch (e) {
         console.error("Failed to parse custom-time-steps", e);

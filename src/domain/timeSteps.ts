@@ -1,5 +1,7 @@
 import type { TimeStepItem } from "../types/replay";
 
+export const MAX_TIME_STEPS = 5;
+
 export const DEFAULT_TIME_STEPS: TimeStepItem[] = [
   { id: "ts-1", seconds: 10, label: "10S" },
   { id: "ts-2", seconds: 60, label: "1M" },

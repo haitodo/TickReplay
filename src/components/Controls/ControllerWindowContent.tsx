@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { DEFAULT_SPEED_TIME_PRESETS, DEFAULT_SPEED_TICK_PRESETS } from "../../constants/speedPresets";
+import { MAX_TIME_STEPS } from "../../domain/timeSteps";
 import { COMMANDS } from "../../constants/commands";
 import { EVENTS } from "../../constants/events";
 import { STORAGE_KEYS } from "../../constants/storageKeys";
@@ -101,7 +102,9 @@ export const ControllerWindowContent: React.FC = () => {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return (parsed as TimeStepItem[]).slice(0, MAX_TIME_STEPS);
+        }
       } catch (e) {
         console.error("Failed to parse custom-time-steps", e);
       }

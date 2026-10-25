@@ -3,6 +3,7 @@ import type { TimeStepItem } from "../../types/replay";
 import {
   DEFAULT_TIME_STEPS,
   formatSecondsToLabel,
+  MAX_TIME_STEPS,
   PRESET_TIME_OPTIONS,
 } from "../../domain/timeSteps";
 
@@ -39,7 +40,7 @@ export const TimeStepsModal: React.FC<TimeStepsModalProps> = React.memo(({
             <span className="material-symbols-outlined icon-accent" style={{ color: "var(--primary-color)" }}>
               tune
             </span>
-            Time Steps 設定 (最大5枠)
+            Time Steps 設定 (最大{MAX_TIME_STEPS}枠)
           </h3>
           <button className="modal-close-btn" onClick={onClose}>
             <span className="material-symbols-outlined">close</span>
@@ -53,7 +54,7 @@ export const TimeStepsModal: React.FC<TimeStepsModalProps> = React.memo(({
             <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
               {PRESET_TIME_OPTIONS.map((preset) => {
                 const isAlreadyAdded = editingTimeSteps.some((item) => item.seconds === preset.seconds);
-                const isMax = editingTimeSteps.length >= 5;
+                const isMax = editingTimeSteps.length >= MAX_TIME_STEPS;
                 return (
                   <button
                     key={preset.label}
@@ -64,7 +65,7 @@ export const TimeStepsModal: React.FC<TimeStepsModalProps> = React.memo(({
                       cursor: isAlreadyAdded || isMax ? "not-allowed" : "pointer",
                     }}
                     onClick={() => {
-                      if (editingTimeSteps.length < 5 && !isAlreadyAdded) {
+                      if (editingTimeSteps.length < MAX_TIME_STEPS && !isAlreadyAdded) {
                         const updated = [
                           ...editingTimeSteps,
                           { id: `ts-${Date.now()}-${Math.random()}`, seconds: preset.seconds, label: preset.label },
@@ -82,7 +83,7 @@ export const TimeStepsModal: React.FC<TimeStepsModalProps> = React.memo(({
 
           <div>
             <div className="form-label" style={{ marginBottom: "6px" }}>
-              設定中のステップ ({editingTimeSteps.length}/5):
+              設定中のステップ ({editingTimeSteps.length}/{MAX_TIME_STEPS}):
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
               {editingTimeSteps.map((step, index) => (
