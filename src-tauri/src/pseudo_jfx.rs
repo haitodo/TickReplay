@@ -32,7 +32,7 @@ pub struct PseudoJfxEngine {
     // 大スパイク後のモメンタム維持 (シュミットトリガ)
     spike_latch_dir: i8,
     spike_latch_until_msc: i64,
-    // 直近140msの生クォート履歴 (msc, b_pt, a_pt, sum_pt)
+    // 直近125ms窓の生クォート履歴 (msc, b_pt, a_pt, sum_pt) - 最低でも直前1件を常に保持
     raw_history: Vec<(i64, i64, i64, i64)>,
     // 直近10秒間のボラティリティ追跡 (mt5_ms, q_pt)
     recent_ticks: Vec<(i64, i64)>,
@@ -101,16 +101,26 @@ impl PseudoJfxEngine {
         if self.last_emit_msc <= 0 {
             let q_pt = sum_pt / 2;
             self.last_q_pt = q_pt;
-            self.last_emit_msc = mt5_time_msc;
             self.raw_history.push((mt5_time_msc, b_pt, a_pt, sum_pt));
 
-            return self.finalize_quote(mt5_time_msc, q_pt, (a_pt - b_pt).max(0) as f64 * 0.1);
+            let raw_oanda_spread_pips = (a_pt - b_pt).max(0) as f64 * 0.1;
+            return self.finalize_quote(mt5_time_msc, q_pt, raw_oanda_spread_pips);
         }
 
-        // 直近 140ms 窓の生クォート履歴を更新
+        // 直近 125ms 窓より古い履歴を整理 (ただし最低でも直前1件の生ティックは必ず保持し、長空白後の単発ブレイク消失を防止)
+        let cutoff_125ms = mt5_time_msc - 125;
+        while self.raw_history.len() > 1 && self.raw_history[0].0 < cutoff_125ms {
+            self.raw_history.remove(0);
+        }
+
+        // 今回のティックを履歴に追加する前に、基準となる過去値 (125ms窓の最古値または直前ティック) を取得
+        let &(_, b_prev120, a_prev120, s_prev120) = self
+            .raw_history
+            .first()
+            .unwrap_or(&(mt5_time_msc, b_pt, a_pt, sum_pt));
+
+        // 今回の生ティックを履歴に追加
         self.raw_history.push((mt5_time_msc, b_pt, a_pt, sum_pt));
-        let cutoff_140ms = mt5_time_msc - 140;
-        self.raw_history.retain(|&(t, _, _, _)| t >= cutoff_140ms);
 
         // --- 2. 100ms 同期コアレッシングゲート (JFX MT5サーバーの約100ms配信仕様に準拠) ---
         let dt_emit = mt5_time_msc - self.last_emit_msc;
@@ -118,11 +128,6 @@ impl PseudoJfxEngine {
             return None;
         }
 
-        // 直近 120ms 窓の基準値 (最も古いレコード) を取得して累積速度を算出
-        let &(_, b_prev120, a_prev120, s_prev120) = self
-            .raw_history
-            .first()
-            .unwrap_or(&(mt5_time_msc, b_pt, a_pt, sum_pt));
         let ds_120 = sum_pt - s_prev120;
         let da_120 = a_pt - a_prev120;
         let db_120 = b_pt - b_prev120;
@@ -138,6 +143,7 @@ impl PseudoJfxEngine {
 
         let q_pt = if mt5_time_msc < self.spike_latch_until_msc {
             // 大スパイク後のモメンタム保持 (シュミットトリガ: 進行方向に追従し逆方向は -1.5pt 以上戻らない限り維持)
+            self.dither_state = 0;
             if self.spike_latch_dir > 0 {
                 if r >= 2 {
                     if up_impulse { q_ceil } else { q_floor }
@@ -172,7 +178,12 @@ impl PseudoJfxEngine {
                 q_floor
             } else if self.dither_state == -1 {
                 self.dither_state = 0;
-                q_floor
+                // 半整数点 (2k+1) で下へディザバウンスした直後、まだ同じ半整数に留まっていれば q_ceil (k+1) へ復帰
+                if is_odd && q_floor == self.last_q_pt {
+                    q_ceil
+                } else {
+                    q_floor
+                }
             } else if is_odd {
                 // 半整数点 (k + 0.5pt): 下から進入時は k+1 へディザ切り上げし次クロックで k へ復帰
                 if r == 1 && self.last_step_pt <= 0 {
@@ -194,26 +205,11 @@ impl PseudoJfxEngine {
             }
         };
 
-        // 直前出力と同値なら間引く (厳密 Change-Driven)
-        if q_pt == self.last_q_pt && self.last_emitted_bid_pt > 0 {
-            return None;
-        }
-
-        let step = q_pt - self.last_q_pt;
-        if step.abs() >= 3 {
-            self.spike_latch_dir = if step > 0 { 1 } else { -1 };
-            self.spike_latch_until_msc = mt5_time_msc + 320;
-            self.dither_state = 0;
-        }
-        self.last_step_pt = step;
-        self.last_q_pt = q_pt;
-        self.last_emit_msc = mt5_time_msc;
-
         let raw_oanda_spread_pips = (a_pt - b_pt).max(0) as f64 * 0.1;
         self.finalize_quote(mt5_time_msc, q_pt, raw_oanda_spread_pips)
     }
 
-    /// クォートの確定 (スプレッド計算、整数ポイント丸め、Change-Driven判定)
+    /// クォートの確定 (スプレッド計算、整数ポイント丸め、Change-Driven判定と状態更新)
     fn finalize_quote(
         &mut self,
         mt5_time_msc: i64,
@@ -382,7 +378,7 @@ impl PseudoJfxEngine {
         let jfx_bid_pt = q_pt - (spr_pt / 2);
         let jfx_ask_pt = jfx_bid_pt + spr_pt;
 
-        // 量子化後の Bid または Ask が直前と1ptでも変化した場合のみ出力
+        // 量子化後の Bid または Ask が直前と1ptでも変化した場合のみ出力 (厳密 Change-Driven)
         if self.last_emitted_bid_pt > 0
             && jfx_bid_pt == self.last_emitted_bid_pt
             && jfx_ask_pt == self.last_emitted_ask_pt
@@ -390,6 +386,18 @@ impl PseudoJfxEngine {
             return None;
         }
 
+        // 出力確定時の状態更新
+        let step = q_pt - self.last_q_pt;
+        if step.abs() >= 3 {
+            self.spike_latch_dir = if step > 0 { 1 } else { -1 };
+            self.spike_latch_until_msc = mt5_time_msc + 320;
+            self.dither_state = 0;
+        }
+        if step != 0 {
+            self.last_step_pt = step;
+            self.last_q_pt = q_pt;
+        }
+        self.last_emit_msc = mt5_time_msc;
         self.last_emitted_bid_pt = jfx_bid_pt;
         self.last_emitted_ask_pt = jfx_ask_pt;
 
@@ -442,13 +450,20 @@ mod tests {
         assert_eq!(b4, 150.001);
         assert_eq!(a4, 150.003);
 
-        // 5. 大スパイク (t = 300ms): 150.002 / 150.010 (+4pt 跳ね)
-        // 120ms 窓でのインパルス判定により即座に上方向追従 (q = 150.006)
-        let t5 = engine.process_tick(1788500000300, 150.002, 150.010);
+        // 5. 500ms の空白後 (t = 700ms > 125ms窓) に奇数 sum_pt の上方向ブレイク (150.001 / 150.008, Mid = 150.0045):
+        // 直前1件保持により単発インパルスが消失せず、即座に 150.005 (Bid=150.004, Ask=150.006) へ切り上げ追従すること
+        let t5 = engine.process_tick(1788500000700, 150.001, 150.008);
         assert!(t5.is_some());
         let (b5, a5, _) = t5.unwrap();
-        assert_eq!(b5, 150.005);
-        assert_eq!(a5, 150.007);
+        assert_eq!(b5, 150.004);
+        assert_eq!(a5, 150.006);
+
+        // 6. 中値不変のまま突発スプレッド拡大が発生した場合 (t = 1200ms):
+        // Mid = 150.005 のままだが OANDA スプレッドが 2.0p (149.995 / 150.015) に急拡大 -> スプレッド拡大ティックが出力されること
+        let t6 = engine.process_tick(1788500001200, 149.995, 150.015);
+        assert!(t6.is_some());
+        let (_, _, spr6) = t6.unwrap();
+        assert!(spr6 > 0.002, "中値不変でもスプレッド拡大時は出力されるべき");
     }
 
     #[test]
@@ -463,11 +478,11 @@ mod tests {
         assert_eq!(a1, 1.08503);
         assert_eq!(spr1, 0.00002);
 
-        // 100ms 後に上方向インパルス: 1.08502 / 1.08510 (da >= 2)
-        let t2 = engine.process_tick(1788500000100, 1.08502, 1.08510);
+        // 200ms 後に奇数 sum_pt の上方向インパルス: 1.08501 / 1.08508 (Mid = 1.085045 -> 1.08505)
+        let t2 = engine.process_tick(1788500000200, 1.08501, 1.08508);
         assert!(t2.is_some());
         let (b2, a2, _) = t2.unwrap();
-        assert_eq!(b2, 1.08505);
-        assert_eq!(a2, 1.08507);
+        assert_eq!(b2, 1.08504);
+        assert_eq!(a2, 1.08506);
     }
 }
