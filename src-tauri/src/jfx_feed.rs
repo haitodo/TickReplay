@@ -287,7 +287,7 @@ fn load_oanda_pseudo_parquet(
     let mut reader = builder.build()
         .map_err(|e| AppError::Config(format!("OANDA Parquetリーダー生成エラー: {}", e)))?;
 
-    let mut pseudo_engine = crate::pseudo_dmm::PseudoDmmEngine::new(pair, year_month);
+    let mut pseudo_engine = crate::pseudo_jfx::PseudoJfxEngine::new(pair, year_month);
     let mut ticks = Vec::new();
     let warmup_start = if start_msc > 0 { start_msc.saturating_sub(30_000) } else { 0 };
 
