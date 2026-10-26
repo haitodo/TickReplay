@@ -869,11 +869,13 @@ export const SpeedOrderWindowContent: React.FC = () => {
   const sellPips = totalSellLots > 0 ? (avgSellRate - ask) * pipMultiplier : 0;
   const spreadValue = (ask > 0 && bid > 0) ? ((ask - bid) * pipMultiplier).toFixed(1) : "--";
 
+  const formatAmount = (val: number) => isJpy
+    ? Math.round(val).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+    : val.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+
   const formatPLCompact = (val: number) => {
     const rounded = Math.round(val);
-    const formatted = isJpy
-      ? rounded.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })
-      : val.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+    const formatted = formatAmount(val);
     if (rounded > 0) return <span className="profit-green">+{formatted}</span>;
     if (rounded < 0) return <span className="loss-red">{formatted}</span>;
     return <span style={{ opacity: 0.4 }}>0</span>;
@@ -1333,19 +1335,13 @@ export const SpeedOrderWindowContent: React.FC = () => {
         <div className="account-stat">
           <span className="stat-label">P/L:</span>
           <span className={`stat-val ${totalPL >= 0 ? "profit-green" : "loss-red"}`}>
-            {totalPL >= 0 ? "+" : ""}{isJpy
-              ? Math.round(totalPL).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })
-              : totalPL.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+            {totalPL >= 0 ? "+" : ""}{formatAmount(totalPL)}
           </span>
         </div>
         <div className="account-stat">
           <span className="stat-label">Equity:</span>
           <span className="stat-val font-bold">
-            {account
-              ? (isJpy
-                  ? Math.round(account.equity).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })
-                  : account.equity.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }))
-              : "1,000,000"}
+            {account ? formatAmount(account.equity) : "1,000,000"}
           </span>
         </div>
       </div>

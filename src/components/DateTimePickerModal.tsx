@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { parseDateTimeStr, formatDateTimeStr } from "../utils/dateUtils";
+import { parseDateTimeStr, formatDateTimeStr, getDaysInMonth } from "../utils/dateUtils";
 
 interface DateTimePickerModalProps {
   fieldLabel: string;
@@ -37,10 +37,6 @@ export const DateTimePickerModal: React.FC<DateTimePickerModalProps> = ({
     });
     return Array.from(yearSet).sort((a, b) => a - b);
   }, [availableYears, tempYear]);
-
-  const getDaysInMonth = (y: number, m: number) => {
-    return new Date(y, m, 0).getDate();
-  };
 
   useEffect(() => {
     const maxDays = getDaysInMonth(tempYear, tempMonth);
@@ -85,7 +81,7 @@ export const DateTimePickerModal: React.FC<DateTimePickerModalProps> = ({
         <div className="datetime-modal-body">
           <div className="datetime-display-box">
             <div className="datetime-display-value">
-              {tempYear}-{pad(tempMonth)}-{pad(tempDay)} {pad(tempHour)}:{pad(tempMinute)}:00
+              {formatDateTimeStr(tempYear, tempMonth, tempDay, tempHour, tempMinute)}
             </div>
           </div>
 
