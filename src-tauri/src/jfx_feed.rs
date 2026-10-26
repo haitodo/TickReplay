@@ -1,11 +1,15 @@
-use std::fs::File;
-use std::path::{Path, PathBuf};
-use serde::{Deserialize, Serialize};
+use crate::error::AppError;
+use arrow::array::{Float64Array, Int64Array};
+use arrow::datatypes::{DataType, Schema};
 use chrono::{Datelike, NaiveDate, Timelike};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::arrow::ProjectionMask;
-use arrow::array::{Float64Array, Int64Array};
-use crate::error::AppError;
+use parquet::file::metadata::ParquetMetaData;
+use parquet::file::statistics::Statistics;
+use parquet::schema::types::SchemaDescriptor;
+use serde::{Deserialize, Serialize};
+use std::fs::File;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct ExecutionTick {
@@ -198,6 +202,8 @@ fn load_jfx_parquet(parquet_path: &Path, start_msc: i64, end_msc: i64) -> Result
         builder
     };
 
+    let builder = apply_time_row_group_filter(builder, start_msc, end_msc, 0);
+
     let mut reader = builder.build()
         .map_err(|e| AppError::Config(format!("JFX Parquetリーダー生成エラー: {}", e)))?;
 
@@ -284,6 +290,8 @@ fn load_oanda_pseudo_parquet(
         builder
     };
 
+    let builder = apply_time_row_group_filter(builder, start_msc, end_msc, 30_000);
+
     let mut reader = builder.build()
         .map_err(|e| AppError::Config(format!("OANDA Parquetリーダー生成エラー: {}", e)))?;
 
@@ -346,6 +354,107 @@ fn load_oanda_pseudo_parquet(
     }
 
     Ok(ticks)
+}
+
+/// 時刻列の row-group min/max 統計を使って、指定範囲外のグループを読み込み対象から外す。
+/// 統計がない・使えないグループは残すため、古い Parquet でも結果を欠落させない。
+fn apply_time_row_group_filter<T>(
+    builder: parquet::arrow::arrow_reader::ArrowReaderBuilder<T>,
+    start_msc: i64,
+    end_msc: i64,
+    warmup_msc: i64,
+) -> parquet::arrow::arrow_reader::ArrowReaderBuilder<T> {
+    let start = (start_msc > 0).then(|| start_msc.saturating_sub(warmup_msc));
+    let end = (end_msc > 0).then_some(end_msc);
+    let Some(row_groups) = select_time_row_groups(
+        builder.schema().as_ref(),
+        builder.parquet_schema(),
+        builder.metadata().as_ref(),
+        start,
+        end,
+    ) else {
+        return builder;
+    };
+
+    builder.with_row_groups(row_groups)
+}
+
+/// スキーマや統計から安全に読み込み範囲を狭められない場合は `None` を返す。
+fn select_time_row_groups(
+    arrow_schema: &Schema,
+    parquet_schema: &SchemaDescriptor,
+    metadata: &ParquetMetaData,
+    start_msc: Option<i64>,
+    end_msc: Option<i64>,
+) -> Option<Vec<usize>> {
+    if start_msc.is_none() && end_msc.is_none() {
+        return None;
+    }
+    if matches!((start_msc, end_msc), (Some(start), Some(end)) if start > end) {
+        return Some(Vec::new());
+    }
+
+    // 行デコードと同じ優先順位で mt5_ms を使い、なければ utc_ms を選ぶ。
+    let (time_column, time_column_idx) = ["mt5_ms", "utc_ms"].into_iter().find_map(|name| {
+        let arrow_idx = arrow_schema.index_of(name).ok()?;
+        if arrow_schema.field(arrow_idx).data_type() != &DataType::Int64 {
+            return None;
+        }
+        let parquet_idx = parquet_schema.columns().iter().position(|column| {
+            let parts = column.path().parts();
+            parts.len() == 1 && parts[0] == name
+        })?;
+        Some((name, parquet_idx))
+    })?;
+
+    // utc_ms は米国の夏時間に応じて2時間または3時間を加えて server time にする。
+    // DST 境界で対象ティックを含む row group を誤って除外しないよう、
+    // 可能なオフセットの全範囲を使って UTC の検索範囲を求める。
+    let (min_time, max_time) = if time_column == "utc_ms" {
+        (
+            start_msc.map(|time| time.saturating_sub(3 * 60 * 60 * 1000)),
+            end_msc.map(|time| time.saturating_sub(2 * 60 * 60 * 1000)),
+        )
+    } else {
+        (start_msc, end_msc)
+    };
+
+    let mut selected = Vec::with_capacity(metadata.num_row_groups());
+    for row_group_idx in 0..metadata.num_row_groups() {
+        let column = metadata.row_group(row_group_idx).column(time_column_idx);
+        let overlaps = match column.statistics() {
+            Some(Statistics::Int64(stats)) => {
+                let min = stats.min_opt().copied();
+                let max = stats.max_opt().copied();
+                if matches!((min, max), (Some(min), Some(max)) if min > max) {
+                    true
+                } else {
+                    // Parquet の min は下限、max は上限として扱い、範囲外と
+                    // 証明できる場合だけ row group を除外する。
+                    let can_be_after_start = match (max, min_time) {
+                        (Some(max), Some(start)) => max >= start,
+                        _ => true,
+                    };
+                    let can_be_before_end = match (min, max_time) {
+                        (Some(min), Some(end)) => min <= end,
+                        _ => true,
+                    };
+                    can_be_after_start && can_be_before_end
+                }
+            }
+            _ => true,
+        };
+
+        if overlaps {
+            selected.push(row_group_idx);
+        }
+    }
+
+    if selected.len() == metadata.num_row_groups() {
+        None
+    } else {
+        Some(selected)
+    }
 }
 
 /// 開始日時・終了日時文字列から (年, 月) のリストを生成
