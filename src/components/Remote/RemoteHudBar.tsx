@@ -2,6 +2,7 @@ import React from "react";
 import { COMMANDS } from "../../constants/commands";
 import { invoke } from "@tauri-apps/api/core";
 import { formatJstTime, formatServerTime, getNewsTimeForDisplay } from "../../utils/timeUtils";
+import { getSafeMultiplier } from "../../utils/speedUtils";
 
 interface RemoteHudBarProps {
   handleDragStart: (e: React.MouseEvent) => void;
@@ -60,7 +61,7 @@ export const RemoteHudBar: React.FC<RemoteHudBarProps> = React.memo(({
   handleTerminate,
   toggleRemoteMode,
 }) => {
-  const safeMultiplier = typeof multiplier === "number" ? multiplier : parseFloat(String(multiplier)) || 1.0;
+  const safeMultiplier = getSafeMultiplier(multiplier);
 
   return (
     <div className="remote-wrapper relative" data-tauri-drag-region>

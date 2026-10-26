@@ -6,6 +6,7 @@ import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { formatRate } from "../utils/rateUtils";
+import { getLotDisplayFractionDigits } from "../domain/contractUtils";
 import { useAppearance } from "../hooks/useAppearance";
 import { VirtualAccount, VirtualPosition } from "../types/trading";
 import { nextAccount, nextPositions } from "../domain/tradeStateUpdate";
@@ -23,6 +24,7 @@ export const PositionsWindowContent: React.FC = () => {
     const saved = localStorage.getItem(STORAGE_KEYS.speedOrderContractSize);
     return saved ? parseInt(saved, 10) : 10000;
   });
+  const lotFractionDigits = getLotDisplayFractionDigits(contractSize);
 
   // 資金操作モーダル用State
   const [activeFundingAction, setActiveFundingAction] = useState<"none" | "deposit" | "withdraw" | "reset">("none");
@@ -541,7 +543,7 @@ export const PositionsWindowContent: React.FC = () => {
                       </span>
                     </td>
                     <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: "var(--font-data)" }}>
-                      {volumeNum.toFixed(contractSize === 100000 ? 2 : 0)}
+                      {volumeNum.toFixed(lotFractionDigits)}
                     </td>
                     <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: "var(--font-data)" }}>
                       {formatRate(openPriceNum, isJpy)}
@@ -593,10 +595,10 @@ export const PositionsWindowContent: React.FC = () => {
       >
         <div style={{ display: "flex", gap: "16px", fontSize: "12px" }}>
           <span>
-            BUY: <strong className="font-data">{totalBuyLots.toFixed(contractSize === 100000 ? 2 : 0)}</strong>
+            BUY: <strong className="font-data">{totalBuyLots.toFixed(lotFractionDigits)}</strong>
           </span>
           <span>
-            SELL: <strong className="font-data">{totalSellLots.toFixed(contractSize === 100000 ? 2 : 0)}</strong>
+            SELL: <strong className="font-data">{totalSellLots.toFixed(lotFractionDigits)}</strong>
           </span>
           <span>
             合計評価損益: <strong>{formatPL(totalPL)}</strong>

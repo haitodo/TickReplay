@@ -16,6 +16,7 @@ import type { TimeStepItem, DayTimelineActivity } from "../../types/replay";
 import { ReplayCommand, sendReplayCommand } from "../../utils/command";
 import { PersistedSettings } from "../../types/settings";
 import { ReplayProgressPayload } from "../../types/replay";
+import { formatReplaySessionName } from "../../utils/sessionName";
 
 export const ControllerWindowContent: React.FC = () => {
   useAppearance();
@@ -705,8 +706,7 @@ export const ControllerWindowContent: React.FC = () => {
   const handleOpenSaveAndExit = () => {
     setIsExitMenuOpen(false);
     const now = new Date();
-    const pad = (n: number) => n.toString().padStart(2, "0");
-    const defaultName = `${sourceSymbol || "REPLAY"}_Replay_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+    const defaultName = formatReplaySessionName(sourceSymbol || "REPLAY", now);
     setSaveSessionName(defaultName);
     setIsSaveAndExitModalOpen(true);
   };

@@ -36,6 +36,7 @@ import { SettingsModal } from "./components/Settings/SettingsModal";
 import { parseSymbolName, getCompanionSymbols, switchSymbolSuffix, getAllYears, checkSymbolYearMismatch } from "./utils/symbolUtils";
 import { parseDateTimeStr, alignDateRangeToYear } from "./utils/dateUtils";
 import { checkEconomicDataAvailability } from "./utils/economicDataUtils";
+import { formatReplaySessionName } from "./utils/sessionName";
 import { useAppearance } from "./hooks/useAppearance";
 import {
   DEFAULT_TIME_STEPS,
@@ -2314,8 +2315,7 @@ function MainWindow() {
     }
     // 保存確認モーダルを表示
     const now = new Date();
-    const pad = (n: number) => n.toString().padStart(2, '0');
-    const defaultName = `${sourceSymbol}_Replay_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+    const defaultName = formatReplaySessionName(sourceSymbol, now);
     setSaveSessionName(currentSessionId ? currentSessionName : defaultName);
     setSaveAsNewSnapshot(false);
     setSessionSaveType("terminate");

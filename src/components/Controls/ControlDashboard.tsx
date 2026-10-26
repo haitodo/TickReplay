@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import type { TimeStepItem, DayTimelineActivity } from "../../types/replay";
 import { formatJstTime, formatServerTime } from "../../utils/timeUtils";
+import { getSafeMultiplier } from "../../utils/speedUtils";
 import { getSecondsIntoDay } from "../../domain/timeline";
 import { MiniWaveformTrack } from "./MiniWaveformTrack";
 import { TimelineInspectorTooltip } from "./TimelineInspectorTooltip";
@@ -505,7 +506,7 @@ const ControlDashboardComponent: React.FC<ControlDashboardProps> = ({
   setAutoSkipFlat,
   onOpenAutoSkipSettings,
 }) => {
-  const safeMultiplier = typeof multiplier === "number" ? multiplier : parseFloat(String(multiplier)) || 1.0;
+  const safeMultiplier = getSafeMultiplier(multiplier);
   const [dragSec, setDragSec] = useState<number | null>(null);
   const [hoverInfo, setHoverInfo] = useState<{
     sec: number;

@@ -5,6 +5,7 @@ import { formatJstTime, formatServerTime } from "../../utils/timeUtils";
 import { SessionBoundaryInfo } from "../../domain/sessionBoundaries";
 import type { FeedRate, SubFeedRate } from "../../types/replay";
 import { getCachedEconomicAvailabilityMap, isEconomicSpreadActive } from "../../utils/economicDataUtils";
+import { formatReplaySessionName } from "../../utils/sessionName";
 
 interface AppHeaderProps {
   status: "DISCONNECTED" | "CONNECTED" | "READY" | "ACTIVE";
@@ -197,10 +198,7 @@ export const AppHeader: React.FC<AppHeaderProps> = React.memo(({
               className="header-btn"
               onClick={() => {
                 const now = new Date();
-                const pad = (n: number) => n.toString().padStart(2, "0");
-                const defaultName = `${sourceSymbol}_Replay_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(
-                  now.getDate()
-                )}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+                const defaultName = formatReplaySessionName(sourceSymbol, now);
                 setSaveSessionName(currentSessionId ? currentSessionName : defaultName);
                 setSaveAsNewSnapshot(false);
                 setSessionSaveType("manual");

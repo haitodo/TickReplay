@@ -10,7 +10,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import { CustomSelect } from "../CustomSelect";
 import { useAppearance } from "../hooks/useAppearance";
-import { getContractSizeLabel } from "../domain/contractUtils";
+import { getContractSizeLabel, getLotDisplayFractionDigits } from "../domain/contractUtils";
 import { summarizePositionSide } from "../domain/positionSummary";
 import { TimeStopMode, VirtualAccount, VirtualPosition } from "../types/trading";
 import { nextAccount, nextPositions } from "../domain/tradeStateUpdate";
@@ -46,6 +46,8 @@ export const SpeedOrderWindowContent: React.FC = () => {
     const saved = localStorage.getItem(STORAGE_KEYS.speedOrderContractSize);
     return saved ? parseInt(saved, 10) : 10000;
   });
+  const lotFractionDigits = getLotDisplayFractionDigits(contractSize);
+  const zeroLotCount = (0).toFixed(lotFractionDigits);
   const [orderColorStyle, setOrderColorStyle] = useState<"blue-red" | "red-green">(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.speedOrderColorStyle);
     if (saved === "red-primary") return "red-green";
@@ -1277,8 +1279,8 @@ export const SpeedOrderWindowContent: React.FC = () => {
             <span className="summary-label">建玉数量</span>
             <span className="summary-value font-data">
               {totalSellLots > 0
-                ? totalSellLots.toFixed(contractSize === 100000 ? 2 : 0)
-                : (contractSize === 100000 ? "0.00" : "0")}
+                ? totalSellLots.toFixed(lotFractionDigits)
+                : zeroLotCount}
             </span>
           </div>
           <div className="summary-row">
@@ -1302,8 +1304,8 @@ export const SpeedOrderWindowContent: React.FC = () => {
             <span className="summary-label">建玉数量</span>
             <span className="summary-value font-data">
               {totalBuyLots > 0
-                ? totalBuyLots.toFixed(contractSize === 100000 ? 2 : 0)
-                : (contractSize === 100000 ? "0.00" : "0")}
+                ? totalBuyLots.toFixed(lotFractionDigits)
+                : zeroLotCount}
             </span>
           </div>
           <div className="summary-row">
