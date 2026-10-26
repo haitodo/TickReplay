@@ -72,31 +72,35 @@ pub fn jst_to_server_time_msc(s: &str) -> Option<i64> {
     Some(server_dt.and_utc().timestamp_millis())
 }
 
-pub fn calculate_session_jump_target(cur_msc: i64, session: &str, is_next: bool) -> i64 {
-    use chrono::{Datelike, Timelike, DateTime};
-
-    let cur_sec = (cur_msc / 1000).max(0);
-    let naive_dt = DateTime::from_timestamp(cur_sec, 0).map(|dt| dt.naive_utc()).unwrap_or_default();
-    let y = naive_dt.year();
-    let m = naive_dt.month();
-    let d = naive_dt.day();
-    let h = naive_dt.hour();
-    let is_dst = crate::pseudo_dmm::PseudoDmmEngine::is_us_dst(y, m, d, h);
-
+fn get_session_times_for_date(cur_date: chrono::NaiveDate, session: &str) -> Vec<(&'static str, u32, u32)> {
+    use chrono::Datelike;
+    let y = cur_date.year();
+    let m = cur_date.month();
+    let d = cur_date.day();
+    // サーバー時間 12:00 (NY市場開始前・ロンドン昼) のDST状態で判定
+    let is_dst = crate::pseudo_dmm::PseudoDmmEngine::is_us_dst(y, m, d, 12);
     // サーバー時間 (GMT+2冬 / GMT+3夏) でのセッション開始時刻 (HH, MM)
     // TYO: JST 08:45 -> 冬 01:45 / 夏 02:45
     // LDN: 欧州開始 (現地08:00) -> 冬 10:00 / 夏 10:00 (常にサーバー時間10:00)
     // NY:  米国コア開始 (現地08:00) -> 冬 15:00 / 夏 15:00 (常にサーバー時間15:00)
-    let session_times: Vec<(&str, u32, u32)> = match session {
-        "TYO" => vec![("TYO", if is_dst { 2 } else { 1 }, 45)],
+    let tyo_hour = if is_dst { 2 } else { 1 };
+    match session {
+        "TYO" => vec![("TYO", tyo_hour, 45)],
         "LDN" => vec![("LDN", 10, 0)],
         "NY" => vec![("NY", 15, 0)],
         _ => vec![
-            ("TYO", if is_dst { 2 } else { 1 }, 45),
+            ("TYO", tyo_hour, 45),
             ("LDN", 10, 0),
             ("NY", 15, 0),
         ],
-    };
+    }
+}
+
+pub fn calculate_session_jump_target(cur_msc: i64, session: &str, is_next: bool) -> i64 {
+    use chrono::{Datelike, DateTime};
+
+    let cur_sec = (cur_msc / 1000).max(0);
+    let naive_dt = DateTime::from_timestamp(cur_sec, 0).map(|dt| dt.naive_utc()).unwrap_or_default();
 
     if is_next {
         for day_offset in 0..14 {
@@ -105,6 +109,7 @@ pub fn calculate_session_jump_target(cur_msc: i64, session: &str, is_next: bool)
             if weekday == chrono::Weekday::Sat || weekday == chrono::Weekday::Sun {
                 continue;
             }
+            let session_times = get_session_times_for_date(cur_date, session);
             for &(_, hour, min) in &session_times {
                 if let Some(target_time) = cur_date.and_hms_opt(hour, min, 0) {
                     let target_sec = target_time.and_utc().timestamp();
@@ -121,7 +126,7 @@ pub fn calculate_session_jump_target(cur_msc: i64, session: &str, is_next: bool)
             if weekday == chrono::Weekday::Sat || weekday == chrono::Weekday::Sun {
                 continue;
             }
-            let mut rev_times = session_times.clone();
+            let mut rev_times = get_session_times_for_date(cur_date, session);
             rev_times.reverse();
             for &(_, hour, min) in &rev_times {
                 if let Some(target_time) = cur_date.and_hms_opt(hour, min, 0) {
@@ -1046,5 +1051,101 @@ pub async fn get_day_timeline_activity(
         Ok(crate::core::volatility::compute_day_timeline_activity(store, v_time, min_floor, max_cap))
     } else {
         Ok(crate::core::volatility::DayTimelineActivity::default())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+
+    fn make_ts(year: i32, month: u32, day: u32, hour: u32, min: u32, sec: u32) -> i64 {
+        let date = NaiveDate::from_ymd_opt(year, month, day).unwrap();
+        let time = NaiveTime::from_hms_opt(hour, min, sec).unwrap();
+        let dt = NaiveDateTime::new(date, time);
+        dt.and_utc().timestamp_millis()
+    }
+
+    #[test]
+    fn test_calculate_session_jump_target_forward_winter() {
+        // 2024-01-15 は月曜日、冬時間 (GMT+2)
+        // TYO: 01:45, LDN: 10:00, NY: 15:00
+        let cur = make_ts(2024, 1, 15, 0, 0, 0);
+
+        // +TYO -> 2024-01-15 01:45:00
+        let target_tyo = calculate_session_jump_target(cur, "TYO", true);
+        assert_eq!(target_tyo, make_ts(2024, 1, 15, 1, 45, 0));
+
+        // +LDN -> 2024-01-15 10:00:00
+        let target_ldn = calculate_session_jump_target(cur, "LDN", true);
+        assert_eq!(target_ldn, make_ts(2024, 1, 15, 10, 0, 0));
+
+        // +NY -> 2024-01-15 15:00:00
+        let target_ny = calculate_session_jump_target(cur, "NY", true);
+        assert_eq!(target_ny, make_ts(2024, 1, 15, 15, 0, 0));
+
+        // +ANY -> 2024-01-15 01:45:00 (直近の次セッションは TYO)
+        let target_any = calculate_session_jump_target(cur, "ANY", true);
+        assert_eq!(target_any, make_ts(2024, 1, 15, 1, 45, 0));
+
+        // 02:00 から +ANY -> 2024-01-15 10:00:00 (LDN)
+        let cur_mid = make_ts(2024, 1, 15, 2, 0, 0);
+        assert_eq!(
+            calculate_session_jump_target(cur_mid, "ANY", true),
+            make_ts(2024, 1, 15, 10, 0, 0)
+        );
+    }
+
+    #[test]
+    fn test_calculate_session_jump_target_forward_summer() {
+        // 2024-06-17 は月曜日、夏時間 (GMT+3)
+        // TYO: 02:45, LDN: 10:00, NY: 15:00
+        let cur = make_ts(2024, 6, 17, 0, 0, 0);
+
+        // +TYO -> 2024-06-17 02:45:00
+        let target_tyo = calculate_session_jump_target(cur, "TYO", true);
+        assert_eq!(target_tyo, make_ts(2024, 6, 17, 2, 45, 0));
+    }
+
+    #[test]
+    fn test_calculate_session_jump_target_weekend_skip() {
+        // 金曜日 2024-01-19 16:00:00 (NY市場開始後)
+        let cur_fri_night = make_ts(2024, 1, 19, 16, 0, 0);
+
+        // +TYO -> 土日(20, 21)をスキップして月曜 2024-01-22 01:45:00 (冬時間)
+        let target_mon_tyo = calculate_session_jump_target(cur_fri_night, "TYO", true);
+        assert_eq!(target_mon_tyo, make_ts(2024, 1, 22, 1, 45, 0));
+    }
+
+    #[test]
+    fn test_calculate_session_jump_target_rewind_weekend_skip() {
+        // 月曜日 2024-01-22 01:00:00 (東京前)
+        let cur_mon_dawn = make_ts(2024, 1, 22, 1, 0, 0);
+
+        // -ANY -> 日・土をスキップして金曜 2024-01-19 15:00:00 (NY)
+        let target_fri_ny = calculate_session_jump_target(cur_mon_dawn, "ANY", false);
+        assert_eq!(target_fri_ny, make_ts(2024, 1, 19, 15, 0, 0));
+
+        // -TYO -> 金曜 2024-01-19 01:45:00 (TYO)
+        let target_fri_tyo = calculate_session_jump_target(cur_mon_dawn, "TYO", false);
+        assert_eq!(target_fri_tyo, make_ts(2024, 1, 19, 1, 45, 0));
+    }
+
+    #[test]
+    fn test_calculate_session_jump_target_dst_transition() {
+        // 2024年の米国夏時間開始は 2024-03-10（日）。
+        // 金曜 2024-03-08 は冬時間 (GMT+2)
+        // 月曜 2024-03-11 は夏時間 (GMT+3)
+        // 金曜夜 2024-03-08 16:00:00 から +TYO で次週月曜にジャンプする場合、
+        // ジャンプ先 2024-03-11 では夏時間なので 02:45:00 になる必要がある。
+        let cur_fri_night = make_ts(2024, 3, 8, 16, 0, 0);
+        let target_mon_tyo = calculate_session_jump_target(cur_fri_night, "TYO", true);
+        assert_eq!(target_mon_tyo, make_ts(2024, 3, 11, 2, 45, 0));
+
+        // 逆に月曜早朝 2024-03-11 01:00:00 (夏時間) から -TYO で巻き戻す場合、
+        // ジャンプ先 2024-03-08 は冬時間なので 01:45:00 になる必要がある。
+        let cur_mon_dawn = make_ts(2024, 3, 11, 1, 0, 0);
+        let target_fri_tyo = calculate_session_jump_target(cur_mon_dawn, "TYO", false);
+        assert_eq!(target_fri_tyo, make_ts(2024, 3, 8, 1, 45, 0));
     }
 }

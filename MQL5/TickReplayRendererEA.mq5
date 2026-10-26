@@ -232,6 +232,8 @@ void SendHello();
 void SendAck(ulong main_applied, ulong sub_applied, uint duration_us);
 void SendReady();
 bool GetLatestTickAtOrBefore(string symbol, long target_msc, MqlTick &out_tick);
+void SyncSymbolResetForward(string src_symbol, string rep_symbol, long from_msc, long to_msc, MqlTick &last_applied_tick, bool &has_last_applied_tick);
+void SyncSymbolResetRewind(string src_symbol, string rep_symbol, long to_msc, MqlTick &last_applied_tick, bool &has_last_applied_tick, bool is_initial);
 void ProcessInit(const InitPayload &p);
 void ProcessAdvance(const AdvancePayload &adv, ulong start_us);
 void ProcessReset(const ResetPayload &rst);
@@ -1735,19 +1737,16 @@ void ProcessAdvance(const AdvancePayload &adv, ulong start_us)
                 if(new_count > 0)
                 {
                     // 100% CustomTicksAdd による純粋な実ティック追加 (M1上書きによる足飛び・キャッシュ不整合を根絶)
-                    if(start_pos == 0)
+                    const int CHUNK_SIZE = 10000;
+                    for(int offset = start_pos; offset < fetched_count; offset += CHUNK_SIZE)
                     {
-                        CustomTicksAdd(m_replay_symbol, ticks_slice);
-                        m_last_applied_tick = ticks_slice[fetched_count - 1];
+                        int cur_chunk = MathMin(CHUNK_SIZE, fetched_count - offset);
+                        MqlTick chunk_slice[];
+                        ArrayResize(chunk_slice, cur_chunk);
+                        ArrayCopy(chunk_slice, ticks_slice, 0, offset, cur_chunk);
+                        CustomTicksAdd(m_replay_symbol, chunk_slice);
                     }
-                    else
-                    {
-                        MqlTick new_slice[];
-                        ArrayResize(new_slice, new_count);
-                        ArrayCopy(new_slice, ticks_slice, 0, start_pos, new_count);
-                        CustomTicksAdd(m_replay_symbol, new_slice);
-                        m_last_applied_tick = new_slice[new_count - 1];
-                    }
+                    m_last_applied_tick = ticks_slice[fetched_count - 1];
                     m_has_last_applied_tick = true;
                     m_current_idx += new_count;
                     ticks_added = true;
@@ -1805,19 +1804,16 @@ void ProcessAdvance(const AdvancePayload &adv, ulong start_us)
                     int new_count_sub = sub_count - start_pos_sub;
                     if(new_count_sub > 0)
                     {
-                        if(start_pos_sub == 0)
+                        const int CHUNK_SIZE = 10000;
+                        for(int offset = start_pos_sub; offset < sub_count; offset += CHUNK_SIZE)
                         {
-                            CustomTicksAdd(m_replay_symbol_sub, sub_slice);
-                            m_last_applied_tick_sub = sub_slice[sub_count - 1];
+                            int cur_chunk = MathMin(CHUNK_SIZE, sub_count - offset);
+                            MqlTick chunk_slice[];
+                            ArrayResize(chunk_slice, cur_chunk);
+                            ArrayCopy(chunk_slice, sub_slice, 0, offset, cur_chunk);
+                            CustomTicksAdd(m_replay_symbol_sub, chunk_slice);
                         }
-                        else
-                        {
-                            MqlTick new_sub_slice[];
-                            ArrayResize(new_sub_slice, new_count_sub);
-                            ArrayCopy(new_sub_slice, sub_slice, 0, start_pos_sub, new_count_sub);
-                            CustomTicksAdd(m_replay_symbol_sub, new_sub_slice);
-                            m_last_applied_tick_sub = new_sub_slice[new_count_sub - 1];
-                        }
+                        m_last_applied_tick_sub = sub_slice[sub_count - 1];
                         m_has_last_applied_tick_sub = true;
                         m_current_idx_sub += new_count_sub;
                         ticks_added = true;
@@ -1925,6 +1921,166 @@ void ProcessAdvance(const AdvancePayload &adv, ulong start_us)
 }
 
 //+------------------------------------------------------------------+
+//| RESET 前方ジャンプ同期ヘルパー (確定M1事前描画 + 実ティック分割投入) |
+//+------------------------------------------------------------------+
+void SyncSymbolResetForward(
+    string src_symbol,
+    string rep_symbol,
+    long from_msc,
+    long to_msc,
+    MqlTick &last_applied_tick,
+    bool &has_last_applied_tick)
+{
+    if(src_symbol == "" || rep_symbol == "" || to_msc < from_msc) return;
+
+    datetime from_bar = (datetime)(from_msc / 1000);
+    from_bar = from_bar - (from_bar % 60);
+    datetime to_bar = (datetime)(to_msc / 1000);
+    to_bar = to_bar - (to_bar % 60);
+
+    // 1. to_msc が属する未確定分より前の確定M1バー (to_bar - 60) までを確実に取得・事前描画 (足飛び・省略を完全根絶)
+    if(to_bar > from_bar)
+    {
+        datetime end_completed_bar = to_bar - 60;
+        MqlRates jump_rates[];
+        ArrayFree(jump_rates);
+        int copied_bars = 0;
+        for(int r = 0; r < 5; r++)
+        {
+            copied_bars = CopyRates(src_symbol, PERIOD_M1, from_bar, end_completed_bar, jump_rates);
+            if(copied_bars > 0) break;
+            Sleep(20);
+        }
+        if(copied_bars > 0)
+        {
+            CustomRatesUpdate(rep_symbol, jump_rates);
+        }
+    }
+
+    // 2. 実ティックを CustomTicksAdd でチャンク追加 (MT5のバッファ上限を回避する分割取得ループ)
+    ulong cur_from_msc = (has_last_applied_tick && last_applied_tick.time_msc > 0) ? (ulong)last_applied_tick.time_msc : (ulong)from_msc;
+    ulong target_to_msc = (ulong)to_msc;
+
+    if(target_to_msc >= cur_from_msc)
+    {
+        while(cur_from_msc < target_to_msc)
+        {
+            MqlTick ticks_slice[];
+            ArrayFree(ticks_slice);
+            int fetched_count = 0;
+            for(int r = 0; r < 5; r++)
+            {
+                fetched_count = CopyTicksRange(src_symbol, ticks_slice, COPY_TICKS_ALL, cur_from_msc, target_to_msc);
+                if(fetched_count > 0) break;
+                Sleep(20);
+            }
+
+            if(fetched_count <= 0)
+            {
+                // リトライ後も取得できない場合 (週末や市場クローズ等のギャップ)
+                break;
+            }
+
+            int start_pos = 0;
+            if(has_last_applied_tick)
+            {
+                for(int i = 0; i < fetched_count; i++)
+                {
+                    if(ticks_slice[i].time_msc < last_applied_tick.time_msc)
+                    {
+                        continue;
+                    }
+                    if(ticks_slice[i].time_msc == last_applied_tick.time_msc &&
+                       ticks_slice[i].bid == last_applied_tick.bid &&
+                       ticks_slice[i].ask == last_applied_tick.ask)
+                    {
+                        start_pos = i + 1;
+                    }
+                    else if(ticks_slice[i].time_msc > last_applied_tick.time_msc)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            int new_count = fetched_count - start_pos;
+            if(new_count > 0)
+            {
+                const int CHUNK_SIZE = 10000;
+                for(int offset = start_pos; offset < fetched_count; offset += CHUNK_SIZE)
+                {
+                    int cur_chunk = MathMin(CHUNK_SIZE, fetched_count - offset);
+                    MqlTick chunk_slice[];
+                    ArrayResize(chunk_slice, cur_chunk);
+                    ArrayCopy(chunk_slice, ticks_slice, 0, offset, cur_chunk);
+                    CustomTicksAdd(rep_symbol, chunk_slice);
+                }
+                last_applied_tick = ticks_slice[fetched_count - 1];
+                has_last_applied_tick = true;
+            }
+
+            ulong last_t_msc = (ulong)ticks_slice[fetched_count - 1].time_msc;
+            if(last_t_msc >= target_to_msc || last_t_msc <= cur_from_msc)
+            {
+                break;
+            }
+            cur_from_msc = last_t_msc;
+        }
+
+        // ティックが0件または不足している場合の最新気配同期
+        if(!has_last_applied_tick || last_applied_tick.time_msc < to_msc)
+        {
+            MqlTick cur_tick;
+            if(GetLatestTickAtOrBefore(src_symbol, to_msc, cur_tick))
+            {
+                last_applied_tick = cur_tick;
+                has_last_applied_tick = true;
+            }
+        }
+    }
+}
+
+//+------------------------------------------------------------------+
+//| RESET 巻き戻し同期ヘルパー (未来ティック/未来M1バーの完全削除)      |
+//+------------------------------------------------------------------+
+void SyncSymbolResetRewind(
+    string src_symbol,
+    string rep_symbol,
+    long to_msc,
+    MqlTick &last_applied_tick,
+    bool &has_last_applied_tick,
+    bool is_initial)
+{
+    if(rep_symbol == "") return;
+
+    datetime target_dt = (datetime)(to_msc / 1000);
+
+    // 未来ティック削除
+    CustomTicksDelete(rep_symbol, (ulong)(to_msc + 1), LONG_MAX);
+
+    // 未来M1バー削除 (ゴースト足を完全一掃)
+    CustomRatesDelete(rep_symbol, target_dt + 1, D'3000.01.01 00:00:00');
+
+    // 削除後の末尾最新ティック同期
+    MqlTick cur_tick;
+    if(GetLatestTickAtOrBefore(src_symbol, to_msc, cur_tick))
+    {
+        if(is_initial && !has_last_applied_tick)
+        {
+            MqlTick quote[1];
+            quote[0] = cur_tick;
+            CustomTicksAdd(rep_symbol, quote);
+        }
+        last_applied_tick = cur_tick;
+        has_last_applied_tick = true;
+    }
+    else
+    {
+        has_last_applied_tick = false;
+    }
+}
+
+//+------------------------------------------------------------------+
 //| RESET 処理 (シーク/時間ジャンプ/ループラップ時の差分同期)        |
 //+------------------------------------------------------------------+
 void ProcessReset(const ResetPayload &rst)
@@ -1943,111 +2099,22 @@ void ProcessReset(const ResetPayload &rst)
 
     int delay_main = GetEffectiveReceiveDelay(m_source_symbol);
     long eff_target_msc = (delay_main > 0) ? MathMax(0, target_msc - delay_main) : target_msc;
-
     datetime target_dt = (datetime)(eff_target_msc / 1000);
 
     // --- メインシンボルの高速シーク・リセット (物理遅延考慮) ---
     if(eff_target_msc < m_current_v_time_msc || m_current_v_time_msc == 0)
     {
-        PrintFormat("[RendererEA] [RESET 巻き戻し] sym=%s, target=%s (%I64d), cur=%s (%I64d)",
-            m_replay_symbol, TimeToString(target_dt, TIME_DATE|TIME_SECONDS), eff_target_msc,
-            TimeToString((datetime)(m_current_v_time_msc/1000), TIME_DATE|TIME_SECONDS), m_current_v_time_msc);
-
-        // 巻き戻し: target_msc より未来のティックを削除 (CustomRatesDelete/Update による足崩壊・キャッシュ不整合を完全防止)
-        int del_cnt = CustomTicksDelete(m_replay_symbol, (ulong)(eff_target_msc + 1), LONG_MAX);
-        PrintFormat("[RendererEA] [RESET CustomTicksDelete] 削除件数=%d", del_cnt);
-
-        // 削除後にシンボル末尾に残っている最新ティックを特定して照合状態を同期
-        // (注: すでにシンボル内に残っているため CustomTicksAdd で二重追加してはならない)
-        MqlTick cur_tick;
-        if(GetLatestTickAtOrBefore(m_source_symbol, eff_target_msc, cur_tick))
-        {
-            if(m_current_v_time_msc == 0 && !m_has_last_applied_tick)
-            {
-                MqlTick quote[1];
-                quote[0] = cur_tick;
-                CustomTicksAdd(m_replay_symbol, quote);
-            }
-            m_last_applied_tick = cur_tick;
-            m_has_last_applied_tick = true;
-            PrintFormat("[RendererEA] [RESET 巻き戻し同期] last_tick_time=%s",
-                TimeToString((datetime)(cur_tick.time_msc/1000), TIME_DATE|TIME_SECONDS));
-        }
-        else
-        {
-            m_has_last_applied_tick = false;
-        }
+        SyncSymbolResetRewind(m_source_symbol, m_replay_symbol, eff_target_msc, m_last_applied_tick, m_has_last_applied_tick, m_current_v_time_msc == 0);
     }
     else if(eff_target_msc > m_current_v_time_msc)
     {
-        // 前方ジャンプ: 実ティックを 100% CustomTicksAdd で反映
-        // (注: CustomRatesUpdate を混ぜると MT5 がティック欠損と判定して足が省略されるため、必ず全ティックを投入する)
         ulong from_msc = (m_has_last_applied_tick && m_last_applied_tick.time_msc > 0) ? (ulong)m_last_applied_tick.time_msc : (ulong)(m_current_v_time_msc > 0 ? m_current_v_time_msc : eff_target_msc);
-        ulong to_msc   = (ulong)eff_target_msc;
-
-        if(to_msc >= from_msc)
-        {
-            MqlTick ticks_slice[];
-            ArrayFree(ticks_slice);
-            int fetched_count = CopyTicksRange(m_source_symbol, ticks_slice, COPY_TICKS_ALL, from_msc, to_msc);
-
-            if(fetched_count > 0)
-            {
-                int start_pos = 0;
-                if(m_has_last_applied_tick)
-                {
-                    for(int i = 0; i < fetched_count; i++)
-                    {
-                        if(ticks_slice[i].time_msc < m_last_applied_tick.time_msc)
-                        {
-                            continue;
-                        }
-                        if(ticks_slice[i].time_msc == m_last_applied_tick.time_msc &&
-                           ticks_slice[i].bid == m_last_applied_tick.bid &&
-                           ticks_slice[i].ask == m_last_applied_tick.ask)
-                        {
-                            start_pos = i + 1;
-                        }
-                        else if(ticks_slice[i].time_msc > m_last_applied_tick.time_msc)
-                        {
-                            break;
-                        }
-                    }
-                }
-
-                int new_count = fetched_count - start_pos;
-                if(new_count > 0)
-                {
-                    // 大量ティック (10万件超) でも MT5 が確実に処理できるよう 10,000 件ずつチャンク追加
-                    const int CHUNK_SIZE = 10000;
-                    for(int offset = start_pos; offset < fetched_count; offset += CHUNK_SIZE)
-                    {
-                        int cur_chunk = MathMin(CHUNK_SIZE, fetched_count - offset);
-                        MqlTick chunk_slice[];
-                        ArrayResize(chunk_slice, cur_chunk);
-                        ArrayCopy(chunk_slice, ticks_slice, 0, offset, cur_chunk);
-                        CustomTicksAdd(m_replay_symbol, chunk_slice);
-                    }
-                    m_last_applied_tick = ticks_slice[fetched_count - 1];
-                    m_has_last_applied_tick = true;
-                }
-            }
-            else
-            {
-                MqlTick cur_tick;
-                if(GetLatestTickAtOrBefore(m_source_symbol, eff_target_msc, cur_tick))
-                {
-                    m_last_applied_tick = cur_tick;
-                    m_has_last_applied_tick = true;
-                }
-            }
-        }
+        SyncSymbolResetForward(m_source_symbol, m_replay_symbol, from_msc, eff_target_msc, m_last_applied_tick, m_has_last_applied_tick);
     }
-
     m_current_v_time_msc = eff_target_msc;
     m_current_idx = (int)rst.main_target_idx;
 
-    // --- サブシンボルの高速シーク・リセット (物理遅延考慮) ---
+    // --- サブシンボル (Dual Feed) ---
     if(m_enable_dual_feed && m_replay_symbol_sub != "")
     {
         int delay_sub = GetEffectiveReceiveDelay(m_source_symbol_sub);
@@ -2055,98 +2122,18 @@ void ProcessReset(const ResetPayload &rst)
 
         if(eff_sub_target_msc < m_current_v_time_msc_sub || m_current_v_time_msc_sub == 0)
         {
-            CustomTicksDelete(m_replay_symbol_sub, (ulong)(eff_sub_target_msc + 1), LONG_MAX);
-
-            MqlTick sub_cur_tick;
-            if(GetLatestTickAtOrBefore(m_source_symbol_sub, eff_sub_target_msc, sub_cur_tick))
-            {
-                if(m_current_v_time_msc_sub == 0 && !m_has_last_applied_tick_sub)
-                {
-                    MqlTick sub_quote[1];
-                    sub_quote[0] = sub_cur_tick;
-                    CustomTicksAdd(m_replay_symbol_sub, sub_quote);
-                }
-                m_last_applied_tick_sub = sub_cur_tick;
-                m_has_last_applied_tick_sub = true;
-            }
-            else
-            {
-                m_has_last_applied_tick_sub = false;
-            }
+            SyncSymbolResetRewind(m_source_symbol_sub, m_replay_symbol_sub, eff_sub_target_msc, m_last_applied_tick_sub, m_has_last_applied_tick_sub, m_current_v_time_msc_sub == 0);
         }
         else if(eff_sub_target_msc > m_current_v_time_msc_sub)
         {
             ulong sub_from_msc = (m_has_last_applied_tick_sub && m_last_applied_tick_sub.time_msc > 0) ? (ulong)m_last_applied_tick_sub.time_msc : (ulong)(m_current_v_time_msc_sub > 0 ? m_current_v_time_msc_sub : eff_sub_target_msc);
-            ulong sub_to_msc   = (ulong)eff_sub_target_msc;
-
-            if(sub_to_msc >= sub_from_msc)
-            {
-                MqlTick sub_slice[];
-                ArrayFree(sub_slice);
-                int sub_count = CopyTicksRange(m_source_symbol_sub, sub_slice, COPY_TICKS_ALL, sub_from_msc, sub_to_msc);
-
-                if(sub_count > 0)
-                {
-                    int start_pos_sub = 0;
-                    if(m_has_last_applied_tick_sub)
-                    {
-                        int last_matched_sub = -1;
-                        for(int i = 0; i < sub_count; i++)
-                        {
-                            if(sub_slice[i].time_msc < m_last_applied_tick_sub.time_msc)
-                            {
-                                continue;
-                            }
-                            if(sub_slice[i].time_msc == m_last_applied_tick_sub.time_msc &&
-                               sub_slice[i].bid == m_last_applied_tick_sub.bid &&
-                               sub_slice[i].ask == m_last_applied_tick_sub.ask)
-                            {
-                                last_matched_sub = i;
-                            }
-                            else if(sub_slice[i].time_msc > m_last_applied_tick_sub.time_msc)
-                            {
-                                break;
-                            }
-                        }
-                        if(last_matched_sub >= 0)
-                        {
-                            start_pos_sub = last_matched_sub + 1;
-                        }
-                    }
-
-                    int new_count_sub = sub_count - start_pos_sub;
-                    if(new_count_sub > 0)
-                    {
-                        const int CHUNK_SIZE = 10000;
-                        for(int offset = start_pos_sub; offset < sub_count; offset += CHUNK_SIZE)
-                        {
-                            int cur_chunk = MathMin(CHUNK_SIZE, sub_count - offset);
-                            MqlTick chunk_slice[];
-                            ArrayResize(chunk_slice, cur_chunk);
-                            ArrayCopy(chunk_slice, sub_slice, 0, offset, cur_chunk);
-                            CustomTicksAdd(m_replay_symbol_sub, chunk_slice);
-                        }
-                        m_last_applied_tick_sub = sub_slice[sub_count - 1];
-                        m_has_last_applied_tick_sub = true;
-                    }
-                }
-                else
-                {
-                    MqlTick sub_cur_tick;
-                    if(GetLatestTickAtOrBefore(m_source_symbol_sub, eff_sub_target_msc, sub_cur_tick))
-                    {
-                        m_last_applied_tick_sub = sub_cur_tick;
-                        m_has_last_applied_tick_sub = true;
-                    }
-                }
-            }
+            SyncSymbolResetForward(m_source_symbol_sub, m_replay_symbol_sub, sub_from_msc, eff_sub_target_msc, m_last_applied_tick_sub, m_has_last_applied_tick_sub);
         }
-
         m_current_v_time_msc_sub = eff_sub_target_msc;
         m_current_idx_sub = (int)rst.sub_target_idx;
     }
 
-    // --- 同期他通貨の高速シーク・リセット ---
+    // --- 同期他通貨 (KuChart additional symbols) ---
     for(int s = 0; s < m_sync_count; s++)
     {
         string src_s = m_sync_source_symbols[s];
@@ -2158,93 +2145,13 @@ void ProcessReset(const ResetPayload &rst)
 
         if(eff_s_target_msc < m_sync_current_v_time_msc[s] || m_sync_current_v_time_msc[s] == 0)
         {
-            CustomTicksDelete(rep_s, (ulong)(eff_s_target_msc + 1), LONG_MAX);
-
-            MqlTick s_cur_tick;
-            if(GetLatestTickAtOrBefore(src_s, eff_s_target_msc, s_cur_tick))
-            {
-                if(m_sync_current_v_time_msc[s] == 0 && !m_sync_has_last_applied_tick[s])
-                {
-                    MqlTick s_quote[1];
-                    s_quote[0] = s_cur_tick;
-                    CustomTicksAdd(rep_s, s_quote);
-                }
-                m_sync_last_applied_tick[s] = s_cur_tick;
-                m_sync_has_last_applied_tick[s] = true;
-            }
-            else
-            {
-                m_sync_has_last_applied_tick[s] = false;
-            }
+            SyncSymbolResetRewind(src_s, rep_s, eff_s_target_msc, m_sync_last_applied_tick[s], m_sync_has_last_applied_tick[s], m_sync_current_v_time_msc[s] == 0);
         }
         else if(eff_s_target_msc > m_sync_current_v_time_msc[s])
         {
             ulong s_from_msc = (m_sync_has_last_applied_tick[s] && m_sync_last_applied_tick[s].time_msc > 0) ? (ulong)m_sync_last_applied_tick[s].time_msc : (ulong)(m_sync_current_v_time_msc[s] > 0 ? m_sync_current_v_time_msc[s] : eff_s_target_msc);
-            ulong s_to_msc   = (ulong)eff_s_target_msc;
-
-            if(s_to_msc >= s_from_msc)
-            {
-                MqlTick s_slice[];
-                ArrayFree(s_slice);
-                int s_count = CopyTicksRange(src_s, s_slice, COPY_TICKS_ALL, s_from_msc, s_to_msc);
-
-                if(s_count > 0)
-                {
-                    int start_pos_s = 0;
-                    if(m_sync_has_last_applied_tick[s])
-                    {
-                        int last_matched_s = -1;
-                        for(int i = 0; i < s_count; i++)
-                        {
-                            if(s_slice[i].time_msc < m_sync_last_applied_tick[s].time_msc)
-                            {
-                                continue;
-                            }
-                            if(s_slice[i].time_msc == m_sync_last_applied_tick[s].time_msc &&
-                               s_slice[i].bid == m_sync_last_applied_tick[s].bid &&
-                               s_slice[i].ask == m_sync_last_applied_tick[s].ask)
-                            {
-                                last_matched_s = i;
-                            }
-                            else if(s_slice[i].time_msc > m_sync_last_applied_tick[s].time_msc)
-                            {
-                                break;
-                            }
-                        }
-                        if(last_matched_s >= 0)
-                        {
-                            start_pos_s = last_matched_s + 1;
-                        }
-                    }
-
-                    int new_count_s = s_count - start_pos_s;
-                    if(new_count_s > 0)
-                    {
-                        const int CHUNK_SIZE = 10000;
-                        for(int offset = start_pos_s; offset < s_count; offset += CHUNK_SIZE)
-                        {
-                            int cur_chunk = MathMin(CHUNK_SIZE, s_count - offset);
-                            MqlTick chunk_slice[];
-                            ArrayResize(chunk_slice, cur_chunk);
-                            ArrayCopy(chunk_slice, s_slice, 0, offset, cur_chunk);
-                            CustomTicksAdd(rep_s, chunk_slice);
-                        }
-                        m_sync_last_applied_tick[s] = s_slice[s_count - 1];
-                        m_sync_has_last_applied_tick[s] = true;
-                    }
-                }
-                else
-                {
-                    MqlTick s_cur_tick;
-                    if(GetLatestTickAtOrBefore(src_s, eff_s_target_msc, s_cur_tick))
-                    {
-                        m_sync_last_applied_tick[s] = s_cur_tick;
-                        m_sync_has_last_applied_tick[s] = true;
-                    }
-                }
-            }
+            SyncSymbolResetForward(src_s, rep_s, s_from_msc, eff_s_target_msc, m_sync_last_applied_tick[s], m_sync_has_last_applied_tick[s]);
         }
-
         m_sync_current_v_time_msc[s] = eff_s_target_msc;
     }
 
