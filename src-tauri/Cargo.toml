@@ -19,8 +19,12 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [profile.release]
 opt-level = 3
 lto = "thin"
-codegen-units = 1
+codegen-units = 16
 panic = "abort"
+
+# Dev profile: compile third-party dependencies with optimization for smooth dev / test runs
+[profile.dev.package."*"]
+opt-level = 2
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -32,7 +36,7 @@ tauri-plugin-opener = "2"
 tauri-plugin-global-shortcut = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros", "sync", "time", "fs", "io-util", "net"] }
 thiserror = "1"
 zip = { version = "2.2", default-features = false, features = ["deflate"] }
 chrono = "0.4"
@@ -41,7 +45,8 @@ bytemuck = { version = "1", features = ["derive"] }
 tokio-tungstenite = "0.26"
 futures-util = "0.3"
 parquet = { version = "53", default-features = false, features = ["arrow", "snap", "zstd"] }
-arrow = { version = "53", default-features = false }
+arrow-array = { version = "53", default-features = false }
+arrow-schema = { version = "53", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [

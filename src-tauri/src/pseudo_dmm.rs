@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use chrono::{Datelike, Timelike, Weekday};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-use arrow::array::{StringArray, Int64Array};
+use arrow_array::{StringArray, Int64Array, RecordBatchReader};
 
 /// 指標プロファイル定義（辞書からロード）
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -72,6 +72,16 @@ pub struct PseudoDmmEngine {
     // DMM クォーティング特性再現用ステート
     ema_mid: f64,
     last_quantized_mid: f64,
+    // 高速キャッシュ: 同一秒内の日時・DST・JST・ゴトー日計算スキップ
+    cached_sec: i64,
+    cached_y: i32,
+    cached_m: u32,
+    cached_is_dst: bool,
+    cached_jst_hour: u32,
+    cached_jst_min: u32,
+    cached_jst_sec_of_min: u32,
+    cached_jst_wday: Weekday,
+    cached_is_gotobi: bool,
 }
 
 impl PseudoDmmEngine {
@@ -100,6 +110,15 @@ impl PseudoDmmEngine {
             recent_ticks: Vec::with_capacity(500),
             ema_mid: 0.0,
             last_quantized_mid: 0.0,
+            cached_sec: -1,
+            cached_y: year,
+            cached_m: month,
+            cached_is_dst: false,
+            cached_jst_hour: 0,
+            cached_jst_min: 0,
+            cached_jst_sec_of_min: 0,
+            cached_jst_wday: Weekday::Mon,
+            cached_is_gotobi: false,
         }
     }
 
@@ -253,17 +272,18 @@ impl PseudoDmmEngine {
                             builder
                         };
 
+                        let total_rows = builder.metadata().file_metadata().num_rows();
                         if let Ok(mut reader) = builder.build() {
-                            let mut events = Vec::new();
-                            while let Some(Ok(batch)) = reader.next() {
-                                let schema = batch.schema();
-                                let event_id_idx = schema.index_of("event_id").ok();
-                                let utc_ms_idx = schema.index_of("utc_ms").ok();
-                                let mt5_ms_idx = schema.index_of("mt5_ms").ok();
-                                let ccy_idx = schema.index_of("currency").ok();
-                                let name_idx = schema.index_of("event_name").ok();
-                                let imp_idx = schema.index_of("importance").ok();
+                            let projected_schema = reader.schema();
+                            let event_id_idx = projected_schema.index_of("event_id").ok();
+                            let utc_ms_idx = projected_schema.index_of("utc_ms").ok();
+                            let mt5_ms_idx = projected_schema.index_of("mt5_ms").ok();
+                            let ccy_idx = projected_schema.index_of("currency").ok();
+                            let name_idx = projected_schema.index_of("event_name").ok();
+                            let imp_idx = projected_schema.index_of("importance").ok();
 
+                            let mut events = Vec::with_capacity(total_rows as usize);
+                            while let Some(Ok(batch)) = reader.next() {
                                 if let (Some(u_idx), Some(c_idx), Some(n_idx)) = (utc_ms_idx, ccy_idx, name_idx) {
                                     let utc_col = batch.column(u_idx).as_any().downcast_ref::<Int64Array>();
                                     let mt5_col = mt5_ms_idx.and_then(|i| batch.column(i).as_any().downcast_ref::<Int64Array>());
@@ -470,32 +490,57 @@ impl PseudoDmmEngine {
             self.last_quantized_mid
         };
 
-        // MT5時刻から UTC ms および JST ms を計算
+        // MT5時刻から UTC ms および JST ms を計算 (同一秒キャッシュで高速化)
         let naive_mt5_sec = mt5_time_msc / 1000;
-        let naive_dt = chrono::DateTime::from_timestamp(naive_mt5_sec, 0)
-            .map(|dt| dt.naive_utc())
-            .unwrap_or_default();
-        
-        let y = naive_dt.year();
-        let m = naive_dt.month();
-        let d = naive_dt.day();
-        let h = naive_dt.hour();
-        let is_dst = Self::is_us_dst(y, m, d, h);
+        let (is_dst, jst_hour, jst_min, jst_sec_of_min, jst_wday, is_gotobi) = if self.cached_sec == naive_mt5_sec {
+            (
+                self.cached_is_dst,
+                self.cached_jst_hour,
+                self.cached_jst_min,
+                self.cached_jst_sec_of_min,
+                self.cached_jst_wday,
+                self.cached_is_gotobi,
+            )
+        } else {
+            let naive_dt = chrono::DateTime::from_timestamp(naive_mt5_sec, 0)
+                .map(|dt| dt.naive_utc())
+                .unwrap_or_default();
+            
+            let y = naive_dt.year();
+            let m = naive_dt.month();
+            let d = naive_dt.day();
+            let h = naive_dt.hour();
+            let is_dst = Self::is_us_dst(y, m, d, h);
 
-        // MT5夏時間 = UTC+3 (オフセット3h), 冬時間 = UTC+2 (オフセット2h)
-        let offset_ms = if is_dst { 3 * 3600 * 1000 } else { 2 * 3600 * 1000 };
-        let utc_ms = mt5_time_msc - offset_ms;
-        let jst_ms = utc_ms + 9 * 3600 * 1000;
+            // MT5夏時間 = UTC+3 (オフセット3h), 冬時間 = UTC+2 (オフセット2h)
+            let offset_ms = if is_dst { 3 * 3600 * 1000 } else { 2 * 3600 * 1000 };
+            let utc_ms = mt5_time_msc - offset_ms;
+            let jst_ms = utc_ms + 9 * 3600 * 1000;
 
-        // JST 時刻情報の分解
-        let jst_sec = jst_ms / 1000;
-        let jst_dt = chrono::DateTime::from_timestamp(jst_sec, 0)
-            .map(|dt| dt.naive_utc())
-            .unwrap_or_default();
-        let jst_hour = jst_dt.hour();
-        let jst_min = jst_dt.minute();
-        let jst_wday = jst_dt.weekday();
-        let jst_day = jst_dt.day();
+            // JST 時刻情報の分解
+            let jst_sec = jst_ms / 1000;
+            let jst_dt = chrono::DateTime::from_timestamp(jst_sec, 0)
+                .map(|dt| dt.naive_utc())
+                .unwrap_or_default();
+            let jst_hour = jst_dt.hour();
+            let jst_min = jst_dt.minute();
+            let jst_wday = jst_dt.weekday();
+            let jst_day = jst_dt.day();
+            let jst_sec_of_min = jst_dt.second();
+            let is_gotobi = Self::is_effective_gotobi(y, m, jst_day, jst_wday);
+
+            self.cached_sec = naive_mt5_sec;
+            self.cached_y = y;
+            self.cached_m = m;
+            self.cached_is_dst = is_dst;
+            self.cached_jst_hour = jst_hour;
+            self.cached_jst_min = jst_min;
+            self.cached_jst_sec_of_min = jst_sec_of_min;
+            self.cached_jst_wday = jst_wday;
+            self.cached_is_gotobi = is_gotobi;
+
+            (is_dst, jst_hour, jst_min, jst_sec_of_min, jst_wday, is_gotobi)
+        };
 
         // --- Layer 0: ベーススプレッド (DMM標準: 0.2銭) ---
         let mut target_spread = 0.002;
@@ -503,8 +548,6 @@ impl PseudoDmmEngine {
         // --- Layer 1: 仲値制御 (平日 9:53〜09:55:30 JST / 2026年最新実測データ準拠) ---
         if jst_wday != Weekday::Sat && jst_wday != Weekday::Sun
             && jst_hour == 9 {
-                let is_gotobi = Self::is_effective_gotobi(y, m, jst_day, jst_wday);
-                let jst_sec_of_min = jst_dt.second();
 
                 let fixing_spread = if jst_min == 54 {
                     // 09:54:00〜09:54:59 (仲値直前ピーク): 通常 1.0銭 / 実質ゴトー日 1.2銭
@@ -1042,8 +1085,8 @@ mod tests {
 
     #[test]
     fn test_load_events_symbol_partition() {
-        use arrow::datatypes::{DataType, Field, Schema};
-        use arrow::record_batch::RecordBatch;
+        use arrow_schema::{DataType, Field, Schema};
+        use arrow_array::RecordBatch;
         use parquet::arrow::arrow_writer::ArrowWriter;
         use std::sync::Arc;
 

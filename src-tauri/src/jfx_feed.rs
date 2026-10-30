@@ -1,6 +1,6 @@
 use crate::error::AppError;
-use arrow::array::{Float64Array, Int64Array};
-use arrow::datatypes::{DataType, Schema};
+use arrow_array::{Float64Array, Int64Array, RecordBatchReader};
+use arrow_schema::{DataType, Schema};
 use chrono::{Datelike, NaiveDate, Timelike};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::arrow::ProjectionMask;
@@ -202,20 +202,23 @@ fn load_jfx_parquet(parquet_path: &Path, start_msc: i64, end_msc: i64) -> Result
         builder
     };
 
+    let total_rows = builder.metadata().file_metadata().num_rows();
     let builder = apply_time_row_group_filter(builder, start_msc, end_msc, 0);
 
     let mut reader = builder.build()
         .map_err(|e| AppError::Config(format!("JFX Parquetリーダー生成エラー: {}", e)))?;
 
-    let mut ticks = Vec::new();
+    let projected_schema = reader.schema();
+    let mt5_ms_idx = projected_schema.index_of("mt5_ms").ok();
+    let utc_ms_idx = projected_schema.index_of("utc_ms").ok();
+    let bid_idx = projected_schema.index_of("bid").ok();
+    let ask_idx = projected_schema.index_of("ask").ok();
+
+    let mut ticks = Vec::with_capacity(total_rows as usize);
+    let mut cached_utc_sec = -1i64;
+    let mut cached_offset = 0i64;
 
     while let Some(Ok(batch)) = reader.next() {
-        let schema = batch.schema();
-        let mt5_ms_idx = schema.index_of("mt5_ms").ok();
-        let utc_ms_idx = schema.index_of("utc_ms").ok();
-        let bid_idx = schema.index_of("bid").ok();
-        let ask_idx = schema.index_of("ask").ok();
-
         let (Some(b_idx), Some(a_idx)) = (bid_idx, ask_idx) else { continue; };
         let bid_col = batch.column(b_idx).as_any().downcast_ref::<Float64Array>();
         let ask_col = batch.column(a_idx).as_any().downcast_ref::<Float64Array>();
@@ -230,11 +233,18 @@ fn load_jfx_parquet(parquet_path: &Path, start_msc: i64, end_msc: i64) -> Result
             } else if let Some(u_arr) = utc_col {
                 let utc_ms = u_arr.value(row);
                 let utc_sec = utc_ms / 1000;
-                let dt = chrono::DateTime::from_timestamp(utc_sec, 0)
-                    .map(|d| d.naive_utc())
-                    .unwrap_or_default();
-                let is_dst = crate::pseudo_dmm::PseudoDmmEngine::is_us_dst(dt.year(), dt.month(), dt.day(), dt.hour());
-                let offset = if is_dst { 3 * 3600 * 1000 } else { 2 * 3600 * 1000 };
+                let offset = if utc_sec == cached_utc_sec {
+                    cached_offset
+                } else {
+                    let dt = chrono::DateTime::from_timestamp(utc_sec, 0)
+                        .map(|d| d.naive_utc())
+                        .unwrap_or_default();
+                    let is_dst = crate::pseudo_dmm::PseudoDmmEngine::is_us_dst(dt.year(), dt.month(), dt.day(), dt.hour());
+                    let off = if is_dst { 3 * 3600 * 1000 } else { 2 * 3600 * 1000 };
+                    cached_utc_sec = utc_sec;
+                    cached_offset = off;
+                    off
+                };
                 utc_ms + offset
             } else {
                 continue;
@@ -290,22 +300,25 @@ fn load_oanda_pseudo_parquet(
         builder
     };
 
+    let total_rows = builder.metadata().file_metadata().num_rows();
     let builder = apply_time_row_group_filter(builder, start_msc, end_msc, 30_000);
 
     let mut reader = builder.build()
         .map_err(|e| AppError::Config(format!("OANDA Parquetリーダー生成エラー: {}", e)))?;
 
+    let projected_schema = reader.schema();
+    let mt5_ms_idx = projected_schema.index_of("mt5_ms").ok();
+    let utc_ms_idx = projected_schema.index_of("utc_ms").ok();
+    let bid_idx = projected_schema.index_of("bid").ok();
+    let ask_idx = projected_schema.index_of("ask").ok();
+
     let mut pseudo_engine = crate::pseudo_jfx::PseudoJfxEngine::new(pair, year_month);
-    let mut ticks = Vec::new();
+    let mut ticks = Vec::with_capacity(total_rows as usize);
     let warmup_start = if start_msc > 0 { start_msc.saturating_sub(30_000) } else { 0 };
+    let mut cached_utc_sec = -1i64;
+    let mut cached_offset = 0i64;
 
     while let Some(Ok(batch)) = reader.next() {
-        let schema = batch.schema();
-        let mt5_ms_idx = schema.index_of("mt5_ms").ok();
-        let utc_ms_idx = schema.index_of("utc_ms").ok();
-        let bid_idx = schema.index_of("bid").ok();
-        let ask_idx = schema.index_of("ask").ok();
-
         let (Some(b_idx), Some(a_idx)) = (bid_idx, ask_idx) else { continue; };
         let bid_col = batch.column(b_idx).as_any().downcast_ref::<Float64Array>();
         let ask_col = batch.column(a_idx).as_any().downcast_ref::<Float64Array>();
@@ -320,11 +333,18 @@ fn load_oanda_pseudo_parquet(
             } else if let Some(u_arr) = utc_col {
                 let utc_ms = u_arr.value(row);
                 let utc_sec = utc_ms / 1000;
-                let dt = chrono::DateTime::from_timestamp(utc_sec, 0)
-                    .map(|d| d.naive_utc())
-                    .unwrap_or_default();
-                let is_dst = crate::pseudo_dmm::PseudoDmmEngine::is_us_dst(dt.year(), dt.month(), dt.day(), dt.hour());
-                let offset = if is_dst { 3 * 3600 * 1000 } else { 2 * 3600 * 1000 };
+                let offset = if utc_sec == cached_utc_sec {
+                    cached_offset
+                } else {
+                    let dt = chrono::DateTime::from_timestamp(utc_sec, 0)
+                        .map(|d| d.naive_utc())
+                        .unwrap_or_default();
+                    let is_dst = crate::pseudo_dmm::PseudoDmmEngine::is_us_dst(dt.year(), dt.month(), dt.day(), dt.hour());
+                    let off = if is_dst { 3 * 3600 * 1000 } else { 2 * 3600 * 1000 };
+                    cached_utc_sec = utc_sec;
+                    cached_offset = off;
+                    off
+                };
                 utc_ms + offset
             } else {
                 continue;

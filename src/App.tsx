@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from "react";
 import { COMMANDS } from "./constants/commands";
 import { EVENTS } from "./constants/events";
 import { DEFAULT_SPEED_TIME_PRESETS, DEFAULT_SPEED_TICK_PRESETS } from "./constants/speedPresets";
@@ -9,13 +9,13 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import "./App.css";
 import type { SymbolItem } from "./types/symbol";
-import { CustomSymbolImportModal } from "./components/CustomSymbolImportModal";
-import { SymbolBatchSelectorModal } from "./components/SymbolBatchSelectorModal";
-import { SymbolSelectorWindowContent } from "./components/SymbolSelectorWindowContent";
+
+
+
 import { DateTimePickerModal } from "./components/DateTimePickerModal";
-import { SpeedOrderWindowContent } from "./components/SpeedOrderWindowContent";
-import { PositionsWindowContent } from "./components/PositionsWindowContent";
-import { SettingsWindowContent } from "./components/Settings/SettingsWindowContent";
+
+
+
 import { DeleteSessionModal } from "./components/DeleteSessionModal";
 import {
   EconomicDataMissingModal,
@@ -106,8 +106,31 @@ interface AppHandlers {
   recordingAction: string | null;
 }
 
-import { ControllerWindowContent } from "./components/Controls/ControllerWindowContent";
-import { TimelineWindowContent } from "./components/Timeline/TimelineWindowContent";
+const SpeedOrderWindowContent = lazy(() =>
+  import("./components/SpeedOrderWindowContent").then((m) => ({ default: m.SpeedOrderWindowContent }))
+);
+const PositionsWindowContent = lazy(() =>
+  import("./components/PositionsWindowContent").then((m) => ({ default: m.PositionsWindowContent }))
+);
+const SettingsWindowContent = lazy(() =>
+  import("./components/Settings/SettingsWindowContent").then((m) => ({ default: m.SettingsWindowContent }))
+);
+const ControllerWindowContent = lazy(() =>
+  import("./components/Controls/ControllerWindowContent").then((m) => ({ default: m.ControllerWindowContent }))
+);
+const SymbolSelectorWindowContent = lazy(() =>
+  import("./components/SymbolSelectorWindowContent").then((m) => ({ default: m.SymbolSelectorWindowContent }))
+);
+const TimelineWindowContent = lazy(() =>
+  import("./components/Timeline/TimelineWindowContent").then((m) => ({ default: m.TimelineWindowContent }))
+);
+const CustomSymbolImportModal = lazy(() =>
+  import("./components/CustomSymbolImportModal").then((m) => ({ default: m.CustomSymbolImportModal }))
+);
+const SymbolBatchSelectorModal = lazy(() =>
+  import("./components/SymbolBatchSelectorModal").then((m) => ({ default: m.SymbolBatchSelectorModal }))
+);
+
 /**
  * ウィンドウ種別ごとの入口。?window=... で子ウィンドウを出し分ける。
  * URL 分岐だけを担当し、フックを持たない。
@@ -115,50 +138,56 @@ import { TimelineWindowContent } from "./components/Timeline/TimelineWindowConte
 function WindowRouter() {
   const windowParam = new URLSearchParams(window.location.search).get("window");
 
-  if (windowParam === "speed_order") {
-    return (
-      <ErrorBoundary fallbackTitle="スピード発注画面エラー">
-        <SpeedOrderWindowContent />
-      </ErrorBoundary>
-    );
-  }
-  if (windowParam === "positions") {
-    return (
-      <ErrorBoundary fallbackTitle="口座・ポジション管理画面エラー">
-        <PositionsWindowContent />
-      </ErrorBoundary>
-    );
-  }
-  if (windowParam === "settings") {
-    return (
-      <ErrorBoundary fallbackTitle="環境設定画面エラー">
-        <SettingsWindowContent />
-      </ErrorBoundary>
-    );
-  }
-  if (windowParam === "controller") {
-    return (
-      <ErrorBoundary fallbackTitle="リプレイ操作コントローラーエラー">
-        <ControllerWindowContent />
-      </ErrorBoundary>
-    );
-  }
-  if (windowParam === "symbol_selector") {
-    return (
-      <ErrorBoundary fallbackTitle="シンボル選択セレクターエラー">
-        <SymbolSelectorWindowContent />
-      </ErrorBoundary>
-    );
-  }
-  if (windowParam === "timeline") {
-    return (
-      <ErrorBoundary fallbackTitle="タイムライン・ナビゲーターエラー">
-        <TimelineWindowContent />
-      </ErrorBoundary>
-    );
-  }
+  return (
+    <Suspense fallback={<div className="window-loading-placeholder" style={{ minHeight: "100vh", background: "var(--bg-primary, #1e1e1e)" }} />}>
+      {(() => {
+        if (windowParam === "speed_order") {
+          return (
+            <ErrorBoundary fallbackTitle="スピード発注画面エラー">
+              <SpeedOrderWindowContent />
+            </ErrorBoundary>
+          );
+        }
+        if (windowParam === "positions") {
+          return (
+            <ErrorBoundary fallbackTitle="口座・ポジション管理画面エラー">
+              <PositionsWindowContent />
+            </ErrorBoundary>
+          );
+        }
+        if (windowParam === "settings") {
+          return (
+            <ErrorBoundary fallbackTitle="環境設定画面エラー">
+              <SettingsWindowContent />
+            </ErrorBoundary>
+          );
+        }
+        if (windowParam === "controller") {
+          return (
+            <ErrorBoundary fallbackTitle="リプレイ操作コントローラーエラー">
+              <ControllerWindowContent />
+            </ErrorBoundary>
+          );
+        }
+        if (windowParam === "symbol_selector") {
+          return (
+            <ErrorBoundary fallbackTitle="シンボル選択セレクターエラー">
+              <SymbolSelectorWindowContent />
+            </ErrorBoundary>
+          );
+        }
+        if (windowParam === "timeline") {
+          return (
+            <ErrorBoundary fallbackTitle="タイムライン・ナビゲーターエラー">
+              <TimelineWindowContent />
+            </ErrorBoundary>
+          );
+        }
 
-  return <MainWindow />;
+        return <MainWindow />;
+      })()}
+    </Suspense>
+  );
 }
 
 /**
@@ -3145,49 +3174,57 @@ function MainWindow() {
         }}
       />
 
-      {/* Custom Symbol Import Modal */}
-      <CustomSymbolImportModal
-        isOpen={isCustomImportOpen}
-        onClose={() => setIsCustomImportOpen(false)}
-        terminalPath={selectedTerminal}
-        terminalName={(() => {
-          const t = terminals.find((t) => t.path === selectedTerminal);
-          return t ? t.custom_name || t.name : undefined;
-        })()}
-        onImportComplete={() => loadAvailableSymbols(selectedTerminal)}
-        onApplyToReplay={(primary, syncs, range) => {
-          setSourceSymbol(primary);
-          setAdditionalSymbols(syncs.join(","));
-          if (range) {
-            setStartTime(range.start);
-            setEndTime(range.end);
-          }
-          loadAvailableSymbols(selectedTerminal);
-        }}
-      />
+      {/* Custom Symbol Import Modal (Lazy loaded on demand) */}
+      {isCustomImportOpen && (
+        <Suspense fallback={null}>
+          <CustomSymbolImportModal
+            isOpen={isCustomImportOpen}
+            onClose={() => setIsCustomImportOpen(false)}
+            terminalPath={selectedTerminal}
+            terminalName={(() => {
+              const t = terminals.find((t) => t.path === selectedTerminal);
+              return t ? t.custom_name || t.name : undefined;
+            })()}
+            onImportComplete={() => loadAvailableSymbols(selectedTerminal)}
+            onApplyToReplay={(primary, syncs, range) => {
+              setSourceSymbol(primary);
+              setAdditionalSymbols(syncs.join(","));
+              if (range) {
+                setStartTime(range.start);
+                setEndTime(range.end);
+              }
+              loadAvailableSymbols(selectedTerminal);
+            }}
+          />
+        </Suspense>
+      )}
 
-      {/* Batch Symbol Selector Modal */}
-      <SymbolBatchSelectorModal
-        isOpen={isBatchSelectorOpen}
-        onClose={() => setIsBatchSelectorOpen(false)}
-        availableSymbols={availableSymbols}
-        currentSourceSymbol={sourceSymbol}
-        currentSubSourceSymbol={subSourceSymbol}
-        currentEnableDualFeed={enableDualFeed}
-        currentAdditionalSymbols={additionalSymbols}
-        currentStartTime={startTime}
-        currentEndTime={endTime}
-        onApply={(src, sub, isDual, syncs, range) => {
-          setSourceSymbol(src);
-          setSubSourceSymbol(sub);
-          setEnableDualFeed(isDual);
-          setAdditionalSymbols(syncs.join(","));
-          if (range) {
-            setStartTime(range.start);
-            setEndTime(range.end);
-          }
-        }}
-      />
+      {/* Batch Symbol Selector Modal (Lazy loaded on demand) */}
+      {isBatchSelectorOpen && (
+        <Suspense fallback={null}>
+          <SymbolBatchSelectorModal
+            isOpen={isBatchSelectorOpen}
+            onClose={() => setIsBatchSelectorOpen(false)}
+            availableSymbols={availableSymbols}
+            currentSourceSymbol={sourceSymbol}
+            currentSubSourceSymbol={subSourceSymbol}
+            currentEnableDualFeed={enableDualFeed}
+            currentAdditionalSymbols={additionalSymbols}
+            currentStartTime={startTime}
+            currentEndTime={endTime}
+            onApply={(src, sub, isDual, syncs, range) => {
+              setSourceSymbol(src);
+              setSubSourceSymbol(sub);
+              setEnableDualFeed(isDual);
+              setAdditionalSymbols(syncs.join(","));
+              if (range) {
+                setStartTime(range.start);
+                setEndTime(range.end);
+              }
+            }}
+          />
+        </Suspense>
+      )}
 
       {/* Terminal Name Modal */}
       <TerminalNameModal

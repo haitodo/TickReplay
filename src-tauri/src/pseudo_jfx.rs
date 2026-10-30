@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use chrono::{Datelike, Timelike};
 use crate::pseudo_dmm::{EconomicEvent, PseudoDmmEngine};
 
@@ -33,9 +34,14 @@ pub struct PseudoJfxEngine {
     spike_latch_dir: i8,
     spike_latch_until_msc: i64,
     // 直近125ms窓の生クォート履歴 (msc, b_pt, a_pt, sum_pt) - 最低でも直前1件を常に保持
-    raw_history: Vec<(i64, i64, i64, i64)>,
+    raw_history: VecDeque<(i64, i64, i64, i64)>,
     // 直近10秒間のボラティリティ追跡 (mt5_ms, q_pt)
     recent_ticks: Vec<(i64, i64)>,
+    // 高速キャッシュ: 同一秒内の日時・DST・JST計算スキップ
+    cached_sec: i64,
+    cached_is_dst: bool,
+    cached_jst_hour: u32,
+    cached_jst_min: u32,
 }
 
 impl PseudoJfxEngine {
@@ -78,8 +84,12 @@ impl PseudoJfxEngine {
             dither_state: 0,
             spike_latch_dir: 0,
             spike_latch_until_msc: -1000,
-            raw_history: Vec::with_capacity(16),
+            raw_history: VecDeque::with_capacity(16),
             recent_ticks: Vec::with_capacity(256),
+            cached_sec: -1,
+            cached_is_dst: false,
+            cached_jst_hour: 0,
+            cached_jst_min: 0,
         }
     }
 
@@ -101,7 +111,7 @@ impl PseudoJfxEngine {
         if self.last_emit_msc <= 0 {
             let q_pt = sum_pt / 2;
             self.last_q_pt = q_pt;
-            self.raw_history.push((mt5_time_msc, b_pt, a_pt, sum_pt));
+            self.raw_history.push_back((mt5_time_msc, b_pt, a_pt, sum_pt));
 
             let raw_oanda_spread_pips = (a_pt - b_pt).max(0) as f64 * 0.1;
             return self.finalize_quote(mt5_time_msc, q_pt, raw_oanda_spread_pips);
@@ -110,17 +120,17 @@ impl PseudoJfxEngine {
         // 直近 125ms 窓より古い履歴を整理 (ただし最低でも直前1件の生ティックは必ず保持し、長空白後の単発ブレイク消失を防止)
         let cutoff_125ms = mt5_time_msc - 125;
         while self.raw_history.len() > 1 && self.raw_history[0].0 < cutoff_125ms {
-            self.raw_history.remove(0);
+            self.raw_history.pop_front();
         }
 
         // 今回のティックを履歴に追加する前に、基準となる過去値 (125ms窓の最古値または直前ティック) を取得
         let &(_, b_prev120, a_prev120, s_prev120) = self
             .raw_history
-            .first()
+            .front()
             .unwrap_or(&(mt5_time_msc, b_pt, a_pt, sum_pt));
 
         // 今回の生ティックを履歴に追加
-        self.raw_history.push((mt5_time_msc, b_pt, a_pt, sum_pt));
+        self.raw_history.push_back((mt5_time_msc, b_pt, a_pt, sum_pt));
 
         // --- 2. 100ms 同期コアレッシングゲート (JFX MT5サーバーの約100ms配信仕様に準拠) ---
         let dt_emit = mt5_time_msc - self.last_emit_msc;
@@ -216,27 +226,38 @@ impl PseudoJfxEngine {
         q_pt: i64,
         raw_oanda_spread_pips: f64,
     ) -> Option<(f64, f64, f64)> {
-        // --- 5. JST 時刻情報の分解 ---
+        // --- 5. JST 時刻情報の分解 (同一秒キャッシュで高速化) ---
         let naive_mt5_sec = mt5_time_msc / 1000;
-        let naive_dt = chrono::DateTime::from_timestamp(naive_mt5_sec, 0)
-            .map(|dt| dt.naive_utc())
-            .unwrap_or_default();
-        let y = naive_dt.year();
-        let m = naive_dt.month();
-        let d = naive_dt.day();
-        let h = naive_dt.hour();
-        let is_dst = PseudoDmmEngine::is_us_dst(y, m, d, h);
+        let (is_dst, jst_hour, jst_min) = if self.cached_sec == naive_mt5_sec {
+            (self.cached_is_dst, self.cached_jst_hour, self.cached_jst_min)
+        } else {
+            let naive_dt = chrono::DateTime::from_timestamp(naive_mt5_sec, 0)
+                .map(|dt| dt.naive_utc())
+                .unwrap_or_default();
+            let y = naive_dt.year();
+            let m = naive_dt.month();
+            let d = naive_dt.day();
+            let h = naive_dt.hour();
+            let is_dst = PseudoDmmEngine::is_us_dst(y, m, d, h);
 
-        let offset_ms = if is_dst { 3 * 3600 * 1000 } else { 2 * 3600 * 1000 };
-        let utc_ms = mt5_time_msc - offset_ms;
-        let jst_ms = utc_ms + 9 * 3600 * 1000;
+            let offset_ms = if is_dst { 3 * 3600 * 1000 } else { 2 * 3600 * 1000 };
+            let utc_ms = mt5_time_msc - offset_ms;
+            let jst_ms = utc_ms + 9 * 3600 * 1000;
 
-        let jst_sec = jst_ms / 1000;
-        let jst_dt = chrono::DateTime::from_timestamp(jst_sec, 0)
-            .map(|dt| dt.naive_utc())
-            .unwrap_or_default();
-        let jst_hour = jst_dt.hour();
-        let jst_min = jst_dt.minute();
+            let jst_sec = jst_ms / 1000;
+            let jst_dt = chrono::DateTime::from_timestamp(jst_sec, 0)
+                .map(|dt| dt.naive_utc())
+                .unwrap_or_default();
+            let jst_hour = jst_dt.hour();
+            let jst_min = jst_dt.minute();
+
+            self.cached_sec = naive_mt5_sec;
+            self.cached_is_dst = is_dst;
+            self.cached_jst_hour = jst_hour;
+            self.cached_jst_min = jst_min;
+
+            (is_dst, jst_hour, jst_min)
+        };
 
         // --- 6. JFX 実測準拠スプレッド制御 (原則固定 0.2銭) ---
         let mut target_spread_pips = jfx_characteristics::BASE_SPREAD_PIPS;

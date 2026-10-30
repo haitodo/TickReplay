@@ -351,6 +351,8 @@ pub async fn send_command(
     let final_cmd_json = command_json;
     if let Ok(val) = serde_json::from_str::<serde_json::Value>(&final_cmd_json) {
         if let Some(command) = val.get("command").and_then(|c| c.as_str()) {
+            let core_opt = state.core_handle.lock().unwrap().clone();
+
             // --- 仮想取引エンジンのコマンド直接処理 (MT5 Named Pipe への転送不要) ---
             match command {
                 "ORDER_OPEN" => {
@@ -361,7 +363,6 @@ pub async fn send_command(
                     let comment = val.get("comment").and_then(|c| c.as_str()).map(|s| s.to_string());
                     let sym = val.get("symbol").and_then(|s| s.as_str()).unwrap_or("USDJPY").to_string();
 
-                    let core_opt = state.core_handle.lock().unwrap().clone();
                     if let Some(core) = core_opt {
                         let side = if type_str == "BUY" {
                             crate::core::types::OrderSide::Buy
@@ -375,7 +376,6 @@ pub async fn send_command(
                 "ORDER_CLOSE" => {
                     let ticket = val.get("ticket").and_then(|t| t.as_i64()).unwrap_or(0) as i32;
                     let volume = val.get("volume").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                    let core_opt = state.core_handle.lock().unwrap().clone();
                     if let Some(core) = core_opt {
                         let vol_opt = if volume > 0.0 { Some(volume) } else { None };
                         core.close_position(ticket, vol_opt, Some("MANUAL".to_string()));
@@ -383,21 +383,18 @@ pub async fn send_command(
                     return Ok(());
                 }
                 "ORDER_CLOSE_ALL" => {
-                    let core_opt = state.core_handle.lock().unwrap().clone();
                     if let Some(core) = core_opt {
                         core.close_all_positions(Some("MANUAL".to_string()));
                     }
                     return Ok(());
                 }
                 "ORDER_CLOSE_BUY" => {
-                    let core_opt = state.core_handle.lock().unwrap().clone();
                     if let Some(core) = core_opt {
                         core.close_buy_positions(Some("MANUAL".to_string()));
                     }
                     return Ok(());
                 }
                 "ORDER_CLOSE_SELL" => {
-                    let core_opt = state.core_handle.lock().unwrap().clone();
                     if let Some(core) = core_opt {
                         core.close_sell_positions(Some("MANUAL".to_string()));
                     }
@@ -407,7 +404,6 @@ pub async fn send_command(
                     let ticket = val.get("ticket").and_then(|t| t.as_i64()).unwrap_or(0) as i32;
                     let sl = val.get("sl").and_then(|s| s.as_f64());
                     let tp = val.get("tp").and_then(|t| t.as_f64());
-                    let core_opt = state.core_handle.lock().unwrap().clone();
                     if let Some(core) = core_opt {
                         core.modify_position(ticket, sl, tp);
                     }
@@ -415,7 +411,6 @@ pub async fn send_command(
                 }
                 "SET_CONTRACT_SIZE" => {
                     if let Some(size) = val.get("size").and_then(|s| s.as_f64()) {
-                        let core_opt = state.core_handle.lock().unwrap().clone();
                         if let Some(core) = core_opt {
                             core.set_contract_size(size);
                         }
@@ -424,7 +419,6 @@ pub async fn send_command(
                 }
                 "SET_HEDGING" => {
                     if let Some(allowed) = val.get("allowed").and_then(|a| a.as_bool()) {
-                        let core_opt = state.core_handle.lock().unwrap().clone();
                         if let Some(core) = core_opt {
                             core.set_hedging(allowed);
                         }
@@ -440,7 +434,6 @@ pub async fn send_command(
                     } else {
                         crate::core::types::TimeStopMode::LossOnly
                     };
-                    let core_opt = state.core_handle.lock().unwrap().clone();
                     if let Some(core) = core_opt {
                         core.set_time_stop(enabled, seconds, mode);
                     }
@@ -448,7 +441,6 @@ pub async fn send_command(
                 }
                 "SET_LATENCY" => {
                     if let Some(latency) = val.get("latency_ms").and_then(|l| l.as_i64()) {
-                        let core_opt = state.core_handle.lock().unwrap().clone();
                         if let Some(core) = core_opt {
                             let model = if latency <= 0 {
                                 crate::core::types::LatencyModel::Zero
@@ -463,7 +455,6 @@ pub async fn send_command(
                 "ACCOUNT_RESET" => {
                     let balance = val.get("balance").or_else(|| val.get("initial_balance")).and_then(|b| b.as_f64()).unwrap_or(1_000_000.0);
                     let leverage_opt = val.get("leverage").and_then(|l| l.as_f64());
-                    let core_opt = state.core_handle.lock().unwrap().clone();
                     if let Some(core) = core_opt {
                         core.reset_account_with_balance(balance);
                         if let Some(lev) = leverage_opt {
@@ -477,7 +468,6 @@ pub async fn send_command(
                     let amount = val.get("amount").and_then(|a| a.as_f64()).unwrap_or(0.0);
                     let comment = val.get("comment").and_then(|c| c.as_str()).map(|s| s.to_string());
                     let is_deposit = tx_type.eq_ignore_ascii_case("DEPOSIT");
-                    let core_opt = state.core_handle.lock().unwrap().clone();
                     if let Some(core) = core_opt {
                         core.account_transaction(is_deposit, amount, comment);
                     }
@@ -503,7 +493,6 @@ pub async fn send_command(
                         profit: equity - balance,
                         total_profit: balance - initial_balance,
                     };
-                    let core_opt = state.core_handle.lock().unwrap().clone();
                     if let Some(core) = core_opt {
                         core.restore_account(account, next_ticket);
                     }
@@ -541,7 +530,6 @@ pub async fn send_command(
                         volume_60s: val.get("volume_60s").and_then(|v| v.as_u64()).unwrap_or(0),
                         accumulated_real_time: val.get("accumulated_real_time").and_then(|v| v.as_f64()).unwrap_or(0.0),
                     };
-                    let core_opt = state.core_handle.lock().unwrap().clone();
                     if let Some(core) = core_opt {
                         core.restore_position(pos);
                     }
@@ -580,7 +568,6 @@ pub async fn send_command(
                         volume_60s: val.get("volume_60s").and_then(|v| v.as_u64()).unwrap_or(0),
                         accumulated_real_time: val.get("accumulated_real_time").and_then(|v| v.as_f64()).unwrap_or(0.0),
                     };
-                    let core_opt = state.core_handle.lock().unwrap().clone();
                     if let Some(core) = core_opt {
                         core.restore_history(hist);
                     }
@@ -610,7 +597,7 @@ pub async fn send_command(
                     Ok(feed) => {
                         let is_real = feed.is_real_jfx;
                         let count = feed.ticks.len();
-                        let ts = crate::core::store::TickStore::from_execution_ticks(&feed.ticks);
+                        let ts = crate::core::store::TickStore::from_execution_ticks_owned(feed.ticks);
                         println!("[commands_replay] 単一TickStore構築完了: real={}, ticks={}", is_real, count);
                         (ts, is_real)
                     }

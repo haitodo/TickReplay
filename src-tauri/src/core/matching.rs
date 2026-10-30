@@ -26,13 +26,30 @@ pub struct PendingCoreClose {
 }
 
 #[inline]
+fn contains_ignore_case(haystack: &str, needle_upper: &[u8]) -> bool {
+    if needle_upper.is_empty() {
+        return true;
+    }
+    if haystack.len() < needle_upper.len() {
+        return false;
+    }
+    haystack.as_bytes().windows(needle_upper.len()).any(|w| {
+        w.iter().zip(needle_upper.iter()).all(|(&a, &b)| a.to_ascii_uppercase() == b)
+    })
+}
+
+#[inline]
 pub fn symbol_specs(symbol: &str, ref_price: f64) -> (f64, f64, u32) {
-    let sym = symbol.to_uppercase();
-    if sym.contains("JPY") || (symbol.is_empty() && ref_price > 20.0) {
+    if contains_ignore_case(symbol, b"JPY") || (symbol.is_empty() && ref_price > 20.0) {
         (0.001, 0.01, 3)
-    } else if sym.contains("XAU") || sym.contains("GOLD") {
+    } else if contains_ignore_case(symbol, b"XAU") || contains_ignore_case(symbol, b"GOLD") {
         (0.01, 0.1, 2)
-    } else if sym.contains("BTC") || sym.contains("ETH") || sym.contains("225") || sym.contains("US30") || sym.contains("NAS") {
+    } else if contains_ignore_case(symbol, b"BTC")
+        || contains_ignore_case(symbol, b"ETH")
+        || contains_ignore_case(symbol, b"225")
+        || contains_ignore_case(symbol, b"US30")
+        || contains_ignore_case(symbol, b"NAS")
+    {
         (0.01, 1.0, 2)
     } else {
         (0.00001, 0.0001, 5)

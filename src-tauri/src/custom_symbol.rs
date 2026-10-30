@@ -3,7 +3,7 @@ use std::fs::{self, File};
 use std::path::Path;
 use serde::{Deserialize, Serialize};
 use chrono::{Datelike, NaiveDateTime, Timelike};
-use arrow::array::{Float64Array, Int64Array};
+use arrow_array::{Float64Array, Int64Array, RecordBatchReader};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::arrow::ProjectionMask;
 use crate::error::AppError;
@@ -576,18 +576,22 @@ pub fn convert_parquet_to_mql_bin(
         builder
     };
 
+    let total_rows = builder.metadata().file_metadata().num_rows();
+
     let mut reader = builder.build()
         .map_err(|e| AppError::Config(format!("Parquetリーダー生成エラー: {}", e)))?;
 
-    let mut ticks: Vec<MqlTick> = Vec::new();
+    let projected_schema = reader.schema();
+    let mt5_ms_idx = projected_schema.index_of("mt5_ms").ok();
+    let utc_ms_idx = projected_schema.index_of("utc_ms").ok();
+    let bid_idx = projected_schema.index_of("bid").ok();
+    let ask_idx = projected_schema.index_of("ask").ok();
+
+    let mut ticks: Vec<MqlTick> = Vec::with_capacity(total_rows as usize);
+    let mut cached_utc_sec = -1i64;
+    let mut cached_offset = 0i64;
 
     while let Some(Ok(batch)) = reader.next() {
-        let schema = batch.schema();
-        let mt5_ms_idx = schema.index_of("mt5_ms").ok();
-        let utc_ms_idx = schema.index_of("utc_ms").ok();
-        let bid_idx = schema.index_of("bid").ok();
-        let ask_idx = schema.index_of("ask").ok();
-
         let (Some(b_idx), Some(a_idx)) = (bid_idx, ask_idx) else {
             continue;
         };
@@ -610,11 +614,18 @@ pub fn convert_parquet_to_mql_bin(
             } else if let Some(u_arr) = utc_col {
                 let utc_ms = u_arr.value(row);
                 let utc_sec = utc_ms / 1000;
-                let dt = chrono::DateTime::from_timestamp(utc_sec, 0)
-                    .map(|d| d.naive_utc())
-                    .unwrap_or_default();
-                let is_dst = crate::pseudo_dmm::PseudoDmmEngine::is_us_dst(dt.year(), dt.month(), dt.day(), dt.hour());
-                let offset = if is_dst { 3 * 3600 * 1000 } else { 2 * 3600 * 1000 };
+                let offset = if utc_sec == cached_utc_sec {
+                    cached_offset
+                } else {
+                    let dt = chrono::DateTime::from_timestamp(utc_sec, 0)
+                        .map(|d| d.naive_utc())
+                        .unwrap_or_default();
+                    let is_dst = crate::pseudo_dmm::PseudoDmmEngine::is_us_dst(dt.year(), dt.month(), dt.day(), dt.hour());
+                    let off = if is_dst { 3 * 3600 * 1000 } else { 2 * 3600 * 1000 };
+                    cached_utc_sec = utc_sec;
+                    cached_offset = off;
+                    off
+                };
                 utc_ms + offset
             } else {
                 continue;
@@ -972,8 +983,8 @@ mod tests {
 
     #[test]
     fn test_convert_parquet_to_mql_bin() {
-        use arrow::datatypes::{DataType, Field, Schema};
-        use arrow::record_batch::RecordBatch;
+        use arrow_schema::{DataType, Field, Schema};
+        use arrow_array::RecordBatch;
         use parquet::arrow::ArrowWriter;
         use parquet::file::properties::WriterProperties;
         use std::sync::Arc;
