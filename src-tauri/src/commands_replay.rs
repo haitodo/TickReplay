@@ -31,11 +31,10 @@ pub fn emit_trading_status_update(
             }
             obj.insert("account".to_string(), serde_json::to_value(&snap.account).unwrap_or_default());
             obj.insert("positions".to_string(), serde_json::to_value(&snap.positions).unwrap_or_default());
-            if let Some(ref hist) = snap.history {
-                let hist_val = serde_json::to_value(hist).unwrap_or_default();
-                obj.insert("history".to_string(), hist_val.clone());
-                *state.last_history.lock().unwrap() = Some(hist_val);
-            }
+            let hist_val = serde_json::to_value(&snap.history).unwrap_or_default();
+            obj.insert("history".to_string(), hist_val.clone());
+            *state.last_history.lock().unwrap() = Some(hist_val);
+            *state.latest_audits.lock().unwrap() = (*snap.latest_audits).clone();
             obj.insert("trade_revision".to_string(), serde_json::json!(snap.trade_revision));
             obj.insert("history_revision".to_string(), serde_json::json!(snap.history_revision));
             obj.insert("execution_audits".to_string(), serde_json::to_value(&snap.latest_audits).unwrap_or_default());
@@ -726,12 +725,19 @@ pub async fn send_command(
                     }
 
                     let mut last_trade_rev = 0u64;
+                    let mut last_history_rev = 0u64;
                     while rx.changed().await.is_ok() {
                         let (cur_msc, is_playing, hist_json_opt, json_str) = {
                             let snap = rx.borrow_and_update();
                             let cur_msc = snap.virtual_time_msc;
                             let is_playing = snap.is_playing;
-                            let hist_json_opt = snap.history.as_ref().and_then(|h| serde_json::to_value(h).ok());
+                            let history = if snap.history_revision != last_history_rev {
+                                last_history_rev = snap.history_revision;
+                                Some(snap.history.as_slice())
+                            } else {
+                                None
+                            };
+                            let hist_json_opt = history.and_then(|h| serde_json::to_value(h).ok());
 
                             let bid = snap.current_tick.map(|t| t.bid);
                             let ask = snap.current_tick.map(|t| t.ask);
@@ -739,9 +745,7 @@ pub async fn send_command(
 
                             let execution_audits = if snap.trade_revision != last_trade_rev {
                                 last_trade_rev = snap.trade_revision;
-                                if !snap.latest_audits.is_empty() {
-                                    *state_c.latest_audits.lock().unwrap() = (*snap.latest_audits).clone();
-                                }
+                                *state_c.latest_audits.lock().unwrap() = (*snap.latest_audits).clone();
                                 Some(snap.latest_audits.as_slice())
                             } else {
                                 None
@@ -772,7 +776,7 @@ pub async fn send_command(
                                 account: &snap.account,
                                 positions: &snap.positions,
                                 execution_audits,
-                                history: snap.history.as_deref(),
+                                history,
                                 time_stop_seconds: snap.time_stop_seconds,
                                 time_stop_enabled: snap.time_stop_enabled,
                             };
@@ -796,12 +800,10 @@ pub async fn send_command(
 
                 // 6. 即座にフロントエンドへ READY ステータスを送信して UI 遷移を完了させる
                 let snap = core_handle.status();
-                let hist_val = snap
-                    .history
-                    .as_ref()
-                    .and_then(|h| serde_json::to_value(h).ok())
-                    .unwrap_or_else(|| serde_json::json!([]));
+                let hist_val = serde_json::to_value(&snap.history)
+                    .unwrap_or_else(|_| serde_json::json!([]));
                 *state.last_history.lock().unwrap() = Some(hist_val.clone());
+                *state.latest_audits.lock().unwrap() = (*snap.latest_audits).clone();
 
                 let initial_status = serde_json::json!({
                     "status": "READY",
@@ -889,17 +891,23 @@ pub async fn send_command(
 pub async fn read_trade_ticks(app_handle: AppHandle, ticket: i32) -> Result<String, AppError> {
     let state = app_handle.state::<Arc<ReplayState>>();
 
-    let mut time_range = None;
-    if let Some(ref hist_val) = *state.last_history.lock().unwrap() {
-        if let Some(arr) = hist_val.as_array() {
-            for item in arr {
-                if item.get("ticket").and_then(|t| t.as_i64()) == Some(ticket as i64) {
-                    if let (Some(open_msc), Some(close_msc)) = (
-                        item.get("open_time_msc").and_then(|t| t.as_i64()),
-                        item.get("close_time_msc").and_then(|t| t.as_i64()),
-                    ) {
-                        time_range = Some((open_msc, close_msc));
-                        break;
+    let snapshot = state.core_handle.lock().unwrap().as_ref().map(|c| c.status());
+    let mut time_range = snapshot.as_ref().and_then(|snap| {
+        snap.history.iter().find(|p| p.ticket == ticket)
+            .and_then(|p| p.close_time_msc.map(|close| (p.open_time_msc, close)))
+    });
+    if snapshot.is_none() {
+        if let Some(ref hist_val) = *state.last_history.lock().unwrap() {
+            if let Some(arr) = hist_val.as_array() {
+                for item in arr {
+                    if item.get("ticket").and_then(|t| t.as_i64()) == Some(ticket as i64) {
+                        if let (Some(open_msc), Some(close_msc)) = (
+                            item.get("open_time_msc").and_then(|t| t.as_i64()),
+                            item.get("close_time_msc").and_then(|t| t.as_i64()),
+                        ) {
+                            time_range = Some((open_msc, close_msc));
+                            break;
+                        }
                     }
                 }
             }
@@ -994,6 +1002,9 @@ pub async fn is_use_core_v2(
 pub async fn get_execution_audit_log(
     state: State<'_, Arc<ReplayState>>,
 ) -> Result<Vec<crate::core::journal::ExecutionAuditRecord>, AppError> {
+    if let Some(core) = state.core_handle.lock().unwrap().as_ref() {
+        return Ok((*core.status().latest_audits).clone());
+    }
     Ok(state.latest_audits.lock().unwrap().clone())
 }
 

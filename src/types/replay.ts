@@ -74,7 +74,7 @@ export interface ReplayPlaybackState {
 }
 
 export interface ReplayProgressPayload {
-  status?: ReplayStatus | "ERROR";
+  status?: ReplayStatus | "ERROR" | "TERMINATE";
   total_ticks?: number;
   current_idx?: number;
   virtual_time_msc?: number;
@@ -83,6 +83,8 @@ export interface ReplayProgressPayload {
   multiplier?: number | string;
   tick_step?: number;
   history_revision?: number;
+  trade_revision?: number;
+  seek_epoch?: number;
   symbol?: string;
   source_symbol?: string;
   bid?: number;

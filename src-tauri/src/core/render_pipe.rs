@@ -11,6 +11,77 @@ pub const MSG_APPLY_PROFILE: u16 = 0x0006;
 pub const MSG_INIT: u16 = 0x0007;
 pub const MSG_IMPORT_TICKS: u16 = 0x0008;
 pub const MSG_TERMINATE: u16 = 0x0009;
+pub const MAX_SYNC_SYMBOLS: usize = 8;
+
+fn renderer_ready_status(snapshot: Option<&crate::core::types::CoreStatusSnapshot>) -> serde_json::Value {
+    let Some(snap) = snapshot else {
+        return serde_json::json!({ "status": "READY", "message": "MT5 Renderer EA ready" });
+    };
+    // A paused core does not emit another frame after the EA reconnects. Include
+    // its complete state so windows cleared on DISCONNECTED can recover at READY.
+    let mut value = serde_json::json!({
+        "status": if snap.is_playing { "ACTIVE" } else { "READY" },
+        "message": "MT5 Renderer EA ready",
+        "is_playing": snap.is_playing,
+        "virtual_time_msc": snap.virtual_time_msc,
+        "current_idx": snap.current_index,
+        "total_ticks": snap.total_ticks,
+        "seek_epoch": snap.seek_epoch,
+        "speed_mode": snap.speed_mode,
+        "multiplier": snap.multiplier,
+        "account": &snap.account,
+        "positions": &snap.positions,
+        "history": &snap.history,
+        "history_revision": snap.history_revision,
+        "trade_revision": snap.trade_revision,
+        "execution_audits": &snap.latest_audits,
+        "time_stop_seconds": snap.time_stop_seconds,
+        "time_stop_enabled": snap.time_stop_enabled,
+    });
+    if let Some(tick) = snap.current_tick {
+        value["bid"] = serde_json::json!(tick.bid);
+        value["ask"] = serde_json::json!(tick.ask);
+        value["spread"] = serde_json::json!(((tick.ask - tick.bid) * 100.0).round() / 100.0);
+        value["jfx_bid"] = value["bid"].clone();
+        value["jfx_ask"] = value["ask"].clone();
+        value["jfx_spread"] = value["spread"].clone();
+    }
+    value
+}
+
+fn copy_utf8_c_string(destination: &mut [u8], value: &str) {
+    let mut len = value.len().min(destination.len().saturating_sub(1));
+    while !value.is_char_boundary(len) {
+        len -= 1;
+    }
+    destination[..len].copy_from_slice(&value.as_bytes()[..len]);
+}
+
+fn renderer_sync_symbols(value: &str, main_symbol: &str, sub_symbol: &str) -> String {
+    fn source_name(symbol: &str) -> &str {
+        symbol.strip_suffix("_Replay").unwrap_or(symbol)
+    }
+
+    let mut selected = Vec::new();
+    let mut used_bytes = 0;
+    for symbol in value.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        let source = source_name(symbol);
+        if source == source_name(main_symbol)
+            || source == source_name(sub_symbol)
+            || selected.iter().any(|s: &&str| source_name(s) == source)
+        {
+            continue;
+        }
+        let bytes = symbol.len() + usize::from(!selected.is_empty());
+        if selected.len() == MAX_SYNC_SYMBOLS || used_bytes + bytes > 511 {
+            eprintln!("[render_pipe] Additional symbols exceed renderer capacity; remaining symbols were omitted.");
+            break;
+        }
+        selected.push(symbol);
+        used_bytes += bytes;
+    }
+    selected.join(",")
+}
 
 /// 固定長 16 バイトヘッダー (自然アライメント)
 #[repr(C)]
@@ -92,7 +163,7 @@ pub struct ApplyProfilePayload {
     pub sub_symbol: [u8; 32],
 }
 
-/// 0x0007 INIT ペイロード (Core -> EA, 320 bytes)
+/// 0x0007 INIT ペイロード (Core -> EA, 704 bytes)
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct InitPayload {
@@ -191,37 +262,11 @@ impl RenderPacketCodec {
             additional_symbols: [0u8; 512],
             reserved: [0u8; 32],
         };
-        let s_bytes = source_symbol.as_bytes();
-        let s_len = s_bytes.len().min(31);
-        payload.source_symbol[..s_len].copy_from_slice(&s_bytes[..s_len]);
-
-        let sub_bytes = sub_symbol.as_bytes();
-        let sub_len = sub_bytes.len().min(31);
-        payload.sub_symbol[..sub_len].copy_from_slice(&sub_bytes[..sub_len]);
-
-        let p_bytes = profile_name.as_bytes();
-        let p_len = p_bytes.len().min(63);
-        payload.profile_name[..p_len].copy_from_slice(&p_bytes[..p_len]);
-
-        let a_bytes = additional_symbols.as_bytes();
-        let max_len = 511;
-        let a_len = if a_bytes.len() > max_len {
-            let truncated = &a_bytes[..max_len];
-            let safe_len = match truncated.iter().rposition(|&b| b == b',') {
-                Some(pos) => pos,
-                None => max_len,
-            };
-            eprintln!(
-                "[render_pipe] Warning: additional_symbols exceeded {} bytes ({} bytes). Safely truncated to {} bytes.",
-                max_len,
-                a_bytes.len(),
-                safe_len
-            );
-            safe_len
-        } else {
-            a_bytes.len()
-        };
-        payload.additional_symbols[..a_len].copy_from_slice(&a_bytes[..a_len]);
+        copy_utf8_c_string(&mut payload.source_symbol, source_symbol);
+        copy_utf8_c_string(&mut payload.sub_symbol, sub_symbol);
+        copy_utf8_c_string(&mut payload.profile_name, profile_name);
+        let sync_symbols = renderer_sync_symbols(additional_symbols, source_symbol, sub_symbol);
+        copy_utf8_c_string(&mut payload.additional_symbols, &sync_symbols);
 
         let header = RenderHeader::new(
             MSG_INIT,
@@ -247,17 +292,9 @@ impl RenderPacketCodec {
             main_symbol: [0u8; 32],
             sub_symbol: [0u8; 32],
         };
-        let p_bytes = profile_name.as_bytes();
-        let p_len = p_bytes.len().min(63);
-        payload.profile_name[..p_len].copy_from_slice(&p_bytes[..p_len]);
-
-        let m_bytes = main_symbol.as_bytes();
-        let m_len = m_bytes.len().min(31);
-        payload.main_symbol[..m_len].copy_from_slice(&m_bytes[..m_len]);
-
-        let s_bytes = sub_symbol.as_bytes();
-        let s_len = s_bytes.len().min(31);
-        payload.sub_symbol[..s_len].copy_from_slice(&s_bytes[..s_len]);
+        copy_utf8_c_string(&mut payload.profile_name, profile_name);
+        copy_utf8_c_string(&mut payload.main_symbol, main_symbol);
+        copy_utf8_c_string(&mut payload.sub_symbol, sub_symbol);
 
         let header = RenderHeader::new(
             MSG_APPLY_PROFILE,
@@ -285,21 +322,10 @@ impl RenderPacketCodec {
             base_symbol: [0; 32],
             bin_file: [0; 128],
         };
-        let s_bytes = symbol.as_bytes();
-        let s_len = s_bytes.len().min(31);
-        payload.symbol[..s_len].copy_from_slice(&s_bytes[..s_len]);
-
-        let g_bytes = group.as_bytes();
-        let g_len = g_bytes.len().min(31);
-        payload.group[..g_len].copy_from_slice(&g_bytes[..g_len]);
-
-        let b_bytes = base_symbol.as_bytes();
-        let b_len = b_bytes.len().min(31);
-        payload.base_symbol[..b_len].copy_from_slice(&b_bytes[..b_len]);
-
-        let bf_bytes = bin_file.as_bytes();
-        let bf_len = bf_bytes.len().min(127);
-        payload.bin_file[..bf_len].copy_from_slice(&bf_bytes[..bf_len]);
+        copy_utf8_c_string(&mut payload.symbol, symbol);
+        copy_utf8_c_string(&mut payload.group, group);
+        copy_utf8_c_string(&mut payload.base_symbol, base_symbol);
+        copy_utf8_c_string(&mut payload.bin_file, bin_file);
 
         let header = RenderHeader::new(
             MSG_IMPORT_TICKS,
@@ -387,24 +413,57 @@ pub enum RenderPipeCommand {
     },
 }
 
+#[derive(Debug, Default)]
+struct RenderReconnectState {
+    init: Option<RenderPipeCommand>,
+    position: Option<RenderPipeCommand>,
+}
+
+impl RenderReconnectState {
+    fn commands(&self) -> Vec<RenderPipeCommand> {
+        let Some(init) = &self.init else {
+            return Vec::new();
+        };
+        let mut commands = vec![init.clone()];
+        // Rebuild directly at the latest position, including while playback is paused.
+        // An ADVANCE alone cannot undo data left over from an earlier renderer session.
+        if let Some(position) = &self.position {
+            commands.push(match *position {
+                RenderPipeCommand::Advance { epoch, main_idx, sub_idx, virtual_time_msc } => {
+                    RenderPipeCommand::Reset {
+                        epoch,
+                        main_target_idx: main_idx,
+                        sub_target_idx: sub_idx,
+                        virtual_time_msc,
+                    }
+                }
+                _ => position.clone(),
+            });
+        }
+        commands
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct RenderPipeHandle {
     cmd_tx: tokio::sync::mpsc::UnboundedSender<RenderPipeCommand>,
     connected: std::sync::Arc<std::sync::atomic::AtomicBool>,
     last_applied_idx: std::sync::Arc<std::sync::atomic::AtomicU64>,
-    last_init: std::sync::Arc<std::sync::Mutex<Option<RenderPipeCommand>>>,
-    last_reset: std::sync::Arc<std::sync::Mutex<Option<RenderPipeCommand>>>,
+    reconnect_state: std::sync::Arc<std::sync::Mutex<RenderReconnectState>>,
 }
 
 impl RenderPipeHandle {
     pub fn send_advance(&self, epoch: u32, main_idx: u64, sub_idx: u64, virtual_time_msc: i64) {
+        let mut reconnect = self.reconnect_state.lock().unwrap();
+        let cmd = RenderPipeCommand::Advance {
+            epoch,
+            main_idx,
+            sub_idx,
+            virtual_time_msc,
+        };
+        reconnect.position = Some(cmd.clone());
         if self.connected.load(std::sync::atomic::Ordering::Relaxed) {
-            let _ = self.cmd_tx.send(RenderPipeCommand::Advance {
-                epoch,
-                main_idx,
-                sub_idx,
-                virtual_time_msc,
-            });
+            let _ = self.cmd_tx.send(cmd);
         }
     }
 
@@ -421,8 +480,11 @@ impl RenderPipeHandle {
             sub_target_idx,
             virtual_time_msc,
         };
-        *self.last_reset.lock().unwrap() = Some(cmd.clone());
-        let _ = self.cmd_tx.send(cmd);
+        let mut reconnect = self.reconnect_state.lock().unwrap();
+        reconnect.position = Some(cmd.clone());
+        if self.connected.load(std::sync::atomic::Ordering::Relaxed) {
+            let _ = self.cmd_tx.send(cmd);
+        }
     }
 
     pub fn send_apply_profile(
@@ -466,8 +528,12 @@ impl RenderPipeHandle {
             profile_name: profile_name.to_string(),
             additional_symbols: additional_symbols.to_string(),
         };
-        *self.last_init.lock().unwrap() = Some(cmd.clone());
-        let _ = self.cmd_tx.send(cmd);
+        let mut reconnect = self.reconnect_state.lock().unwrap();
+        reconnect.init = Some(cmd.clone());
+        reconnect.position = None;
+        if self.connected.load(std::sync::atomic::Ordering::Relaxed) {
+            let _ = self.cmd_tx.send(cmd);
+        }
     }
 
     pub fn send_import_ticks(
@@ -488,9 +554,11 @@ impl RenderPipeHandle {
     }
 
     pub fn send_terminate(&self, epoch: u32) {
-        *self.last_init.lock().unwrap() = None;
-        *self.last_reset.lock().unwrap() = None;
-        let _ = self.cmd_tx.send(RenderPipeCommand::Terminate { epoch });
+        let mut reconnect = self.reconnect_state.lock().unwrap();
+        *reconnect = RenderReconnectState::default();
+        if self.connected.load(std::sync::atomic::Ordering::Relaxed) {
+            let _ = self.cmd_tx.send(RenderPipeCommand::Terminate { epoch });
+        }
     }
 
     pub fn is_connected(&self) -> bool {
@@ -523,13 +591,11 @@ impl RenderPipeServer {
         let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::unbounded_channel::<RenderPipeCommand>();
         let connected = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let last_applied_idx = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
-        let last_init = std::sync::Arc::new(std::sync::Mutex::new(None));
-        let last_reset = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let reconnect_state = std::sync::Arc::new(std::sync::Mutex::new(RenderReconnectState::default()));
 
         let connected_clone = connected.clone();
         let last_applied_clone = last_applied_idx.clone();
-        let last_init_clone = last_init.clone();
-        let last_reset_clone = last_reset.clone();
+        let reconnect_state_clone = reconnect_state.clone();
 
         let join_handle = tauri::async_runtime::spawn(async move {
             #[cfg(windows)]
@@ -554,7 +620,6 @@ impl RenderPipeServer {
                         continue;
                     }
 
-                    connected_clone.store(true, std::sync::atomic::Ordering::SeqCst);
                     println!("[RenderPipe] MT5 Renderer EA が接続されました。");
 
                     let (mut reader, mut writer) = tokio::io::split(server);
@@ -674,14 +739,24 @@ impl RenderPipeServer {
                         }
                     });
 
-                    // MT5再接続時または後から起動時に、保存済み INIT / RESET を自動再送信して状態を同期
-                    if let Some(cmd) = last_init_clone.lock().unwrap().clone() {
-                        println!("[RenderPipe] 接続された MT5 EA へ保存済み INIT を即座に送信");
-                        let _ = tx_writer.send(cmd);
-                    }
-                    if let Some(cmd) = last_reset_clone.lock().unwrap().clone() {
-                        println!("[RenderPipe] 接続された MT5 EA へ保存済み RESET を即座に送信");
-                        let _ = tx_writer.send(cmd);
+                    // Cache updates and connection publication share a lock, so an advance
+                    // cannot be lost between taking the snapshot and enabling live delivery.
+                    {
+                        let reconnect = reconnect_state_clone.lock().unwrap();
+                        let mut pending_other_commands = Vec::new();
+                        while let Ok(cmd) = cmd_rx.try_recv() {
+                            match cmd {
+                                RenderPipeCommand::Init { .. }
+                                | RenderPipeCommand::Reset { .. }
+                                | RenderPipeCommand::Advance { .. }
+                                | RenderPipeCommand::Terminate { .. } => {}
+                                other => pending_other_commands.push(other),
+                            }
+                        }
+                        for cmd in reconnect.commands().into_iter().chain(pending_other_commands) {
+                            let _ = tx_writer.send(cmd);
+                        }
+                        connected_clone.store(true, std::sync::atomic::Ordering::SeqCst);
                     }
 
                     // 3. Reader & コマンド配送ループ (EOF 切断検知を常時実行)
@@ -704,10 +779,10 @@ impl RenderPipeServer {
                                                     let ack: &AckPayload = bytemuck::from_bytes(&read_buf[RenderHeader::SIZE..RenderHeader::SIZE + std::mem::size_of::<AckPayload>()]);
                                                     last_applied_clone.store(ack.main_applied_idx, std::sync::atomic::Ordering::Relaxed);
                                                 } else if hdr.msg_type == MSG_READY {
-                                                    let ready_val = serde_json::json!({
-                                                        "status": "READY",
-                                                        "message": "MT5 Renderer EA ready",
+                                                    let snapshot = state.as_ref().and_then(|st| {
+                                                        st.core_handle.lock().unwrap().as_ref().map(|core| core.status())
                                                     });
+                                                    let ready_val = renderer_ready_status(snapshot.as_ref());
                                                     let ready_str = ready_val.to_string();
                                                     if let Some(ref st) = state {
                                                         *st.last_status.lock().unwrap() = ready_str.clone();
@@ -775,8 +850,7 @@ impl RenderPipeServer {
             cmd_tx,
             connected,
             last_applied_idx,
-            last_init,
-            last_reset,
+            reconnect_state,
         };
 
         (handle, join_handle)
@@ -786,6 +860,137 @@ impl RenderPipeServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn reconnect_ready_contains_the_paused_cores_complete_state() {
+        let (core, task) = crate::core::mod_test_helper::create_test_core();
+        let mut receiver = core.subscribe();
+        core.submit_order("USDJPY".into(), crate::core::types::OrderSide::Buy, 1.0, 0.0, 0.0, None);
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                receiver.changed().await.unwrap();
+                if receiver.borrow_and_update().positions.len() == 1 { break; }
+            }
+        }).await.unwrap();
+        let snapshot = core.status();
+        let ready = renderer_ready_status(Some(&snapshot));
+        assert_eq!(ready["status"], "READY");
+        assert_eq!(ready["is_playing"], false);
+        assert_eq!(ready["positions"].as_array().unwrap().len(), 1);
+        assert_eq!(ready["account"]["balance"], snapshot.account.balance);
+        assert_eq!(ready["virtual_time_msc"], snapshot.virtual_time_msc);
+        assert_eq!(ready["current_idx"], snapshot.current_index);
+        assert_eq!(ready["history"], serde_json::json!(&snapshot.history));
+        assert_eq!(ready["execution_audits"], serde_json::json!(&snapshot.latest_audits));
+        let mut playing = snapshot;
+        playing.is_playing = true;
+        assert_eq!(renderer_ready_status(Some(&playing))["status"], "ACTIVE");
+        core.shutdown();
+        task.await.unwrap();
+    }
+
+    #[test]
+    fn renderer_ready_without_replay_remains_a_connection_notification() {
+        assert_eq!(renderer_ready_status(None), serde_json::json!({
+            "status": "READY", "message": "MT5 Renderer EA ready",
+        }));
+    }
+
+    fn test_handle() -> RenderPipeHandle {
+        let (cmd_tx, _) = tokio::sync::mpsc::unbounded_channel();
+        RenderPipeHandle {
+            cmd_tx,
+            connected: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            last_applied_idx: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            reconnect_state: std::sync::Arc::new(std::sync::Mutex::new(RenderReconnectState::default())),
+        }
+    }
+
+    fn init_test_session(handle: &RenderPipeHandle) {
+        handle.send_init(1, 1000, 9000, 0, 300, 0, "USDJPY", "", "検証", "");
+    }
+
+    fn assert_reconnect_position(handle: &RenderPipeHandle, epoch: u32, idx: u64, time_msc: i64) {
+        let commands = handle.reconnect_state.lock().unwrap().commands();
+        assert_eq!(commands.len(), 2);
+        assert!(matches!(commands[0], RenderPipeCommand::Init { .. }));
+        assert!(matches!(commands[1], RenderPipeCommand::Reset {
+            epoch: actual_epoch,
+            main_target_idx,
+            virtual_time_msc,
+            ..
+        } if actual_epoch == epoch && main_target_idx == idx && virtual_time_msc == time_msc));
+    }
+
+    #[test]
+    fn test_reconnect_restores_latest_position_even_when_paused_or_disconnected() {
+        let handle = test_handle();
+        init_test_session(&handle);
+        handle.send_reset(2, 0, 0, 1000);
+        handle.connected.store(true, std::sync::atomic::Ordering::Relaxed);
+        handle.send_advance(2, 5, 0, 5000);
+        handle.connected.store(false, std::sync::atomic::Ordering::Relaxed);
+        assert_reconnect_position(&handle, 2, 5, 5000);
+
+        handle.send_advance(2, 7, 0, 7000);
+        assert_reconnect_position(&handle, 2, 7, 7000);
+
+        // A later backward seek must replace the old forward position and epoch.
+        handle.send_reset(3, 1, 0, 2000);
+        assert_reconnect_position(&handle, 3, 1, 2000);
+    }
+
+    #[test]
+    fn test_new_session_and_terminate_clear_reconnect_position() {
+        let handle = test_handle();
+        init_test_session(&handle);
+        handle.send_advance(4, 5, 0, 5000);
+        init_test_session(&handle);
+        let commands = handle.reconnect_state.lock().unwrap().commands();
+        assert_eq!(commands.len(), 1);
+        assert!(matches!(commands[0], RenderPipeCommand::Init { .. }));
+
+        handle.send_advance(1, 1, 0, 2000);
+        handle.send_terminate(2);
+        assert!(handle.reconnect_state.lock().unwrap().commands().is_empty());
+        // A late advance from the stopped core must not resurrect a session.
+        handle.send_advance(1, 2, 0, 3000);
+        assert!(handle.reconnect_state.lock().unwrap().commands().is_empty());
+    }
+
+    #[test]
+    fn test_unicode_profile_names_and_complete_utf8_truncation() {
+        let profile = "検証用チャート📈";
+        let bytes = RenderPacketCodec::encode_init(1, 1000, 9000, 0, 300, 0, "USDJPY", "", profile, "");
+        let (_, payload) = RenderPacketCodec::read_packet(&mut std::io::Cursor::new(bytes)).unwrap();
+        let init: &InitPayload = bytemuck::from_bytes(&payload);
+        assert_eq!(std::str::from_utf8(&init.profile_name).unwrap().trim_end_matches('\0'), profile);
+
+        let bytes = RenderPacketCodec::encode_apply_profile(1, profile, "USDJPY", "");
+        let (_, payload) = RenderPacketCodec::read_packet(&mut std::io::Cursor::new(bytes)).unwrap();
+        let applied: &ApplyProfilePayload = bytemuck::from_bytes(&payload);
+        assert_eq!(std::str::from_utf8(&applied.profile_name).unwrap().trim_end_matches('\0'), profile);
+
+        let long_profile = format!("{}検証", "a".repeat(62));
+        let bytes = RenderPacketCodec::encode_apply_profile(1, &long_profile, "USDJPY", "");
+        let (_, payload) = RenderPacketCodec::read_packet(&mut std::io::Cursor::new(bytes)).unwrap();
+        let applied: &ApplyProfilePayload = bytemuck::from_bytes(&payload);
+        assert_eq!(std::str::from_utf8(&applied.profile_name).unwrap().trim_end_matches('\0'), "a".repeat(62));
+        assert_eq!(applied.profile_name[63], 0);
+    }
+
+    #[test]
+    fn test_init_limits_distinct_additional_symbols_to_renderer_capacity() {
+        let bytes = RenderPacketCodec::encode_init(
+            1, 1000, 9000, 0, 300, 0, "USDJPY", "EURJPY", "Default",
+            "USDJPY,EURJPY,GBPJPY,GBPJPY_Replay,EURUSD,GBPUSD,AUDUSD,NZDUSD,USDCHF,USDCAD,AUDJPY,CADJPY",
+        );
+        let (_, payload) = RenderPacketCodec::read_packet(&mut std::io::Cursor::new(bytes)).unwrap();
+        let init: &InitPayload = bytemuck::from_bytes(&payload);
+        let symbols = std::str::from_utf8(&init.additional_symbols).unwrap().trim_end_matches('\0');
+        assert_eq!(symbols, "GBPJPY,EURUSD,GBPUSD,AUDUSD,NZDUSD,USDCHF,USDCAD,AUDJPY");
+        assert_eq!(symbols.split(',').count(), MAX_SYNC_SYMBOLS);
+    }
 
     #[test]
     fn test_render_packet_sizes() {

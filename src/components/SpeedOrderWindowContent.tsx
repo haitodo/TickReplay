@@ -14,6 +14,7 @@ import { getContractSizeLabel, getLotDisplayFractionDigits } from "../domain/con
 import { summarizePositionSide } from "../domain/positionSummary";
 import { TimeStopMode, VirtualAccount, VirtualPosition } from "../types/trading";
 import { nextAccount, nextPositions } from "../domain/tradeStateUpdate";
+import { mergePendingReplayStatus, type PendingReplayStatus } from "../domain/pendingReplayStatus";
 import { ReplayProgressPayload } from "../types/replay";
 import { PersistedSettings } from "../types/settings";
 import {
@@ -457,11 +458,11 @@ export const SpeedOrderWindowContent: React.FC = () => {
     // ステータス更新イベントのリッスン
     // The EA can publish progress faster than this window can paint. Keep
     // only the newest snapshot and apply it once per browser frame.
-    let pendingStatus: string | null = null;
+    let pendingStatus: PendingReplayStatus | null = null;
     let statusFrame: number | null = null;
-    const applyStatus = (payload: string) => {
+    const applyStatus = (payload: string | ReplayProgressPayload) => {
       try {
-        const data = JSON.parse(payload) as ReplayProgressPayload;
+        const data = typeof payload === "string" ? JSON.parse(payload) as ReplayProgressPayload : payload;
         if (data.status === "ACTIVE" || data.status === "READY" || data.status === "CONNECTED") {
           const prev = prevStatusRef.current;
           if (prev === "DISCONNECTED") {
@@ -577,8 +578,14 @@ export const SpeedOrderWindowContent: React.FC = () => {
     let isVisible = true;
     getCurrentWindow().isVisible().then((v: boolean) => { isVisible = v; }).catch(() => {});
 
-    const scheduleStatus = (payload: string) => {
-      pendingStatus = payload;
+    const scheduleStatus = (payload: string | ReplayProgressPayload) => {
+      try {
+        const data = typeof payload === "string" ? JSON.parse(payload) as ReplayProgressPayload : payload;
+        pendingStatus = mergePendingReplayStatus(pendingStatus, data);
+      } catch (error) {
+        console.error("Failed to parse pending speed-order status", error);
+        return;
+      }
       if (!isVisible || document.hidden) return; // 非表示中はrAF・再描画を休眠
       if (statusFrame !== null) return;
       statusFrame = requestAnimationFrame(() => {

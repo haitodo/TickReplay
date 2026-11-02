@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { AdvancedSettingsAccordion } from "./AdvancedSettingsAccordion";
 import type { SymbolItem } from "../../types/symbol";
 import { SymbolTagInput } from "../SymbolTagInput";
+import { MAX_SYNC_SYMBOLS, parseSynchronizedSymbols, validateSynchronizedSymbols } from "../../domain/synchronizedSymbols";
 import { HelpTooltip } from "../HelpTooltip";
 import {
   parseSymbolName,
@@ -164,7 +165,7 @@ const SetupPanelComponent: React.FC<SetupPanelProps> = ({
   setSubSourceSymbol,
   availableSymbols,
   additionalSymbols,
-  setAdditionalSymbols,
+  setAdditionalSymbols: onAdditionalSymbolsChange,
   companionSymbols,
   setIsCustomImportOpen,
   startTime,
@@ -218,6 +219,16 @@ const SetupPanelComponent: React.FC<SetupPanelProps> = ({
   handleCheckConnection,
   handleInit,
 }) => {
+  const [syncSymbolError, setSyncSymbolError] = React.useState("");
+  const setAdditionalSymbols = (value: string) => {
+    const symbols = validateSynchronizedSymbols(value, additionalSymbols);
+    if (!symbols) {
+      setSyncSymbolError(`同期通貨は最大${MAX_SYNC_SYMBOLS}銘柄です。追加する前に他の銘柄を削除してください。`);
+      return;
+    }
+    setSyncSymbolError("");
+    onAdditionalSymbolsChange(symbols.join(","));
+  };
   const handleOpenSelector = handleOpenSymbolSelector || (() => setIsBatchSelectorOpen(true));
 
   const handleSelectPreset = (mode: "dmm" | "fixed" | "aggressive") => {
@@ -778,9 +789,15 @@ const SetupPanelComponent: React.FC<SetupPanelProps> = ({
                     <SymbolTagInput
                       value={additionalSymbols}
                       onChange={setAdditionalSymbols}
+                      maxTags={MAX_SYNC_SYMBOLS}
                       placeholder="カンマ区切りで入力 (例: EURJPY, GBPJPY)"
                       availableSymbols={availableSymbols}
                     />
+                    {(syncSymbolError || parseSynchronizedSymbols(additionalSymbols).length > MAX_SYNC_SYMBOLS) && (
+                      <div role="alert" style={{ color: "var(--error)", fontSize: "10px", marginTop: "3px" }}>
+                        {syncSymbolError || `同期通貨は最大${MAX_SYNC_SYMBOLS}銘柄です。余分な銘柄を削除してください。`}
+                      </div>
+                    )}
                     {companionSymbols.length > 0 && (
                       <div className="companion-chips-container" style={{ marginTop: "2px", gap: "3px" }}>
                         <span className="chips-label" style={{ fontSize: "9px" }}>候補:</span>

@@ -64,6 +64,8 @@ export interface SessionVirtualTradeState {
 /** Position fields persisted in a session snapshot and sent back to the EA. */
 export interface SessionPositionSnapshot {
   ticket: number;
+  /** Optional only for compatibility with snapshots saved before symbol was persisted. */
+  symbol?: string;
   type: PositionType;
   volume: number;
   open_price: number;

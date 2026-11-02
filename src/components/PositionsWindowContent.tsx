@@ -191,11 +191,11 @@ export const PositionsWindowContent: React.FC = () => {
 
   const safePositions = Array.isArray(positions) ? positions : [];
 
-  const balance = account ? Number(account.balance) || 1000000 : 1000000;
-  const equity = account ? Number(account.equity) || 1000000 : 1000000;
-  const margin = account ? Number(account.margin) || 0 : 0;
-  const freeMargin = account ? Number(account.free_margin) || 1000000 : 1000000;
-  const marginLevel = account ? Number(account.margin_level) || 0 : 0;
+  const balance = Number(account?.balance ?? 1000000);
+  const equity = Number(account?.equity ?? 1000000);
+  const margin = Number(account?.margin ?? 0);
+  const freeMargin = Number(account?.free_margin ?? 1000000);
+  const marginLevel = Number(account?.margin_level ?? 0);
   const totalPL = account ? (account.profit ?? (Number(account.equity) - Number(account.balance))) : safePositions.reduce((sum, p) => sum + (Number(p.profit) || 0), 0);
   const leverage = account?.leverage || 25;
 

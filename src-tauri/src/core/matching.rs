@@ -127,6 +127,8 @@ pub struct CoreMatchingEngine {
     pub time_stop_enabled: bool,
     pub time_stop_seconds: u32,
     pub time_stop_mode: TimeStopMode,
+    last_tick: Option<CoreTick>,
+    evaluated_time_msc: Option<i64>,
 }
 
 impl Default for CoreMatchingEngine {
@@ -167,6 +169,8 @@ impl CoreMatchingEngine {
             time_stop_enabled: false,
             time_stop_seconds: 20,
             time_stop_mode: TimeStopMode::LossOnly,
+            last_tick: None,
+            evaluated_time_msc: None,
         }
     }
 
@@ -178,6 +182,7 @@ impl CoreMatchingEngine {
     #[inline]
     pub fn has_pending_triggers(&self) -> bool {
         !self.pending_orders.is_empty() || !self.pending_closes.is_empty()
+            || (self.time_stop_enabled && self.time_stop_seconds > 0 && !self.positions.is_empty())
     }
 
     pub fn set_time_stop(&mut self, enabled: bool, seconds: u32, mode: TimeStopMode) {
@@ -239,6 +244,8 @@ impl CoreMatchingEngine {
         self.history.clear();
         self.pending_orders.clear();
         self.pending_closes.clear();
+        self.last_tick = None;
+        self.evaluated_time_msc = None;
         self.next_ticket = next_ticket.max(1);
         self.history_revision = self.history_revision.wrapping_add(1);
     }
@@ -281,6 +288,25 @@ impl CoreMatchingEngine {
         );
     }
 
+    pub fn modify_position(&mut self, ticket: i32, sl: Option<f64>, tp: Option<f64>, now_msc: i64) -> bool {
+        let Some(pos) = self.positions.iter_mut().find(|p| p.ticket == ticket) else { return false; };
+        let previous_sl = pos.sl;
+        let previous_tp = pos.tp;
+        if let Some(sl) = sl { pos.sl = Some(sl); }
+        if let Some(tp) = tp { pos.tp = Some(tp); }
+        if pos.sl != previous_sl || pos.tp != previous_tp {
+            self.journal.record(now_msc, JournalEvent::PositionModified {
+                ticket,
+                modified_time_msc: now_msc,
+                previous_sl,
+                previous_tp,
+                new_sl: pos.sl,
+                new_tp: pos.tp,
+            });
+        }
+        true
+    }
+
     pub fn reset(&mut self, initial_balance: f64, now_msc: i64) {
         self.account.balance = initial_balance;
         self.account.equity = initial_balance;
@@ -294,6 +320,8 @@ impl CoreMatchingEngine {
         self.pending_orders.clear();
         self.pending_closes.clear();
         self.audit_log.clear();
+        self.last_tick = None;
+        self.evaluated_time_msc = Some(now_msc);
         self.next_ticket = 1;
         self.next_order_id = 1;
         self.history_revision = self.history_revision.wrapping_add(1);
@@ -348,9 +376,30 @@ impl CoreMatchingEngine {
         }
         self.positions.sort_by_key(|p| p.ticket);
 
+        // Undo future edits in reverse order, including edits on positions restored above.
+        for entry in self.journal.entries().iter().rev().filter(|entry| entry.timestamp_msc > target_time_msc) {
+            match &entry.event {
+                JournalEvent::PositionModified { ticket, previous_sl, previous_tp, .. } => {
+                    if let Some(pos) = self.positions.iter_mut().find(|p| p.ticket == *ticket) {
+                        pos.sl = *previous_sl;
+                        pos.tp = *previous_tp;
+                    }
+                }
+                JournalEvent::AccountTransaction { is_deposit, amount, .. } => {
+                    let delta = if *is_deposit { *amount } else { -*amount };
+                    self.account.balance -= delta;
+                    self.account.equity -= delta;
+                    self.account.free_margin -= delta;
+                }
+                _ => {}
+            }
+        }
+
         self.pending_orders.clear();
         self.pending_closes.clear();
-        self.audit_log.retain(|a| a.click_time_msc <= target_time_msc);
+        self.last_tick = current_tick.copied();
+        self.evaluated_time_msc = Some(target_time_msc);
+        self.audit_log.retain(|a| a.fill_time_msc <= target_time_msc);
 
         let max_pos = self.positions.iter().map(|p| p.ticket).max().unwrap_or(0);
         let max_hist = self.history.iter().map(|p| p.ticket).max().unwrap_or(0);
@@ -385,6 +434,9 @@ impl CoreMatchingEngine {
         is_playing: bool,
         current_tick: Option<&CoreTick>,
     ) -> Option<i32> {
+        if let Some(tick) = current_tick {
+            self.on_tick_advance(tick, now_virtual_msc);
+        }
         let order_id = self.next_order_id;
         self.next_order_id += 1;
 
@@ -408,7 +460,7 @@ impl CoreMatchingEngine {
             },
         );
 
-        let latency_ms = self.calculate_latency_ms();
+        let latency_ms = if is_playing { self.calculate_latency_ms() } else { 0 };
 
         if latency_ms > 0 && is_playing {
             // 再生中かつ遅延あり: 遅延後に約定
@@ -569,7 +621,10 @@ impl CoreMatchingEngine {
         is_playing: bool,
         current_tick: Option<&CoreTick>,
     ) -> bool {
-        let latency_ms = self.calculate_latency_ms();
+        if let Some(tick) = current_tick {
+            self.on_tick_advance(tick, now_virtual_msc);
+        }
+        let latency_ms = if is_playing { self.calculate_latency_ms() } else { 0 };
 
         if latency_ms > 0 && is_playing {
             self.pending_closes.push(PendingCoreClose {
@@ -643,6 +698,7 @@ impl CoreMatchingEngine {
         close_time_msc: i64,
         tick: &CoreTick,
     ) -> bool {
+        self.update_excursions(tick);
         let idx = match self.positions.iter().position(|p| p.ticket == ticket) {
             Some(i) => i,
             None => return false,
@@ -713,36 +769,90 @@ impl CoreMatchingEngine {
         true
     }
 
-    /// バッチ区間の通過ティック一括評価 (中間全ティックのSL/TP・注文約定・MFE/MAE極値を漏れなく評価し、最新ティックでMTM計算)
+    /// Evaluate every quote and deadline in market-time order, regardless of batch size.
     #[inline]
-    pub fn on_tick_batch(&mut self, ticks: &[CoreTick], _current_time_msc: i64) {
-        if ticks.is_empty() {
-            return;
-        }
+    pub fn on_tick_batch(&mut self, ticks: &[CoreTick], current_time_msc: i64) {
         if self.positions.is_empty() && self.pending_orders.is_empty() && self.pending_closes.is_empty() {
+            if let Some(last) = ticks.last() {
+                self.last_tick = Some(*last);
+                self.evaluated_time_msc = Some(current_time_msc);
+            }
             return;
         }
-        let first = &ticks[0];
-        let mut min_bid = first.bid;
-        let mut max_bid = first.bid;
-        let mut min_ask = first.ask;
-        let mut max_ask = first.ask;
-
         for tick in ticks {
-            if tick.bid < min_bid { min_bid = tick.bid; }
-            if tick.bid > max_bid { max_bid = tick.bid; }
-            if tick.ask < min_ask { min_ask = tick.ask; }
-            if tick.ask > max_ask { max_ask = tick.ask; }
-            self.on_tick_advance_triggers(tick, tick.time_msc);
+            self.advance_market(tick, tick.time_msc);
         }
-        if let Some(last_tick) = ticks.last() {
-            self.evaluate_mtm_with_extremes(last_tick, min_bid, max_bid, min_ask, max_ask);
+        if let Some(last_tick) = self.last_tick {
+            self.advance_deadlines(&last_tick, current_time_msc);
+            self.evaluate_mtm(&last_tick);
+        }
+    }
+
+    fn advance_market(&mut self, tick: &CoreTick, current_time_msc: i64) {
+        if tick.time_msc > current_time_msc {
+            return;
+        }
+        if let Some(previous) = self.last_tick {
+            if tick.time_msc < previous.time_msc {
+                return;
+            }
+            if tick.time_msc > previous.time_msc {
+                // A deadline strictly before this quote can only use the previous quote.
+                self.advance_deadlines(&previous, tick.time_msc.saturating_sub(1));
+            }
+        }
+        let quote_changed = self.last_tick.as_ref() != Some(tick);
+        if quote_changed {
+            self.last_tick = Some(*tick);
+            self.on_tick_advance_triggers(tick, tick.time_msc);
+            self.evaluated_time_msc = Some(tick.time_msc);
+        }
+        self.advance_deadlines(tick, current_time_msc);
+        if !quote_changed || current_time_msc > tick.time_msc {
+            self.on_tick_advance_triggers(tick, current_time_msc);
+        }
+    }
+
+    fn advance_deadlines(&mut self, tick: &CoreTick, target_msc: i64) {
+        let mut cursor = self.evaluated_time_msc.unwrap_or(tick.time_msc);
+        loop {
+            let pending = self.pending_orders.iter().map(|p| p.execute_after_msc)
+                .chain(self.pending_closes.iter().map(|p| p.execute_after_msc));
+            let time_stops = self.positions.iter().filter_map(|p| {
+                if !self.time_stop_enabled || self.time_stop_seconds == 0 {
+                    return None;
+                }
+                let deadline = p.open_time_msc.saturating_add(i64::from(self.time_stop_seconds) * 1000);
+                // LossOnly positions still in profit at expiry wait for a later price tick.
+                (deadline > cursor).then_some(deadline)
+            });
+            let Some(deadline) = pending.chain(time_stops).min() else { break; };
+            let event_time = deadline.max(cursor);
+            if event_time > target_msc { break; }
+            self.on_tick_advance_triggers(tick, event_time);
+            cursor = event_time;
+            self.evaluated_time_msc = Some(cursor);
+        }
+        self.evaluated_time_msc = Some(cursor.max(target_msc));
+    }
+
+    fn update_excursions(&mut self, tick: &CoreTick) {
+        for pos in &mut self.positions {
+            let (_, pip_size, _) = symbol_specs(&pos.symbol, tick.bid);
+            let pips = if pos.r#type == "BUY" {
+                (tick.bid - pos.open_price) / pip_size
+            } else {
+                (pos.open_price - tick.ask) / pip_size
+            };
+            pos.mfe_pips = pos.mfe_pips.max(pips);
+            pos.mae_pips = pos.mae_pips.min(pips);
         }
     }
 
     /// 単一ティックによるトリガー評価 (保留注文、保留決済、SL/TP) - ゼロヒープアロケーション
     #[inline]
     pub fn on_tick_advance_triggers(&mut self, tick: &CoreTick, current_time_msc: i64) {
+        self.update_excursions(tick);
         // 1. 保留中注文の評価 (インプレース FIFO 処理で Vec 確保を完全排除)
         let mut i = 0;
         while i < self.pending_orders.len() {
@@ -840,11 +950,10 @@ impl CoreMatchingEngine {
     /// 毎ティック / タイマー進行時の評価処理
     #[inline]
     pub fn on_tick_advance(&mut self, tick: &CoreTick, current_time_msc: i64) {
-        if self.positions.is_empty() && self.pending_orders.is_empty() && self.pending_closes.is_empty() {
-            return;
+        self.advance_market(tick, current_time_msc);
+        if let Some(current) = self.last_tick {
+            self.evaluate_mtm(&current);
         }
-        self.on_tick_advance_triggers(tick, current_time_msc);
-        self.evaluate_mtm(tick);
     }
 
     /// MTM (時価評価損益・証拠金計算)
@@ -868,18 +977,19 @@ impl CoreMatchingEngine {
 
         for pos in &mut self.positions {
             let is_buy = pos.r#type.as_bytes().first() == Some(&b'B');
+            let (_, pip_size, _) = symbol_specs(&pos.symbol, tick.bid);
             let current_price = if is_buy { tick.bid } else { tick.ask };
             pos.current_price = Some(current_price);
 
             let (diff, best_diff_pips, worst_diff_pips) = if is_buy {
                 let d = current_price - pos.open_price;
-                let best = (max_bid - pos.open_price) * 100.0;
-                let worst = (min_bid - pos.open_price) * 100.0;
+                let best = (max_bid - pos.open_price) / pip_size;
+                let worst = (min_bid - pos.open_price) / pip_size;
                 (d, best, worst)
             } else {
                 let d = pos.open_price - current_price;
-                let best = (pos.open_price - min_ask) * 100.0;
-                let worst = (pos.open_price - max_ask) * 100.0;
+                let best = (pos.open_price - min_ask) / pip_size;
+                let worst = (pos.open_price - max_ask) / pip_size;
                 (d, best, worst)
             };
 
@@ -1158,5 +1268,176 @@ mod tests {
         assert_eq!(engine.history.len(), 1);
         assert_eq!(engine.history[0].ticket, ticket);
         assert_eq!(engine.history[0].close_reason, Some("TIME_STOP".to_string()));
+    }
+
+    fn delayed_buy(latency_ms: u32) -> CoreMatchingEngine {
+        let mut engine = CoreMatchingEngine::default();
+        engine.set_latency_model(LatencyModel::Fixed { latency_ms });
+        let tick = sample_tick(1000, 150.0, 150.005);
+        engine.submit_order("USDJPY".into(), OrderSide::Buy, 1.0, 0.0, 0.0, None, 1000, true, Some(&tick));
+        engine
+    }
+
+    #[test]
+    fn delayed_fills_are_independent_of_batch_boundaries() {
+        let next = sample_tick(2000, 149.9, 149.905);
+        let initial = sample_tick(1000, 150.0, 150.005);
+        let mut fine = delayed_buy(100);
+        fine.on_tick_advance(&initial, 1100);
+        fine.on_tick_advance(&next, 2000);
+        let mut batched = delayed_buy(100);
+        batched.on_tick_batch(&[next], 2000);
+        assert_eq!(batched.audit_log[0].fill_time_msc, 1100);
+        assert_eq!(batched.audit_log[0].fill_price, 150.005);
+        assert_eq!(batched.audit_log[0].fill_price, fine.audit_log[0].fill_price);
+        assert_eq!(batched.account.equity, fine.account.equity);
+    }
+
+    #[test]
+    fn delayed_fill_at_tick_time_uses_new_quote_and_flushes_batch_tail() {
+        let next = sample_tick(1100, 150.1, 150.105);
+        let mut exact = delayed_buy(100);
+        exact.on_tick_batch(&[next], 1100);
+        assert_eq!(exact.audit_log[0].fill_price, 150.105);
+
+        let mut tail = delayed_buy(200);
+        tail.on_tick_batch(&[next], 1250);
+        assert_eq!(tail.audit_log[0].fill_time_msc, 1200);
+        assert_eq!(tail.audit_log[0].fill_price, 150.105);
+    }
+
+    #[test]
+    fn delayed_close_in_quote_gap_uses_price_known_at_deadline() {
+        let initial = sample_tick(1000, 150.0, 150.005);
+        let mut engine = CoreMatchingEngine::default();
+        let ticket = engine.submit_order("USDJPY".into(), OrderSide::Buy, 1.0, 0.0, 0.0, None, 1000, true, Some(&initial)).unwrap();
+        engine.set_latency_model(LatencyModel::Fixed { latency_ms: 100 });
+        engine.close_position(ticket, None, "MANUAL".into(), 1000, true, Some(&initial));
+        engine.on_tick_batch(&[sample_tick(2000, 149.9, 149.905)], 2000);
+        assert_eq!(engine.history[0].close_time_msc, Some(1100));
+        assert_eq!(engine.history[0].close_price, Some(150.0));
+    }
+
+    #[test]
+    fn time_stop_in_quote_gap_is_exact_and_loss_only_can_wait() {
+        let initial = sample_tick(1000, 150.0, 150.005);
+        let mut engine = CoreMatchingEngine::default();
+        engine.submit_order("USDJPY".into(), OrderSide::Buy, 1.0, 0.0, 0.0, None, 1000, true, Some(&initial));
+        engine.set_time_stop(true, 1, TimeStopMode::Always);
+        engine.on_tick_batch(&[sample_tick(3000, 151.0, 151.005)], 3000);
+        assert_eq!(engine.history[0].close_time_msc, Some(2000));
+        assert_eq!(engine.history[0].close_price, Some(150.0));
+
+        let mut profitable = CoreMatchingEngine::default();
+        profitable.submit_order("USDJPY".into(), OrderSide::Buy, 1.0, 0.0, 0.0, None, 1000, true, Some(&initial));
+        profitable.set_time_stop(true, 1, TimeStopMode::LossOnly);
+        profitable.on_tick_batch(&[
+            sample_tick(1500, 150.1, 150.105),
+            sample_tick(3000, 149.9, 149.905),
+        ], 3000);
+        assert_eq!(profitable.history[0].close_time_msc, Some(3000));
+    }
+
+    #[test]
+    fn excursions_include_closing_tick_and_exclude_prices_before_fill() {
+        let initial = sample_tick(1000, 150.0, 150.005);
+        let mut engine = CoreMatchingEngine::default();
+        engine.submit_order("USDJPY".into(), OrderSide::Buy, 1.0, 5.0, 0.0, None, 1000, true, Some(&initial));
+        engine.on_tick_batch(&[
+            sample_tick(1100, 151.0, 151.005),
+            sample_tick(1200, 149.9, 149.905),
+        ], 1200);
+        assert!((engine.history[0].mfe_pips - 99.5).abs() < 1e-8);
+        assert!((engine.history[0].mae_pips + 10.5).abs() < 1e-8);
+
+        let mut delayed = delayed_buy(200);
+        delayed.on_tick_batch(&[
+            sample_tick(1100, 152.0, 152.005),
+            sample_tick(1200, 150.0, 150.005),
+        ], 1200);
+        assert_eq!(delayed.positions[0].mfe_pips, 0.0);
+        assert!((delayed.positions[0].mae_pips + 0.5).abs() < 1e-8);
+    }
+
+    #[test]
+    fn paused_order_and_close_do_not_stamp_future_times() {
+        let tick = sample_tick(1000, 150.0, 150.005);
+        let mut engine = CoreMatchingEngine::default();
+        engine.set_latency_model(LatencyModel::Fixed { latency_ms: 100 });
+        let ticket = engine.submit_order("USDJPY".into(), OrderSide::Buy, 1.0, 0.0, 0.0, None, 1000, false, Some(&tick)).unwrap();
+        assert_eq!(engine.positions[0].open_time_msc, 1000);
+        assert_eq!(engine.audit_log[0].latency_ms, 0);
+        engine.close_position(ticket, None, "MANUAL".into(), 1000, false, Some(&tick));
+        assert_eq!(engine.history[0].close_time_msc, Some(1000));
+    }
+
+    #[test]
+    fn pending_orders_execute_in_deadline_order_even_when_submitted_later() {
+        let initial = sample_tick(1000, 150.0, 150.005);
+        let mut engine = delayed_buy(300);
+        engine.set_latency_model(LatencyModel::Fixed { latency_ms: 50 });
+        engine.submit_order("USDJPY".into(), OrderSide::Sell, 1.0, 0.0, 0.0, None, 1100, true, Some(&initial));
+        engine.on_tick_batch(&[sample_tick(2000, 151.0, 151.005)], 2000);
+        assert_eq!(engine.audit_log.len(), 2);
+        assert_eq!(engine.audit_log[0].side, "SELL");
+        assert_eq!(engine.audit_log[0].fill_time_msc, 1150);
+        assert_eq!(engine.audit_log[0].fill_price, 150.0);
+        assert_eq!(engine.audit_log[1].side, "BUY");
+        assert_eq!(engine.audit_log[1].fill_time_msc, 1300);
+        assert_eq!(engine.audit_log[1].fill_price, 150.005);
+    }
+
+    #[test]
+    fn rewind_restores_sl_tp_changes_in_reverse_order() {
+        let initial = sample_tick(1000, 150.0, 150.005);
+        let mut engine = CoreMatchingEngine::default();
+        let ticket = engine.submit_order("USDJPY".into(), OrderSide::Buy, 1.0, 5.0, 20.0, None, 1000, true, Some(&initial)).unwrap();
+        let original_sl = engine.positions[0].sl;
+        let original_tp = engine.positions[0].tp;
+        let revision = engine.revision();
+        assert!(engine.modify_position(ticket, Some(149.0), Some(151.0), 1500));
+        assert!(engine.revision() > revision);
+        engine.modify_position(ticket, Some(148.0), Some(152.0), 2000);
+        engine.close_position(ticket, None, "MANUAL".into(), 2500, false, Some(&sample_tick(2500, 150.01, 150.015)));
+        assert!(engine.positions.is_empty());
+
+        engine.rewind_to(1750, Some(&sample_tick(1750, 150.01, 150.015)));
+        assert_eq!(engine.positions[0].sl, Some(149.0));
+        assert_eq!(engine.positions[0].tp, Some(151.0));
+        engine.rewind_to(1250, Some(&initial));
+        assert_eq!(engine.positions[0].sl, original_sl);
+        assert_eq!(engine.positions[0].tp, original_tp);
+        engine.modify_position(ticket, None, Some(150.5), 1300);
+        engine.rewind_to(1250, Some(&initial));
+        assert_eq!(engine.positions[0].sl, original_sl);
+        assert_eq!(engine.positions[0].tp, original_tp);
+    }
+
+    #[test]
+    fn rewind_undoes_future_deposits_and_withdrawals_exactly_once() {
+        let tick = sample_tick(1000, 150.0, 150.005);
+        let mut engine = CoreMatchingEngine::default();
+        engine.account_transaction(true, 50_000.0, None, 1500);
+        engine.account_transaction(false, 20_000.0, None, 2000);
+        engine.rewind_to(1500, Some(&tick));
+        assert_eq!(engine.account.balance, 1_050_000.0);
+        assert_eq!(engine.account.equity, 1_050_000.0);
+        engine.rewind_to(1000, Some(&tick));
+        assert_eq!(engine.account.balance, 1_000_000.0);
+        assert_eq!(engine.account.free_margin, 1_000_000.0);
+        engine.rewind_to(1000, Some(&tick));
+        assert_eq!(engine.account.balance, 1_000_000.0);
+        assert!(!engine.journal.entries().iter().any(|entry| matches!(entry.event, JournalEvent::AccountTransaction { .. })));
+    }
+
+    #[test]
+    fn rewind_removes_audits_for_fills_after_target() {
+        let initial = sample_tick(1000, 150.0, 150.005);
+        let mut engine = delayed_buy(100);
+        engine.on_tick_advance(&initial, 1200);
+        assert_eq!(engine.audit_log.len(), 1);
+        engine.rewind_to(1050, Some(&initial));
+        assert!(engine.positions.is_empty());
+        assert!(engine.audit_log.is_empty());
     }
 }

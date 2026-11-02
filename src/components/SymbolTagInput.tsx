@@ -1,31 +1,32 @@
 import React, { useState, useRef, useEffect } from "react";
 import type { SymbolItem } from "../types/symbol";
 import { isReplaySymbol } from "../utils/symbolUtils";
+import { parseSynchronizedSymbols } from "../domain/synchronizedSymbols";
 
 interface SymbolTagInputProps {
   value: string; // カンマ区切りの文字列 (例: "EURUSD,GBPUSD,USDCHF")
   onChange: (value: string) => void;
   availableSymbols: (SymbolItem | string)[];
   placeholder?: string;
+  maxTags?: number;
 }
 
 export const SymbolTagInput: React.FC<SymbolTagInputProps> = ({
   value,
   onChange,
   availableSymbols,
+  maxTags = Number.POSITIVE_INFINITY,
   placeholder = "銘柄を追加... (例: EURUSD)"
 }) => {
   const [inputText, setInputText] = useState("");
   const [isOpen, setIsOpen] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
+  const [limitError, setLimitError] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // 文字列を分解してタグ配列に
-  const tags = value
-    .split(",")
-    .map(s => s.trim().toUpperCase())
-    .filter(Boolean);
+  const tags = parseSynchronizedSymbols(value);
 
   const symbolNames = availableSymbols
     .map(s => typeof s === "string" ? s : s.name)
@@ -36,15 +37,22 @@ export const SymbolTagInput: React.FC<SymbolTagInputProps> = ({
   };
 
   const handleAddTag = (symbolToAdd: string) => {
-    const clean = symbolToAdd.trim().toUpperCase();
-    if (clean && !tags.includes(clean)) {
+    const input = symbolToAdd.trim();
+    const clean = symbolNames.find((symbol) => symbol.toUpperCase() === input.toUpperCase()) ?? input;
+    if (clean && !tags.some((tag) => tag.toUpperCase() === clean.toUpperCase())) {
+      if (tags.length >= maxTags) {
+        setLimitError(true);
+        return;
+      }
       updateTags([...tags, clean]);
     }
+    setLimitError(false);
     setInputText("");
     setIsOpen(false);
   };
 
   const handleRemoveTag = (indexToRemove: number) => {
+    setLimitError(false);
     updateTags(tags.filter((_, idx) => idx !== indexToRemove));
   };
 
@@ -72,7 +80,7 @@ export const SymbolTagInput: React.FC<SymbolTagInputProps> = ({
   // 候補フィルタリング
   const searchUpper = inputText.trim().toUpperCase();
   const suggestions = Array.from(new Set(symbolNames))
-    .filter(s => !tags.includes(s.toUpperCase()))
+    .filter(s => !tags.some((tag) => tag.toUpperCase() === s.toUpperCase()))
     .filter(s => s.toUpperCase().includes(searchUpper));
 
   return (
@@ -167,6 +175,12 @@ export const SymbolTagInput: React.FC<SymbolTagInputProps> = ({
           }}
         />
       </div>
+
+      {limitError && (
+        <div role="alert" style={{ color: "var(--error)", fontSize: "10px", marginTop: "3px" }}>
+          同期通貨は最大{maxTags}銘柄です。追加する前に他の銘柄を削除してください。
+        </div>
+      )}
 
       {isOpen && suggestions.length > 0 && (
         <ul

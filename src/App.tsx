@@ -43,6 +43,15 @@ import {
   MAX_TIME_STEPS,
 } from "./domain/timeSteps";
 import { formatTerminalNamesMap } from "./domain/settings";
+import { isReplaySessionStart, mergePendingReplayStatus, type PendingReplayStatus } from "./domain/pendingReplayStatus";
+import {
+  resolveSessionTradingSettings,
+  saveSessionAndFinish,
+  snapshotSessionAccount,
+  snapshotSessionHistory,
+  snapshotSessionPosition,
+  withSessionPositionSymbol,
+} from "./domain/sessionPersistence";
 import type { FeedRate, SubFeedRate, TimeStepItem } from "./types/replay";
 import {
   getServerToJstOffsetHours,
@@ -680,9 +689,10 @@ function MainWindow() {
     }
   };
 
-  const handleStatusString = (payload: string) => {
+  const handleStatusString = (payload: string | ReplayProgressPayload) => {
     try {
-      const data = JSON.parse(payload) as ReplayProgressPayload;
+      const data = typeof payload === "string" ? JSON.parse(payload) as ReplayProgressPayload : payload;
+      if (isReplaySessionStart(data)) historyRevisionRef.current = undefined;
       if (data.status === "READY") {
         const isReconnecting = status === "DISCONNECTED" || status === "CONNECTED";
         setStatus((prev) => prev !== "READY" ? "READY" : prev);
@@ -800,6 +810,7 @@ function MainWindow() {
                   for (const pos of vt.positions) {
                     await sendCommand({
                       command: "RESTORE_POSITION",
+                      symbol: withSessionPositionSymbol(pos, session.settings.source_symbol).symbol,
                       ticket: pos.ticket,
                       type: pos.type,
                       volume: pos.volume,
@@ -824,6 +835,7 @@ function MainWindow() {
                   for (const hist of vt.history) {
                     await sendCommand({
                       command: "RESTORE_HISTORY",
+                      symbol: withSessionPositionSymbol(hist, session.settings.source_symbol).symbol,
                       ticket: hist.ticket,
                       type: hist.type,
                       volume: hist.volume,
@@ -958,7 +970,7 @@ function MainWindow() {
     handleStatusStringRef.current = handleStatusString;
   });
 
-  const pendingStatusPayloadRef = useRef<string | null>(null);
+  const pendingStatusPayloadRef = useRef<PendingReplayStatus | null>(null);
   const rafIdRef = useRef<number | null>(null);
   const skippedCountRef = useRef<number>(0);
   const isWindowVisibleRef = useRef<boolean>(true);
@@ -1024,10 +1036,22 @@ function MainWindow() {
   }, []);
 
   const scheduleStatusUpdate = useCallback((payload: string) => {
+    let data: ReplayProgressPayload;
+    try {
+      data = JSON.parse(payload) as ReplayProgressPayload;
+    } catch (error) {
+      console.error("Failed to parse pending replay status", error);
+      return;
+    }
+    // Errors are discrete events: display them without replacing unpainted history.
+    if (data.status === "ERROR") {
+      handleStatusStringRef.current(data);
+      return;
+    }
     if (pendingStatusPayloadRef.current !== null) {
       skippedCountRef.current++;
     }
-    pendingStatusPayloadRef.current = payload;
+    pendingStatusPayloadRef.current = mergePendingReplayStatus(pendingStatusPayloadRef.current, data);
 
     // メインウィンドウ非表示中（コントローラー操作中や最小化時）は rAF と React 再描画をスキップ
     if (!isWindowVisibleRef.current || document.hidden) {
@@ -1171,11 +1195,13 @@ function MainWindow() {
 
     // EA接続時
     const unlistenConnect = listen(EVENTS.mt5Connected, () => {
+      pendingStatusPayloadRef.current = null;
       setStatus((prev) => prev === "DISCONNECTED" ? "CONNECTED" : prev);
     });
 
     // EA切断時
     const unlistenDisconnect = listen(EVENTS.mt5Disconnected, async () => {
+      pendingStatusPayloadRef.current = null;
       setStatus("DISCONNECTED");
       playStateGuardRef.current = null;
       isPlayingRef.current = false;
@@ -1625,6 +1651,8 @@ function MainWindow() {
   // リプレイ初期化
   const handleInit = async () => {
     setErrorMessage("");
+    pendingStatusPayloadRef.current = null;
+    historyRevisionRef.current = undefined;
     updateRestoringSession(null);
     isRestoringRef.current = false;
 
@@ -2006,6 +2034,14 @@ function MainWindow() {
 
   const handleResumeSession = async (session: SavedSession) => {
     setErrorMessage("");
+    pendingStatusPayloadRef.current = null;
+    historyRevisionRef.current = undefined;
+    const tradingSettings = resolveSessionTradingSettings(session, {
+      initial_balance: initialBalance,
+      contract_size: contractSize,
+      leverage,
+      hedging,
+    });
 
     // 保存された設定項目をフロントエンドの状態に反映
     setSelectedTerminal(session.settings.selected_terminal);
@@ -2020,10 +2056,10 @@ function MainWindow() {
     if (session.settings.additional_symbols !== undefined) {
       setAdditionalSymbols(session.settings.additional_symbols);
     }
-    if (session.settings.contract_size !== undefined) {
-      setContractSize(session.settings.contract_size);
-      localStorage.setItem(STORAGE_KEYS.speedOrderContractSize, String(session.settings.contract_size));
-    }
+    setContractSize(tradingSettings.contract_size);
+    localStorage.setItem(STORAGE_KEYS.speedOrderContractSize, String(tradingSettings.contract_size));
+    setHedging(tradingSettings.hedging);
+    localStorage.setItem(STORAGE_KEYS.speedOrderHedging, String(tradingSettings.hedging));
     setStartTime(session.settings.start_time);
     setEndTime(session.settings.end_time);
     setPreloadedBars(session.settings.preloaded_bars);
@@ -2039,11 +2075,11 @@ function MainWindow() {
     if (session.settings.enable_virtual_trading !== undefined) {
       setEnableVirtualTrading(session.settings.enable_virtual_trading);
     }
-    if (session.settings.initial_balance !== undefined) {
-      setInitialBalance(session.settings.initial_balance);
-    }
-    if (session.settings.leverage !== undefined) {
-      setLeverage(session.settings.leverage);
+    setInitialBalance(tradingSettings.initial_balance);
+    setLeverage(tradingSettings.leverage);
+    if (session.settings.economic_data_dir !== undefined) {
+      setEconomicDataDir(session.settings.economic_data_dir);
+      localStorage.setItem(STORAGE_KEYS.replayEconomicDataDir, session.settings.economic_data_dir);
     }
     if (session.settings.enable_pseudo_rate !== undefined) {
       setEnablePseudoRate(session.settings.enable_pseudo_rate);
@@ -2100,6 +2136,7 @@ function MainWindow() {
         enable_dual_feed: isDual,
         sub_source_symbol: subSym,
         additional_symbols: syncSyms,
+        ...tradingSettings,
         start_time: session.settings.start_time,
         end_time: session.settings.end_time,
         profile_name: session.settings.selected_profile,
@@ -2135,6 +2172,7 @@ function MainWindow() {
             ? session.settings.pseudo_rollover_spread : 3.5
         ),
         pseudo_rollover_recovery_min: session.settings.pseudo_rollover_recovery_min !== undefined ? session.settings.pseudo_rollover_recovery_min : 15,
+        economic_data_dir: session.settings.economic_data_dir ?? economicDataDir,
       };
 
       await sendCommand(initCmd);
@@ -2145,8 +2183,8 @@ function MainWindow() {
     }
   };
 
-  const executeSaveSession = async () => {
-    if (!saveSessionName.trim()) return;
+  const executeSaveSession = async (): Promise<boolean> => {
+    if (!saveSessionName.trim()) return false;
 
     const isNew = !currentSessionId || saveAsNewSnapshot;
     const sessionId = isNew ? "session_" + Date.now() : currentSessionId;
@@ -2177,6 +2215,7 @@ function MainWindow() {
         enable_virtual_trading: enableVirtualTrading,
         initial_balance: initialBalance,
         leverage: leverage,
+        hedging,
         enable_pseudo_rate: enablePseudoRate,
         pseudo_base_spread: pseudoBaseSpread,
         pseudo_threshold: pseudoThreshold,
@@ -2185,6 +2224,7 @@ function MainWindow() {
         pseudo_rollover_enabled: pseudoRolloverEnabled,
         pseudo_rollover_spread: pseudoRolloverSpread,
         pseudo_rollover_recovery_min: pseudoRolloverRecoveryMin,
+        economic_data_dir: economicDataDir,
       },
       progress: {
         current_idx: currentIdx,
@@ -2195,13 +2235,7 @@ function MainWindow() {
         tick_step: tickStep
       },
       virtual_trade: enableVirtualTrading ? {
-        initial_balance: initialBalance,
-        balance: account?.balance || initialBalance,
-        equity: account?.equity || initialBalance,
-        leverage: leverage,
-        margin: account?.margin || 0,
-        free_margin: account?.free_margin || initialBalance,
-        margin_level: account?.margin_level || 0,
+        ...snapshotSessionAccount(account, initialBalance, leverage),
         next_ticket: Math.max(10001, ...(positions.map(p => p.ticket)), ...(history.map(h => h.ticket))) + 1,
         positions: positions.map(p => {
           let pcAccumulated = 0;
@@ -2219,23 +2253,7 @@ function MainWindow() {
           } catch (e) {
             console.error("Failed to parse storedTimes in session save", e);
           }
-          return {
-            ticket: p.ticket,
-            type: p.type,
-            volume: p.volume,
-            open_price: p.open_price,
-            open_time_msc: p.open_time_msc,
-            sl: p.sl,
-            tp: p.tp,
-            current_price: p.current_price,
-            profit: p.profit,
-            accumulated_real_time: pcAccumulated,
-            mfe_pips: p.mfe_pips,
-            mae_pips: p.mae_pips,
-            spread_entry: p.spread_entry,
-            volatility: p.volatility,
-            volume_60s: p.volume_60s
-          };
+          return snapshotSessionPosition(p, pcAccumulated);
         }),
         history: history.map(h => {
           let pcAccumulated = 0;
@@ -2253,25 +2271,7 @@ function MainWindow() {
           } catch (e) {
             console.error("Failed to parse storedTimes in session save for history", e);
           }
-          return {
-            ticket: h.ticket,
-            type: h.type,
-            volume: h.volume,
-            open_price: h.open_price,
-            open_time_msc: h.open_time_msc,
-            close_price: h.close_price,
-            close_time_msc: h.close_time_msc,
-            sl: h.sl,
-            tp: h.tp,
-            profit: h.profit,
-            close_reason: h.close_reason,
-            accumulated_real_time: pcAccumulated,
-            mfe_pips: h.mfe_pips,
-            mae_pips: h.mae_pips,
-            spread_entry: h.spread_entry,
-            volatility: h.volatility,
-            volume_60s: h.volume_60s
-          };
+          return snapshotSessionHistory(h, pcAccumulated);
         })
       } : null
     };
@@ -2282,13 +2282,16 @@ function MainWindow() {
       setCurrentSessionName(saveSessionName);
       setCurrentGroupSessionId(groupSessionId);
       await loadSavedSessions();
+      return true;
     } catch (e) {
       console.error("Failed to save session", e);
       setErrorMessage("セッションデータの保存に失敗しました。");
+      return false;
     }
   };
 
   const executeTerminate = async () => {
+    pendingStatusPayloadRef.current = null;
     sendCommand({ command: "TERMINATE" });
     setStatus("CONNECTED");
     playStateGuardRef.current = null;
@@ -3342,13 +3345,11 @@ function MainWindow() {
         setSaveSessionName={setSaveSessionName}
         saveAsNewSnapshot={saveAsNewSnapshot}
         setSaveAsNewSnapshot={setSaveAsNewSnapshot}
-        onSave={async () => {
-          await executeSaveSession();
-          setIsSaveSessionOpen(false);
-          if (sessionSaveType === "terminate") {
-            await executeTerminate();
-          }
-        }}
+        onSave={() => saveSessionAndFinish(
+          executeSaveSession,
+          () => setIsSaveSessionOpen(false),
+          sessionSaveType === "terminate" ? executeTerminate : undefined,
+        )}
         onTerminateWithoutSaving={async () => {
           setIsSaveSessionOpen(false);
           await executeTerminate();

@@ -225,7 +225,7 @@ impl ReplayCore {
             loop_config: None,
             account: initial_account,
             positions: Vec::new(),
-            history: Some(Vec::new()),
+            history: Arc::new(Vec::new()),
             latest_audits: Arc::new(Vec::new()),
             time_stop_seconds: 20,
             time_stop_enabled: false,
@@ -509,20 +509,18 @@ mod tests {
             loop_config: None,
             account: engine.account.clone(),
             positions: engine.positions.clone(),
-            history: Some(engine.history.clone()),
+            history: Arc::new(engine.history.clone()),
             latest_audits: Arc::new(engine.audit_log[engine.audit_log.len().saturating_sub(50)..].to_vec()),
             time_stop_seconds: engine.time_stop_seconds,
             time_stop_enabled: engine.time_stop_enabled,
         };
 
-        let delta_snap = CoreStatusSnapshot {
-            history: None,
-            latest_audits: Arc::new(Vec::new()),
-            ..full_snap.clone()
-        };
-
         let full_json = serde_json::to_string(&full_snap).unwrap();
-        let delta_json = serde_json::to_string(&delta_snap).unwrap();
+        // History stays complete in watch snapshots; omit it only at the IPC boundary.
+        let mut delta_payload = serde_json::to_value(&full_snap).unwrap();
+        delta_payload.as_object_mut().unwrap().remove("history");
+        delta_payload.as_object_mut().unwrap().remove("latest_audits");
+        let delta_json = serde_json::to_string(&delta_payload).unwrap();
         let reduction_pct = (1.0 - (delta_json.len() as f64 / full_json.len() as f64)) * 100.0;
         println!(
             "[BENCH] IPC Status Payload (100 closed trades): Full = {} bytes, Delta = {} bytes ({:.1}% reduction)",

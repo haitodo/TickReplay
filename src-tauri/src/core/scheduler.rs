@@ -31,6 +31,7 @@ pub struct CoreScheduler {
     current_index: usize,
     last_published_history_rev: u64,
     last_published_trade_rev: u64,
+    cached_history: std::sync::Arc<Vec<crate::virtual_trading::VirtualPosition>>,
     cached_latest_audits: std::sync::Arc<Vec<crate::core::journal::ExecutionAuditRecord>>,
     cmd_rx: mpsc::UnboundedReceiver<CoreCommand>,
     status_tx: watch::Sender<CoreStatusSnapshot>,
@@ -59,6 +60,7 @@ impl CoreScheduler {
             current_index: 0,
             last_published_history_rev: 0,
             last_published_trade_rev: 0,
+            cached_history: std::sync::Arc::new(Vec::new()),
             cached_latest_audits: std::sync::Arc::new(Vec::new()),
             cmd_rx,
             status_tx,
@@ -235,6 +237,18 @@ impl CoreScheduler {
         }
     }
 
+    fn advance_to_index(&mut self, target_index: usize, target_msc: i64) {
+        if target_index > self.current_index {
+            self.matching.on_tick_batch(
+                self.store.slice(self.current_index + 1, target_index),
+                target_msc,
+            );
+        } else if let Some(tick) = self.store.get(target_index) {
+            self.matching.on_tick_advance(tick, target_msc);
+        }
+        self.current_index = target_index;
+    }
+
     /// コマンドディスパッチ
     fn handle_command(&mut self, cmd: CoreCommand) -> bool {
         match cmd {
@@ -277,12 +291,16 @@ impl CoreScheduler {
                 self.clock.set_ticks_per_second(tps);
             }
             CoreCommand::SeekTime(target_msc) => {
-                self.clock.seek(target_msc);
+                let previous_msc = self.clock.virtual_time_msc();
+                let (target_msc, _) = self.clock.seek(target_msc);
                 if let Some(idx) = self.store.find_index_at_or_before(target_msc) {
-                    self.current_index = idx;
+                    if target_msc >= previous_msc {
+                        self.advance_to_index(idx, target_msc);
+                    } else {
+                        self.current_index = idx;
+                        self.matching.rewind_to(target_msc, self.store.get(idx));
+                    }
                 }
-                let cur_tick = self.store.get(self.current_index);
-                self.matching.rewind_to(target_msc, cur_tick);
 
                 if let Some(ref pipe) = self.render_pipe {
                     pipe.send_reset(
@@ -295,11 +313,15 @@ impl CoreScheduler {
             }
             CoreCommand::SeekIndex(target_idx) => {
                 let idx = target_idx as usize;
-                if let Some(tick) = self.store.get(idx) {
+                if let Some(tick) = self.store.get(idx).copied() {
                     let tick_msc = tick.time_msc;
-                    self.current_index = idx;
                     self.clock.seek(tick_msc);
-                    self.matching.rewind_to(tick_msc, Some(tick));
+                    if idx >= self.current_index {
+                        self.advance_to_index(idx, tick_msc);
+                    } else {
+                        self.current_index = idx;
+                        self.matching.rewind_to(tick_msc, Some(&tick));
+                    }
 
                     if let Some(ref pipe) = self.render_pipe {
                         pipe.send_reset(
@@ -312,14 +334,14 @@ impl CoreScheduler {
                 }
             }
             CoreCommand::StepTicks(delta_ticks) => {
-                let new_idx = (self.current_index as i64 + delta_ticks).max(0) as usize;
+                let new_idx = (self.current_index as i64).saturating_add(delta_ticks).max(0) as usize;
                 let clamped_idx = new_idx.min(self.store.len().saturating_sub(1));
-                if let Some(tick) = self.store.get(clamped_idx) {
+                if let Some(tick) = self.store.get(clamped_idx).copied() {
                     let tick_msc = tick.time_msc;
-                    self.current_index = clamped_idx;
                     self.clock.seek(tick_msc);
                     if delta_ticks < 0 {
-                        self.matching.rewind_to(tick_msc, Some(tick));
+                        self.current_index = clamped_idx;
+                        self.matching.rewind_to(tick_msc, Some(&tick));
                         if let Some(ref pipe) = self.render_pipe {
                             pipe.send_reset(
                                 self.clock.seek_epoch() as u32,
@@ -329,7 +351,7 @@ impl CoreScheduler {
                             );
                         }
                     } else {
-                        self.matching.on_tick_advance(tick, tick_msc);
+                        self.advance_to_index(clamped_idx, tick_msc);
                         if let Some(ref pipe) = self.render_pipe {
                             pipe.send_advance(
                                 self.clock.seek_epoch() as u32,
@@ -344,13 +366,12 @@ impl CoreScheduler {
             CoreCommand::StepTime(delta_msc) => {
                 let (target_msc, _) = self.clock.step_time(delta_msc);
                 if let Some(idx) = self.store.find_index_at_or_before(target_msc) {
-                    self.current_index = idx;
-                }
-                let cur_tick = self.store.get(self.current_index);
-                if delta_msc < 0 {
-                    self.matching.rewind_to(target_msc, cur_tick);
-                } else if let Some(tick) = cur_tick {
-                    self.matching.on_tick_advance(tick, target_msc);
+                    if delta_msc < 0 {
+                        self.current_index = idx;
+                        self.matching.rewind_to(target_msc, self.store.get(idx));
+                    } else {
+                        self.advance_to_index(idx, target_msc);
+                    }
                 }
                 if let Some(ref pipe) = self.render_pipe {
                     pipe.send_reset(
@@ -426,10 +447,7 @@ impl CoreScheduler {
                 );
             }
             CoreCommand::ModifyPosition { ticket, sl, tp } => {
-                if let Some(pos) = self.matching.positions.iter_mut().find(|p| p.ticket == ticket) {
-                    if sl.is_some() { pos.sl = sl; }
-                    if tp.is_some() { pos.tp = tp; }
-                }
+                self.matching.modify_position(ticket, sl, tp, self.clock.virtual_time_msc());
             }
             CoreCommand::SetTimeStop { enabled, seconds, mode } => {
                 self.matching.set_time_stop(enabled, seconds, mode);
@@ -454,6 +472,9 @@ impl CoreScheduler {
             }
             CoreCommand::RestoreAccount { account, next_ticket } => {
                 self.matching.restore_account(account, next_ticket);
+                if let Some(tick) = self.store.get(self.current_index) {
+                    self.matching.on_tick_advance(tick, self.clock.virtual_time_msc());
+                }
             }
             CoreCommand::RestorePosition(pos) => {
                 self.matching.restore_position(pos);
@@ -485,12 +506,11 @@ impl CoreScheduler {
         let latest_audits = std::sync::Arc::clone(&self.cached_latest_audits);
 
         let hist_rev = self.matching.history_revision;
-        let history = if hist_rev != self.last_published_history_rev {
+        if hist_rev != self.last_published_history_rev {
             self.last_published_history_rev = hist_rev;
-            Some(self.matching.history.clone())
-        } else {
-            None
-        };
+            self.cached_history = std::sync::Arc::new(self.matching.history.clone());
+        }
+        let history = std::sync::Arc::clone(&self.cached_history);
 
         let snapshot = CoreStatusSnapshot {
             virtual_time_msc: self.clock.virtual_time_msc(),
@@ -521,6 +541,148 @@ mod tests {
     use super::*;
     use crate::core::mod_test_helper::create_test_core;
     use crate::core::types::OrderSide;
+
+    fn test_scheduler(ticks: Vec<crate::core::types::CoreTick>) -> CoreScheduler {
+        let store = TickStore::from_core_ticks(ticks);
+        let (_, cmd_rx) = mpsc::unbounded_channel();
+        let snapshot = CoreStatusSnapshot {
+            virtual_time_msc: store.min_time_msc().unwrap_or(0),
+            is_playing: false,
+            state: crate::core::types::PlaybackState::Stopped,
+            multiplier: 1.0,
+            speed_mode: crate::core::types::PlaybackMode::Temporal,
+            current_index: 0,
+            total_ticks: store.len() as u64,
+            seek_epoch: 1,
+            trade_revision: 1,
+            history_revision: 1,
+            current_tick: store.get(0).copied(),
+            loop_config: None,
+            account: CoreMatchingEngine::default().account,
+            positions: Vec::new(),
+            history: std::sync::Arc::new(Vec::new()),
+            latest_audits: std::sync::Arc::new(Vec::new()),
+            time_stop_seconds: 20,
+            time_stop_enabled: false,
+        };
+        let (status_tx, _) = watch::channel(snapshot);
+        CoreScheduler::new(store, cmd_rx, status_tx, SchedulerConfig::default())
+    }
+
+    fn tick(index: u64, time_msc: i64, bid: f64) -> crate::core::types::CoreTick {
+        crate::core::types::CoreTick {
+            index, time_sec: time_msc / 1000, time_msc, bid, ask: bid + 0.005,
+            last: 0.0, volume: 1, volume_real: 0.0, flags: 6,
+        }
+    }
+
+    #[test]
+    fn all_forward_controls_evaluate_intermediate_stop_prices() {
+        for side in [OrderSide::Buy, OrderSide::Sell] {
+            for take_profit in [false, true] {
+                let intermediate = if (side == OrderSide::Buy) == take_profit { 150.1 } else { 149.9 };
+                for command in [CoreCommand::StepTime(2000), CoreCommand::StepTicks(2), CoreCommand::SeekTime(3000), CoreCommand::SeekIndex(2)] {
+                    let mut scheduler = test_scheduler(vec![tick(0, 1000, 150.0), tick(1, 2000, intermediate), tick(2, 3000, 150.0)]);
+                    scheduler.handle_command(CoreCommand::SubmitOrder {
+                        symbol: "USDJPY".into(), side, volume: 1.0,
+                        sl_points: if take_profit { 0.0 } else { 5.0 },
+                        tp_points: if take_profit { 5.0 } else { 0.0 }, comment: None,
+                    });
+                    scheduler.handle_command(command);
+                    assert!(scheduler.matching.positions.is_empty());
+                    assert_eq!(scheduler.matching.history.len(), 1);
+                    assert_eq!(scheduler.matching.history[0].close_time_msc, Some(2000));
+                    assert_eq!(scheduler.matching.history[0].close_reason.as_deref(), Some(if take_profit { "TP" } else { "SL" }));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn tick_step_preserves_order_within_same_millisecond() {
+        let mut scheduler = test_scheduler(vec![tick(0, 1000, 150.0), tick(1, 1000, 149.9), tick(2, 1000, 150.0)]);
+        scheduler.handle_command(CoreCommand::SubmitOrder {
+            symbol: "USDJPY".into(), side: OrderSide::Buy, volume: 1.0,
+            sl_points: 5.0, tp_points: 0.0, comment: None,
+        });
+        scheduler.handle_command(CoreCommand::StepTicks(1));
+        assert_eq!(scheduler.current_index, 1);
+        assert_eq!(scheduler.matching.history.len(), 1);
+        scheduler.handle_command(CoreCommand::StepTicks(1));
+        assert_eq!(scheduler.current_index, 2);
+        assert_eq!(scheduler.matching.history.len(), 1);
+    }
+
+    #[test]
+    fn time_step_flushes_deadlines_without_new_ticks() {
+        let mut scheduler = test_scheduler(vec![tick(0, 1000, 150.0), tick(1, 3000, 149.9)]);
+        scheduler.matching.set_latency_model(crate::core::types::LatencyModel::Fixed { latency_ms: 100 });
+        scheduler.clock.play();
+        scheduler.handle_command(CoreCommand::SubmitOrder {
+            symbol: "USDJPY".into(), side: OrderSide::Buy, volume: 1.0,
+            sl_points: 0.0, tp_points: 0.0, comment: None,
+        });
+        scheduler.handle_command(CoreCommand::StepTime(200));
+        assert_eq!(scheduler.current_index, 0);
+        assert_eq!(scheduler.matching.positions[0].open_time_msc, 1100);
+        assert_eq!(scheduler.matching.positions[0].open_price, 150.005);
+    }
+
+    #[test]
+    fn seek_time_uses_clamped_clock_time() {
+        let mut scheduler = test_scheduler(vec![tick(0, 1000, 150.0), tick(1, 3000, 149.9)]);
+        scheduler.handle_command(CoreCommand::SeekTime(5000));
+        assert_eq!(scheduler.clock.virtual_time_msc(), 3000);
+        assert_eq!(scheduler.current_index, 1);
+        scheduler.handle_command(CoreCommand::SeekTime(0));
+        assert_eq!(scheduler.clock.virtual_time_msc(), 1000);
+        assert_eq!(scheduler.current_index, 0);
+    }
+
+    #[test]
+    fn slow_watch_receiver_keeps_complete_history_and_shares_unchanged_data() {
+        let mut scheduler = test_scheduler(vec![tick(0, 1000, 150.0), tick(1, 3000, 150.1)]);
+        let mut receiver = scheduler.status_tx.subscribe();
+        scheduler.handle_command(CoreCommand::SubmitOrder {
+            symbol: "USDJPY".into(), side: OrderSide::Buy, volume: 1.0,
+            sl_points: 0.0, tp_points: 0.0, comment: None,
+        });
+        scheduler.handle_command(CoreCommand::ClosePosition { ticket: 1, volume: None, reason: None });
+        scheduler.publish_status();
+        let cached_history = std::sync::Arc::clone(&scheduler.cached_history);
+
+        // The receiver deliberately skips the frame where the trade was closed.
+        scheduler.handle_command(CoreCommand::Pause);
+        scheduler.publish_status();
+        let latest = receiver.borrow_and_update().clone();
+        assert_eq!(latest.history.len(), 1);
+        assert!(std::sync::Arc::ptr_eq(&cached_history, &latest.history));
+
+        scheduler.handle_command(CoreCommand::ResetAccount { initial_balance: 1_000_000.0 });
+        scheduler.publish_status();
+        let reset = receiver.borrow_and_update().clone();
+        assert!(reset.history.is_empty());
+        assert!(reset.latest_audits.is_empty());
+        assert!(!std::sync::Arc::ptr_eq(&cached_history, &reset.history));
+    }
+
+    #[test]
+    fn restored_positions_use_the_current_quote_for_deadlines_in_a_gap() {
+        let ticks = vec![tick(0, 1000, 150.0), tick(1, 2000, 150.01), tick(2, 5000, 151.0)];
+        let mut original = CoreMatchingEngine::default();
+        original.submit_order("USDJPY".into(), OrderSide::Buy, 1.0, 0.0, 0.0, None, 1000, false, Some(&ticks[0]));
+        let mut scheduler = test_scheduler(ticks);
+        scheduler.handle_command(CoreCommand::SeekTime(2000));
+        scheduler.handle_command(CoreCommand::RestoreAccount { account: original.account.clone(), next_ticket: 2 });
+        scheduler.handle_command(CoreCommand::RestorePosition(original.positions[0].clone()));
+        scheduler.handle_command(CoreCommand::SetTimeStop {
+            enabled: true, seconds: 2, mode: crate::core::types::TimeStopMode::Always,
+        });
+        scheduler.handle_command(CoreCommand::StepTime(3000));
+        assert_eq!(scheduler.matching.history.len(), 1);
+        assert_eq!(scheduler.matching.history[0].close_time_msc, Some(3000));
+        assert_eq!(scheduler.matching.history[0].close_price, Some(150.01));
+    }
 
     #[tokio::test]
     async fn test_scheduler_lifecycle() {

@@ -36,6 +36,8 @@ pub enum JournalEvent {
     PositionModified {
         ticket: i32,
         modified_time_msc: i64,
+        previous_sl: Option<f64>,
+        previous_tp: Option<f64>,
         new_sl: Option<f64>,
         new_tp: Option<f64>,
     },

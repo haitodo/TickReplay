@@ -219,8 +219,9 @@ pub struct CoreStatusSnapshot {
     pub loop_config: Option<AbLoopConfig>,
     pub account: crate::virtual_trading::VirtualAccount,
     pub positions: Vec<crate::virtual_trading::VirtualPosition>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub history: Option<Vec<crate::virtual_trading::VirtualPosition>>,
+    /// Complete latest history; consumers decide when to send a delta.
+    /// A watch receiver can skip frames, so its stored value must be self-contained.
+    pub history: Arc<Vec<crate::virtual_trading::VirtualPosition>>,
     pub latest_audits: Arc<Vec<crate::core::journal::ExecutionAuditRecord>>,
     #[serde(default)]
     pub time_stop_seconds: u32,

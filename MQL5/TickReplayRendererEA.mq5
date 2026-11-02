@@ -1383,7 +1383,7 @@ void SendHello()
     payload.sub_hash = 0;
     ArrayInitialize(payload.symbol, 0);
     string sym = (m_replay_symbol != "") ? m_replay_symbol : Symbol();
-    StringToCharArray(sym, payload.symbol);
+    StringToCharArray(sym, payload.symbol, 0, -1, CP_UTF8);
 
     uchar buf[88]; // 16 + 72 (ゼロヒープ確保)
     StructToCharArray(header, buf, 0);
@@ -1452,9 +1452,9 @@ void ProcessInit(const InitPayload &p)
     long preload_date_msc = p.preload_date_msc;
     uint preloaded_bars = p.preloaded_bars;
     uint preload_mode = p.preload_mode;
-    string source_symbol = CharArrayToString(p.source_symbol);
-    string sub_symbol = CharArrayToString(p.sub_symbol);
-    string profile_name = CharArrayToString(p.profile_name);
+    string source_symbol = CharArrayToString(p.source_symbol, 0, -1, CP_UTF8);
+    string sub_symbol = CharArrayToString(p.sub_symbol, 0, -1, CP_UTF8);
+    string profile_name = CharArrayToString(p.profile_name, 0, -1, CP_UTF8);
 
     StringTrimLeft(source_symbol);
     StringTrimRight(source_symbol);
@@ -1502,7 +1502,7 @@ void ProcessInit(const InitPayload &p)
     }
 
     // additional_symbols (同期他通貨: KuChart等向け) のパースと登録
-    string add_syms_str = CharArrayToString(p.additional_symbols);
+    string add_syms_str = CharArrayToString(p.additional_symbols, 0, -1, CP_UTF8);
     StringTrimLeft(add_syms_str);
     StringTrimRight(add_syms_str);
 
@@ -1524,7 +1524,7 @@ void ProcessInit(const InitPayload &p)
     {
         string tokens[];
         int num_tokens = StringSplit(add_syms_str, ',', tokens);
-        for(int i = 0; i < num_tokens && m_sync_count < 16; i++)
+        for(int i = 0; i < num_tokens && m_sync_count < MAX_SYNC_SYMBOLS; i++)
         {
             string sym = tokens[i];
             StringTrimLeft(sym);
@@ -2186,9 +2186,9 @@ void ProcessReset(const ResetPayload &rst)
 //+------------------------------------------------------------------+
 void ProcessApplyProfile(const ApplyProfilePayload &p)
 {
-    string profile_name = CharArrayToString(p.profile_name);
-    string main_sym = CharArrayToString(p.main_symbol);
-    string sub_sym = CharArrayToString(p.sub_symbol);
+    string profile_name = CharArrayToString(p.profile_name, 0, -1, CP_UTF8);
+    string main_sym = CharArrayToString(p.main_symbol, 0, -1, CP_UTF8);
+    string sub_sym = CharArrayToString(p.sub_symbol, 0, -1, CP_UTF8);
 
     StringTrimLeft(profile_name);
     StringTrimRight(profile_name);
@@ -2209,10 +2209,10 @@ void ProcessApplyProfile(const ApplyProfilePayload &p)
 //+------------------------------------------------------------------+
 void ProcessImportTicks(const ImportTicksPayload &p)
 {
-    string target_symbol = CharArrayToString(p.symbol);
-    string group_path    = CharArrayToString(p.group);
-    string base_symbol   = CharArrayToString(p.base_symbol);
-    string bin_file      = CharArrayToString(p.bin_file);
+    string target_symbol = CharArrayToString(p.symbol, 0, -1, CP_UTF8);
+    string group_path    = CharArrayToString(p.group, 0, -1, CP_UTF8);
+    string base_symbol   = CharArrayToString(p.base_symbol, 0, -1, CP_UTF8);
+    string bin_file      = CharArrayToString(p.bin_file, 0, -1, CP_UTF8);
 
     StringTrimLeft(target_symbol);
     StringTrimRight(target_symbol);
