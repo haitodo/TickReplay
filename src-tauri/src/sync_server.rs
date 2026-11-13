@@ -16,6 +16,17 @@ struct ClientTradeCursor {
 }
 
 impl ClientTradeCursor {
+    #[inline]
+    fn is_synced_with(&self, snap: &CoreStatusSnapshot) -> bool {
+        let history_ok = self.history.as_ref().is_some_and(|(revision, history)| {
+            *revision == snap.history_revision && Arc::ptr_eq(history, &snap.history)
+        });
+        let audits_ok = self.audits.as_ref().is_some_and(|(revision, audits)| {
+            *revision == snap.trade_revision && Arc::ptr_eq(audits, &snap.latest_audits)
+        });
+        history_ok && audits_ok
+    }
+
     fn merge_snapshot(&mut self, value: &mut serde_json::Value, snap: &CoreStatusSnapshot, force: bool) {
         // The outbound watch may have skipped the frame containing a history delta.
         // Use one complete core snapshot so the repaired history matches its account and revisions.
@@ -69,6 +80,21 @@ fn client_status_json(
     base_status: &str,
     force: bool,
 ) -> String {
+    if !force && base_status.contains("\"account\"") && !base_status.contains("\"TERMINATE\"") {
+        let can_passthrough = {
+            let guard = state.core_handle.lock().unwrap();
+            guard.as_ref().is_some_and(|core| {
+                let snap = core.status();
+                cursor.is_synced_with(&snap)
+                    && !base_status.contains("\"history\":")
+                    && !base_status.contains("\"execution_audits\":")
+            })
+        };
+        if can_passthrough {
+            return base_status.to_string();
+        }
+    }
+
     let mut value = serde_json::from_str::<serde_json::Value>(base_status)
         .ok().filter(|v| v.is_object())
         .unwrap_or_else(|| serde_json::json!({"status": "READY"}));

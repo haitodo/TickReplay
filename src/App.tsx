@@ -689,6 +689,17 @@ function MainWindow() {
     }
   };
 
+  const areSessionBoundariesEqual = (
+    a: SessionBoundariesData | undefined,
+    b: SessionBoundariesData | undefined
+  ) => {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    const eqNums = (x: number[], y: number[]) =>
+      x.length === y.length && x.every((v, idx) => v === y[idx]);
+    return eqNums(a.TYO, b.TYO) && eqNums(a.LDN, b.LDN) && eqNums(a.NY, b.NY);
+  };
+
   const handleStatusString = (payload: string | ReplayProgressPayload) => {
     try {
       const data = typeof payload === "string" ? JSON.parse(payload) as ReplayProgressPayload : payload;
@@ -704,7 +715,7 @@ function MainWindow() {
         applyIncomingPlayingState(data.is_playing ?? false);
         if (data.session_boundaries) {
           setSessionBoundaries((prev) => {
-            if (JSON.stringify(prev) === JSON.stringify(data.session_boundaries)) return prev;
+            if (areSessionBoundariesEqual(prev, data.session_boundaries)) return prev;
             return data.session_boundaries ?? prev;
           });
         }
@@ -896,7 +907,7 @@ function MainWindow() {
         if (data.is_playing !== undefined) applyIncomingPlayingState(data.is_playing);
         if (data.session_boundaries) {
           setSessionBoundaries((prev) => {
-            if (JSON.stringify(prev) === JSON.stringify(data.session_boundaries)) return prev;
+            if (areSessionBoundariesEqual(prev, data.session_boundaries)) return prev;
             return data.session_boundaries ?? prev;
           });
         }
@@ -966,14 +977,31 @@ function MainWindow() {
   };
 
   const handleStatusStringRef = useRef(handleStatusString);
-  useEffect(() => {
-    handleStatusStringRef.current = handleStatusString;
-  });
+  handleStatusStringRef.current = handleStatusString;
 
   const pendingStatusPayloadRef = useRef<PendingReplayStatus | null>(null);
+  const pendingRawPayloadRef = useRef<string | null>(null);
   const rafIdRef = useRef<number | null>(null);
   const skippedCountRef = useRef<number>(0);
   const isWindowVisibleRef = useRef<boolean>(true);
+
+  const flushPendingStatusOnShow = () => {
+    const raw = pendingRawPayloadRef.current;
+    pendingRawPayloadRef.current = null;
+    if (raw !== null) {
+      try {
+        const parsed = JSON.parse(raw) as ReplayProgressPayload;
+        pendingStatusPayloadRef.current = mergePendingReplayStatus(pendingStatusPayloadRef.current, parsed);
+      } catch (error) {
+        console.error("Failed to parse deferred replay status", error);
+      }
+    }
+    if (pendingStatusPayloadRef.current !== null) {
+      const latest = pendingStatusPayloadRef.current;
+      pendingStatusPayloadRef.current = null;
+      handleStatusStringRef.current(latest);
+    }
+  };
 
   useEffect(() => {
     const currentLabel = getCurrentWindow().label;
@@ -983,32 +1011,20 @@ function MainWindow() {
         if (typeof event.payload === "boolean") {
           getCurrentWindow().isVisible().then((v) => {
             isWindowVisibleRef.current = v;
-            if (v && pendingStatusPayloadRef.current !== null) {
-              const latest = pendingStatusPayloadRef.current;
-              pendingStatusPayloadRef.current = null;
-              handleStatusStringRef.current(latest);
-            }
+            if (v) flushPendingStatusOnShow();
           }).catch(() => {});
         }
         return;
       }
       isWindowVisibleRef.current = nextVisible;
-      if (nextVisible && pendingStatusPayloadRef.current !== null) {
-        const latest = pendingStatusPayloadRef.current;
-        pendingStatusPayloadRef.current = null;
-        handleStatusStringRef.current(latest);
-      }
+      if (nextVisible) flushPendingStatusOnShow();
     });
 
     const handleVisibilityChange = () => {
       if (!document.hidden) {
         getCurrentWindow().isVisible().then((v) => {
           isWindowVisibleRef.current = v;
-          if (v && pendingStatusPayloadRef.current !== null) {
-            const latest = pendingStatusPayloadRef.current;
-            pendingStatusPayloadRef.current = null;
-            handleStatusStringRef.current(latest);
-          }
+          if (v) flushPendingStatusOnShow();
         }).catch(() => {});
       }
     };
@@ -1018,11 +1034,7 @@ function MainWindow() {
     getCurrentWindow().onFocusChanged(({ payload: focused }) => {
       if (focused) {
         isWindowVisibleRef.current = true;
-        if (pendingStatusPayloadRef.current !== null) {
-          const latest = pendingStatusPayloadRef.current;
-          pendingStatusPayloadRef.current = null;
-          handleStatusStringRef.current(latest);
-        }
+        flushPendingStatusOnShow();
       }
     }).then((fn) => {
       unlistenFocus = fn;
@@ -1036,6 +1048,18 @@ function MainWindow() {
   }, []);
 
   const scheduleStatusUpdate = useCallback((payload: string) => {
+    const hidden = !isWindowVisibleRef.current || document.hidden;
+    if (
+      hidden &&
+      !payload.includes('"ERROR"') &&
+      !payload.includes('"DISCONNECTED"') &&
+      !payload.includes('"TERMINATE"') &&
+      !payload.includes('"history"')
+    ) {
+      pendingRawPayloadRef.current = payload;
+      return;
+    }
+
     let data: ReplayProgressPayload;
     try {
       data = JSON.parse(payload) as ReplayProgressPayload;
@@ -1051,20 +1075,28 @@ function MainWindow() {
     if (pendingStatusPayloadRef.current !== null) {
       skippedCountRef.current++;
     }
+    const rawDeferred = pendingRawPayloadRef.current;
+    if (rawDeferred !== null) {
+      pendingRawPayloadRef.current = null;
+      try {
+        const parsedRaw = JSON.parse(rawDeferred) as ReplayProgressPayload;
+        pendingStatusPayloadRef.current = mergePendingReplayStatus(pendingStatusPayloadRef.current, parsedRaw);
+      } catch (_) {
+        // Ignore stale raw frame if parsing fails.
+      }
+    }
     pendingStatusPayloadRef.current = mergePendingReplayStatus(pendingStatusPayloadRef.current, data);
 
     // メインウィンドウ非表示中（コントローラー操作中や最小化時）は rAF と React 再描画をスキップ
-    if (!isWindowVisibleRef.current || document.hidden) {
+    if (hidden) {
       return;
     }
 
     if (rafIdRef.current === null) {
       rafIdRef.current = requestAnimationFrame(() => {
         rafIdRef.current = null;
-        if (pendingStatusPayloadRef.current !== null) {
-          const latest = pendingStatusPayloadRef.current;
-          pendingStatusPayloadRef.current = null;
-          handleStatusStringRef.current(latest);
+        if (pendingRawPayloadRef.current !== null || pendingStatusPayloadRef.current !== null) {
+          flushPendingStatusOnShow();
 
           if (import.meta.env.DEV && skippedCountRef.current > 0) {
             console.debug("[DEV-UI-THROTTLE] rAF UI throttle skipped render passes:", skippedCountRef.current);
@@ -1145,7 +1177,7 @@ function MainWindow() {
       } catch (_) {
         // A failed poll is transient; the next interval retries.
       }
-    }, 500);
+    }, 3000);
 
     return () => clearInterval(intervalId);
   }, [status]);
@@ -1590,9 +1622,7 @@ function MainWindow() {
   };
 
   const saveAllSettingsRef = useRef(saveAllSettings);
-  useEffect(() => {
-    saveAllSettingsRef.current = saveAllSettings;
-  });
+  saveAllSettingsRef.current = saveAllSettings;
 
   // 設定変更時の自動保存処理
   useEffect(() => {
@@ -2234,46 +2264,31 @@ function MainWindow() {
         multiplier: multiplier,
         tick_step: tickStep
       },
-      virtual_trade: enableVirtualTrading ? {
-        ...snapshotSessionAccount(account, initialBalance, leverage),
-        next_ticket: Math.max(10001, ...(positions.map(p => p.ticket)), ...(history.map(h => h.ticket))) + 1,
-        positions: positions.map(p => {
-          let pcAccumulated = 0;
-          try {
-            const storedTimesStr = localStorage.getItem(STORAGE_KEYS.speedOrderPositionRealTimes);
-            if (storedTimesStr) {
-              const storedTimes = JSON.parse(storedTimesStr);
-              const posKey = `${p.ticket}_${p.open_time_msc}`;
-              if (storedTimes[posKey] !== undefined) {
-                pcAccumulated = storedTimes[posKey];
-              } else if (storedTimes[p.ticket] !== undefined) {
-                pcAccumulated = storedTimes[p.ticket];
-              }
-            }
-          } catch (e) {
-            console.error("Failed to parse storedTimes in session save", e);
+      virtual_trade: enableVirtualTrading ? (() => {
+        let storedTimes: Record<string, number> | null = null;
+        try {
+          const storedTimesStr = localStorage.getItem(STORAGE_KEYS.speedOrderPositionRealTimes);
+          if (storedTimesStr) {
+            storedTimes = JSON.parse(storedTimesStr);
           }
-          return snapshotSessionPosition(p, pcAccumulated);
-        }),
-        history: history.map(h => {
-          let pcAccumulated = 0;
-          try {
-            const storedTimesStr = localStorage.getItem(STORAGE_KEYS.speedOrderPositionRealTimes);
-            if (storedTimesStr) {
-              const storedTimes = JSON.parse(storedTimesStr);
-              const histKey = `${h.ticket}_${h.open_time_msc}`;
-              if (storedTimes[histKey] !== undefined) {
-                pcAccumulated = storedTimes[histKey];
-              } else if (storedTimes[h.ticket] !== undefined) {
-                pcAccumulated = storedTimes[h.ticket];
-              }
-            }
-          } catch (e) {
-            console.error("Failed to parse storedTimes in session save for history", e);
-          }
-          return snapshotSessionHistory(h, pcAccumulated);
-        })
-      } : null
+        } catch (e) {
+          console.error("Failed to parse storedTimes in session save", e);
+        }
+        const resolveAccumulatedTime = (ticket: number, openTimeMsc: number) => {
+          if (!storedTimes) return 0;
+          const key = `${ticket}_${openTimeMsc}`;
+          return storedTimes[key] ?? storedTimes[ticket] ?? 0;
+        };
+        let maxTicket = 10001;
+        for (const p of positions) if (p.ticket > maxTicket) maxTicket = p.ticket;
+        for (const h of history) if (h.ticket > maxTicket) maxTicket = h.ticket;
+        return {
+          ...snapshotSessionAccount(account, initialBalance, leverage),
+          next_ticket: maxTicket + 1,
+          positions: positions.map(p => snapshotSessionPosition(p, resolveAccumulatedTime(p.ticket, p.open_time_msc))),
+          history: history.map(h => snapshotSessionHistory(h, resolveAccumulatedTime(h.ticket, h.open_time_msc))),
+        };
+      })() : null
     };
 
     try {
@@ -2291,6 +2306,7 @@ function MainWindow() {
   };
 
   const executeTerminate = async () => {
+    pendingRawPayloadRef.current = null;
     pendingStatusPayloadRef.current = null;
     sendCommand({ command: "TERMINATE" });
     setStatus("CONNECTED");
@@ -2473,28 +2489,25 @@ function MainWindow() {
     }
   }, [isShortcutsActive, hotkeys]);
 
-  // Keep handlersRef updated with the latest closures
-  useEffect(() => {
-    handlersRef.current = {
-      handlePlayPause,
-      handleStep,
-      handleSessionJump,
-      handleTimeJump,
-      handleCoarseSpeed,
-      handleMediumSpeed,
-      handleFineSpeed,
-      updateSpeed,
-      speedMode,
-      multiplier,
-      tickStep,
-      handleSetLoopA,
-      handleSetLoopB,
-      handleClearLoop,
-      handleReset,
-      hotkeys,
-      recordingAction,
-    };
-  });
+  handlersRef.current = {
+    handlePlayPause,
+    handleStep,
+    handleSessionJump,
+    handleTimeJump,
+    handleCoarseSpeed,
+    handleMediumSpeed,
+    handleFineSpeed,
+    updateSpeed,
+    speedMode,
+    multiplier,
+    tickStep,
+    handleSetLoopA,
+    handleSetLoopB,
+    handleClearLoop,
+    handleReset,
+    hotkeys,
+    recordingAction,
+  };
 
   // --- 4. キーボードショートカット (フォーカスがある場合のローカルフォールバック)
   useEffect(() => {

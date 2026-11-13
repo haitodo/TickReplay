@@ -690,7 +690,7 @@ mod tests {
 
         // 1. 初期状態
         let status = handle.status();
-        assert_eq!(status.is_playing, false);
+        assert!(!status.is_playing);
         assert_eq!(status.current_index, 0);
 
         // 2. シーク
@@ -716,7 +716,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(20)).await;
         let status_after_order = handle.status();
         assert!(status_after_order.trade_revision > rev_before);
-        assert_eq!(status_after_order.is_playing, false);
+        assert!(!status_after_order.is_playing);
 
         // 4. シャットダウン
         handle.shutdown();

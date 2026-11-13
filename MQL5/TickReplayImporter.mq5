@@ -164,9 +164,32 @@ bool ImportBinFile(string rel_path, string symbol_name, string group_name)
    
    SymbolSelect(symbol_name, true);
    
-   // ティックデータの追加
+   // ティックデータの追加（巨大ファイルでのピーク抑制のため分割投入）
    ResetLastError();
-   int added = CustomTicksAdd(symbol_name, ticks);
+   int added = 0;
+   const int CHUNK_SIZE = 200000;
+   int total_read = (int)read_count;
+   if(total_read <= CHUNK_SIZE)
+   {
+      added = CustomTicksAdd(symbol_name, ticks);
+   }
+   else
+   {
+      MqlTick chunk[];
+      for(int offset = 0; offset < total_read; offset += CHUNK_SIZE)
+      {
+         int cur_count = MathMin(CHUNK_SIZE, total_read - offset);
+         ArrayResize(chunk, cur_count);
+         ArrayCopy(chunk, ticks, 0, offset, cur_count);
+         int res = CustomTicksAdd(symbol_name, chunk);
+         if(res < 0)
+         {
+            added = res;
+            break;
+         }
+         added += res;
+      }
+   }
    if(added > 0)
    {
       Print("[Success] ", symbol_name, " に ", added, " 件のティックデータをインポートしました。");

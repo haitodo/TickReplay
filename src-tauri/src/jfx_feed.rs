@@ -202,8 +202,7 @@ fn load_jfx_parquet(parquet_path: &Path, start_msc: i64, end_msc: i64) -> Result
         builder
     };
 
-    let total_rows = builder.metadata().file_metadata().num_rows();
-    let builder = apply_time_row_group_filter(builder, start_msc, end_msc, 0);
+    let (builder, est_rows) = apply_time_row_group_filter(builder, start_msc, end_msc, 0);
 
     let mut reader = builder.build()
         .map_err(|e| AppError::Config(format!("JFX Parquetリーダー生成エラー: {}", e)))?;
@@ -214,7 +213,7 @@ fn load_jfx_parquet(parquet_path: &Path, start_msc: i64, end_msc: i64) -> Result
     let bid_idx = projected_schema.index_of("bid").ok();
     let ask_idx = projected_schema.index_of("ask").ok();
 
-    let mut ticks = Vec::with_capacity(total_rows as usize);
+    let mut ticks = Vec::with_capacity(est_rows);
     let mut cached_utc_sec = -1i64;
     let mut cached_offset = 0i64;
 
@@ -300,8 +299,7 @@ fn load_oanda_pseudo_parquet(
         builder
     };
 
-    let total_rows = builder.metadata().file_metadata().num_rows();
-    let builder = apply_time_row_group_filter(builder, start_msc, end_msc, 30_000);
+    let (builder, est_rows) = apply_time_row_group_filter(builder, start_msc, end_msc, 30_000);
 
     let mut reader = builder.build()
         .map_err(|e| AppError::Config(format!("OANDA Parquetリーダー生成エラー: {}", e)))?;
@@ -313,7 +311,7 @@ fn load_oanda_pseudo_parquet(
     let ask_idx = projected_schema.index_of("ask").ok();
 
     let mut pseudo_engine = crate::pseudo_jfx::PseudoJfxEngine::new(pair, year_month);
-    let mut ticks = Vec::with_capacity(total_rows as usize);
+    let mut ticks = Vec::with_capacity(est_rows);
     let warmup_start = if start_msc > 0 { start_msc.saturating_sub(30_000) } else { 0 };
     let mut cached_utc_sec = -1i64;
     let mut cached_offset = 0i64;
@@ -383,9 +381,10 @@ fn apply_time_row_group_filter<T>(
     start_msc: i64,
     end_msc: i64,
     warmup_msc: i64,
-) -> parquet::arrow::arrow_reader::ArrowReaderBuilder<T> {
+) -> (parquet::arrow::arrow_reader::ArrowReaderBuilder<T>, usize) {
     let start = (start_msc > 0).then(|| start_msc.saturating_sub(warmup_msc));
     let end = (end_msc > 0).then_some(end_msc);
+    let total_rows = usize::try_from(builder.metadata().file_metadata().num_rows()).unwrap_or(0);
     let Some(row_groups) = select_time_row_groups(
         builder.schema().as_ref(),
         builder.parquet_schema(),
@@ -393,10 +392,14 @@ fn apply_time_row_group_filter<T>(
         start,
         end,
     ) else {
-        return builder;
+        return (builder, total_rows);
     };
 
-    builder.with_row_groups(row_groups)
+    let filtered_rows: usize = row_groups
+        .iter()
+        .filter_map(|&idx| usize::try_from(builder.metadata().row_group(idx).num_rows()).ok())
+        .sum();
+    (builder.with_row_groups(row_groups), filtered_rows)
 }
 
 /// スキーマや統計から安全に読み込み範囲を狭められない場合は `None` を返す。
@@ -497,23 +500,11 @@ pub fn get_year_months_between(start_str: &str, end_str: &str) -> Vec<(i32, u32)
     let start_date = parse_dt(start_str).unwrap_or_else(|| NaiveDate::from_ymd_opt(2026, 1, 1).unwrap());
     let end_date = parse_dt(end_str).unwrap_or(start_date);
 
-    let mut result = Vec::new();
-    let mut cur_y = start_date.year();
-    let mut cur_m = start_date.month();
-    let end_y = end_date.year();
-    let end_m = end_date.month();
-
-    while (cur_y < end_y) || (cur_y == end_y && cur_m <= end_m) {
-        result.push((cur_y, cur_m));
-        if cur_m == 12 {
-            cur_y += 1;
-            cur_m = 1;
-        } else {
-            cur_m += 1;
-        }
-    }
-
-    result
+    crate::pseudo_dmm::enumerate_year_months(
+        (start_date.year(), start_date.month()),
+        (end_date.year(), end_date.month()),
+        usize::MAX,
+    )
 }
 
 #[cfg(test)]

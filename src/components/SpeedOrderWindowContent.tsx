@@ -35,6 +35,8 @@ export const SpeedOrderWindowContent: React.FC = () => {
   const [status, setStatus] = useState<string>("DISCONNECTED");
   const [bid, setBid] = useState<number>(0);
   const [ask, setAsk] = useState<number>(0);
+  const bidRef = useRef<number>(0);
+  const askRef = useRef<number>(0);
   const [bidFlash, setBidFlash] = useState<"up" | "down" | null>(null);
   const [askFlash, setAskFlash] = useState<"up" | "down" | null>(null);
   const bidFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -442,8 +444,14 @@ export const SpeedOrderWindowContent: React.FC = () => {
           }
           const initBid = data.jfx_bid !== undefined ? data.jfx_bid : data.bid;
           const initAsk = data.jfx_ask !== undefined ? data.jfx_ask : data.ask;
-          if (initBid) setBid(initBid);
-          if (initAsk) setAsk(initAsk);
+          if (initBid) {
+            bidRef.current = initBid;
+            setBid(initBid);
+          }
+          if (initAsk) {
+            askRef.current = initAsk;
+            setAsk(initAsk);
+          }
           if (data.account) setAccount(data.account);
           if (data.positions) setPositions(data.positions);
           if (data.is_playing !== undefined) setIsPlaying(data.is_playing);
@@ -459,6 +467,7 @@ export const SpeedOrderWindowContent: React.FC = () => {
     // The EA can publish progress faster than this window can paint. Keep
     // only the newest snapshot and apply it once per browser frame.
     let pendingStatus: PendingReplayStatus | null = null;
+    let pendingRawStatus: string | null = null;
     let statusFrame: number | null = null;
     const applyStatus = (payload: string | ReplayProgressPayload) => {
       try {
@@ -489,38 +498,26 @@ export const SpeedOrderWindowContent: React.FC = () => {
             setJfxReal(data.jfx_real);
           }
           const nextBid = data.jfx_bid !== undefined ? data.jfx_bid : data.bid;
-          if (nextBid !== undefined) {
-            setBid((prev) => {
-              if (prev > 0) {
-                if (nextBid > prev) {
-                  if (bidFlashTimerRef.current) clearTimeout(bidFlashTimerRef.current);
-                  setBidFlash("up");
-                  bidFlashTimerRef.current = setTimeout(() => setBidFlash(null), 300);
-                } else if (nextBid < prev) {
-                  if (bidFlashTimerRef.current) clearTimeout(bidFlashTimerRef.current);
-                  setBidFlash("down");
-                  bidFlashTimerRef.current = setTimeout(() => setBidFlash(null), 300);
-                }
-              }
-              return nextBid;
-            });
+          if (nextBid !== undefined && nextBid !== bidRef.current) {
+            const prevBid = bidRef.current;
+            bidRef.current = nextBid;
+            if (prevBid > 0) {
+              if (bidFlashTimerRef.current) clearTimeout(bidFlashTimerRef.current);
+              setBidFlash(nextBid > prevBid ? "up" : "down");
+              bidFlashTimerRef.current = setTimeout(() => setBidFlash(null), 300);
+            }
+            setBid(nextBid);
           }
           const nextAsk = data.jfx_ask !== undefined ? data.jfx_ask : data.ask;
-          if (nextAsk !== undefined) {
-            setAsk((prev) => {
-              if (prev > 0) {
-                if (nextAsk > prev) {
-                  if (askFlashTimerRef.current) clearTimeout(askFlashTimerRef.current);
-                  setAskFlash("up");
-                  askFlashTimerRef.current = setTimeout(() => setAskFlash(null), 300);
-                } else if (nextAsk < prev) {
-                  if (askFlashTimerRef.current) clearTimeout(askFlashTimerRef.current);
-                  setAskFlash("down");
-                  askFlashTimerRef.current = setTimeout(() => setAskFlash(null), 300);
-                }
-              }
-              return nextAsk;
-            });
+          if (nextAsk !== undefined && nextAsk !== askRef.current) {
+            const prevAsk = askRef.current;
+            askRef.current = nextAsk;
+            if (prevAsk > 0) {
+              if (askFlashTimerRef.current) clearTimeout(askFlashTimerRef.current);
+              setAskFlash(nextAsk > prevAsk ? "up" : "down");
+              askFlashTimerRef.current = setTimeout(() => setAskFlash(null), 300);
+            }
+            setAsk(nextAsk);
           }
           if (data.account) {
             setAccount((prev) => nextAccount(prev, data.account));
@@ -566,6 +563,8 @@ export const SpeedOrderWindowContent: React.FC = () => {
         } else if (data.status === "DISCONNECTED") {
           prevStatusRef.current = "DISCONNECTED";
           setStatus("DISCONNECTED");
+          bidRef.current = 0;
+          askRef.current = 0;
           setBid(0);
           setAsk(0);
           setAccount((prev) => prev !== null ? null : prev);
@@ -578,24 +577,53 @@ export const SpeedOrderWindowContent: React.FC = () => {
     let isVisible = true;
     getCurrentWindow().isVisible().then((v: boolean) => { isVisible = v; }).catch(() => {});
 
-    const scheduleStatus = (payload: string | ReplayProgressPayload) => {
+    const flushDeferredRawStatus = () => {
+      if (pendingRawStatus === null) return;
+      const raw = pendingRawStatus;
+      pendingRawStatus = null;
       try {
+        const parsed = JSON.parse(raw) as ReplayProgressPayload;
+        pendingStatus = mergePendingReplayStatus(pendingStatus, parsed);
+      } catch (_) {
+        // Ignore malformed deferred payload.
+      }
+    };
+
+    const scheduleStatus = (payload: string | ReplayProgressPayload) => {
+      const hidden = !isVisible || document.hidden;
+      if (
+        hidden &&
+        typeof payload === "string" &&
+        !payload.includes('"ERROR"') &&
+        !payload.includes('"DISCONNECTED"') &&
+        !payload.includes('"TERMINATE"') &&
+        !payload.includes('"history"') &&
+        !payload.includes('"execution_audits"')
+      ) {
+        pendingRawStatus = payload;
+        return;
+      }
+
+      try {
+        flushDeferredRawStatus();
         const data = typeof payload === "string" ? JSON.parse(payload) as ReplayProgressPayload : payload;
         pendingStatus = mergePendingReplayStatus(pendingStatus, data);
       } catch (error) {
         console.error("Failed to parse pending speed-order status", error);
         return;
       }
-      if (!isVisible || document.hidden) return; // 非表示中はrAF・再描画を休眠
+      if (hidden) return; // 非表示中はrAF・再描画を休眠
       if (statusFrame !== null) return;
       statusFrame = requestAnimationFrame(() => {
         statusFrame = null;
+        flushDeferredRawStatus();
         const latest = pendingStatus;
         pendingStatus = null;
         if (latest !== null) applyStatus(latest);
       });
     };
     const discardPendingStatus = () => {
+      pendingRawStatus = null;
       pendingStatus = null;
       if (statusFrame !== null) {
         cancelAnimationFrame(statusFrame);
@@ -625,16 +653,18 @@ export const SpeedOrderWindowContent: React.FC = () => {
         if (typeof event.payload === "boolean") {
           getCurrentWindow().isVisible().then((v) => {
             isVisible = v;
-            if (v && pendingStatus !== null) {
-              scheduleStatus(pendingStatus);
+            if (v) {
+              flushDeferredRawStatus();
+              if (pendingStatus !== null) scheduleStatus(pendingStatus);
             }
           }).catch(() => {});
         }
         return;
       }
       isVisible = nextVisible;
-      if (isVisible && pendingStatus !== null) {
-        scheduleStatus(pendingStatus);
+      if (isVisible) {
+        flushDeferredRawStatus();
+        if (pendingStatus !== null) scheduleStatus(pendingStatus);
       }
     });
 
@@ -642,8 +672,9 @@ export const SpeedOrderWindowContent: React.FC = () => {
       if (!document.hidden) {
         getCurrentWindow().isVisible().then((v) => {
           isVisible = v;
-          if (v && pendingStatus !== null) {
-            scheduleStatus(pendingStatus);
+          if (v) {
+            flushDeferredRawStatus();
+            if (pendingStatus !== null) scheduleStatus(pendingStatus);
           }
         }).catch(() => {});
       }
@@ -654,9 +685,8 @@ export const SpeedOrderWindowContent: React.FC = () => {
     getCurrentWindow().onFocusChanged(({ payload: focused }) => {
       if (focused) {
         isVisible = true;
-        if (pendingStatus !== null) {
-          scheduleStatus(pendingStatus);
-        }
+        flushDeferredRawStatus();
+        if (pendingStatus !== null) scheduleStatus(pendingStatus);
       }
     }).then((fn) => {
       unlistenFocus = fn;

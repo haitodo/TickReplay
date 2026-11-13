@@ -78,8 +78,8 @@ pub async fn check_month_economic_availability(
         let parts: Vec<&str> = ym.split('-').collect();
         let year: i32 = parts.first().and_then(|s| s.parse().ok()).unwrap_or(2026);
         let month: u32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(5);
-        let profiles = crate::pseudo_dmm::PseudoDmmEngine::load_profile_matrix();
-        let events = crate::pseudo_dmm::PseudoDmmEngine::load_events_for_month(&pair, year, month, &profiles, cd.as_deref());
+        let profiles = crate::pseudo_dmm::PseudoDmmEngine::load_profile_matrix_cached();
+        let events = crate::pseudo_dmm::PseudoDmmEngine::load_events_for_month(&pair, year, month, profiles, cd.as_deref());
         let has = !events.is_empty();
         (has, events)
     })

@@ -21,8 +21,18 @@ export const ExecutionAuditModal: React.FC<ExecutionAuditModalProps> = ({ isOpen
     if (showLoading) setIsLoading(true);
     try {
       const records = await getExecutionAuditLog();
-      // 最新の約定が上に来るように逆順
-      setLogs([...records].reverse());
+      // 最新の約定が上に来るように逆順（件数・末尾変化時のみ状態更新）
+      setLogs((prev) => {
+        if (
+          prev.length === records.length &&
+          (records.length === 0 ||
+            (prev[0]?.ticket === records[records.length - 1]?.ticket &&
+              prev[0]?.fill_time_msc === records[records.length - 1]?.fill_time_msc))
+        ) {
+          return prev;
+        }
+        return [...records].reverse();
+      });
     } catch (err) {
       console.error("Failed to fetch execution audit log", err);
     } finally {
@@ -35,7 +45,7 @@ export const ExecutionAuditModal: React.FC<ExecutionAuditModalProps> = ({ isOpen
     fetchLogs(true);
     const timer = setInterval(() => {
       fetchLogs(false);
-    }, 1000);
+    }, 2000);
     return () => clearInterval(timer);
   }, [isOpen, fetchLogs]);
 
@@ -52,6 +62,7 @@ export const ExecutionAuditModal: React.FC<ExecutionAuditModalProps> = ({ isOpen
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   const handleCopy = () => {

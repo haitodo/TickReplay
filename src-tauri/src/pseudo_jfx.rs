@@ -18,6 +18,7 @@ pub struct PseudoJfxEngine {
     pub year: i32,
     pub month: u32,
     pub events: Vec<EconomicEvent>,
+    max_event_recovery_ms: i64,
     /// 通貨ペアに応じた 0.1pip (1point) の価格単位 (JPYペア: 0.001, 非JPYペア: 0.00001)
     point_size: f64,
     /// 価格から整数ポイントへの変換倍率 (JPYペア: 1000.0, 非JPYペア: 100_000.0)
@@ -36,7 +37,7 @@ pub struct PseudoJfxEngine {
     // 直近125ms窓の生クォート履歴 (msc, b_pt, a_pt, sum_pt) - 最低でも直前1件を常に保持
     raw_history: VecDeque<(i64, i64, i64, i64)>,
     // 直近10秒間のボラティリティ追跡 (mt5_ms, q_pt)
-    recent_ticks: Vec<(i64, i64)>,
+    recent_ticks: VecDeque<(i64, i64)>,
     // 高速キャッシュ: 同一秒内の日時・DST・JST計算スキップ
     cached_sec: i64,
     cached_is_dst: bool,
@@ -64,16 +65,19 @@ impl PseudoJfxEngine {
             (0.00001, 100_000.0)
         };
 
-        let profiles = PseudoDmmEngine::load_profile_matrix();
-        let mut events = PseudoDmmEngine::load_events_for_month(&sym_upper, year, month, &profiles, custom_dir);
+        let profiles = PseudoDmmEngine::load_profile_matrix_cached();
+        let mut events = PseudoDmmEngine::load_events_for_month(&sym_upper, year, month, profiles, custom_dir);
         // Tier 1〜3 (高・中重要度) のみ保持し、Tier 4 (低重要度・スプレッド拡大対象外) を事前除外
         events.retain(|e| e.tier <= 3);
+        events.sort_by_key(|e| e.mt5_ms);
+        let max_event_recovery_ms = events.iter().map(|e| e.recovery_ms).max().unwrap_or(0);
 
         Self {
             symbol: sym_upper,
             year,
             month,
             events,
+            max_event_recovery_ms,
             point_size,
             point_scale,
             last_q_pt: 0,
@@ -85,7 +89,7 @@ impl PseudoJfxEngine {
             spike_latch_dir: 0,
             spike_latch_until_msc: -1000,
             raw_history: VecDeque::with_capacity(16),
-            recent_ticks: Vec::with_capacity(256),
+            recent_ticks: VecDeque::with_capacity(256),
             cached_sec: -1,
             cached_is_dst: false,
             cached_jst_hour: 0,
@@ -293,7 +297,14 @@ impl PseudoJfxEngine {
 
         // 経済指標動的制御 (イベント近傍にある場合のみボラティリティ追跡を実行)
         if !self.events.is_empty() {
-            let is_near_event = self.events.iter().any(|ev| {
+            // ソート済みイベントから影響可能性のある時間窓だけを二分探索でスライス (O(log N))
+            let lower_bound = mt5_time_msc.saturating_sub(self.max_event_recovery_ms);
+            let upper_bound = mt5_time_msc.saturating_add(25_000);
+            let start_idx = self.events.partition_point(|ev| ev.mt5_ms < lower_bound);
+            let end_idx = start_idx + self.events[start_idx..].partition_point(|ev| ev.mt5_ms <= upper_bound);
+            let window = &self.events[start_idx..end_idx];
+
+            let is_near_event = window.iter().any(|ev| {
                 let adv_ms = match ev.tier {
                     1 => 15_000,
                     2 => 10_000,
@@ -304,8 +315,14 @@ impl PseudoJfxEngine {
 
             if is_near_event {
                 let cutoff_10s = mt5_time_msc - 10_000;
-                self.recent_ticks.retain(|&(t, _)| t >= cutoff_10s);
-                self.recent_ticks.push((mt5_time_msc, q_pt));
+                while let Some(&(t, _)) = self.recent_ticks.front() {
+                    if t < cutoff_10s {
+                        self.recent_ticks.pop_front();
+                    } else {
+                        break;
+                    }
+                }
+                self.recent_ticks.push_back((mt5_time_msc, q_pt));
 
                 let mut min_q = q_pt;
                 let mut max_q = q_pt;
@@ -315,7 +332,7 @@ impl PseudoJfxEngine {
                 }
                 let price_volatility_10s_pips = (max_q - min_q) as f64 * 0.1;
 
-                for ev in &self.events {
+                for ev in window {
                     let adv_ms = match ev.tier {
                         1 => 15_000,
                         2 => 10_000,

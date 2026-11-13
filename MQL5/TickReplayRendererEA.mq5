@@ -220,6 +220,11 @@ bool     m_sync_has_last_applied_tick[MAX_SYNC_SYMBOLS];
 ulong    m_last_redraw_us = 0;
 ulong    m_last_comment_us = 0;
 const ulong REDRAW_INTERVAL_US = 8333; // 最大 120FPS にチャート再描画を間引き (高リフレッシュレート対応 & ジッター極小化)
+const ulong COMMENT_INTERVAL_US = 100000; // コメント HUD 更新を最大 10FPS に間引き
+const ulong COMMENT_IDLE_INTERVAL_US = 250000;
+
+MqlTick  m_adv_ticks_buf[];
+MqlTick  m_adv_chunk_buf[];
 
 // ビューアーチャート管理
 long     m_viewer_chart_ids[];
@@ -232,6 +237,7 @@ void SendHello();
 void SendAck(ulong main_applied, ulong sub_applied, uint duration_us);
 void SendReady();
 bool GetLatestTickAtOrBefore(string symbol, long target_msc, MqlTick &out_tick);
+int  AdvanceSymbolTicks(const string src_sym, const string rep_sym, long eff_adv_msc, long &cur_v_time_msc, MqlTick &last_applied_tick, bool &has_last_applied_tick);
 void SyncSymbolResetForward(string src_symbol, string rep_symbol, long from_msc, long to_msc, MqlTick &last_applied_tick, bool &has_last_applied_tick);
 void SyncSymbolResetRewind(string src_symbol, string rep_symbol, long to_msc, MqlTick &last_applied_tick, bool &has_last_applied_tick, bool is_initial);
 void ProcessInit(const InitPayload &p);
@@ -1669,6 +1675,80 @@ void ProcessInit(const InitPayload &p)
 }
 
 //+------------------------------------------------------------------+
+//| 指定シンボルの仮想時刻までの未反映ティックを差分取得して反映     |
+//+------------------------------------------------------------------+
+int AdvanceSymbolTicks(
+    const string src_sym,
+    const string rep_sym,
+    long eff_adv_msc,
+    long &cur_v_time_msc,
+    MqlTick &last_applied_tick,
+    bool &has_last_applied_tick)
+{
+    if(src_sym == "" || rep_sym == "" || eff_adv_msc < cur_v_time_msc)
+    {
+        return 0;
+    }
+
+    int total_new = 0;
+    ulong from_msc = (has_last_applied_tick && last_applied_tick.time_msc > 0) ? (ulong)last_applied_tick.time_msc : (ulong)eff_adv_msc;
+    ulong to_msc   = (ulong)eff_adv_msc;
+
+    if(to_msc > from_msc || (!has_last_applied_tick && to_msc >= from_msc))
+    {
+        int fetched_count = CopyTicksRange(src_sym, m_adv_ticks_buf, COPY_TICKS_ALL, from_msc, to_msc);
+        if(fetched_count > 0)
+        {
+            int start_pos = 0;
+            if(has_last_applied_tick)
+            {
+                int last_matched = -1;
+                for(int i = 0; i < fetched_count; i++)
+                {
+                    if(m_adv_ticks_buf[i].time_msc < last_applied_tick.time_msc)
+                    {
+                        continue;
+                    }
+                    if(m_adv_ticks_buf[i].time_msc == last_applied_tick.time_msc &&
+                       m_adv_ticks_buf[i].bid == last_applied_tick.bid &&
+                       m_adv_ticks_buf[i].ask == last_applied_tick.ask)
+                    {
+                        last_matched = i;
+                    }
+                    else if(m_adv_ticks_buf[i].time_msc > last_applied_tick.time_msc)
+                    {
+                        break;
+                    }
+                }
+                if(last_matched >= 0)
+                {
+                    start_pos = last_matched + 1;
+                }
+            }
+
+            int new_count = fetched_count - start_pos;
+            if(new_count > 0)
+            {
+                const int CHUNK_SIZE = 10000;
+                for(int offset = start_pos; offset < fetched_count; offset += CHUNK_SIZE)
+                {
+                    int cur_chunk = MathMin(CHUNK_SIZE, fetched_count - offset);
+                    ArrayResize(m_adv_chunk_buf, cur_chunk, CHUNK_SIZE);
+                    ArrayCopy(m_adv_chunk_buf, m_adv_ticks_buf, 0, offset, cur_chunk);
+                    CustomTicksAdd(rep_sym, m_adv_chunk_buf);
+                }
+                last_applied_tick = m_adv_ticks_buf[fetched_count - 1];
+                has_last_applied_tick = true;
+                total_new = new_count;
+            }
+        }
+    }
+
+    cur_v_time_msc = eff_adv_msc;
+    return total_new;
+}
+
+//+------------------------------------------------------------------+
 //| ADVANCE 処理 (インデックス/仮想時間カーソル描画)                  |
 //+------------------------------------------------------------------+
 void ProcessAdvance(const AdvancePayload &adv, ulong start_us)
@@ -1691,69 +1771,11 @@ void ProcessAdvance(const AdvancePayload &adv, ulong start_us)
     // メインシンボルへの差分反映: 物理受信遅延を考慮した実効描画時刻を算出 (TickScope完全一致)
     int delay_main = GetEffectiveReceiveDelay(m_source_symbol);
     long eff_adv_msc = (delay_main > 0) ? MathMax(0, adv_msc - delay_main) : adv_msc;
-
-    // 仮想時刻（物理遅延考慮後）が前進している場合、実効描画時刻までの全未反映ティックを確実に取得・追加
-    if(m_source_symbol != "" && eff_adv_msc >= m_current_v_time_msc)
+    int added_main = AdvanceSymbolTicks(m_source_symbol, m_replay_symbol, eff_adv_msc, m_current_v_time_msc, m_last_applied_tick, m_has_last_applied_tick);
+    if(added_main > 0)
     {
-        ulong from_msc = (m_has_last_applied_tick && m_last_applied_tick.time_msc > 0) ? (ulong)m_last_applied_tick.time_msc : (ulong)eff_adv_msc;
-        ulong to_msc   = (ulong)eff_adv_msc;
-
-        if(to_msc > from_msc || (!m_has_last_applied_tick && to_msc >= from_msc))
-        {
-            MqlTick ticks_slice[];
-            ArrayFree(ticks_slice);
-            int fetched_count = CopyTicksRange(m_source_symbol, ticks_slice, COPY_TICKS_ALL, from_msc, to_msc);
-
-            if(fetched_count > 0)
-            {
-                int start_pos = 0;
-                if(m_has_last_applied_tick)
-                {
-                    int last_matched = -1;
-                    for(int i = 0; i < fetched_count; i++)
-                    {
-                        if(ticks_slice[i].time_msc < m_last_applied_tick.time_msc)
-                        {
-                            continue;
-                        }
-                        if(ticks_slice[i].time_msc == m_last_applied_tick.time_msc &&
-                           ticks_slice[i].bid == m_last_applied_tick.bid &&
-                           ticks_slice[i].ask == m_last_applied_tick.ask)
-                        {
-                            last_matched = i;
-                        }
-                        else if(ticks_slice[i].time_msc > m_last_applied_tick.time_msc)
-                        {
-                            break;
-                        }
-                    }
-                    if(last_matched >= 0)
-                    {
-                        start_pos = last_matched + 1;
-                    }
-                }
-
-                int new_count = fetched_count - start_pos;
-                if(new_count > 0)
-                {
-                    // 100% CustomTicksAdd による純粋な実ティック追加 (M1上書きによる足飛び・キャッシュ不整合を根絶)
-                    const int CHUNK_SIZE = 10000;
-                    for(int offset = start_pos; offset < fetched_count; offset += CHUNK_SIZE)
-                    {
-                        int cur_chunk = MathMin(CHUNK_SIZE, fetched_count - offset);
-                        MqlTick chunk_slice[];
-                        ArrayResize(chunk_slice, cur_chunk);
-                        ArrayCopy(chunk_slice, ticks_slice, 0, offset, cur_chunk);
-                        CustomTicksAdd(m_replay_symbol, chunk_slice);
-                    }
-                    m_last_applied_tick = ticks_slice[fetched_count - 1];
-                    m_has_last_applied_tick = true;
-                    m_current_idx += new_count;
-                    ticks_added = true;
-                }
-            }
-        }
-        m_current_v_time_msc = eff_adv_msc;
+        m_current_idx += added_main;
+        ticks_added = true;
     }
 
     // サブシンボルへの差分反映: 物理受信遅延を考慮した実効描画時刻を算出 (TickScope完全一致)
@@ -1761,66 +1783,11 @@ void ProcessAdvance(const AdvancePayload &adv, ulong start_us)
     {
         int delay_sub = GetEffectiveReceiveDelay(m_source_symbol_sub);
         long eff_adv_msc_sub = (delay_sub > 0) ? MathMax(0, adv_msc - delay_sub) : adv_msc;
-
-        if(eff_adv_msc_sub >= m_current_v_time_msc_sub)
+        int added_sub = AdvanceSymbolTicks(m_source_symbol_sub, m_replay_symbol_sub, eff_adv_msc_sub, m_current_v_time_msc_sub, m_last_applied_tick_sub, m_has_last_applied_tick_sub);
+        if(added_sub > 0)
         {
-            ulong sub_from_msc = (m_has_last_applied_tick_sub && m_last_applied_tick_sub.time_msc > 0) ? (ulong)m_last_applied_tick_sub.time_msc : (ulong)eff_adv_msc_sub;
-            ulong sub_to_msc   = (ulong)eff_adv_msc_sub;
-
-            if(sub_to_msc > sub_from_msc || (!m_has_last_applied_tick_sub && sub_to_msc >= sub_from_msc))
-            {
-                MqlTick sub_slice[];
-                ArrayFree(sub_slice);
-                int sub_count = CopyTicksRange(m_source_symbol_sub, sub_slice, COPY_TICKS_ALL, sub_from_msc, sub_to_msc);
-                if(sub_count > 0)
-                {
-                    int start_pos_sub = 0;
-                    if(m_has_last_applied_tick_sub)
-                    {
-                        int last_matched_sub = -1;
-                        for(int i = 0; i < sub_count; i++)
-                        {
-                            if(sub_slice[i].time_msc < m_last_applied_tick_sub.time_msc)
-                            {
-                                continue;
-                            }
-                            if(sub_slice[i].time_msc == m_last_applied_tick_sub.time_msc &&
-                               sub_slice[i].bid == m_last_applied_tick_sub.bid &&
-                               sub_slice[i].ask == m_last_applied_tick_sub.ask)
-                            {
-                                last_matched_sub = i;
-                            }
-                            else if(sub_slice[i].time_msc > m_last_applied_tick_sub.time_msc)
-                            {
-                                break;
-                            }
-                        }
-                        if(last_matched_sub >= 0)
-                        {
-                            start_pos_sub = last_matched_sub + 1;
-                        }
-                    }
-
-                    int new_count_sub = sub_count - start_pos_sub;
-                    if(new_count_sub > 0)
-                    {
-                        const int CHUNK_SIZE = 10000;
-                        for(int offset = start_pos_sub; offset < sub_count; offset += CHUNK_SIZE)
-                        {
-                            int cur_chunk = MathMin(CHUNK_SIZE, sub_count - offset);
-                            MqlTick chunk_slice[];
-                            ArrayResize(chunk_slice, cur_chunk);
-                            ArrayCopy(chunk_slice, sub_slice, 0, offset, cur_chunk);
-                            CustomTicksAdd(m_replay_symbol_sub, chunk_slice);
-                        }
-                        m_last_applied_tick_sub = sub_slice[sub_count - 1];
-                        m_has_last_applied_tick_sub = true;
-                        m_current_idx_sub += new_count_sub;
-                        ticks_added = true;
-                    }
-                }
-            }
-            m_current_v_time_msc_sub = eff_adv_msc_sub;
+            m_current_idx_sub += added_sub;
+            ticks_added = true;
         }
     }
 
@@ -1833,68 +1800,9 @@ void ProcessAdvance(const AdvancePayload &adv, ulong start_us)
 
         int delay_s = GetEffectiveReceiveDelay(src_s);
         long eff_adv_msc_s = (delay_s > 0) ? MathMax(0, adv_msc - delay_s) : adv_msc;
-
-        if(eff_adv_msc_s >= m_sync_current_v_time_msc[s])
+        if(AdvanceSymbolTicks(src_s, rep_s, eff_adv_msc_s, m_sync_current_v_time_msc[s], m_sync_last_applied_tick[s], m_sync_has_last_applied_tick[s]) > 0)
         {
-            ulong s_from_msc = (m_sync_has_last_applied_tick[s] && m_sync_last_applied_tick[s].time_msc > 0) ? (ulong)m_sync_last_applied_tick[s].time_msc : (ulong)eff_adv_msc_s;
-            ulong s_to_msc   = (ulong)eff_adv_msc_s;
-
-            if(s_to_msc > s_from_msc || (!m_sync_has_last_applied_tick[s] && s_to_msc >= s_from_msc))
-            {
-                MqlTick sync_slice[];
-                ArrayFree(sync_slice);
-                int sync_count = CopyTicksRange(src_s, sync_slice, COPY_TICKS_ALL, s_from_msc, s_to_msc);
-                if(sync_count > 0)
-                {
-                    int start_pos_s = 0;
-                    if(m_sync_has_last_applied_tick[s])
-                    {
-                        int last_matched_s = -1;
-                        for(int i = 0; i < sync_count; i++)
-                        {
-                            if(sync_slice[i].time_msc < m_sync_last_applied_tick[s].time_msc)
-                            {
-                                continue;
-                            }
-                            if(sync_slice[i].time_msc == m_sync_last_applied_tick[s].time_msc &&
-                               sync_slice[i].bid == m_sync_last_applied_tick[s].bid &&
-                               sync_slice[i].ask == m_sync_last_applied_tick[s].ask)
-                            {
-                                last_matched_s = i;
-                            }
-                            else if(sync_slice[i].time_msc > m_sync_last_applied_tick[s].time_msc)
-                            {
-                                break;
-                            }
-                        }
-                        if(last_matched_s >= 0)
-                        {
-                            start_pos_s = last_matched_s + 1;
-                        }
-                    }
-
-                    int new_count_s = sync_count - start_pos_s;
-                    if(new_count_s > 0)
-                    {
-                        if(start_pos_s == 0)
-                        {
-                            CustomTicksAdd(rep_s, sync_slice);
-                            m_sync_last_applied_tick[s] = sync_slice[sync_count - 1];
-                        }
-                        else
-                        {
-                            MqlTick new_s_slice[];
-                            ArrayResize(new_s_slice, new_count_s);
-                            ArrayCopy(new_s_slice, sync_slice, 0, start_pos_s, new_count_s);
-                            CustomTicksAdd(rep_s, new_s_slice);
-                            m_sync_last_applied_tick[s] = new_s_slice[new_count_s - 1];
-                        }
-                        m_sync_has_last_applied_tick[s] = true;
-                        ticks_added = true;
-                    }
-                }
-            }
-            m_sync_current_v_time_msc[s] = eff_adv_msc_s;
+            ticks_added = true;
         }
     }
 
@@ -1904,9 +1812,10 @@ void ProcessAdvance(const AdvancePayload &adv, ulong start_us)
         RedrawAllViewerCharts();
     }
 
-    // チャート左上にリプレイ状態コメントを表示 (60FPSスロットル、または新規ティック時)
+    // チャート左上にリプレイ状態コメントを表示 (GDI負荷抑制のため更新間隔をスロットル)
     ulong now_us = GetMicrosecondCount();
-    if(ticks_added || (now_us - m_last_comment_us >= 16666))
+    ulong comment_elapsed = now_us - m_last_comment_us;
+    if((ticks_added && comment_elapsed >= COMMENT_INTERVAL_US) || comment_elapsed >= COMMENT_IDLE_INTERVAL_US)
     {
         m_last_comment_us = now_us;
         datetime disp_dt = (datetime)(eff_adv_msc / 1000);

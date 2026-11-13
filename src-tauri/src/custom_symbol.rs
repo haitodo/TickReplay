@@ -692,17 +692,23 @@ pub fn convert_zip_to_mql_bin(
         }
     }
 
-    let mut csv_file = archive.by_index(csv_index)
+    let csv_file = archive.by_index(csv_index)
         .map_err(|e| AppError::Config(format!("ZIP内のエントリ読込失敗: {}", e)))?;
 
-    let mut buffer = Vec::new();
-    std::io::Read::read_to_end(&mut csv_file, &mut buffer)?;
+    // 非圧縮サイズから概算ティック容量をあらかじめ予約 (巨大CSVの全体RAM展開を回避し BufReader で逐次処理)
+    let est_ticks = (csv_file.size() / 35).saturating_add(100).min(20_000_000) as usize;
+    let mut ticks: Vec<MqlTick> = Vec::with_capacity(est_ticks);
 
-    // 概算ティック容量をあらかじめ予約 (無用な再メモリ拡張を排除)
-    let mut ticks: Vec<MqlTick> = Vec::with_capacity(buffer.len() / 35 + 100);
+    let mut reader = std::io::BufReader::with_capacity(256 * 1024, csv_file);
+    let mut line_buf = Vec::with_capacity(256);
 
-    for line_bytes in buffer.split(|&b| b == b'\n') {
-        let trimmed = trim_ascii_bytes(line_bytes);
+    loop {
+        line_buf.clear();
+        let bytes_read = std::io::BufRead::read_until(&mut reader, b'\n', &mut line_buf)?;
+        if bytes_read == 0 {
+            break;
+        }
+        let trimmed = trim_ascii_bytes(&line_buf);
         if trimmed.is_empty() || trimmed[0] == b'#' || trimmed[0] == b'D' || trimmed[0] == b'd' {
             continue;
         }

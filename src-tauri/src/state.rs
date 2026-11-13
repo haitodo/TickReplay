@@ -25,6 +25,8 @@ pub struct SettingsState {
     pub hotkeys: std::collections::HashMap<String, String>,
     pub time_presets: Vec<f64>,
     pub tick_presets: Vec<i32>,
+    pub timeline_activity_min_floor: Option<u32>,
+    pub timeline_activity_max_cap: Option<u32>,
 }
 
 pub struct ReplayState {
@@ -110,6 +112,8 @@ impl ReplayState {
                 hotkeys: default_hotkeys,
                 time_presets: default_time_presets,
                 tick_presets: default_tick_presets,
+                timeline_activity_min_floor: None,
+                timeline_activity_max_cap: None,
             }),
             last_status: Mutex::new(String::new()),
             last_history: Mutex::new(None),

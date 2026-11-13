@@ -840,18 +840,15 @@ pub async fn send_command(
                     std::path::PathBuf::from(r"d:\dev\TickScope\target\debug\tick-scope-replay.exe"),
                 ];
 
-                let mut existing_candidates: Vec<std::path::PathBuf> = candidates
+                let replay_bin = candidates
                     .into_iter()
                     .filter(|p| p.exists())
-                    .collect();
-                // Pick the candidate with the newest modification timestamp
-                existing_candidates.sort_by_key(|p| {
-                    std::fs::metadata(p)
-                        .and_then(|m| m.modified())
-                        .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
-                });
-                let replay_bin = existing_candidates.last();
-                if let Some(bin_path) = replay_bin {
+                    .max_by_key(|p| {
+                        std::fs::metadata(p)
+                            .and_then(|m| m.modified())
+                            .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+                    });
+                if let Some(ref bin_path) = replay_bin {
                     let mut child_guard = state.tick_scope_child.lock().unwrap();
                     if let Some(mut existing) = child_guard.take() {
                         let _ = existing.kill();
@@ -1036,12 +1033,26 @@ pub async fn get_day_timeline_activity(
         *state.current_virtual_time_msc.lock().unwrap()
     });
 
-    let (min_floor, max_cap) = match crate::commands_settings::load_settings(app_handle).await {
-        Ok(Some(settings)) => (
-            settings.timeline_activity_min_floor.unwrap_or(1500),
-            settings.timeline_activity_max_cap.unwrap_or(2800),
-        ),
-        _ => (1500, 2800),
+    let (min_floor, max_cap) = {
+        let cached = {
+            let s = state.settings.read().unwrap();
+            (s.timeline_activity_min_floor, s.timeline_activity_max_cap)
+        };
+        if let (Some(floor), Some(cap)) = cached {
+            (floor, cap)
+        } else {
+            let loaded = match crate::commands_settings::load_settings(app_handle).await {
+                Ok(Some(settings)) => (
+                    settings.timeline_activity_min_floor.unwrap_or(1500),
+                    settings.timeline_activity_max_cap.unwrap_or(2800),
+                ),
+                _ => (1500, 2800),
+            };
+            let mut s = state.settings.write().unwrap();
+            s.timeline_activity_min_floor = Some(loaded.0);
+            s.timeline_activity_max_cap = Some(loaded.1);
+            loaded
+        }
     };
 
     let store_guard = state.tick_store.lock().unwrap();

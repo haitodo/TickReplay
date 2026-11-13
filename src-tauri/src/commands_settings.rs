@@ -269,6 +269,13 @@ pub async fn save_settings(
 
     let config_dir = app_handle.path().app_config_dir()?;
     atomic_write_settings(&config_dir, &settings).await?;
+
+    if let Some(state) = tauri::Manager::try_state::<std::sync::Arc<ReplayState>>(&app_handle) {
+        let mut cached = state.settings.write().unwrap();
+        cached.timeline_activity_min_floor = settings.timeline_activity_min_floor;
+        cached.timeline_activity_max_cap = settings.timeline_activity_max_cap;
+    }
+
     Ok(())
 }
 

@@ -68,7 +68,7 @@ pub struct PseudoDmmEngine {
     last_emitted_mid: f64,
     last_emitted_spread: f64,
     // Layer 3: 直近10秒間のプライスボラティリティ追跡 (mt5_ms, mid)
-    recent_ticks: Vec<(i64, f64)>,
+    recent_ticks: std::collections::VecDeque<(i64, f64)>,
     // DMM クォーティング特性再現用ステート
     ema_mid: f64,
     last_quantized_mid: f64,
@@ -96,8 +96,8 @@ impl PseudoDmmEngine {
         let year: i32 = parts.first().and_then(|s| s.parse().ok()).unwrap_or(2026);
         let month: u32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(8);
 
-        let profiles = Self::load_profile_matrix();
-        let events = Self::load_events_for_month(symbol, year, month, &profiles, custom_dir);
+        let profiles = Self::load_profile_matrix_cached();
+        let events = Self::load_events_for_month(symbol, year, month, profiles, custom_dir);
 
         Self {
             symbol: symbol.to_uppercase(),
@@ -107,7 +107,7 @@ impl PseudoDmmEngine {
             last_emitted_msc: 0,
             last_emitted_mid: 0.0,
             last_emitted_spread: 0.002,
-            recent_ticks: Vec::with_capacity(500),
+            recent_ticks: std::collections::VecDeque::with_capacity(500),
             ema_mid: 0.0,
             last_quantized_mid: 0.0,
             cached_sec: -1,
@@ -122,8 +122,18 @@ impl PseudoDmmEngine {
         }
     }
 
-    /// プロファイル辞書をロード（見つからない場合は埋め込みJSONまたは主要指標のデフォルトをフォールバック）
+    /// プロファイル辞書をプロセス単位で1度だけロード・キャッシュして返す
+    pub fn load_profile_matrix_cached() -> &'static HashMap<String, IndicatorProfile> {
+        static CACHE: std::sync::OnceLock<HashMap<String, IndicatorProfile>> = std::sync::OnceLock::new();
+        CACHE.get_or_init(Self::build_profile_matrix)
+    }
+
+    /// プロファイル辞書を取得（既存API互換のためクローンを返す）
     pub fn load_profile_matrix() -> HashMap<String, IndicatorProfile> {
+        Self::load_profile_matrix_cached().clone()
+    }
+
+    fn build_profile_matrix() -> HashMap<String, IndicatorProfile> {
         let possible_paths = [
             PathBuf::from("analysis/scripts/indicator_profile_matrix.json"),
             PathBuf::from("../analysis/scripts/indicator_profile_matrix.json"),
@@ -133,7 +143,6 @@ impl PseudoDmmEngine {
             PathBuf::from(r"D:\dev\TickReplay\analysis\scripts\indicator_profile_matrix.json"),
             PathBuf::from(r"D:\dev\TickReplay\data\analysis\indicator_profile_matrix.json"),
             PathBuf::from(r"D:\dev\Drenhis\analysis\scripts\indicator_profile_matrix.json"),
-            PathBuf::from(r"D:\dev\Drenhis\analysis\indicator_profile_matrix.json"),
         ];
 
         for p in &possible_paths {
@@ -623,10 +632,16 @@ impl PseudoDmmEngine {
         }
 
         // --- Layer 3: 経済指標動的制御 (MT5サーバー時間で直接照合) ---
-        // 直近10秒間のティック履歴を更新（10秒以上古いものは削除）
+        // 直近10秒間のティック履歴を更新（VecDeque 先頭ポップで O(1) 削除）
         let cutoff_10s = mt5_time_msc - 10000;
-        self.recent_ticks.retain(|&(t, _)| t >= cutoff_10s);
-        self.recent_ticks.push((mt5_time_msc, mid));
+        while let Some(&(t, _)) = self.recent_ticks.front() {
+            if t < cutoff_10s {
+                self.recent_ticks.pop_front();
+            } else {
+                break;
+            }
+        }
+        self.recent_ticks.push_back((mt5_time_msc, mid));
 
         // 直近10秒間の値幅 (pips)
         let mut min_mid_10s = mid;
@@ -768,6 +783,28 @@ pub fn extract_base_pair(symbol: &str) -> String {
     first.to_uppercase()
 }
 
+/// `(年, 月)` の範囲を昇順列挙する共通ヘルパー
+pub fn enumerate_year_months(
+    start_ym: (i32, u32),
+    end_ym: (i32, u32),
+    max_months: usize,
+) -> Vec<(i32, u32)> {
+    let mut result = Vec::new();
+    let mut curr_y = start_ym.0;
+    let mut curr_m = start_ym.1;
+    let end_cmp = end_ym.0 * 12 + (end_ym.1 as i32);
+
+    while curr_y * 12 + (curr_m as i32) <= end_cmp && result.len() < max_months {
+        result.push((curr_y, curr_m));
+        curr_m += 1;
+        if curr_m > 12 {
+            curr_m = 1;
+            curr_y += 1;
+        }
+    }
+    result
+}
+
 /// 日時文字列の範囲から含まれる年月 (YYYY, MM) の一覧を取得
 pub fn get_year_months_between(start_dt_str: &str, end_dt_str: &str) -> Vec<(i32, u32)> {
     let parse_ym = |s: &str| -> Option<(i32, u32)> {
@@ -787,24 +824,7 @@ pub fn get_year_months_between(start_dt_str: &str, end_dt_str: &str) -> Vec<(i32
     let start_ym = parse_ym(start_dt_str).unwrap_or((2026, 5));
     let end_ym = parse_ym(end_dt_str).unwrap_or(start_ym);
 
-    let mut result = Vec::new();
-    let mut curr_y = start_ym.0;
-    let mut curr_m = start_ym.1;
-
-    let end_cmp = end_ym.0 * 12 + (end_ym.1 as i32);
-
-    while curr_y * 12 + (curr_m as i32) <= end_cmp {
-        result.push((curr_y, curr_m));
-        curr_m += 1;
-        if curr_m > 12 {
-            curr_m = 1;
-            curr_y += 1;
-        }
-        if result.len() > 120 { // 最大10年分
-            break;
-        }
-    }
-
+    let mut result = enumerate_year_months(start_ym, end_ym, 121);
     if result.is_empty() {
         result.push(start_ym);
     }
@@ -827,7 +847,7 @@ pub fn load_and_check_economic_data_range(
     };
 
     let ym_list = get_year_months_between(effective_start, end_dt_str);
-    let profiles = PseudoDmmEngine::load_profile_matrix();
+    let profiles = PseudoDmmEngine::load_profile_matrix_cached();
 
     let mut months = Vec::new();
     let mut missing_months = Vec::new();
@@ -837,7 +857,7 @@ pub fn load_and_check_economic_data_range(
 
     for (y, m) in ym_list {
         let ym_str = format!("{:04}-{:02}", y, m);
-        let events = PseudoDmmEngine::load_events_for_month(&pair, y, m, &profiles, custom_dir);
+        let events = PseudoDmmEngine::load_events_for_month(&pair, y, m, profiles, custom_dir);
         let count = events.len();
         let exists = count > 0;
 
@@ -1053,7 +1073,7 @@ mod tests {
         let res_mid = engine.process_tick(mt5_mid_msc, 150.000, 150.004);
         assert!(res_mid.is_some());
         let (_, _, spr_mid) = res_mid.unwrap();
-        assert!(spr_mid >= 0.030 && spr_mid <= 0.040, "Spread at T+30s should be ~3.5銭, got {}", spr_mid);
+        assert!((0.030..=0.040).contains(&spr_mid), "Spread at T+30s should be ~3.5銭, got {}", spr_mid);
 
         // 4. 発表後 130秒 (T + 130s): 完全平時復帰 (0.2銭)
         let mt5_post_msc = (mt5_event_dt.and_utc().timestamp() + 130) * 1000;

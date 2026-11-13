@@ -1,7 +1,10 @@
 use std::io::{self, Write};
-use std::net::TcpStream;
-use std::time::Duration;
+use std::net::{SocketAddr, TcpStream};
+use std::time::{Duration, Instant};
 use crate::core::types::CoreTick;
+
+const CONNECT_RETRY_COOLDOWN: Duration = Duration::from_secs(3);
+const CONNECT_TIMEOUT: Duration = Duration::from_millis(50);
 
 pub const MAGIC_TICK: u32 = 0x5449434B; // 'TICK'
 pub const PROTOCOL_VERSION: u16 = 1;
@@ -14,25 +17,26 @@ pub const MSG_TYPE_HEARTBEAT: u16 = 2;
 
 /// TickScope ライブ受信部（TCP :39001〜:39005）へ直接ストリーミングする仮想ブローカーブリッジ
 pub struct TickScopeBridge {
-    host: String,
-    port: u16,
+    addr: Option<SocketAddr>,
     broker_id: u32,
     session_id: u64,
     next_sequence: u64,
     stream: Option<TcpStream>,
     send_buf: Vec<u8>,
+    last_connect_attempt: Option<Instant>,
 }
 
 impl TickScopeBridge {
     pub fn new(broker_id: u32, port: u16) -> Self {
+        let addr = format!("127.0.0.1:{}", port).parse().ok();
         Self {
-            host: "127.0.0.1".to_string(),
-            port,
+            addr,
             broker_id,
             session_id: 1,
             next_sequence: 1,
             stream: None,
             send_buf: Vec::with_capacity(4096),
+            last_connect_attempt: None,
         }
     }
 
@@ -41,11 +45,20 @@ impl TickScopeBridge {
     }
 
     pub fn connect(&mut self) -> io::Result<()> {
-        let addr = format!("{}:{}", self.host, self.port);
-        let stream = TcpStream::connect_timeout(
-            &addr.parse().map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?,
-            Duration::from_millis(500),
-        )?;
+        if let Some(last) = self.last_connect_attempt {
+            if last.elapsed() < CONNECT_RETRY_COOLDOWN {
+                return Err(io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    "TickScope reconnect cooldown active",
+                ));
+            }
+        }
+        self.last_connect_attempt = Some(Instant::now());
+
+        let addr = self
+            .addr
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "invalid socket addr"))?;
+        let stream = TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT)?;
         stream.set_nodelay(true)?;
         stream.set_write_timeout(Some(Duration::from_secs(1)))?;
         self.stream = Some(stream);
@@ -162,7 +175,7 @@ mod tests {
     fn test_tick_batch_buffer_structure() {
         let bridge = TickScopeBridge::new(1, 39001);
         assert_eq!(bridge.broker_id, 1);
-        assert_eq!(bridge.port, 39001);
-        assert_eq!(bridge.is_connected(), false);
+        assert_eq!(bridge.addr.map(|a| a.port()), Some(39001));
+        assert!(!bridge.is_connected());
     }
 }

@@ -270,7 +270,7 @@ mod tests {
     fn test_clock_basic_advance() {
         let mut clock = VirtualClock::new(1000, 0, 100_000);
         assert_eq!(clock.virtual_time_msc(), 1000);
-        assert_eq!(clock.is_playing(), false);
+        assert!(!clock.is_playing());
 
         // 一時停止中は進まない
         let now = Instant::now();
