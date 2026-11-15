@@ -30,11 +30,19 @@ export default defineConfig(async () => ({
     },
   },
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        manualChunks: {
-          vendor: ["react", "react-dom"],
-          tauri: ["@tauri-apps/api", "@tauri-apps/plugin-opener"],
+        codeSplitting: {
+          groups: [
+            {
+              name: "vendor",
+              test: /[\\/]node_modules[\\/](react|react-dom)[\\/]/,
+            },
+            {
+              name: "tauri",
+              test: /[\\/]node_modules[\\/]@tauri-apps[\\/](api|plugin-opener)[\\/]/,
+            },
+          ],
         },
       },
     },

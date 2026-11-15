@@ -684,10 +684,12 @@ pub fn convert_zip_to_mql_bin(
     let mut csv_index = 0;
     for i in 0..archive.len() {
         if let Ok(entry) = archive.by_index(i) {
-            let name = entry.name().to_lowercase();
-            if name.ends_with(".csv") || name.ends_with(".txt") || name.ends_with(".dat") {
-                csv_index = i;
-                break;
+            if let Ok(raw_name) = entry.name() {
+                let name = raw_name.to_lowercase();
+                if name.ends_with(".csv") || name.ends_with(".txt") || name.ends_with(".dat") {
+                    csv_index = i;
+                    break;
+                }
             }
         }
     }
