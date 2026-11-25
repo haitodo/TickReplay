@@ -38,7 +38,7 @@ interface ControlDashboardProps {
   setIsTimeStepsModalOpen: (val: boolean) => void;
   handleSessionJump: (session: string, dir: "PREV" | "NEXT") => void;
   handleTimeJump: (sec: number) => void;
-  getDayOffset: () => string;
+  dayOffset: string;
   startTime: string;
   endTime: string;
   virtualTimeMsc: number;
@@ -495,7 +495,7 @@ const ControlDashboardComponent: React.FC<ControlDashboardProps> = ({
   setIsTimeStepsModalOpen,
   handleSessionJump,
   handleTimeJump,
-  getDayOffset,
+  dayOffset,
   startTime: _startTime,
   endTime: _endTime,
   virtualTimeMsc,
@@ -683,7 +683,7 @@ const ControlDashboardComponent: React.FC<ControlDashboardProps> = ({
       {/* 2. セッション & 時間ジャンプ マトリクス */}
       <JumpMatrix
         timeSteps={timeSteps}
-        dayOffset={getDayOffset()}
+        dayOffset={dayOffset}
         handleSessionJump={handleSessionJump}
         handleTimeJump={handleTimeJump}
         onOpenTimeSteps={handleOpenTimeSteps}

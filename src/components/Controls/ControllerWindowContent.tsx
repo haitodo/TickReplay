@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { DEFAULT_SPEED_TIME_PRESETS, DEFAULT_SPEED_TICK_PRESETS } from "../../constants/speedPresets";
 import { MAX_TIME_STEPS } from "../../domain/timeSteps";
 import { COMMANDS } from "../../constants/commands";
@@ -9,6 +9,7 @@ import { listen, emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ControlDashboard } from "./ControlDashboard";
 import { useAppearance } from "../../hooks/useAppearance";
+import { useReplayStatusStream } from "../../hooks/useReplayStatusStream";
 import { formatJstTime, formatServerTime, splitShortDateTime } from "../../utils/timeUtils";
 import { DEFAULT_TIME_STEPS } from "../../domain/timeSteps";
 import { SpeedPresetsModal, TimeStepsModal } from "../Modals";
@@ -135,9 +136,83 @@ export const ControllerWindowContent: React.FC = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isExitMenuOpen]);
 
-  // 設定およびステータス受信リスナー
+  const handleStatusPayload = useCallback((data: ReplayProgressPayload) => {
+    if (data.status && data.status !== "ERROR") {
+      const nextStatus = data.status as "DISCONNECTED" | "CONNECTED" | "READY" | "ACTIVE";
+      setStatus((prev) => prev !== nextStatus ? nextStatus : prev);
+    }
+    if (data.total_ticks !== undefined) {
+      const total = data.total_ticks;
+      setTotalTicks((prev) => prev !== total ? total : prev);
+    }
+    if (data.current_idx !== undefined && !isDraggingRef.current) {
+      const cur = data.current_idx;
+      setCurrentIdx((prev) => prev !== cur ? cur : prev);
+    }
+    if (data.virtual_time_msc !== undefined) {
+      const vtime = data.virtual_time_msc;
+      setVirtualTimeMsc((prev) => prev !== vtime ? vtime : prev);
+    }
+    if (data.is_playing !== undefined) {
+      const playing = data.is_playing;
+      const guard = playStateGuardRef.current;
+      if (guard && performance.now() < guard.expireAt) {
+        if (playing === guard.expected) {
+          playStateGuardRef.current = null;
+          isPlayingRef.current = playing;
+          setIsPlaying((prev) => prev !== playing ? playing : prev);
+        }
+      } else {
+        playStateGuardRef.current = null;
+        isPlayingRef.current = playing;
+        setIsPlaying((prev) => prev !== playing ? playing : prev);
+      }
+    }
+    if (data.speed_mode) {
+      const mode = data.speed_mode as "TEMPORAL" | "COUNT";
+      setSpeedMode((prev) => prev !== mode ? mode : prev);
+    }
+    if (data.multiplier !== undefined) {
+      const m = typeof data.multiplier === "number" ? data.multiplier : parseFloat(data.multiplier) || 1.0;
+      setMultiplier((prev) => prev !== m ? m : prev);
+    }
+    if (data.tick_step !== undefined) {
+      const ts = typeof data.tick_step === "number" ? data.tick_step : parseInt(String(data.tick_step), 10) || 1;
+      setTickStep((prev) => prev !== ts ? ts : prev);
+    }
+    if (data.source_symbol) {
+      const sym = data.source_symbol;
+      setSourceSymbol((prev) => prev !== sym ? sym : prev);
+    }
+    if (data.loop_active !== undefined) {
+      const lActive = data.loop_active;
+      setLoopActive((prev) => prev !== lActive ? lActive : prev);
+    }
+    if (data.loop_a !== undefined) {
+      const la = data.loop_a;
+      setLoopA((prev) => prev !== la ? la : prev);
+    }
+    if (data.loop_b !== undefined) {
+      const lb = data.loop_b;
+      setLoopB((prev) => prev !== lb ? lb : prev);
+    }
+    if (data.loop_a_idx !== undefined) {
+      const laIdx = data.loop_a_idx;
+      setLoopAIdx((prev) => prev !== laIdx ? laIdx : prev);
+    }
+    if (data.loop_b_idx !== undefined) {
+      const lbIdx = data.loop_b_idx;
+      setLoopBIdx((prev) => prev !== lbIdx ? lbIdx : prev);
+    }
+  }, []);
+
+  useReplayStatusStream({
+    onStatus: handleStatusPayload,
+    loadInitialStatus: true,
+  });
+
+  // 設定および設定更新イベント受信リスナー
   useEffect(() => {
-    // 起動時に保存された設定（銘柄・期間など）を取得
     invoke<PersistedSettings>(COMMANDS.loadSettings)
       .then((settings) => {
         if (settings) {
@@ -166,167 +241,37 @@ export const ControllerWindowContent: React.FC = () => {
       })
       .catch(console.warn);
 
-    // 購読完了前にこの effect が破棄された場合でもリスナーを残さないためのフラグ
     let disposed = false;
-    let unlisten: (() => void) | undefined;
     let unlistenSettings: (() => void) | undefined;
-    let pendingStatus: string | null = null;
-    let statusFrame: number | null = null;
-    let windowVisible = !document.hidden;
 
-    const handleVisibility = () => {
-      windowVisible = !document.hidden;
-      if (windowVisible && pendingStatus && !disposed) {
-        handleStatusPayload(pendingStatus);
-        pendingStatus = null;
+    listen<{
+      autoSkipThreshold?: number;
+      timelineActivityMaxCap?: number;
+      timelineActivityMinFloor?: number;
+    }>(EVENTS.settingsUpdated, (event) => {
+      if (event.payload?.autoSkipThreshold !== undefined) {
+        setAutoSkipThreshold(event.payload.autoSkipThreshold);
       }
-    };
-    document.addEventListener("visibilitychange", handleVisibility);
-
-    const scheduleStatus = (payload: string) => {
-      pendingStatus = payload;
-      if (!windowVisible) return; // 非表示・最小化中は描画処理を休眠してCPU消費を0%化
-      if (statusFrame !== null) return;
-      statusFrame = requestAnimationFrame(() => {
-        statusFrame = null;
-        if (disposed) return;
-        const latest = pendingStatus;
-        pendingStatus = null;
-        if (latest !== null) handleStatusPayload(latest);
-      });
-    };
-
-    const setupListener = async () => {
-      // 初期ステータス取得
-      try {
-        const lastStatusStr = await invoke<string>(COMMANDS.getLastStatus);
-        if (!disposed && lastStatusStr) {
-          handleStatusPayload(lastStatusStr);
-        }
-      } catch (err) {
-        console.warn("Failed to get initial status:", err);
+      if (event.payload?.timelineActivityMaxCap !== undefined) {
+        setTimelineActivityMaxCap(event.payload.timelineActivityMaxCap);
       }
-
-      // イベント購読
-      const off = await listen<string>(EVENTS.mt5Status, (event) => {
-        scheduleStatus(event.payload);
-      });
-
-      // 設定更新イベント購読
-      const offSettings = await listen<{
-        autoSkipThreshold?: number;
-        timelineActivityMaxCap?: number;
-        timelineActivityMinFloor?: number;
-      }>(EVENTS.settingsUpdated, (event) => {
-        if (event.payload?.autoSkipThreshold !== undefined) {
-          setAutoSkipThreshold(event.payload.autoSkipThreshold);
-        }
-        if (event.payload?.timelineActivityMaxCap !== undefined) {
-          setTimelineActivityMaxCap(event.payload.timelineActivityMaxCap);
-        }
-        if (event.payload?.timelineActivityMinFloor !== undefined) {
-          setTimelineActivityMinFloor(event.payload.timelineActivityMinFloor);
-        }
-        // タイムライン活動度 (波形) を最新の設定で再取得
-        lastActivityDateRef.current = "";
-      });
-
-      // 購読が解決する前にアンマウントされていた場合は即座に解除する
-      if (disposed) {
-        off();
-        offSettings();
-        return;
+      if (event.payload?.timelineActivityMinFloor !== undefined) {
+        setTimelineActivityMinFloor(event.payload.timelineActivityMinFloor);
       }
-      unlisten = off;
-      unlistenSettings = offSettings;
-    };
-
-    setupListener();
+      // タイムライン活動度 (波形) を最新の設定で再取得
+      lastActivityDateRef.current = "";
+    })
+      .then((offSettings) => {
+        if (disposed) offSettings();
+        else unlistenSettings = offSettings;
+      })
+      .catch(() => {});
 
     return () => {
       disposed = true;
-      document.removeEventListener("visibilitychange", handleVisibility);
-      if (statusFrame !== null) cancelAnimationFrame(statusFrame);
-      pendingStatus = null;
-      if (unlisten) unlisten();
       if (unlistenSettings) unlistenSettings();
     };
   }, []);
-
-  const handleStatusPayload = (payload: string) => {
-    try {
-      const data = JSON.parse(payload) as ReplayProgressPayload;
-      if (data.status && data.status !== "ERROR") {
-        const nextStatus = data.status as "DISCONNECTED" | "CONNECTED" | "READY" | "ACTIVE";
-        setStatus((prev) => prev !== nextStatus ? nextStatus : prev);
-      }
-      if (data.total_ticks !== undefined) {
-        const total = data.total_ticks;
-        setTotalTicks((prev) => prev !== total ? total : prev);
-      }
-      if (data.current_idx !== undefined && !isDraggingRef.current) {
-        const cur = data.current_idx;
-        setCurrentIdx((prev) => prev !== cur ? cur : prev);
-      }
-      if (data.virtual_time_msc !== undefined) {
-        const vtime = data.virtual_time_msc;
-        setVirtualTimeMsc((prev) => prev !== vtime ? vtime : prev);
-      }
-      if (data.is_playing !== undefined) {
-        const playing = data.is_playing;
-        const guard = playStateGuardRef.current;
-        if (guard && performance.now() < guard.expireAt) {
-          if (playing === guard.expected) {
-            playStateGuardRef.current = null;
-            isPlayingRef.current = playing;
-            setIsPlaying((prev) => prev !== playing ? playing : prev);
-          }
-        } else {
-          playStateGuardRef.current = null;
-          isPlayingRef.current = playing;
-          setIsPlaying((prev) => prev !== playing ? playing : prev);
-        }
-      }
-      if (data.speed_mode) {
-        const mode = data.speed_mode as "TEMPORAL" | "COUNT";
-        setSpeedMode((prev) => prev !== mode ? mode : prev);
-      }
-      if (data.multiplier !== undefined) {
-        const m = typeof data.multiplier === "number" ? data.multiplier : parseFloat(data.multiplier) || 1.0;
-        setMultiplier((prev) => prev !== m ? m : prev);
-      }
-      if (data.tick_step !== undefined) {
-        const ts = typeof data.tick_step === "number" ? data.tick_step : parseInt(String(data.tick_step), 10) || 1;
-        setTickStep((prev) => prev !== ts ? ts : prev);
-      }
-      if (data.source_symbol) {
-        const sym = data.source_symbol;
-        setSourceSymbol((prev) => prev !== sym ? sym : prev);
-      }
-      if (data.loop_active !== undefined) {
-        const lActive = data.loop_active;
-        setLoopActive((prev) => prev !== lActive ? lActive : prev);
-      }
-      if (data.loop_a !== undefined) {
-        const la = data.loop_a;
-        setLoopA((prev) => prev !== la ? la : prev);
-      }
-      if (data.loop_b !== undefined) {
-        const lb = data.loop_b;
-        setLoopB((prev) => prev !== lb ? lb : prev);
-      }
-      if (data.loop_a_idx !== undefined) {
-        const laIdx = data.loop_a_idx;
-        setLoopAIdx((prev) => prev !== laIdx ? laIdx : prev);
-      }
-      if (data.loop_b_idx !== undefined) {
-        const lbIdx = data.loop_b_idx;
-        setLoopBIdx((prev) => prev !== lbIdx ? lbIdx : prev);
-      }
-    } catch (e) {
-      console.error("Error parsing mt5-status in controller:", e);
-    }
-  };
 
   // --- IPC 送信コマンド ---
   const sendCommand = useCallback(async (cmd: ReplayCommand) => {
@@ -642,10 +587,10 @@ export const ControllerWindowContent: React.FC = () => {
     });
   }, [sendCommand]);
 
-  const getDayOffset = useCallback((): string => {
+  const dayOffset = useMemo(() => {
     if (virtualTimeMsc <= 0) return "";
     const current = new Date(virtualTimeMsc);
-    return `${current.getMonth() + 1}/${current.getDate()}`;
+    return `${current.getUTCMonth() + 1}/${current.getUTCDate()}`;
   }, [virtualTimeMsc]);
 
   // コントローラーウィンドウフォーカス時の直感キーボード操作 (Space: 再生/停止, 矢印: 1T, Shift+矢印: 10M, Ctrl+矢印: 1H)
@@ -930,7 +875,7 @@ export const ControllerWindowContent: React.FC = () => {
           setIsTimeStepsModalOpen={setIsTimeStepsModalOpen}
           handleSessionJump={handleSessionJump}
           handleTimeJump={handleTimeJump}
-          getDayOffset={getDayOffset}
+          dayOffset={dayOffset}
           startTime={startTime}
           endTime={endTime}
           virtualTimeMsc={virtualTimeMsc}

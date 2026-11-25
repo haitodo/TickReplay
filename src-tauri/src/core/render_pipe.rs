@@ -360,6 +360,14 @@ impl RenderPacketCodec {
             ));
         }
 
+        const MAX_PACKET_PAYLOAD: u32 = 1024 * 1024;
+        if header.payload_len > MAX_PACKET_PAYLOAD {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Payload too large: {} bytes", header.payload_len),
+            ));
+        }
+
         let mut payload = vec![0u8; header.payload_len as usize];
         if header.payload_len > 0 {
             reader.read_exact(&mut payload)?;
@@ -413,10 +421,26 @@ pub enum RenderPipeCommand {
     },
 }
 
+#[derive(Debug, Clone, Copy)]
+enum RenderReconnectPosition {
+    Advance {
+        epoch: u32,
+        main_idx: u64,
+        sub_idx: u64,
+        virtual_time_msc: i64,
+    },
+    Reset {
+        epoch: u32,
+        main_target_idx: u64,
+        sub_target_idx: u64,
+        virtual_time_msc: i64,
+    },
+}
+
 #[derive(Debug, Default)]
 struct RenderReconnectState {
     init: Option<RenderPipeCommand>,
-    position: Option<RenderPipeCommand>,
+    position: Option<RenderReconnectPosition>,
 }
 
 impl RenderReconnectState {
@@ -427,9 +451,9 @@ impl RenderReconnectState {
         let mut commands = vec![init.clone()];
         // Rebuild directly at the latest position, including while playback is paused.
         // An ADVANCE alone cannot undo data left over from an earlier renderer session.
-        if let Some(position) = &self.position {
-            commands.push(match *position {
-                RenderPipeCommand::Advance { epoch, main_idx, sub_idx, virtual_time_msc } => {
+        if let Some(position) = self.position {
+            commands.push(match position {
+                RenderReconnectPosition::Advance { epoch, main_idx, sub_idx, virtual_time_msc } => {
                     RenderPipeCommand::Reset {
                         epoch,
                         main_target_idx: main_idx,
@@ -437,7 +461,14 @@ impl RenderReconnectState {
                         virtual_time_msc,
                     }
                 }
-                _ => position.clone(),
+                RenderReconnectPosition::Reset { epoch, main_target_idx, sub_target_idx, virtual_time_msc } => {
+                    RenderPipeCommand::Reset {
+                        epoch,
+                        main_target_idx,
+                        sub_target_idx,
+                        virtual_time_msc,
+                    }
+                }
             });
         }
         commands
@@ -454,16 +485,22 @@ pub struct RenderPipeHandle {
 
 impl RenderPipeHandle {
     pub fn send_advance(&self, epoch: u32, main_idx: u64, sub_idx: u64, virtual_time_msc: i64) {
-        let mut reconnect = self.reconnect_state.lock().unwrap();
-        let cmd = RenderPipeCommand::Advance {
-            epoch,
-            main_idx,
-            sub_idx,
-            virtual_time_msc,
-        };
-        reconnect.position = Some(cmd.clone());
+        {
+            let mut reconnect = self.reconnect_state.lock().unwrap();
+            reconnect.position = Some(RenderReconnectPosition::Advance {
+                epoch,
+                main_idx,
+                sub_idx,
+                virtual_time_msc,
+            });
+        }
         if self.connected.load(std::sync::atomic::Ordering::Relaxed) {
-            let _ = self.cmd_tx.send(cmd);
+            let _ = self.cmd_tx.send(RenderPipeCommand::Advance {
+                epoch,
+                main_idx,
+                sub_idx,
+                virtual_time_msc,
+            });
         }
     }
 
@@ -474,16 +511,22 @@ impl RenderPipeHandle {
         sub_target_idx: u64,
         virtual_time_msc: i64,
     ) {
-        let cmd = RenderPipeCommand::Reset {
-            epoch,
-            main_target_idx,
-            sub_target_idx,
-            virtual_time_msc,
-        };
-        let mut reconnect = self.reconnect_state.lock().unwrap();
-        reconnect.position = Some(cmd.clone());
+        {
+            let mut reconnect = self.reconnect_state.lock().unwrap();
+            reconnect.position = Some(RenderReconnectPosition::Reset {
+                epoch,
+                main_target_idx,
+                sub_target_idx,
+                virtual_time_msc,
+            });
+        }
         if self.connected.load(std::sync::atomic::Ordering::Relaxed) {
-            let _ = self.cmd_tx.send(cmd);
+            let _ = self.cmd_tx.send(RenderPipeCommand::Reset {
+                epoch,
+                main_target_idx,
+                sub_target_idx,
+                virtual_time_msc,
+            });
         }
     }
 
@@ -630,7 +673,7 @@ impl RenderPipeServer {
 
                     if let Ok(Ok(_)) = tokio::time::timeout(std::time::Duration::from_secs(2), reader.read_exact(&mut header_buf)).await {
                         let header: RenderHeader = *bytemuck::from_bytes(&header_buf);
-                        if header.is_valid() && header.msg_type == MSG_HELLO && header.payload_len > 0 {
+                        if header.is_valid() && header.msg_type == MSG_HELLO && header.payload_len > 0 && header.payload_len <= 4096 {
                             let mut hello_buf = vec![0u8; header.payload_len as usize];
                             if reader.read_exact(&mut hello_buf).await.is_ok() {
                                 if hello_buf.len() >= 72 {
@@ -759,8 +802,9 @@ impl RenderPipeServer {
                         connected_clone.store(true, std::sync::atomic::Ordering::SeqCst);
                     }
 
-                    // 3. Reader & コマンド配送ループ (EOF 切断検知を常時実行)
+                    // 3. Reader & コマンド配送ループ (EOF 切断検知 & 複数/分割パケットフレーミング)
                     let mut read_buf = [0u8; 512];
+                    let mut rx_accum: Vec<u8> = Vec::with_capacity(512);
                     loop {
                         tokio::select! {
                             // クライアントからの受信 & 切断検知 (EOF)
@@ -771,28 +815,41 @@ impl RenderPipeServer {
                                         break;
                                     }
                                     Ok(n) => {
-                                        // 受信パケットヘッダーの簡易解析
-                                        if n >= RenderHeader::SIZE {
-                                            let hdr: RenderHeader = *bytemuck::from_bytes(&read_buf[0..RenderHeader::SIZE]);
-                                            if hdr.is_valid() {
-                                                if hdr.msg_type == MSG_ACK && n >= RenderHeader::SIZE + std::mem::size_of::<AckPayload>() {
-                                                    let ack: &AckPayload = bytemuck::from_bytes(&read_buf[RenderHeader::SIZE..RenderHeader::SIZE + std::mem::size_of::<AckPayload>()]);
-                                                    last_applied_clone.store(ack.main_applied_idx, std::sync::atomic::Ordering::Relaxed);
-                                                } else if hdr.msg_type == MSG_READY {
-                                                    let snapshot = state.as_ref().and_then(|st| {
-                                                        st.core_handle.lock().unwrap().as_ref().map(|core| core.status())
-                                                    });
-                                                    let ready_val = renderer_ready_status(snapshot.as_ref());
-                                                    let ready_str = ready_val.to_string();
-                                                    if let Some(ref st) = state {
-                                                        *st.last_status.lock().unwrap() = ready_str.clone();
-                                                        let _ = st.sync_tx.send(ready_str.clone());
-                                                    }
-                                                    if let Some(ref app) = app_handle {
-                                                        let _ = app.emit("mt5-status", &ready_str);
-                                                    }
+                                        rx_accum.extend_from_slice(&read_buf[..n]);
+                                        let mut invalid_frame = false;
+                                        while rx_accum.len() >= RenderHeader::SIZE {
+                                            let hdr: RenderHeader = *bytemuck::from_bytes(&rx_accum[..RenderHeader::SIZE]);
+                                            if !hdr.is_valid() || hdr.payload_len > 65536 {
+                                                eprintln!("[RenderPipe] 不正な受信フレームを検知 (magic=0x{:08X}, len={})", hdr.magic, hdr.payload_len);
+                                                invalid_frame = true;
+                                                break;
+                                            }
+                                            let total_len = RenderHeader::SIZE + hdr.payload_len as usize;
+                                            if rx_accum.len() < total_len {
+                                                break;
+                                            }
+                                            let payload = &rx_accum[RenderHeader::SIZE..total_len];
+                                            if hdr.msg_type == MSG_ACK && payload.len() >= std::mem::size_of::<AckPayload>() {
+                                                let ack: &AckPayload = bytemuck::from_bytes(&payload[..std::mem::size_of::<AckPayload>()]);
+                                                last_applied_clone.store(ack.main_applied_idx, std::sync::atomic::Ordering::Relaxed);
+                                            } else if hdr.msg_type == MSG_READY {
+                                                let snapshot = state.as_ref().and_then(|st| {
+                                                    st.core_handle.lock().unwrap().as_ref().map(|core| core.status())
+                                                });
+                                                let ready_val = renderer_ready_status(snapshot.as_ref());
+                                                let ready_str = ready_val.to_string();
+                                                if let Some(ref st) = state {
+                                                    *st.last_status.lock().unwrap() = ready_str.clone();
+                                                    let _ = st.sync_tx.send(ready_str.clone());
+                                                }
+                                                if let Some(ref app) = app_handle {
+                                                    let _ = app.emit("mt5-status", &ready_str);
                                                 }
                                             }
+                                            rx_accum.drain(..total_len);
+                                        }
+                                        if invalid_frame {
+                                            break;
                                         }
                                     }
                                     Err(e) => {

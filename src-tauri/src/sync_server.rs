@@ -17,14 +17,11 @@ struct ClientTradeCursor {
 
 impl ClientTradeCursor {
     #[inline]
-    fn is_synced_with(&self, snap: &CoreStatusSnapshot) -> bool {
-        let history_ok = self.history.as_ref().is_some_and(|(revision, history)| {
-            *revision == snap.history_revision && Arc::ptr_eq(history, &snap.history)
-        });
-        let audits_ok = self.audits.as_ref().is_some_and(|(revision, audits)| {
-            *revision == snap.trade_revision && Arc::ptr_eq(audits, &snap.latest_audits)
-        });
-        history_ok && audits_ok
+    fn is_synced_with_core(&self, core: &crate::core::ReplayCoreHandle) -> bool {
+        let (Some((h_rev, history)), Some((a_rev, audits))) = (&self.history, &self.audits) else {
+            return false;
+        };
+        core.is_trade_synced(*h_rev, history, *a_rev, audits)
     }
 
     fn merge_snapshot(&mut self, value: &mut serde_json::Value, snap: &CoreStatusSnapshot, force: bool) {
@@ -80,15 +77,15 @@ fn client_status_json(
     base_status: &str,
     force: bool,
 ) -> String {
-    if !force && base_status.contains("\"account\"") && !base_status.contains("\"TERMINATE\"") {
+    if !force
+        && base_status.contains("\"account\"")
+        && !base_status.contains("\"TERMINATE\"")
+        && !base_status.contains("\"history\":")
+        && !base_status.contains("\"execution_audits\":")
+    {
         let can_passthrough = {
             let guard = state.core_handle.lock().unwrap();
-            guard.as_ref().is_some_and(|core| {
-                let snap = core.status();
-                cursor.is_synced_with(&snap)
-                    && !base_status.contains("\"history\":")
-                    && !base_status.contains("\"execution_audits\":")
-            })
+            guard.as_ref().is_some_and(|core| cursor.is_synced_with_core(core))
         };
         if can_passthrough {
             return base_status.to_string();
@@ -104,9 +101,11 @@ fn client_status_json(
         *cursor = ClientTradeCursor::default();
         return value.to_string();
     }
-    let snapshot = state.core_handle.lock().unwrap().as_ref().map(|core| core.status());
-    if let Some(snapshot) = snapshot {
-        cursor.merge_snapshot(&mut value, &snapshot, force);
+    let core_opt = state.core_handle.lock().unwrap().clone();
+    if let Some(core) = core_opt {
+        core.with_status(|snapshot| {
+            cursor.merge_snapshot(&mut value, snapshot, force);
+        });
     } else if force {
         value["history"] = state.last_history.lock().unwrap().clone()
             .unwrap_or_else(|| serde_json::json!([]));

@@ -26,12 +26,11 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // 起動時の初期化処理（MT5データフォルダへのEAファイルの自動配置）
-    mt5::setup_mt5_environment();
-
     let (sync_srv, sync_tx) = sync_server::SyncServer::new();
     let state = Arc::new(state::ReplayState::new(sync_tx));
     let state_clone = state.clone();
+    let exit_started = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let exit_started_win = exit_started.clone();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -72,7 +71,7 @@ pub fn run() {
                 .build(),
         )
         .manage(state_clone)
-        .on_window_event(|window, event| {
+        .on_window_event(move |window, event| {
             match event {
                 tauri::WindowEvent::Moved(pos) => {
                     let label = window.label().to_string();
@@ -103,21 +102,25 @@ pub fn run() {
                             }
                         }
                     } else if window.label() == "main" {
-                        // メインウィンドウが閉じられた場合はアプリ全体をクリーンに終了
-                        if let Some(state) = window.app_handle().try_state::<Arc<state::ReplayState>>() {
-                            let _ = crate::commands_replay::dispatch_replay_command(&state, "{\"command\":\"TERMINATE\"}", Some(window.app_handle()));
+                        if !exit_started_win.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                            // メインウィンドウが閉じられた場合はアプリ全体をクリーンに終了
+                            if let Some(state) = window.app_handle().try_state::<Arc<state::ReplayState>>() {
+                                let _ = crate::commands_replay::dispatch_replay_command(&state, "{\"command\":\"TERMINATE\"}", Some(window.app_handle()));
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(80));
                         }
-                        std::thread::sleep(std::time::Duration::from_millis(80));
                         window.app_handle().exit(0);
                     }
                 }
                 tauri::WindowEvent::Destroyed
                     if window.label() == "main" => {
-                        if let Some(state) = window.app_handle().try_state::<Arc<state::ReplayState>>() {
-                            let _ = crate::commands_replay::dispatch_replay_command(&state, "{\"command\":\"TERMINATE\"}", Some(window.app_handle()));
+                        if !exit_started_win.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                            if let Some(state) = window.app_handle().try_state::<Arc<state::ReplayState>>() {
+                                let _ = crate::commands_replay::dispatch_replay_command(&state, "{\"command\":\"TERMINATE\"}", Some(window.app_handle()));
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(80));
+                            window.app_handle().exit(0);
                         }
-                        std::thread::sleep(std::time::Duration::from_millis(80));
-                        window.app_handle().exit(0);
                     }
                 _ => {}
             }
@@ -126,6 +129,9 @@ pub fn run() {
             let app_handle = app.handle().clone();
             let state = app.state::<Arc<state::ReplayState>>();
             let state_inner = state.inner().clone();
+
+            // 起動時のEA自動配置をバックグラウンドで実行し、ウィンドウ表示の初速を阻害しない
+            tauri::async_runtime::spawn_blocking(mt5::setup_mt5_environment);
             
             // Replay Core v2 向け高スループット描画パイプサーバー（Rust ⇔ TickReplayRendererEA）を起動
             let (render_pipe_handle, _render_pipe_task) = crate::core::render_pipe::RenderPipeServer::start(

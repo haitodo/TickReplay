@@ -38,12 +38,13 @@ import { parseDateTimeStr, alignDateRangeToYear } from "./utils/dateUtils";
 import { checkEconomicDataAvailability } from "./utils/economicDataUtils";
 import { formatReplaySessionName } from "./utils/sessionName";
 import { useAppearance } from "./hooks/useAppearance";
+import { useReplayStatusStream } from "./hooks/useReplayStatusStream";
 import {
   DEFAULT_TIME_STEPS,
   MAX_TIME_STEPS,
 } from "./domain/timeSteps";
 import { formatTerminalNamesMap } from "./domain/settings";
-import { isReplaySessionStart, mergePendingReplayStatus, type PendingReplayStatus } from "./domain/pendingReplayStatus";
+import { isReplaySessionStart } from "./domain/pendingReplayStatus";
 import {
   resolveSessionTradingSettings,
   saveSessionAndFinish,
@@ -83,7 +84,6 @@ import {
   shouldApplyHistory
 } from "./domain/tradeStateUpdate";
 import { ReplayCommand, sendReplayCommand } from "./utils/command";
-import { resolveWindowVisibility } from "./domain/windowVisibility";
 
 
 
@@ -205,6 +205,8 @@ function WindowRouter() {
 function MainWindow() {
   // --- 接続状態・EAからのステータス
   const [status, setStatus] = useState<"DISCONNECTED" | "CONNECTED" | "READY" | "ACTIVE">("DISCONNECTED");
+  const statusRef = useRef<"DISCONNECTED" | "CONNECTED" | "READY" | "ACTIVE">(status);
+  statusRef.current = status;
   const [totalTicks, setTotalTicks] = useState(0);
   const [currentIdx, setCurrentIdx] = useState(0);
   const [virtualTimeMsc, setVirtualTimeMsc] = useState(0);
@@ -705,7 +707,8 @@ function MainWindow() {
       const data = typeof payload === "string" ? JSON.parse(payload) as ReplayProgressPayload : payload;
       if (isReplaySessionStart(data)) historyRevisionRef.current = undefined;
       if (data.status === "READY") {
-        const isReconnecting = status === "DISCONNECTED" || status === "CONNECTED";
+        const isReconnecting = statusRef.current === "DISCONNECTED" || statusRef.current === "CONNECTED";
+        statusRef.current = "READY";
         setStatus((prev) => prev !== "READY" ? "READY" : prev);
         if (data.total_ticks !== undefined) setTotalTicks((prev) => prev !== (data.total_ticks ?? prev) ? (data.total_ticks ?? prev) : prev);
         if (!isDraggingRef.current) {
@@ -896,7 +899,8 @@ function MainWindow() {
           }
         }
       } else if (data.status === "ACTIVE") {
-        const isReconnecting = status === "DISCONNECTED" || status === "CONNECTED";
+        const isReconnecting = statusRef.current === "DISCONNECTED" || statusRef.current === "CONNECTED";
+        statusRef.current = "ACTIVE";
         setStatus((prev) => prev !== "ACTIVE" ? "ACTIVE" : prev);
         // ドラッグ中でなければ現在インデックスを更新する
         if (!isDraggingRef.current) {
@@ -948,6 +952,8 @@ function MainWindow() {
           setIsReplayInitializing(false);
         }
       } else if (data.status === "DISCONNECTED") {
+        const wasConnected = statusRef.current !== "DISCONNECTED";
+        statusRef.current = "DISCONNECTED";
         setStatus((prev) => prev !== "DISCONNECTED" ? "DISCONNECTED" : prev);
         playStateGuardRef.current = null;
         isPlayingRef.current = false;
@@ -962,14 +968,16 @@ function MainWindow() {
         setHistory((prev) => prev.length > 0 ? [] : prev);
         historyRevisionRef.current = undefined;
 
-        // スピード発注画面も自動で終了する
-        WebviewWindow.getByLabel("speed_order")
-          .then((win) => {
-            if (win) {
-              win.close().catch((e) => console.error("Failed to close speed_order window:", e));
-            }
-          })
-          .catch((e) => console.error("Failed to get speed_order window:", e));
+        if (wasConnected) {
+          // スピード発注画面も自動で終了する
+          WebviewWindow.getByLabel("speed_order")
+            .then((win) => {
+              if (win) {
+                win.close().catch((e) => console.error("Failed to close speed_order window:", e));
+              }
+            })
+            .catch((e) => console.error("Failed to get speed_order window:", e));
+        }
       }
     } catch (e) {
       console.error("Failed to parse status message", e);
@@ -979,141 +987,29 @@ function MainWindow() {
   const handleStatusStringRef = useRef(handleStatusString);
   handleStatusStringRef.current = handleStatusString;
 
-  const pendingStatusPayloadRef = useRef<PendingReplayStatus | null>(null);
-  const pendingRawPayloadRef = useRef<string | null>(null);
-  const rafIdRef = useRef<number | null>(null);
-  const skippedCountRef = useRef<number>(0);
-  const isWindowVisibleRef = useRef<boolean>(true);
-
-  const flushPendingStatusOnShow = () => {
-    const raw = pendingRawPayloadRef.current;
-    pendingRawPayloadRef.current = null;
-    if (raw !== null) {
-      try {
-        const parsed = JSON.parse(raw) as ReplayProgressPayload;
-        pendingStatusPayloadRef.current = mergePendingReplayStatus(pendingStatusPayloadRef.current, parsed);
-      } catch (error) {
-        console.error("Failed to parse deferred replay status", error);
-      }
-    }
-    if (pendingStatusPayloadRef.current !== null) {
-      const latest = pendingStatusPayloadRef.current;
-      pendingStatusPayloadRef.current = null;
-      handleStatusStringRef.current(latest);
-    }
-  };
-
-  useEffect(() => {
-    const currentLabel = getCurrentWindow().label;
-    const unlistenVisible = listen<unknown>(EVENTS.windowVisible, (event) => {
-      const nextVisible = resolveWindowVisibility(currentLabel, event.payload, true);
-      if (nextVisible === null) {
-        if (typeof event.payload === "boolean") {
-          getCurrentWindow().isVisible().then((v) => {
-            isWindowVisibleRef.current = v;
-            if (v) flushPendingStatusOnShow();
-          }).catch(() => {});
-        }
-        return;
-      }
-      isWindowVisibleRef.current = nextVisible;
-      if (nextVisible) flushPendingStatusOnShow();
-    });
-
-    const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        getCurrentWindow().isVisible().then((v) => {
-          isWindowVisibleRef.current = v;
-          if (v) flushPendingStatusOnShow();
-        }).catch(() => {});
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    let unlistenFocus: (() => void) | undefined;
-    getCurrentWindow().onFocusChanged(({ payload: focused }) => {
-      if (focused) {
-        isWindowVisibleRef.current = true;
-        flushPendingStatusOnShow();
-      }
-    }).then((fn) => {
-      unlistenFocus = fn;
-    }).catch(() => {});
-
-    return () => {
-      unlistenVisible.then((fn) => fn());
-      if (unlistenFocus) unlistenFocus();
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
+  const handleStatusStream = useCallback((data: ReplayProgressPayload) => {
+    handleStatusStringRef.current(data);
   }, []);
 
-  const scheduleStatusUpdate = useCallback((payload: string) => {
-    const hidden = !isWindowVisibleRef.current || document.hidden;
-    if (
-      hidden &&
-      !payload.includes('"ERROR"') &&
-      !payload.includes('"DISCONNECTED"') &&
-      !payload.includes('"TERMINATE"') &&
-      !payload.includes('"history"')
-    ) {
-      pendingRawPayloadRef.current = payload;
-      return;
-    }
+  const handleStatusErrorImmediate = useCallback((data: ReplayProgressPayload) => {
+    const lowerMsg = (data.message || "").toLowerCase();
+    const isOrderError =
+      lowerMsg.includes("margin is insufficient") ||
+      lowerMsg.includes("bid/ask prices") ||
+      lowerMsg.includes("replay is not initialized");
 
-    let data: ReplayProgressPayload;
-    try {
-      data = JSON.parse(payload) as ReplayProgressPayload;
-    } catch (error) {
-      console.error("Failed to parse pending replay status", error);
-      return;
-    }
-    // Errors are discrete events: display them without replacing unpainted history.
-    if (data.status === "ERROR") {
-      handleStatusStringRef.current(data);
-      return;
-    }
-    if (pendingStatusPayloadRef.current !== null) {
-      skippedCountRef.current++;
-    }
-    const rawDeferred = pendingRawPayloadRef.current;
-    if (rawDeferred !== null) {
-      pendingRawPayloadRef.current = null;
-      try {
-        const parsedRaw = JSON.parse(rawDeferred) as ReplayProgressPayload;
-        pendingStatusPayloadRef.current = mergePendingReplayStatus(pendingStatusPayloadRef.current, parsedRaw);
-      } catch (_) {
-        // Ignore stale raw frame if parsing fails.
-      }
-    }
-    pendingStatusPayloadRef.current = mergePendingReplayStatus(pendingStatusPayloadRef.current, data);
-
-    // メインウィンドウ非表示中（コントローラー操作中や最小化時）は rAF と React 再描画をスキップ
-    if (hidden) {
-      return;
-    }
-
-    if (rafIdRef.current === null) {
-      rafIdRef.current = requestAnimationFrame(() => {
-        rafIdRef.current = null;
-        if (pendingRawPayloadRef.current !== null || pendingStatusPayloadRef.current !== null) {
-          flushPendingStatusOnShow();
-
-          if (import.meta.env.DEV && skippedCountRef.current > 0) {
-            console.debug("[DEV-UI-THROTTLE] rAF UI throttle skipped render passes:", skippedCountRef.current);
-            skippedCountRef.current = 0;
-          }
-        }
-      });
+    if (!isOrderError) {
+      setErrorMessage(translateErrorMessage(data.message || ""));
+      setIsReplayInitializing(false);
     }
   }, []);
 
-  useEffect(() => {
-    return () => {
-      if (rafIdRef.current !== null) {
-        cancelAnimationFrame(rafIdRef.current);
-      }
-    };
-  }, []);
+  const { clearPending: clearPendingStatus } = useReplayStatusStream({
+    onStatus: handleStatusStream,
+    onErrorImmediate: handleStatusErrorImmediate,
+    loadInitialStatus: false,
+    devThrottleLogLabel: "main",
+  });
 
   const sendCommand = useCallback(async (cmd: ReplayCommand) => {
     try {
@@ -1166,6 +1062,7 @@ function MainWindow() {
     if (status !== "DISCONNECTED") return;
 
     const intervalId = setInterval(async () => {
+      if (document.hidden) return;
       try {
         const lastStatus = await invoke<string>(COMMANDS.getLastStatus);
         if (lastStatus && lastStatus.trim() !== "") {
@@ -1220,20 +1117,15 @@ function MainWindow() {
 
   // --- 1. バックエンドからのイベント監視
   useEffect(() => {
-    // ステータスファイル経由のEAステータス受信
-    const unlistenStatus = listen<string>(EVENTS.mt5Status, (event) => {
-      scheduleStatusUpdate(event.payload);
-    });
-
     // EA接続時
     const unlistenConnect = listen(EVENTS.mt5Connected, () => {
-      pendingStatusPayloadRef.current = null;
+      clearPendingStatus();
       setStatus((prev) => prev === "DISCONNECTED" ? "CONNECTED" : prev);
     });
 
     // EA切断時
     const unlistenDisconnect = listen(EVENTS.mt5Disconnected, async () => {
-      pendingStatusPayloadRef.current = null;
+      clearPendingStatus();
       setStatus("DISCONNECTED");
       playStateGuardRef.current = null;
       isPlayingRef.current = false;
@@ -1435,7 +1327,6 @@ function MainWindow() {
             savedConfig.current = null;
           }
           setSelectedTerminal(targetPath);
-          await invoke(COMMANDS.selectTerminal, { terminalPath: targetPath });
           terminalSuccess = true;
         }
       } catch (e) {
@@ -1463,11 +1354,10 @@ function MainWindow() {
     initApp();
 
     return () => {
-      unlistenStatus.then((fn) => fn());
       unlistenDisconnect.then((fn) => fn());
       unlistenConnect.then((fn) => fn());
     };
-  }, [scheduleStatusUpdate, setOrderColorStyle, setPlColorStyle]);
+  }, [clearPendingStatus, setOrderColorStyle, setPlColorStyle]);
 
   // Start Timeが変更されたら、デフォルトのプリロード開始日を年初に自動更新
   useEffect(() => {
@@ -1624,9 +1514,15 @@ function MainWindow() {
   const saveAllSettingsRef = useRef(saveAllSettings);
   saveAllSettingsRef.current = saveAllSettings;
 
+  const didHydrateAutoSaveRef = useRef(false);
+
   // 設定変更時の自動保存処理
   useEffect(() => {
     if (!isInitialized) return;
+    if (!didHydrateAutoSaveRef.current) {
+      didHydrateAutoSaveRef.current = true;
+      return;
+    }
 
     const timer = setTimeout(() => {
       saveAllSettingsRef.current();
@@ -1681,7 +1577,7 @@ function MainWindow() {
   // リプレイ初期化
   const handleInit = async () => {
     setErrorMessage("");
-    pendingStatusPayloadRef.current = null;
+    clearPendingStatus();
     historyRevisionRef.current = undefined;
     updateRestoringSession(null);
     isRestoringRef.current = false;
@@ -2064,7 +1960,7 @@ function MainWindow() {
 
   const handleResumeSession = async (session: SavedSession) => {
     setErrorMessage("");
-    pendingStatusPayloadRef.current = null;
+    clearPendingStatus();
     historyRevisionRef.current = undefined;
     const tradingSettings = resolveSessionTradingSettings(session, {
       initial_balance: initialBalance,
@@ -2306,8 +2202,7 @@ function MainWindow() {
   };
 
   const executeTerminate = async () => {
-    pendingRawPayloadRef.current = null;
-    pendingStatusPayloadRef.current = null;
+    clearPendingStatus();
     sendCommand({ command: "TERMINATE" });
     setStatus("CONNECTED");
     playStateGuardRef.current = null;

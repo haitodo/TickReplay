@@ -282,9 +282,7 @@ pub async fn handle_shortcut_trigger(app_handle: AppHandle, shortcut_str: &str, 
     }
 
     if let Some(cmd_val) = cmd {
-        if let Ok(cmd_str) = serde_json::to_string(&cmd_val) {
-            let _ = crate::commands_replay::dispatch_replay_command(state, &cmd_str, Some(&app_handle));
-        }
+        let _ = crate::commands_replay::dispatch_replay_command_value(state, &cmd_val, Some(&app_handle));
     }
 }
 

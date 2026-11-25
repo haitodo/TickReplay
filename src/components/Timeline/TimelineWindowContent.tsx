@@ -6,6 +6,7 @@ import { COMMANDS } from "../../constants/commands";
 import { EVENTS } from "../../constants/events";
 import { STORAGE_KEYS } from "../../constants/storageKeys";
 import { useAppearance } from "../../hooks/useAppearance";
+import { useReplayStatusStream } from "../../hooks/useReplayStatusStream";
 import { formatJstTime, formatServerTime } from "../../utils/timeUtils";
 import { getSecondsIntoDay } from "../../domain/timeline";
 import { ReplayCommand, sendReplayCommand } from "../../utils/command";
@@ -195,7 +196,74 @@ export const TimelineWindowContent: React.FC = () => {
     sendCommand({ command: "LOOP_CLEAR" });
   }, [sendCommand]);
 
-  // --- ステータス受信 ---
+  const handleStatusPayload = useCallback((data: ReplayProgressPayload) => {
+    if (data.status && data.status !== "ERROR") {
+      const nextStatus = data.status as "DISCONNECTED" | "CONNECTED" | "READY" | "ACTIVE";
+      setStatus((prev) => (prev !== nextStatus ? nextStatus : prev));
+    }
+    if (data.total_ticks !== undefined) {
+      const total = data.total_ticks;
+      setTotalTicks((prev) => (prev !== total ? total : prev));
+    }
+    if (data.current_idx !== undefined && !isDraggingCanvasRef.current) {
+      const cur = data.current_idx;
+      setCurrentIdx((prev) => (prev !== cur ? cur : prev));
+    }
+    if (data.virtual_time_msc !== undefined) {
+      const vtime = data.virtual_time_msc;
+      setVirtualTimeMsc((prev) => (prev !== vtime ? vtime : prev));
+    }
+    if (data.is_playing !== undefined) {
+      const playing = data.is_playing;
+      const guard = playStateGuardRef.current;
+      if (guard && performance.now() < guard.expireAt) {
+        if (playing === guard.expected) {
+          playStateGuardRef.current = null;
+          isPlayingRef.current = playing;
+          setIsPlaying((prev) => (prev !== playing ? playing : prev));
+        }
+      } else {
+        playStateGuardRef.current = null;
+        isPlayingRef.current = playing;
+        setIsPlaying((prev) => (prev !== playing ? playing : prev));
+      }
+    }
+    if (data.speed_mode) {
+      const mode = data.speed_mode as "TEMPORAL" | "COUNT";
+      setSpeedMode((prev) => (prev !== mode ? mode : prev));
+    }
+    if (data.multiplier !== undefined) {
+      const m = typeof data.multiplier === "number" ? data.multiplier : parseFloat(data.multiplier) || 1.0;
+      setMultiplier((prev) => (prev !== m ? m : prev));
+    }
+    if (data.tick_step !== undefined) {
+      const ts = typeof data.tick_step === "number" ? data.tick_step : parseInt(String(data.tick_step), 10) || 1;
+      setTickStep((prev) => (prev !== ts ? ts : prev));
+    }
+    if (data.source_symbol) {
+      const sym = data.source_symbol;
+      setSourceSymbol((prev) => (prev !== sym ? sym : prev));
+    }
+    if (data.loop_active !== undefined) {
+      const lActive = data.loop_active;
+      setLoopActive((prev) => (prev !== lActive ? lActive : prev));
+    }
+    if (data.loop_a !== undefined) {
+      const la = data.loop_a;
+      setLoopA((prev) => (prev !== la ? la : prev));
+    }
+    if (data.loop_b !== undefined) {
+      const lb = data.loop_b;
+      setLoopB((prev) => (prev !== lb ? lb : prev));
+    }
+  }, []);
+
+  useReplayStatusStream({
+    onStatus: handleStatusPayload,
+    loadInitialStatus: true,
+  });
+
+  // --- 設定読み込み & 設定更新イベント受信 ---
   useEffect(() => {
     invoke<PersistedSettings>(COMMANDS.loadSettings)
       .then((settings) => {
@@ -209,140 +277,23 @@ export const TimelineWindowContent: React.FC = () => {
       .catch(console.warn);
 
     let disposed = false;
-    let unlisten: (() => void) | undefined;
     let unlistenSettings: (() => void) | undefined;
-    let pendingStatus: string | null = null;
-    let statusFrame: number | null = null;
-    let windowVisible = !document.hidden;
 
-    const handleVisibility = () => {
-      windowVisible = !document.hidden;
-      if (windowVisible && pendingStatus && !disposed) {
-        handleStatusPayload(pendingStatus);
-        pendingStatus = null;
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibility);
-
-    const scheduleStatus = (payload: string) => {
-      pendingStatus = payload;
-      if (!windowVisible) return;
-      if (statusFrame !== null) return;
-      statusFrame = requestAnimationFrame(() => {
-        statusFrame = null;
-        if (disposed) return;
-        const latest = pendingStatus;
-        pendingStatus = null;
-        if (latest !== null) handleStatusPayload(latest);
-      });
-    };
-
-    const setupListener = async () => {
-      try {
-        const lastStatusStr = await invoke<string>(COMMANDS.getLastStatus);
-        if (!disposed && lastStatusStr) {
-          handleStatusPayload(lastStatusStr);
-        }
-      } catch (err) {
-        console.warn("Failed to get initial status:", err);
-      }
-
-      const off = await listen<string>(EVENTS.mt5Status, (event) => {
-        scheduleStatus(event.payload);
-      });
-
-      const offSettings = await listen(EVENTS.settingsUpdated, () => {
-        lastActivityDateRef.current = "";
-        setTimelineActivity(null);
-      });
-
-      if (disposed) {
-        off();
-        offSettings();
-        return;
-      }
-      unlisten = off;
-      unlistenSettings = offSettings;
-    };
-
-    setupListener();
+    listen(EVENTS.settingsUpdated, () => {
+      lastActivityDateRef.current = "";
+      setTimelineActivity(null);
+    })
+      .then((offSettings) => {
+        if (disposed) offSettings();
+        else unlistenSettings = offSettings;
+      })
+      .catch(() => {});
 
     return () => {
       disposed = true;
-      document.removeEventListener("visibilitychange", handleVisibility);
-      if (statusFrame !== null) cancelAnimationFrame(statusFrame);
-      pendingStatus = null;
-      if (unlisten) unlisten();
       if (unlistenSettings) unlistenSettings();
     };
   }, []);
-
-  const handleStatusPayload = (payload: string) => {
-    try {
-      const data = JSON.parse(payload) as ReplayProgressPayload;
-      if (data.status && data.status !== "ERROR") {
-        const nextStatus = data.status as "DISCONNECTED" | "CONNECTED" | "READY" | "ACTIVE";
-        setStatus((prev) => (prev !== nextStatus ? nextStatus : prev));
-      }
-      if (data.total_ticks !== undefined) {
-        const total = data.total_ticks;
-        setTotalTicks((prev) => (prev !== total ? total : prev));
-      }
-      if (data.current_idx !== undefined && !isDraggingCanvasRef.current) {
-        const cur = data.current_idx;
-        setCurrentIdx((prev) => (prev !== cur ? cur : prev));
-      }
-      if (data.virtual_time_msc !== undefined) {
-        const vtime = data.virtual_time_msc;
-        setVirtualTimeMsc((prev) => (prev !== vtime ? vtime : prev));
-      }
-      if (data.is_playing !== undefined) {
-        const playing = data.is_playing;
-        const guard = playStateGuardRef.current;
-        if (guard && performance.now() < guard.expireAt) {
-          if (playing === guard.expected) {
-            playStateGuardRef.current = null;
-            isPlayingRef.current = playing;
-            setIsPlaying((prev) => (prev !== playing ? playing : prev));
-          }
-        } else {
-          playStateGuardRef.current = null;
-          isPlayingRef.current = playing;
-          setIsPlaying((prev) => (prev !== playing ? playing : prev));
-        }
-      }
-      if (data.speed_mode) {
-        const mode = data.speed_mode as "TEMPORAL" | "COUNT";
-        setSpeedMode((prev) => (prev !== mode ? mode : prev));
-      }
-      if (data.multiplier !== undefined) {
-        const m = typeof data.multiplier === "number" ? data.multiplier : parseFloat(data.multiplier) || 1.0;
-        setMultiplier((prev) => (prev !== m ? m : prev));
-      }
-      if (data.tick_step !== undefined) {
-        const ts = typeof data.tick_step === "number" ? data.tick_step : parseInt(String(data.tick_step), 10) || 1;
-        setTickStep((prev) => (prev !== ts ? ts : prev));
-      }
-      if (data.source_symbol) {
-        const sym = data.source_symbol;
-        setSourceSymbol((prev) => (prev !== sym ? sym : prev));
-      }
-      if (data.loop_active !== undefined) {
-        const lActive = data.loop_active;
-        setLoopActive((prev) => (prev !== lActive ? lActive : prev));
-      }
-      if (data.loop_a !== undefined) {
-        const la = data.loop_a;
-        setLoopA((prev) => (prev !== la ? la : prev));
-      }
-      if (data.loop_b !== undefined) {
-        const lb = data.loop_b;
-        setLoopB((prev) => (prev !== lb ? lb : prev));
-      }
-    } catch (e) {
-      console.error("Error parsing mt5-status in timeline:", e);
-    }
-  };
 
   // --- タイムライン活動度 (波形) の取得 ---
   useEffect(() => {

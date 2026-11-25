@@ -6,15 +6,15 @@ import { invoke } from "@tauri-apps/api/core";
 import { translateErrorMessage } from "../utils/i18nUtils";
 import { DEFAULT_HOTKEYS, matchesHotkey } from "../utils/hotkeyUtils";
 import { listen, emit } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import { CustomSelect } from "../CustomSelect";
 import { useAppearance } from "../hooks/useAppearance";
+import { useReplayStatusStream } from "../hooks/useReplayStatusStream";
 import { getContractSizeLabel, getLotDisplayFractionDigits } from "../domain/contractUtils";
 import { summarizePositionSide } from "../domain/positionSummary";
 import { TimeStopMode, VirtualAccount, VirtualPosition } from "../types/trading";
 import { nextAccount, nextPositions } from "../domain/tradeStateUpdate";
-import { mergePendingReplayStatus, type PendingReplayStatus } from "../domain/pendingReplayStatus";
+import { isReplaySessionStart } from "../domain/pendingReplayStatus";
 import { ReplayProgressPayload } from "../types/replay";
 import { PersistedSettings } from "../types/settings";
 import {
@@ -27,7 +27,6 @@ import { getCachedEconomicAvailabilityMap, isEconomicSpreadActive } from "../uti
 import { formatJstTime, formatServerTime, splitShortDateTime } from "../utils/timeUtils";
 import { type StopwatchItem } from "../domain/holdingTime";
 import { HoldingTimeBar } from "./HoldingTimeBar";
-import { resolveWindowVisibility } from "../domain/windowVisibility";
 
 export const SpeedOrderWindowContent: React.FC = () => {
   useAppearance();
@@ -166,6 +165,34 @@ export const SpeedOrderWindowContent: React.FC = () => {
     return (localStorage.getItem(STORAGE_KEYS.speedOrderSlippageModel) as "realistic" | "none") || "realistic";
   });
   const [recentAuditNotification, setRecentAuditNotification] = useState<ExecutionAuditRecord | null>(null);
+  const auditToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showAuditToastRef = useRef<boolean>(showAuditToast);
+  showAuditToastRef.current = showAuditToast;
+
+  const replaySyncConfigRef = useRef({
+    showHistory,
+    contractSize,
+    hedging,
+    showHoldingTime,
+    timeStopSeconds,
+    timeStopEnabled,
+    timeStopMode,
+    latencyModelType,
+    slippageModelType,
+    orderLatencyMs,
+  });
+  replaySyncConfigRef.current = {
+    showHistory,
+    contractSize,
+    hedging,
+    showHoldingTime,
+    timeStopSeconds,
+    timeStopEnabled,
+    timeStopMode,
+    latencyModelType,
+    slippageModelType,
+    orderLatencyMs,
+  };
 
   const updateExecutionModels = useCallback(
     async (latType: "fixed" | "realistic" | "none", slipType: "realistic" | "none", fixedMs: number) => {
@@ -270,17 +297,28 @@ export const SpeedOrderWindowContent: React.FC = () => {
     localStorage.setItem(STORAGE_KEYS.speedOrderHoldingTimeMode, holdingTimeMode);
   }, [holdingTimeMode]);
 
+  const sendCommand = useCallback(async (cmd: ReplayCommand) => {
+    try {
+      await sendReplayCommand(cmd);
+    } catch (e) {
+      console.error("Failed to send command", e);
+      setErrorMessage(translateErrorMessage("Command error: " + e));
+    }
+  }, []);
+
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.speedOrderTimeStopSeconds, String(timeStopSeconds));
     localStorage.setItem(STORAGE_KEYS.speedOrderTimeStopEnabled, String(timeStopEnabled));
     localStorage.setItem(STORAGE_KEYS.speedOrderTimeStopMode, timeStopMode);
-    sendCommand({
-      command: "SET_TIME_STOP",
-      enabled: showHoldingTime && timeStopEnabled,
-      seconds: showHoldingTime ? timeStopSeconds : 0,
-      mode: timeStopMode,
-    });
-  }, [showHoldingTime, timeStopSeconds, timeStopEnabled, timeStopMode]);
+    if (prevStatusRef.current === "READY" || prevStatusRef.current === "ACTIVE") {
+      sendCommand({
+        command: "SET_TIME_STOP",
+        enabled: showHoldingTime && timeStopEnabled,
+        seconds: showHoldingTime ? timeStopSeconds : 0,
+        mode: timeStopMode,
+      });
+    }
+  }, [showHoldingTime, timeStopSeconds, timeStopEnabled, timeStopMode, sendCommand]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.speedOrderErrorDisplayDuration, String(errorDisplayDuration));
@@ -288,7 +326,6 @@ export const SpeedOrderWindowContent: React.FC = () => {
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.speedOrderLatencyMs, String(orderLatencyMs));
-    sendCommand({ command: "SET_LATENCY", latency_ms: orderLatencyMs });
   }, [orderLatencyMs]);
 
   useEffect(() => {
@@ -390,14 +427,132 @@ export const SpeedOrderWindowContent: React.FC = () => {
     return () => window.removeEventListener("storage", handleStorage);
   }, []);
 
-  const sendCommand = async (cmd: ReplayCommand) => {
+  const syncReplayTradingSettings = useCallback(() => {
+    const cfg = replaySyncConfigRef.current;
+    sendCommand({ command: "SET_HISTORY_VISIBILITY", show: cfg.showHistory });
+    sendCommand({ command: "SET_CONTRACT_SIZE", size: cfg.contractSize });
+    sendCommand({ command: "SET_HEDGING", allowed: cfg.hedging });
+    sendCommand({
+      command: "SET_TIME_STOP",
+      enabled: cfg.showHoldingTime && cfg.timeStopEnabled,
+      seconds: cfg.showHoldingTime ? cfg.timeStopSeconds : 0,
+      mode: cfg.timeStopMode,
+    });
+    void updateExecutionModels(cfg.latencyModelType, cfg.slippageModelType, cfg.orderLatencyMs);
+  }, [sendCommand, updateExecutionModels]);
+
+  const applyStatus = useCallback((data: ReplayProgressPayload) => {
     try {
-      await sendReplayCommand(cmd);
+      if (data.status === "ACTIVE" || data.status === "READY" || data.status === "CONNECTED") {
+        const nextStatus = data.status;
+        const prev = prevStatusRef.current;
+        const isSessionReady = nextStatus === "READY" || nextStatus === "ACTIVE";
+        if (
+          isSessionReady &&
+          (prev === "DISCONNECTED" || prev === "CONNECTED" || isReplaySessionStart(data))
+        ) {
+          syncReplayTradingSettings();
+        }
+        prevStatusRef.current = nextStatus;
+        setStatus((s) => (s !== nextStatus ? nextStatus : s));
+        if (data.jfx_real !== undefined) {
+          setJfxReal((prevReal) => (prevReal !== data.jfx_real ? (data.jfx_real ?? null) : prevReal));
+        }
+        const nextBid = data.jfx_bid !== undefined ? data.jfx_bid : data.bid;
+        if (nextBid !== undefined && nextBid !== bidRef.current) {
+          const prevBid = bidRef.current;
+          bidRef.current = nextBid;
+          if (prevBid > 0) {
+            if (bidFlashTimerRef.current) clearTimeout(bidFlashTimerRef.current);
+            setBidFlash(nextBid > prevBid ? "up" : "down");
+            bidFlashTimerRef.current = setTimeout(() => setBidFlash(null), 300);
+          }
+          setBid(nextBid);
+        }
+        const nextAsk = data.jfx_ask !== undefined ? data.jfx_ask : data.ask;
+        if (nextAsk !== undefined && nextAsk !== askRef.current) {
+          const prevAsk = askRef.current;
+          askRef.current = nextAsk;
+          if (prevAsk > 0) {
+            if (askFlashTimerRef.current) clearTimeout(askFlashTimerRef.current);
+            setAskFlash(nextAsk > prevAsk ? "up" : "down");
+            askFlashTimerRef.current = setTimeout(() => setAskFlash(null), 300);
+          }
+          setAsk(nextAsk);
+        }
+        if (data.account) {
+          setAccount((prevAccount) => nextAccount(prevAccount, data.account));
+        }
+        if (data.positions) {
+          setPositions((prevPositions) => nextPositions(prevPositions, data.positions));
+        }
+        if (
+          data.execution_audits &&
+          Array.isArray(data.execution_audits) &&
+          data.execution_audits.length > 0 &&
+          showAuditToastRef.current
+        ) {
+          const latest = data.execution_audits[data.execution_audits.length - 1];
+          setRecentAuditNotification((curr) => {
+            if (curr?.ticket === latest.ticket) return curr;
+            if (auditToastTimerRef.current) clearTimeout(auditToastTimerRef.current);
+            auditToastTimerRef.current = setTimeout(() => {
+              auditToastTimerRef.current = null;
+              setRecentAuditNotification((c) => (c?.ticket === latest.ticket ? null : c));
+            }, 4000);
+            return latest;
+          });
+        }
+        if (data.source_symbol) {
+          setSourceSymbol((prevSymbol) => {
+            if (prevSymbol !== data.source_symbol) {
+              localStorage.setItem(STORAGE_KEYS.speedOrderSymbol, data.source_symbol ?? prevSymbol);
+              return data.source_symbol ?? prevSymbol;
+            }
+            return prevSymbol;
+          });
+        }
+        if (data.is_playing !== undefined) {
+          setIsPlaying((prevPlaying) => (prevPlaying !== (data.is_playing ?? prevPlaying) ? (data.is_playing ?? prevPlaying) : prevPlaying));
+        }
+        if (data.virtual_time_msc !== undefined) {
+          const vtime = data.virtual_time_msc;
+          virtualTimeMscRef.current = vtime;
+          setVirtualTimeMsc((prevTime) => {
+            if (prevTime === 0 || Math.floor(vtime / 1000) !== Math.floor(prevTime / 1000) || Math.abs(vtime - prevTime) >= 1000) {
+              return vtime;
+            }
+            return prevTime;
+          });
+        }
+      } else if (data.status === "ERROR") {
+        setErrorMessage(translateErrorMessage(data.message || ""));
+      } else if (data.status === "DISCONNECTED") {
+        prevStatusRef.current = "DISCONNECTED";
+        setStatus("DISCONNECTED");
+        bidRef.current = 0;
+        askRef.current = 0;
+        setBid(0);
+        setAsk(0);
+        setAccount((prevAccount) => (prevAccount !== null ? null : prevAccount));
+        setPositions((prevPositions) => (prevPositions.length > 0 ? [] : prevPositions));
+      }
     } catch (e) {
-      console.error("Failed to send command", e);
-      setErrorMessage(translateErrorMessage("Command error: " + e));
+      console.error(e);
     }
-  };
+  }, [syncReplayTradingSettings]);
+
+  const handleErrorImmediate = useCallback((data: ReplayProgressPayload) => {
+    setErrorMessage(translateErrorMessage(data.message || ""));
+  }, []);
+
+  const { clearPending: clearPendingStatus } = useReplayStatusStream({
+    onStatus: applyStatus,
+    onErrorImmediate: handleErrorImmediate,
+    loadInitialStatus: true,
+    preserveAuditsWhileHidden: true,
+    devThrottleLogLabel: "speed_order",
+  });
 
   useEffect(() => {
     // ホットキー・初期設定の読み込み
@@ -414,290 +569,18 @@ export const SpeedOrderWindowContent: React.FC = () => {
       }
     }).catch(console.error);
 
-    // キャッシュされている最後のステータスを取得して初期化
-    invoke<string>(COMMANDS.getLastStatus).then((last) => {
-      if (last && last.trim() !== "") {
-        const data = JSON.parse(last) as ReplayProgressPayload;
-        if (data.status === "ACTIVE" || data.status === "READY" || data.status === "CONNECTED") {
-          setStatus(data.status);
-          prevStatusRef.current = data.status;
-          const currentShow = localStorage.getItem(STORAGE_KEYS.speedOrderShowHistory) === "true";
-          const currentContractSize = parseInt(localStorage.getItem(STORAGE_KEYS.speedOrderContractSize) || "10000", 10);
-          const currentHedging = localStorage.getItem(STORAGE_KEYS.speedOrderHedging) === "true";
-          const currentLatency = parseInt(localStorage.getItem(STORAGE_KEYS.speedOrderLatencyMs) || "30", 10);
-          sendCommand({ command: "SET_HISTORY_VISIBILITY", show: currentShow });
-          sendCommand({ command: "SET_CONTRACT_SIZE", size: currentContractSize });
-          sendCommand({ command: "SET_HEDGING", allowed: currentHedging });
-          sendCommand({ command: "SET_LATENCY", latency_ms: isNaN(currentLatency) ? 30 : Math.min(200, Math.max(0, currentLatency)) });
-          const currentShowHolding = localStorage.getItem(STORAGE_KEYS.speedOrderShowHoldingTime) !== "false";
-          const currentTimeStopSeconds = parseInt(localStorage.getItem(STORAGE_KEYS.speedOrderTimeStopSeconds) || "20", 10);
-          const currentTimeStopEnabled = localStorage.getItem(STORAGE_KEYS.speedOrderTimeStopEnabled) === "true";
-          const currentTimeStopMode = localStorage.getItem(STORAGE_KEYS.speedOrderTimeStopMode) || "loss_only";
-          sendCommand({
-            command: "SET_TIME_STOP",
-            enabled: currentShowHolding && currentTimeStopEnabled,
-            seconds: currentShowHolding ? (isNaN(currentTimeStopSeconds) ? 20 : currentTimeStopSeconds) : 0,
-            mode: currentTimeStopMode,
-          });
-          if (data.jfx_real !== undefined) {
-            setJfxReal(data.jfx_real);
-          }
-          const initBid = data.jfx_bid !== undefined ? data.jfx_bid : data.bid;
-          const initAsk = data.jfx_ask !== undefined ? data.jfx_ask : data.ask;
-          if (initBid) {
-            bidRef.current = initBid;
-            setBid(initBid);
-          }
-          if (initAsk) {
-            askRef.current = initAsk;
-            setAsk(initAsk);
-          }
-          if (data.account) setAccount(data.account);
-          if (data.positions) setPositions(data.positions);
-          if (data.is_playing !== undefined) setIsPlaying(data.is_playing);
-          if (data.virtual_time_msc !== undefined) {
-            virtualTimeMscRef.current = data.virtual_time_msc;
-            setVirtualTimeMsc(data.virtual_time_msc);
-          }
-        }
-      }
-    }).catch(console.error);
-
-    // ステータス更新イベントのリッスン
-    // The EA can publish progress faster than this window can paint. Keep
-    // only the newest snapshot and apply it once per browser frame.
-    let pendingStatus: PendingReplayStatus | null = null;
-    let pendingRawStatus: string | null = null;
-    let statusFrame: number | null = null;
-    const applyStatus = (payload: string | ReplayProgressPayload) => {
-      try {
-        const data = typeof payload === "string" ? JSON.parse(payload) as ReplayProgressPayload : payload;
-        if (data.status === "ACTIVE" || data.status === "READY" || data.status === "CONNECTED") {
-          const prev = prevStatusRef.current;
-          if (prev === "DISCONNECTED") {
-            const currentContractSize = parseInt(localStorage.getItem(STORAGE_KEYS.speedOrderContractSize) || "10000", 10);
-            const currentHedging = localStorage.getItem(STORAGE_KEYS.speedOrderHedging) === "true";
-            const currentLatency = parseInt(localStorage.getItem(STORAGE_KEYS.speedOrderLatencyMs) || "30", 10);
-            sendCommand({ command: "SET_CONTRACT_SIZE", size: currentContractSize });
-            sendCommand({ command: "SET_HEDGING", allowed: currentHedging });
-            sendCommand({ command: "SET_LATENCY", latency_ms: isNaN(currentLatency) ? 30 : Math.min(200, Math.max(0, currentLatency)) });
-            const currentShowHolding = localStorage.getItem(STORAGE_KEYS.speedOrderShowHoldingTime) !== "false";
-            const currentTimeStopSeconds = parseInt(localStorage.getItem(STORAGE_KEYS.speedOrderTimeStopSeconds) || "20", 10);
-            const currentTimeStopEnabled = localStorage.getItem(STORAGE_KEYS.speedOrderTimeStopEnabled) === "true";
-            const currentTimeStopMode = localStorage.getItem(STORAGE_KEYS.speedOrderTimeStopMode) || "loss_only";
-            sendCommand({
-              command: "SET_TIME_STOP",
-              enabled: currentShowHolding && currentTimeStopEnabled,
-              seconds: currentShowHolding ? (isNaN(currentTimeStopSeconds) ? 20 : currentTimeStopSeconds) : 0,
-              mode: currentTimeStopMode,
-            });
-          }
-          prevStatusRef.current = data.status;
-          setStatus(data.status);
-          if (data.jfx_real !== undefined) {
-            setJfxReal(data.jfx_real);
-          }
-          const nextBid = data.jfx_bid !== undefined ? data.jfx_bid : data.bid;
-          if (nextBid !== undefined && nextBid !== bidRef.current) {
-            const prevBid = bidRef.current;
-            bidRef.current = nextBid;
-            if (prevBid > 0) {
-              if (bidFlashTimerRef.current) clearTimeout(bidFlashTimerRef.current);
-              setBidFlash(nextBid > prevBid ? "up" : "down");
-              bidFlashTimerRef.current = setTimeout(() => setBidFlash(null), 300);
-            }
-            setBid(nextBid);
-          }
-          const nextAsk = data.jfx_ask !== undefined ? data.jfx_ask : data.ask;
-          if (nextAsk !== undefined && nextAsk !== askRef.current) {
-            const prevAsk = askRef.current;
-            askRef.current = nextAsk;
-            if (prevAsk > 0) {
-              if (askFlashTimerRef.current) clearTimeout(askFlashTimerRef.current);
-              setAskFlash(nextAsk > prevAsk ? "up" : "down");
-              askFlashTimerRef.current = setTimeout(() => setAskFlash(null), 300);
-            }
-            setAsk(nextAsk);
-          }
-          if (data.account) {
-            setAccount((prev) => nextAccount(prev, data.account));
-          }
-          if (data.positions) {
-            setPositions((prev) => nextPositions(prev, data.positions));
-          }
-          if (data.execution_audits && Array.isArray(data.execution_audits) && data.execution_audits.length > 0) {
-            const isToastEnabled = localStorage.getItem(STORAGE_KEYS.speedOrderShowAuditToast) === "true";
-            if (isToastEnabled) {
-              const latest = data.execution_audits[data.execution_audits.length - 1];
-              setRecentAuditNotification((curr) => {
-                if (curr?.ticket === latest.ticket) return curr;
-                setTimeout(() => {
-                  setRecentAuditNotification((c) => (c?.ticket === latest.ticket ? null : c));
-                }, 4000);
-                return latest;
-              });
-            }
-          }
-          if (data.source_symbol) {
-            setSourceSymbol((prev) => {
-              if (prev !== data.source_symbol) {
-                localStorage.setItem(STORAGE_KEYS.speedOrderSymbol, data.source_symbol ?? prev);
-                return data.source_symbol ?? prev;
-              }
-              return prev;
-            });
-          }
-          if (data.is_playing !== undefined) setIsPlaying((prev) => prev !== (data.is_playing ?? prev) ? (data.is_playing ?? prev) : prev);
-          if (data.virtual_time_msc !== undefined) {
-            const vtime = data.virtual_time_msc;
-            virtualTimeMscRef.current = vtime;
-            setVirtualTimeMsc((prev) => {
-              if (prev === 0 || Math.floor(vtime / 1000) !== Math.floor(prev / 1000) || Math.abs(vtime - prev) >= 1000) {
-                return vtime;
-              }
-              return prev;
-            });
-          }
-        } else if (data.status === "ERROR") {
-          setErrorMessage(translateErrorMessage(data.message || ""));
-        } else if (data.status === "DISCONNECTED") {
-          prevStatusRef.current = "DISCONNECTED";
-          setStatus("DISCONNECTED");
-          bidRef.current = 0;
-          askRef.current = 0;
-          setBid(0);
-          setAsk(0);
-          setAccount((prev) => prev !== null ? null : prev);
-          setPositions((prev) => prev.length > 0 ? [] : prev);
-        }
-      } catch (e) {
-        console.error(e);
-      }
-    };
-    let isVisible = true;
-    getCurrentWindow().isVisible().then((v: boolean) => { isVisible = v; }).catch(() => {});
-
-    const flushDeferredRawStatus = () => {
-      if (pendingRawStatus === null) return;
-      const raw = pendingRawStatus;
-      pendingRawStatus = null;
-      try {
-        const parsed = JSON.parse(raw) as ReplayProgressPayload;
-        pendingStatus = mergePendingReplayStatus(pendingStatus, parsed);
-      } catch (_) {
-        // Ignore malformed deferred payload.
-      }
-    };
-
-    const scheduleStatus = (payload: string | ReplayProgressPayload) => {
-      const hidden = !isVisible || document.hidden;
-      if (
-        hidden &&
-        typeof payload === "string" &&
-        !payload.includes('"ERROR"') &&
-        !payload.includes('"DISCONNECTED"') &&
-        !payload.includes('"TERMINATE"') &&
-        !payload.includes('"history"') &&
-        !payload.includes('"execution_audits"')
-      ) {
-        pendingRawStatus = payload;
-        return;
-      }
-
-      try {
-        flushDeferredRawStatus();
-        const data = typeof payload === "string" ? JSON.parse(payload) as ReplayProgressPayload : payload;
-        pendingStatus = mergePendingReplayStatus(pendingStatus, data);
-      } catch (error) {
-        console.error("Failed to parse pending speed-order status", error);
-        return;
-      }
-      if (hidden) return; // 非表示中はrAF・再描画を休眠
-      if (statusFrame !== null) return;
-      statusFrame = requestAnimationFrame(() => {
-        statusFrame = null;
-        flushDeferredRawStatus();
-        const latest = pendingStatus;
-        pendingStatus = null;
-        if (latest !== null) applyStatus(latest);
-      });
-    };
-    const discardPendingStatus = () => {
-      pendingRawStatus = null;
-      pendingStatus = null;
-      if (statusFrame !== null) {
-        cancelAnimationFrame(statusFrame);
-        statusFrame = null;
-      }
-    };
-    const unlistenStatus = listen<string>(EVENTS.mt5Status, (event) => {
-      // ERRORステータスは離散イベントのため、rAFスロットリングで上書き消失しないよう即座に適用する
-      if (event.payload.includes('"status":"ERROR"') || event.payload.includes('"status": "ERROR"')) {
-        try {
-          const parsed = JSON.parse(event.payload);
-          if (parsed.status === "ERROR") {
-            setErrorMessage(translateErrorMessage(parsed.message || ""));
-            return;
-          }
-        } catch (_) {
-          // Ignore malformed status payloads and continue the regular status update.
-        }
-      }
-      scheduleStatus(event.payload);
-    });
-
-    const currentLabel = getCurrentWindow().label;
-    const unlistenVisible = listen<unknown>(EVENTS.windowVisible, (event) => {
-      const nextVisible = resolveWindowVisibility(currentLabel, event.payload, true);
-      if (nextVisible === null) {
-        if (typeof event.payload === "boolean") {
-          getCurrentWindow().isVisible().then((v) => {
-            isVisible = v;
-            if (v) {
-              flushDeferredRawStatus();
-              if (pendingStatus !== null) scheduleStatus(pendingStatus);
-            }
-          }).catch(() => {});
-        }
-        return;
-      }
-      isVisible = nextVisible;
-      if (isVisible) {
-        flushDeferredRawStatus();
-        if (pendingStatus !== null) scheduleStatus(pendingStatus);
-      }
-    });
-
-    const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        getCurrentWindow().isVisible().then((v) => {
-          isVisible = v;
-          if (v) {
-            flushDeferredRawStatus();
-            if (pendingStatus !== null) scheduleStatus(pendingStatus);
-          }
-        }).catch(() => {});
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    let unlistenFocus: (() => void) | undefined;
-    getCurrentWindow().onFocusChanged(({ payload: focused }) => {
-      if (focused) {
-        isVisible = true;
-        flushDeferredRawStatus();
-        if (pendingStatus !== null) scheduleStatus(pendingStatus);
-      }
-    }).then((fn) => {
-      unlistenFocus = fn;
-    }).catch(() => {});
-
     const unlistenDisconnect = listen(EVENTS.mt5Disconnected, () => {
-      discardPendingStatus();
+      clearPendingStatus();
       if (bidFlashTimerRef.current) clearTimeout(bidFlashTimerRef.current);
       if (askFlashTimerRef.current) clearTimeout(askFlashTimerRef.current);
+      if (auditToastTimerRef.current) {
+        clearTimeout(auditToastTimerRef.current);
+        auditToastTimerRef.current = null;
+      }
       setBidFlash(null);
       setAskFlash(null);
+      bidRef.current = 0;
+      askRef.current = 0;
       prevStatusRef.current = "DISCONNECTED";
       setStatus("DISCONNECTED");
       setBid(0);
@@ -707,17 +590,12 @@ export const SpeedOrderWindowContent: React.FC = () => {
     });
 
     return () => {
-      if (statusFrame !== null) cancelAnimationFrame(statusFrame);
       if (bidFlashTimerRef.current) clearTimeout(bidFlashTimerRef.current);
       if (askFlashTimerRef.current) clearTimeout(askFlashTimerRef.current);
-      pendingStatus = null;
-      unlistenStatus.then((fn) => fn());
-      unlistenVisible.then((fn) => fn());
-      if (unlistenFocus) unlistenFocus();
+      if (auditToastTimerRef.current) clearTimeout(auditToastTimerRef.current);
       unlistenDisconnect.then((fn) => fn());
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, []);
+  }, [clearPendingStatus]);
 
   // ホットキー用のkeydownリスナーをバインドし、Tauri IPC経由でメインウィンドウへ転送する
   useEffect(() => {

@@ -3,53 +3,6 @@ use tauri::{AppHandle, State, Manager, Emitter};
 use crate::error::AppError;
 use crate::state::{ReplayState, SpeedMode};
 
-pub fn emit_trading_status_update(
-    app_handle: &AppHandle,
-    state: &Arc<ReplayState>,
-) {
-    let core_opt = state.core_handle.lock().unwrap().clone();
-    let snap_opt = core_opt.as_ref().map(|c| c.status());
-
-    let mut last = state.last_status.lock().unwrap();
-    let mut val: serde_json::Value = if !last.is_empty() {
-        serde_json::from_str(&last).unwrap_or_else(|_| serde_json::json!({}))
-    } else {
-        serde_json::json!({ "status": "ACTIVE" })
-    };
-
-    if let Some(obj) = val.as_object_mut() {
-        if let Some(ref snap) = snap_opt {
-            if let Some(ref tick) = snap.current_tick {
-                let spread = ((tick.ask - tick.bid) * 100.0).round() / 100.0;
-                obj.insert("bid".to_string(), serde_json::json!(tick.bid));
-                obj.insert("ask".to_string(), serde_json::json!(tick.ask));
-                obj.insert("spread".to_string(), serde_json::json!(spread));
-                obj.insert("jfx_bid".to_string(), serde_json::json!(tick.bid));
-                obj.insert("jfx_ask".to_string(), serde_json::json!(tick.ask));
-                obj.insert("jfx_spread".to_string(), serde_json::json!(spread));
-                obj.insert("jfx_real".to_string(), serde_json::json!(true));
-            }
-            obj.insert("account".to_string(), serde_json::to_value(&snap.account).unwrap_or_default());
-            obj.insert("positions".to_string(), serde_json::to_value(&snap.positions).unwrap_or_default());
-            let hist_val = serde_json::to_value(&snap.history).unwrap_or_default();
-            obj.insert("history".to_string(), hist_val.clone());
-            *state.last_history.lock().unwrap() = Some(hist_val);
-            *state.latest_audits.lock().unwrap() = (*snap.latest_audits).clone();
-            obj.insert("trade_revision".to_string(), serde_json::json!(snap.trade_revision));
-            obj.insert("history_revision".to_string(), serde_json::json!(snap.history_revision));
-            obj.insert("execution_audits".to_string(), serde_json::to_value(&snap.latest_audits).unwrap_or_default());
-            obj.insert("time_stop_seconds".to_string(), serde_json::json!(snap.time_stop_seconds));
-            obj.insert("time_stop_enabled".to_string(), serde_json::json!(snap.time_stop_enabled));
-        }
-    }
-
-    if let Ok(json_str) = serde_json::to_string(&val) {
-        *last = json_str.clone();
-        let _ = app_handle.emit("mt5-status", &json_str);
-        let _ = state.sync_tx.send(json_str);
-    }
-}
-
 pub fn jst_to_server_time_msc(s: &str) -> Option<i64> {
     use chrono::{Datelike, Timelike};
     let s = s.trim().replace('T', " ").replace(['.', '/'], "-");
@@ -148,16 +101,26 @@ pub fn dispatch_replay_command(
     cmd_json: &str,
     app_handle: Option<&AppHandle>,
 ) -> Result<(), AppError> {
-    let val: serde_json::Value = match serde_json::from_str(cmd_json) {
-        Ok(v) => v,
-        Err(_) => return Ok(()),
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(cmd_json) else {
+        return Ok(());
     };
+    dispatch_replay_command_value(state, &val, app_handle)
+}
 
+pub fn dispatch_replay_command_value(
+    state: &ReplayState,
+    val: &serde_json::Value,
+    app_handle: Option<&AppHandle>,
+) -> Result<(), AppError> {
     let Some(command) = val.get("command").and_then(|c| c.as_str()) else {
         return Ok(());
     };
 
-    let core_opt = state.core_handle.lock().unwrap().clone();
+    let core_opt = if command == "TERMINATE" {
+        None
+    } else {
+        state.core_handle.lock().unwrap().clone()
+    };
 
     match command {
         "PLAY" => {
@@ -310,9 +273,13 @@ pub fn dispatch_replay_command(
         }
         "TERMINATE" => {
             state.playback.lock().unwrap().is_playing = false;
-            if let Some(core) = core_opt {
+            if let Some(ui_join) = state.ui_streamer_join_handle.lock().unwrap().take() {
+                ui_join.abort();
+            }
+            if let Some(core) = state.core_handle.lock().unwrap().take() {
                 core.shutdown();
             }
+            let _ = state.core_join_handle.lock().unwrap().take();
             if let Some(ref pipe) = *state.render_pipe_handle.lock().unwrap() {
                 pipe.send_terminate(0);
                 println!("[commands_replay] MT5 Renderer EA へ TERMINATE (チャート全クローズ) コマンド送信");
@@ -347,10 +314,12 @@ pub async fn send_command(
     app_handle: AppHandle,
     state: State<'_, Arc<ReplayState>>,
 ) -> Result<(), AppError> {
-    let final_cmd_json = command_json;
-    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&final_cmd_json) {
-        if let Some(command) = val.get("command").and_then(|c| c.as_str()) {
-            let core_opt = state.core_handle.lock().unwrap().clone();
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(&command_json) else {
+        return Ok(());
+    };
+
+    if let Some(command) = val.get("command").and_then(|c| c.as_str()) {
+        let core_opt = state.core_handle.lock().unwrap().clone();
 
             // --- 仮想取引エンジンのコマンド直接処理 (MT5 Named Pipe への転送不要) ---
             match command {
@@ -591,17 +560,26 @@ pub async fn send_command(
                 let is_renderer_connected = render_pipe_opt.as_ref().map(|p| p.is_connected()).unwrap_or(false);
                 println!("[commands_replay] Replay Core v2 自律駆動モードで初期化を開始します (RendererEA接続={})", is_renderer_connected);
 
-                // 1. 単一 TickStore の直接構築
-                let (store, is_real_jfx) = match crate::jfx_feed::JfxExecutionFeed::load(source_sym, st, et, None) {
-                    Ok(feed) => {
+                // 1. 単一 TickStore の直接構築 (重量Parquet読込・疑似ティック生成をブロッキングスレッドプールへオフロード)
+                let source_sym_owned = source_sym.to_string();
+                let st_owned = st.to_string();
+                let et_owned = et.to_string();
+                let (store, is_real_jfx) = match tokio::task::spawn_blocking(move || {
+                    crate::jfx_feed::JfxExecutionFeed::load(&source_sym_owned, &st_owned, &et_owned, None)
+                }).await {
+                    Ok(Ok(feed)) => {
                         let is_real = feed.is_real_jfx;
                         let count = feed.ticks.len();
                         let ts = crate::core::store::TickStore::from_execution_ticks_owned(feed.ticks);
                         println!("[commands_replay] 単一TickStore構築完了: real={}, ticks={}", is_real, count);
                         (ts, is_real)
                     }
-                    Err(e) => {
+                    Ok(Err(e)) => {
                         eprintln!("[commands_replay] JFX実行フィード初期化失敗: {}", e);
+                        (crate::core::store::TickStore::empty(), false)
+                    }
+                    Err(e) => {
+                        eprintln!("[commands_replay] JFX実行フィードスレッドエラー: {}", e);
                         (crate::core::store::TickStore::empty(), false)
                     }
                 };
@@ -609,7 +587,10 @@ pub async fn send_command(
                 let total_ticks = store.len() as u64;
                 let first_msc = store.min_time_msc().unwrap_or(0);
 
-                // 2. 既存の Core ハンドルがあれば停止
+                // 2. 既存の Core ハンドルおよび UI Streamer があれば停止
+                if let Some(old_ui_join) = state.ui_streamer_join_handle.lock().unwrap().take() {
+                    old_ui_join.abort();
+                }
                 if let Some(old_handle) = state.core_handle.lock().unwrap().take() {
                     old_handle.shutdown();
                 }
@@ -687,7 +668,7 @@ pub async fn send_command(
                 let mut rx = core_handle.subscribe();
                 let app_h = app_handle.clone();
                 let state_c = state.inner().clone();
-                tauri::async_runtime::spawn(async move {
+                let ui_streamer_join = tauri::async_runtime::spawn(async move {
                     #[derive(serde::Serialize)]
                     struct UiStreamPayload<'a> {
                         status: &'static str,
@@ -797,6 +778,7 @@ pub async fn send_command(
                         }
                     }
                 });
+                *state.ui_streamer_join_handle.lock().unwrap() = Some(ui_streamer_join);
 
                 // 6. 即座にフロントエンドへ READY ステータスを送信して UI 遷移を完了させる
                 let snap = core_handle.status();
@@ -879,9 +861,8 @@ pub async fn send_command(
                 return Ok(());
             }
         }
-    }
 
-    dispatch_replay_command(&state, &final_cmd_json, Some(&app_handle))
+    dispatch_replay_command_value(&state, &val, Some(&app_handle))
 }
 
 #[tauri::command]

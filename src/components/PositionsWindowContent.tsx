@@ -1,18 +1,13 @@
-import React, { useState, useEffect, useRef } from "react";
-import { EVENTS } from "../constants/events";
-import { COMMANDS } from "../constants/commands";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { STORAGE_KEYS } from "../constants/storageKeys";
-import { listen } from "@tauri-apps/api/event";
-import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { formatRate } from "../utils/rateUtils";
 import { getLotDisplayFractionDigits } from "../domain/contractUtils";
 import { useAppearance } from "../hooks/useAppearance";
+import { useReplayStatusStream } from "../hooks/useReplayStatusStream";
 import { VirtualAccount, VirtualPosition } from "../types/trading";
 import { nextAccount, nextPositions } from "../domain/tradeStateUpdate";
 import { ReplayProgressPayload } from "../types/replay";
 import { ReplayCommand, sendReplayCommand } from "../utils/command";
-import { resolveWindowVisibility } from "../domain/windowVisibility";
 
 export const PositionsWindowContent: React.FC = () => {
   useAppearance();
@@ -73,109 +68,24 @@ export const PositionsWindowContent: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    let pendingStatus: string | null = null;
-    let statusFrame: number | null = null;
-    let isVisible = true;
-
-    getCurrentWindow().isVisible().then((v: boolean) => { isVisible = v; }).catch(() => {});
-
-    const applyStatus = (payload: string) => {
-      try {
-        const data = JSON.parse(payload) as ReplayProgressPayload;
-        if (data.status) setStatus(data.status);
-        if (data.account) {
-          setAccount((prev) => nextAccount(prev, data.account));
-        }
-        if (data.positions) {
-          setPositions((prev) => nextPositions(prev, data.positions));
-        }
-        if (data.status === "DISCONNECTED") {
-          setPositions((prev) => (prev.length > 0 ? [] : prev));
-          setAccount((prev) => (prev !== null ? null : prev));
-        }
-      } catch (e) {
-        console.error("Failed to parse mt5-status in account & positions window:", e);
-      }
-    };
-
-    const scheduleStatus = (payload: string) => {
-      pendingStatus = payload;
-      if (!isVisible || document.hidden) return; // 非表示中はrAF・再描画を休眠
-      if (statusFrame !== null) return;
-      statusFrame = requestAnimationFrame(() => {
-        statusFrame = null;
-        const latest = pendingStatus;
-        pendingStatus = null;
-        if (latest !== null) applyStatus(latest);
-      });
-    };
-
-    invoke<string>(COMMANDS.getLastStatus)
-      .then((last) => {
-        if (last && last.trim() !== "") {
-          applyStatus(last);
-        }
-      })
-      .catch(console.warn);
-
-    const unlistenStatus = listen<string>(EVENTS.mt5Status, (event) => {
-      scheduleStatus(event.payload);
-    });
-
-    const currentLabel = getCurrentWindow().label;
-    const unlistenVisible = listen<unknown>(EVENTS.windowVisible, (event) => {
-      const nextVisible = resolveWindowVisibility(currentLabel, event.payload, true);
-      if (nextVisible === null) {
-        if (typeof event.payload === "boolean") {
-          getCurrentWindow().isVisible().then((v) => {
-            isVisible = v;
-            if (v && pendingStatus !== null) {
-              scheduleStatus(pendingStatus);
-            }
-          }).catch(() => {});
-        }
-        return;
-      }
-      isVisible = nextVisible;
-      if (isVisible && pendingStatus !== null) {
-        scheduleStatus(pendingStatus);
-      }
-    });
-
-    const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        getCurrentWindow().isVisible().then((v) => {
-          isVisible = v;
-          if (v && pendingStatus !== null) {
-            scheduleStatus(pendingStatus);
-          }
-        }).catch(() => {});
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    let unlistenFocus: (() => void) | undefined;
-    getCurrentWindow().onFocusChanged(({ payload: focused }) => {
-      if (focused) {
-        isVisible = true;
-        if (pendingStatus !== null) {
-          scheduleStatus(pendingStatus);
-        }
-      }
-    }).then((fn) => {
-      unlistenFocus = fn;
-    }).catch(() => {});
-
-    return () => {
-      if (statusFrame !== null) cancelAnimationFrame(statusFrame);
-      pendingStatus = null;
-      unlistenStatus.then((fn) => fn());
-      unlistenVisible.then((fn) => fn());
-      if (unlistenFocus) unlistenFocus();
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
+  const applyStatus = useCallback((data: ReplayProgressPayload) => {
+    if (data.status) setStatus((prev) => (prev !== data.status ? data.status! : prev));
+    if (data.account) {
+      setAccount((prev) => nextAccount(prev, data.account));
+    }
+    if (data.positions) {
+      setPositions((prev) => nextPositions(prev, data.positions));
+    }
+    if (data.status === "DISCONNECTED") {
+      setPositions((prev) => (prev.length > 0 ? [] : prev));
+      setAccount((prev) => (prev !== null ? null : prev));
+    }
   }, []);
+
+  useReplayStatusStream({
+    onStatus: applyStatus,
+    loadInitialStatus: true,
+  });
 
   const handleClosePosition = (ticket: number, volume: number) => {
     sendCommand({

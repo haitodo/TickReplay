@@ -172,6 +172,25 @@ impl ReplayCoreHandle {
         self.status_rx.borrow().clone()
     }
 
+    pub fn with_status<R>(&self, f: impl FnOnce(&CoreStatusSnapshot) -> R) -> R {
+        let snap = self.status_rx.borrow();
+        f(&snap)
+    }
+
+    pub fn is_trade_synced(
+        &self,
+        history_revision: u64,
+        history: &Arc<Vec<crate::virtual_trading::VirtualPosition>>,
+        trade_revision: u64,
+        latest_audits: &Arc<Vec<crate::core::journal::ExecutionAuditRecord>>,
+    ) -> bool {
+        let snap = self.status_rx.borrow();
+        snap.history_revision == history_revision
+            && Arc::ptr_eq(&snap.history, history)
+            && snap.trade_revision == trade_revision
+            && Arc::ptr_eq(&snap.latest_audits, latest_audits)
+    }
+
     pub fn subscribe(&self) -> watch::Receiver<CoreStatusSnapshot> {
         self.status_rx.clone()
     }

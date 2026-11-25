@@ -113,12 +113,13 @@ impl CoreScheduler {
             // 再生中は高頻度タイマーで進行
             tokio::select! {
                 _ = interval_timer.tick() => {
-                    self.tick_advance();
-                    // UI スナップショットの間引き送信 (終端到達による自動停止時も即時送信)
-                    let now = Instant::now();
-                    if !self.clock.is_playing() || now.duration_since(last_ui_emit) >= ui_interval {
-                        self.publish_status();
-                        last_ui_emit = now;
+                    if self.tick_advance() {
+                        // UI スナップショットの間引き送信 (終端到達による自動停止時も即時送信)
+                        let now = Instant::now();
+                        if !self.clock.is_playing() || now.duration_since(last_ui_emit) >= ui_interval {
+                            self.publish_status();
+                            last_ui_emit = now;
+                        }
                     }
                 }
                 cmd_opt = self.cmd_rx.recv() => {
@@ -143,8 +144,8 @@ impl CoreScheduler {
         }
     }
 
-    /// タイマー進行時の処理
-    fn tick_advance(&mut self) {
+    /// タイマー進行時の処理 (状態・時刻が変化した場合のみ true を返す)
+    fn tick_advance(&mut self) -> bool {
         let now = Instant::now();
         let res = self.clock.advance_realtime(now);
 
@@ -177,8 +178,8 @@ impl CoreScheduler {
                         let _ = bridge.send_tick_batch(slice);
                     }
                 } else {
-                    if self.matching.has_pending_triggers() {
-                        // ティック区間がない静寂時間帯でも、遅延保留注文・決済を execute_after_msc に正確に評価・約定
+                    if self.matching.has_due_triggers(to_msc) {
+                        // ティック区間がない静寂時間帯でも、期限到達した遅延注文・決済・タイムストップを正確に評価
                         if let Some(tick) = self.store.get(self.current_index) {
                             self.matching.on_tick_advance(tick, to_msc);
                         }
@@ -198,6 +199,7 @@ impl CoreScheduler {
                         self.last_idle_pipe_advance = now;
                     }
                 }
+                true
             }
             ClockAdvanceResult::LoopWrapped { from_msc: _, to_msc, epoch: _ } => {
                 // A-B ループによる巻き戻し
@@ -215,6 +217,8 @@ impl CoreScheduler {
                         to_msc,
                     );
                 }
+                self.last_idle_pipe_advance = now;
+                true
             }
             ClockAdvanceResult::WeekendSkipped { from_msc: _, to_msc } => {
                 // 週末スキップ
@@ -232,8 +236,10 @@ impl CoreScheduler {
                         to_msc,
                     );
                 }
+                self.last_idle_pipe_advance = now;
+                true
             }
-            ClockAdvanceResult::Unchanged { .. } => {}
+            ClockAdvanceResult::Unchanged { .. } => false,
         }
     }
 

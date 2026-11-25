@@ -127,6 +127,7 @@ pub struct CoreMatchingEngine {
     pub time_stop_enabled: bool,
     pub time_stop_seconds: u32,
     pub time_stop_mode: TimeStopMode,
+    time_stop_dirty: bool,
     last_tick: Option<CoreTick>,
     evaluated_time_msc: Option<i64>,
 }
@@ -169,6 +170,7 @@ impl CoreMatchingEngine {
             time_stop_enabled: false,
             time_stop_seconds: 20,
             time_stop_mode: TimeStopMode::LossOnly,
+            time_stop_dirty: false,
             last_tick: None,
             evaluated_time_msc: None,
         }
@@ -185,10 +187,35 @@ impl CoreMatchingEngine {
             || (self.time_stop_enabled && self.time_stop_seconds > 0 && !self.positions.is_empty())
     }
 
+    /// 仮想時刻 `to_msc` までに評価が必要な遅延イベント・期限が存在するかを返す
+    #[inline]
+    pub fn has_due_triggers(&self, to_msc: i64) -> bool {
+        if self.pending_orders.iter().any(|p| p.execute_after_msc <= to_msc)
+            || self.pending_closes.iter().any(|p| p.execute_after_msc <= to_msc)
+        {
+            return true;
+        }
+        if self.time_stop_enabled && self.time_stop_seconds > 0 && !self.positions.is_empty() {
+            if self.time_stop_dirty {
+                return true;
+            }
+            let timeout_ms = i64::from(self.time_stop_seconds) * 1000;
+            let prev_eval = self.evaluated_time_msc.unwrap_or(i64::MIN);
+            return self.positions.iter().any(|p| {
+                let deadline = p.open_time_msc.saturating_add(timeout_ms);
+                deadline <= to_msc && deadline > prev_eval
+            });
+        }
+        false
+    }
+
     pub fn set_time_stop(&mut self, enabled: bool, seconds: u32, mode: TimeStopMode) {
         self.time_stop_enabled = enabled;
         self.time_stop_seconds = seconds;
         self.time_stop_mode = mode;
+        if enabled && seconds > 0 {
+            self.time_stop_dirty = true;
+        }
     }
 
     pub fn set_latency_model(&mut self, model: LatencyModel) {
@@ -244,6 +271,7 @@ impl CoreMatchingEngine {
         self.history.clear();
         self.pending_orders.clear();
         self.pending_closes.clear();
+        self.time_stop_dirty = false;
         self.last_tick = None;
         self.evaluated_time_msc = None;
         self.next_ticket = next_ticket.max(1);
@@ -253,6 +281,9 @@ impl CoreMatchingEngine {
     pub fn restore_position(&mut self, pos: VirtualPosition) {
         if pos.ticket >= self.next_ticket {
             self.next_ticket = pos.ticket + 1;
+        }
+        if self.time_stop_enabled && self.time_stop_seconds > 0 {
+            self.time_stop_dirty = true;
         }
         self.positions.push(pos);
     }
@@ -319,6 +350,7 @@ impl CoreMatchingEngine {
         self.history.clear();
         self.pending_orders.clear();
         self.pending_closes.clear();
+        self.time_stop_dirty = false;
         self.audit_log.clear();
         self.last_tick = None;
         self.evaluated_time_msc = Some(now_msc);
@@ -397,6 +429,7 @@ impl CoreMatchingEngine {
 
         self.pending_orders.clear();
         self.pending_closes.clear();
+        self.time_stop_dirty = false;
         self.last_tick = current_tick.copied();
         self.evaluated_time_msc = Some(target_time_msc);
         self.audit_log.retain(|a| a.fill_time_msc <= target_time_msc);
@@ -918,6 +951,7 @@ impl CoreMatchingEngine {
         }
 
         // 4. タイムストップ判定 (指定秒数経過時の自動決済)
+        self.time_stop_dirty = false;
         if self.time_stop_enabled && self.time_stop_seconds > 0 {
             let timeout_ms = (self.time_stop_seconds as i64) * 1000;
             let mut i = 0;

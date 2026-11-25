@@ -58,6 +58,8 @@ pub struct ReplayState {
     pub core_handle: Mutex<Option<crate::core::ReplayCoreHandle>>,
     // Replay Core v2 バックグラウンドタスク JoinHandle
     pub core_join_handle: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+    // UI Streamer バックグラウンドタスク JoinHandle
+    pub ui_streamer_join_handle: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
     // MT5 Renderer EA 向けバイナリ Named Pipe ハンドル
     pub render_pipe_handle: Mutex<Option<crate::core::render_pipe::RenderPipeHandle>>,
     // タイムライン活動度計算・シーク参照用 TickStore
@@ -126,6 +128,7 @@ impl ReplayState {
             seek_epoch: std::sync::atomic::AtomicU64::new(1),
             core_handle: Mutex::new(None),
             core_join_handle: Mutex::new(None),
+            ui_streamer_join_handle: Mutex::new(None),
             render_pipe_handle: Mutex::new(None),
             tick_store: Mutex::new(None),
             latest_audits: Mutex::new(Vec::new()),
