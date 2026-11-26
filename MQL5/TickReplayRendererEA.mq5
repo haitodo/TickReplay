@@ -6,7 +6,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Google DeepMind"
 #property link      "https://deepmind.google"
-#property version   "4.00"
+#property version   "4.01"
 #property strict
 
 //--- Win32 API Named Pipe インポート
@@ -1992,6 +1992,20 @@ void SyncSymbolResetRewind(
 //+------------------------------------------------------------------+
 //| RESET 処理 (シーク/時間ジャンプ/ループラップ時の差分同期)        |
 //+------------------------------------------------------------------+
+// Reset prices come from the replay cursor. A terminal quote can still belong
+// to the later timestamp immediately after a rewind.
+double ViewerResetBid(const string symbol)
+{
+    if(symbol == m_replay_symbol && m_has_last_applied_tick)
+        return m_last_applied_tick.bid;
+    if(symbol == m_replay_symbol_sub && m_has_last_applied_tick_sub)
+        return m_last_applied_tick_sub.bid;
+    for(int s = 0; s < m_sync_count; s++)
+        if(symbol == m_sync_replay_symbols[s] && m_sync_has_last_applied_tick[s])
+            return m_sync_last_applied_tick[s].bid;
+    return 0.0;
+}
+
 void ProcessReset(const ResetPayload &rst)
 {
     if(m_replay_symbol == "")
@@ -2079,6 +2093,9 @@ void ProcessReset(const ResetPayload &rst)
             string vsym = ChartSymbol(vcid);
             ENUM_TIMEFRAMES vp = ChartPeriod(vcid);
             SeriesInfoInteger(vsym, vp, SERIES_LASTBAR_DATE);
+            double bid = ViewerResetBid(vsym);
+            if(bid > 0.0)
+                EventChartCustom(vcid, 1001, target_msc, bid, vsym);
         }
     }
 
